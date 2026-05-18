@@ -18,6 +18,9 @@ authors = ["iogrid contributors"]
 [workspace.dependencies]
 anchor-lang = { version = "0.31.1", features = ["init-if-needed"] }
 anchor-spl  = { version = "0.31.1", features = ["token_2022", "token"] }
+# NOTE: kept on 0.31.1 (not 1.0.x) until the 1.0 IDL format stabilises and the audit firms
+# (OtterSec / Halborn) confirm their tooling supports it. 0.31.1 is the most recent 0.x and
+# fully audited across the Solana ecosystem.
 
 [profile.release]
 overflow-checks = true

@@ -20,8 +20,6 @@ concurrency:
 
 env:
   SOLANA_VERSION: "v1.18.26"
-  # 0.31.1 fixes a transitive proc-macro-error 1.0.4 build break on modern rustc.
-  # See https://github.com/coral-xyz/anchor/releases/tag/v0.31.1
   ANCHOR_VERSION: "0.31.1"
   NODE_VERSION: "20"
   CARGO_TERM_COLOR: always
@@ -101,8 +99,14 @@ jobs:
 
       - name: Install Anchor CLI ${{ env.ANCHOR_VERSION }}
         if: steps.anchor-cache.outputs.cache-hit != 'true'
+        # Download the prebuilt Linux x86_64 binary from the upstream GitHub release.
+        # Avoids `cargo install`'s transitive proc-macro-error 1.0.4 toolchain compat issues.
         run: |
-          cargo install --git https://github.com/coral-xyz/anchor anchor-cli --tag v${ANCHOR_VERSION} --locked
+          mkdir -p ~/.cargo/bin
+          curl -fsSL \
+            "https://github.com/coral-xyz/anchor/releases/download/v${ANCHOR_VERSION}/anchor-${ANCHOR_VERSION}-x86_64-unknown-linux-gnu" \
+            -o ~/.cargo/bin/anchor
+          chmod +x ~/.cargo/bin/anchor
 
       - name: Verify Anchor
         run: anchor --version
