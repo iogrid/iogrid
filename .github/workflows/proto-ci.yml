@@ -1,0 +1,89 @@
+name: proto-ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "proto/**"
+      - "coordinator/internal/pb/**"
+      - "web/src/lib/pb/**"
+      - ".github/workflows/proto-ci.yml"
+      - "Makefile"
+  pull_request:
+    paths:
+      - "proto/**"
+      - "coordinator/internal/pb/**"
+      - "web/src/lib/pb/**"
+      - ".github/workflows/proto-ci.yml"
+      - "Makefile"
+
+jobs:
+  proto:
+    name: lint / format / breaking / generate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (with history for breaking-change baseline)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install buf
+        uses: bufbuild/buf-setup-action@v1
+        with:
+          # Pin to a stable buf version; bump deliberately.
+          version: "1.47.2"
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: buf lint
+        working-directory: proto
+        run: buf lint
+
+      - name: buf format (must be already formatted)
+        working-directory: proto
+        run: buf format --diff --exit-code
+
+      # Breaking-change detection is skipped when proto/ doesn't yet exist
+      # on main (e.g. the very first PR that introduces it).
+      - name: buf breaking (against main)
+        working-directory: proto
+        shell: bash
+        run: |
+          set +e
+          if ! git rev-parse --verify origin/main >/dev/null 2>&1; then
+            echo "buf breaking: origin/main not present — skipping"
+            exit 0
+          fi
+          # Does proto/ exist on main? If not, there is no baseline.
+          if ! git cat-file -e "origin/main:proto/buf.yaml" 2>/dev/null; then
+            echo "buf breaking: proto/buf.yaml does not exist on main yet — skipping"
+            exit 0
+          fi
+          # 'git#branch=origin/main,subdir=proto' uses the local clone's
+          # origin/main as the baseline (actions/checkout fetched the whole
+          # history with fetch-depth: 0).
+          buf breaking --against '../.git#ref=origin/main,subdir=proto'
+          exit $?
+
+      - name: buf generate
+        working-directory: proto
+        run: buf generate
+
+      - name: Fail if generated stubs are out of sync with proto/
+        run: |
+          if ! git diff --quiet -- coordinator/internal/pb web/src/lib/pb; then
+            echo "::error::Generated proto stubs are out of sync with proto/. Run 'make proto' and commit the result."
+            git --no-pager diff --stat -- coordinator/internal/pb web/src/lib/pb
+            git --no-pager diff -- coordinator/internal/pb web/src/lib/pb | head -200
+            exit 1
+          fi
+          echo "Generated stubs are in sync."
+
+      - name: Upload generated stubs as build artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: proto-generated-${{ github.sha }}
+          path: |
+            coordinator/internal/pb
+            web/src/lib/pb
+          retention-days: 7

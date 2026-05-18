@@ -1,0 +1,207 @@
+// Auth service: sign-in flows (Google OAuth + magic-link), JWT issuance,
+// session management, step-up auth for privileged operations.
+//
+// Tokens follow the spec in docs/TECH.md:
+//   * Access token: 15 min, RS256, contains user_id + active roles.
+//   * Refresh token: 30 days, opaque, server-side rotation.
+syntax = "proto3";
+
+package iogrid.identity.v1;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+import "iogrid/common/v1/types.proto";
+import "iogrid/identity/v1/identity.proto";
+
+option go_package = "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/identity/v1;identityv1";
+
+// JwtClaims mirrors the RS256-signed access-token payload. Exposed in
+// proto so client SDKs can deserialize without parsing JWT manually.
+message JwtClaims {
+  // Subject = user UUID.
+  string sub = 1;
+  // Issuer, e.g. "https://api.iogrid.org/identity".
+  string iss = 2;
+  // Audience, e.g. ["gateway-bff", "proxy-gateway"].
+  repeated string aud = 3;
+  // Issued-at and expiration (matches RFC 7519 numeric date semantics).
+  google.protobuf.Timestamp iat = 4;
+  google.protobuf.Timestamp exp = 5;
+  // Roles snapshot at issuance time. Source of truth is still the User
+  // record server-side — clients use this only for UI gating.
+  repeated UserRole roles = 6;
+  // Session id, opaque. Used for revocation.
+  string sid = 7;
+  // True when the underlying credential was minted in the last 5 minutes
+  // and the request requires step-up authority.
+  bool step_up = 8;
+}
+
+// Session is the server-side refresh-token record. Exposed so users can
+// see + revoke sessions from /account/sessions.
+message Session {
+  iogrid.common.v1.UUID id = 1;
+  iogrid.common.v1.UUID user_id = 2;
+  // Human-readable user-agent string captured at sign-in.
+  string user_agent = 3;
+  // IP captured at sign-in (may be hashed at boundary in audit logs).
+  string ip_address = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp last_used_at = 6;
+  google.protobuf.Timestamp expires_at = 7;
+}
+
+// --- Google OAuth ---------------------------------------------------------
+
+message StartGoogleSignInRequest {
+  // URL the IdP should redirect to after Google completes. MUST be in
+  // the server's allowlist.
+  string return_to = 1;
+  // PKCE code challenge (S256).
+  string code_challenge = 2;
+}
+message StartGoogleSignInResponse {
+  // Fully built Google authorize URL — client redirects the browser
+  // here. The state parameter is server-signed.
+  string authorize_url = 1;
+  // Opaque state token also embedded in the URL.
+  string state = 2;
+}
+
+message CompleteGoogleSignInRequest {
+  // Authorization code returned by Google.
+  string code = 1;
+  // The same state the server issued in StartGoogleSignIn.
+  string state = 2;
+  // PKCE code verifier matching the prior challenge.
+  string code_verifier = 3;
+}
+message CompleteGoogleSignInResponse {
+  AuthBundle bundle = 1;
+  // True iff this completion created a brand-new User (vs. signing in
+  // to an existing one). UI surfaces a welcome step on first sign-in.
+  bool new_user = 2;
+  // True iff this Google identifier was auto-merged into an existing
+  // User by matching one of Google's verified-emails against an
+  // existing magic-link identifier.
+  bool merged = 3;
+}
+
+// --- Magic-link -----------------------------------------------------------
+
+message RequestMagicLinkRequest {
+  // Email to send the link to (MUST be syntactically valid).
+  string email = 1;
+  // Optional post-auth return URL.
+  string return_to = 2;
+}
+message RequestMagicLinkResponse {
+  // The link expires after this duration (UX surfaces "expires in 10m").
+  google.protobuf.Duration expires_in = 1;
+  // Always true when we accepted the request — but we DO NOT reveal
+  // whether an account already exists for that email (anti-enumeration).
+  bool accepted = 2;
+}
+
+message CompleteMagicLinkRequest {
+  // The single-use, signed token embedded in the emailed link.
+  string token = 1;
+}
+message CompleteMagicLinkResponse {
+  AuthBundle bundle = 1;
+  bool new_user = 2;
+  // True iff this magic-link was auto-merged into a Google-authenticated
+  // account by matching Google's verified-emails list.
+  bool merged = 3;
+}
+
+// --- Session lifecycle ----------------------------------------------------
+
+// AuthBundle is what every successful sign-in flow returns. Clients
+// store the access token in memory (never localStorage) and the refresh
+// token in an httpOnly secure cookie.
+message AuthBundle {
+  string access_token = 1;
+  google.protobuf.Timestamp access_token_expires_at = 2;
+  string refresh_token = 3;
+  google.protobuf.Timestamp refresh_token_expires_at = 4;
+  User user = 5;
+}
+
+message RefreshTokenRequest {
+  string refresh_token = 1;
+}
+message RefreshTokenResponse {
+  AuthBundle bundle = 1;
+}
+
+message SignOutRequest {
+  // The refresh token to revoke. Access token is not server-stateful.
+  string refresh_token = 1;
+}
+message SignOutResponse {}
+
+message ListSessionsRequest {}
+message ListSessionsResponse {
+  repeated Session sessions = 1;
+}
+
+message RevokeSessionRequest {
+  iogrid.common.v1.UUID session_id = 1;
+}
+message RevokeSessionResponse {}
+
+// --- Step-up auth (for privileged operations) -----------------------------
+
+// StepUpReason flags what the user is about to do — drives UX copy.
+enum StepUpReason {
+  STEP_UP_REASON_UNSPECIFIED = 0;
+  STEP_UP_REASON_PAYOUT_CHANGE = 1;
+  STEP_UP_REASON_IDENTITY_MERGE = 2;
+  STEP_UP_REASON_ACCOUNT_DELETE = 3;
+  STEP_UP_REASON_API_KEY_ISSUE = 4;
+}
+
+message RequestStepUpRequest {
+  StepUpReason reason = 1;
+}
+message RequestStepUpResponse {
+  // Either an authorize_url (OAuth re-auth) or accepted=true (magic-link
+  // re-sent). UI shows the appropriate flow.
+  string authorize_url = 1;
+  bool magic_link_sent = 2;
+}
+
+message CompleteStepUpRequest {
+  // Same shape as the underlying flow's completion — exactly one set.
+  string oauth_code = 1;
+  string oauth_state = 2;
+  string magic_link_token = 3;
+}
+message CompleteStepUpResponse {
+  // Short-lived (5 min) step-up token to pass to the privileged RPC.
+  string step_up_token = 1;
+  google.protobuf.Timestamp expires_at = 2;
+}
+
+// AuthService is the public face of identity-svc for sign-in flows and
+// session management. Wraps both Google OAuth and the magic-link flow.
+service AuthService {
+  // Google OAuth.
+  rpc StartGoogleSignIn(StartGoogleSignInRequest) returns (StartGoogleSignInResponse);
+  rpc CompleteGoogleSignIn(CompleteGoogleSignInRequest) returns (CompleteGoogleSignInResponse);
+
+  // Magic-link.
+  rpc RequestMagicLink(RequestMagicLinkRequest) returns (RequestMagicLinkResponse);
+  rpc CompleteMagicLink(CompleteMagicLinkRequest) returns (CompleteMagicLinkResponse);
+
+  // Session lifecycle.
+  rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse);
+  rpc SignOut(SignOutRequest) returns (SignOutResponse);
+  rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
+  rpc RevokeSession(RevokeSessionRequest) returns (RevokeSessionResponse);
+
+  // Step-up authority for privileged operations.
+  rpc RequestStepUp(RequestStepUpRequest) returns (RequestStepUpResponse);
+  rpc CompleteStepUp(CompleteStepUpRequest) returns (CompleteStepUpResponse);
+}

@@ -1,0 +1,69 @@
+---
+title: "Transparency, not trust"
+description: "Why iogrid publishes every byte of audit data to both customers and providers — and why the residential-proxy industry has avoided doing so for fifteen years."
+date: "2026-05-18"
+author: "iogrid team"
+tags: ["transparency", "trust", "anti-hola"]
+---
+
+In 2015, Hola VPN was caught reselling its users' bandwidth as a residential proxy without disclosing it. Users had clicked through a vague ToS, gotten a free VPN, and unknowingly become the supply side of a B2B scraping network. When researchers proved that Hola users' IPs had been used to launch DDoS attacks via the proxy network, the resulting scandal redefined how the industry talks about consent.
+
+What it didn't change was how the industry **operates**. Bright Data (formerly Luminati Networks), which became Hola's commercial arm, is now an $300M/year business. Honeygain, Pawns, IPRoyal — all run essentially the same model: provider downloads software, ToS includes a clause about bandwidth sharing, customers buy bytes, provider gets paid. The transparency layer Hola's scandal called for never materialized.
+
+Why? Because **transparency is expensive for everyone who isn't transparent**.
+
+## What the incumbents would have to do
+
+To match iogrid's transparency promise, an existing residential proxy network would have to:
+
+1. **Show every customer's identity to every provider.** Their B2B customers — who pay $10–20/GB for opacity — would revolt. Most enterprise scraping operations don't want the provider knowing who's scraping what.
+
+2. **Categorize traffic at the gateway.** Their existing architecture mostly TLS-terminates customer requests and forwards them. Adding per-request classification means rebuilding the data plane.
+
+3. **Let providers block customers.** A provider blocking your enterprise customer can break their workflow mid-run. Bright Data sells SLAs that assume uniform pool access; provider-level granularity makes those SLAs un-deliverable.
+
+4. **Publish provider statistics.** Real provider counts, real bandwidth distributions. Several incumbents inflate their stated provider count by 2–10×. Showing the truth means showing how thin the pool actually is.
+
+None of these are insurmountable engineering problems. They're business problems: each one undercuts a revenue stream the incumbents already collect.
+
+## What iogrid does instead
+
+We start with the opposite assumption: the network is **producer-owned**. Providers should know everything that happens on their hardware. Customers can negotiate for selective opacity (we offer customer-name redaction for paying tiers), but the default is full daylight.
+
+The audit feed shows:
+
+- **Category**: e-commerce monitoring, SEO check, ad-verification, AI training, etc. Pre-classified at the gateway via destination ASN + URL pattern + customer-declared purpose.
+- **Destination**: the target domain. Not the full URL or payload — just where the request went.
+- **Customer**: the business name. (Customers can request alias display for $0.20/GB premium.)
+- **Bytes**: how much data transited.
+- **Timestamp**: when.
+
+Providers can block any category, any customer, any destination — at any time, with one click. The next request to a blocked target routes to a different provider whose policy allows it. Customers don't notice; the pool dynamics handle re-routing automatically.
+
+## The cryptographic part
+
+Categorization happens at our gateway. Providers might reasonably wonder: how do they know the labels are honest?
+
+The answer is **cryptographic audit log replication**. Every byte the gateway labels is signed and appended to the provider's local audit log AND the customer's invoice audit log. The two logs are content-addressed: if the gateway told one party "this was e-commerce" and the other "this was something else," the discrepancy would be a one-bit difference visible to anyone running iogrid's audit verifier tool (open-source, AGPL, Phase 1).
+
+In Phase 2 we plan to add Merkle-tree anchoring to a public chain (Solana or Bitcoin via OP_RETURN) so the audit log itself has tamper-evident provenance. That's not in the day-one launch — but the architecture supports it.
+
+## Why this is a moat
+
+Bright Data can't claim transparency credibly because they're literally Hola's lineage. Honeygain and Pawns built on opaque-by-default infra and would have to rebuild their data plane to match us. Salad has transparency but no residential bandwidth product. Mysterium has the right architecture but stayed crypto-niche.
+
+The window to define what "transparent mesh network" means is open right now. Once a generation of providers is conditioned on the iogrid dashboard's level of disclosure, they won't accept less.
+
+## What we'll publish
+
+Starting Phase 1, quarterly:
+
+- Real provider count by country
+- Real bandwidth by category (% e-commerce, % SEO, etc.)
+- Anti-abuse hit rates (how often pre-flight filtering catches an attempt)
+- Customer concentration (top-10 customers as % of revenue)
+- Provider earnings distribution (median, p25, p75, p95)
+
+In Phase 2, the daemon itself becomes open-source under AGPL. Any provider can audit what their machine is actually running.
+
+This is the trust contract: **we don't ask you to trust us. We give you the receipts.**

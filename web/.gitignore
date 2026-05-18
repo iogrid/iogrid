@@ -1,0 +1,15 @@
+node_modules/
+.next/
+out/
+coverage/
+*.log
+.env.local
+.env.*.local
+.turbo/
+dist/
+build/
+playwright-report/
+test-results/
+.storybook-out/
+storybook-static/
+next-env.d.ts

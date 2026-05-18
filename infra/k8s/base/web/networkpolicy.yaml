@@ -1,0 +1,45 @@
+---
+# web — Next.js 15 RSC frontend for app.iogrid.org.
+# Ingress: from Gateway (app.iogrid.org).
+# Egress: gateway-bff (server-side data fetching from RSC), telemetry-svc (RUM).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: web-allow
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: web
+    app.kubernetes.io/part-of: iogrid
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: web
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: gateway-system
+      ports:
+        - protocol: TCP
+          port: 3000
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9090
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: gateway-bff
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: telemetry-svc
+      ports:
+        - protocol: TCP
+          port: 8080

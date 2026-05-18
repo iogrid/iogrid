@@ -1,0 +1,49 @@
+---
+# Default-deny INGRESS for all pods in iogrid namespace.
+# Each service has its own NetworkPolicy with explicit allows on top of this.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: iogrid
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+# Default-deny EGRESS for all pods in iogrid namespace.
+# Each service has its own NetworkPolicy with explicit allows on top of this.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  namespace: iogrid
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+---
+# Common egress allow: DNS to kube-system CoreDNS.
+# Every pod needs DNS resolution.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-dns
+  namespace: iogrid
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

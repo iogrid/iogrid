@@ -1,0 +1,112 @@
+name: daemon-ci
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "daemon/**"
+      - ".github/workflows/daemon-ci.yml"
+  pull_request:
+    paths:
+      - "daemon/**"
+      - ".github/workflows/daemon-ci.yml"
+
+concurrency:
+  group: daemon-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: short
+
+jobs:
+  fmt-clippy-test:
+    name: fmt + clippy + test (linux)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: daemon
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            daemon/target
+          key: daemon-${{ runner.os }}-cargo-${{ hashFiles('daemon/Cargo.toml', 'daemon/rust-toolchain.toml', 'daemon/crates/**/Cargo.toml') }}
+          restore-keys: |
+            daemon-${{ runner.os }}-cargo-
+      - name: rust-toolchain (pinned via rust-toolchain.toml)
+        run: rustc --version && cargo --version
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+      - name: cargo clippy -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: cargo test --workspace
+        run: cargo test --workspace --all-targets
+
+  build-release:
+    name: release build (${{ matrix.target }})
+    needs: fmt-clippy-test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            cross: false
+            binary: iogridd
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            cross: true
+            binary: iogridd
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            cross: false
+            binary: iogridd
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            cross: false
+            binary: iogridd
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            cross: false
+            binary: iogridd.exe
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: daemon
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            daemon/target
+          key: daemon-${{ matrix.target }}-${{ hashFiles('daemon/Cargo.toml', 'daemon/rust-toolchain.toml', 'daemon/crates/**/Cargo.toml') }}
+          restore-keys: |
+            daemon-${{ matrix.target }}-
+      - name: rustup add target
+        run: rustup target add ${{ matrix.target }}
+      - name: Install aarch64-linux-gnu cross-linker
+        if: matrix.cross
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+      - name: cargo build --release
+        run: cargo build --workspace --release --target ${{ matrix.target }}
+      - name: Stage binary
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p "../artifacts/${{ matrix.target }}"
+          cp "target/${{ matrix.target }}/release/${{ matrix.binary }}" "../artifacts/${{ matrix.target }}/${{ matrix.binary }}"
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: iogridd-${{ matrix.target }}
+          path: artifacts/${{ matrix.target }}/${{ matrix.binary }}
+          if-no-files-found: error
+          retention-days: 14

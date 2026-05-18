@@ -1,0 +1,19 @@
+{
+  "_comment": "Source of truth for the iogrid.org DNS record set at Dynadot. Read by scripts/dynadot-apply.sh which converts these into a set_dns query string. Editing this file + re-running the script is the only supported way to mutate iogrid.org DNS — never hand-edit via the Dynadot web UI (drift will be silently overwritten on the next apply).",
+  "domain": "iogrid.org",
+  "main": {
+    "_comment": "Apex (subdomain='') record. Single A record pointing at the mothership LB IP; will be flipped to a CNAME-style ALIAS when iogrid moves to its own Hetzner Cloud LB.",
+    "record_type": "a",
+    "value": "45.151.123.50",
+    "ttl": 300
+  },
+  "subdomains": [
+    { "subdomain": "www",    "record_type": "a", "value": "45.151.123.50", "ttl": 300 },
+    { "subdomain": "api",    "record_type": "a", "value": "45.151.123.50", "ttl": 300 },
+    { "subdomain": "app",    "record_type": "a", "value": "45.151.123.50", "ttl": 300 },
+    { "subdomain": "proxy",  "record_type": "a", "value": "45.151.123.50", "ttl": 300 },
+    { "subdomain": "build",  "record_type": "a", "value": "45.151.123.50", "ttl": 300 },
+    { "subdomain": "docs",   "record_type": "a", "value": "45.151.123.50", "ttl": 300 },
+    { "subdomain": "status", "record_type": "a", "value": "45.151.123.50", "ttl": 300 }
+  ]
+}

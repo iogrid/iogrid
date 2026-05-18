@@ -1,0 +1,90 @@
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: app-iogrid-org
+  namespace: gateway-system
+  labels:
+    app.kubernetes.io/part-of: iogrid
+spec:
+  secretName: app-iogrid-org-tls
+  duration: 2160h     # 90d
+  renewBefore: 360h   # 15d
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  dnsNames:
+    - app.iogrid.org
+  issuerRef:
+    name: letsencrypt-prod-http01
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: api-iogrid-org
+  namespace: gateway-system
+  labels:
+    app.kubernetes.io/part-of: iogrid
+spec:
+  secretName: api-iogrid-org-tls
+  duration: 2160h
+  renewBefore: 360h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  dnsNames:
+    - api.iogrid.org
+  issuerRef:
+    name: letsencrypt-prod-http01
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: build-iogrid-org
+  namespace: gateway-system
+  labels:
+    app.kubernetes.io/part-of: iogrid
+spec:
+  secretName: build-iogrid-org-tls
+  duration: 2160h
+  renewBefore: 360h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  dnsNames:
+    - build.iogrid.org
+  issuerRef:
+    name: letsencrypt-prod-http01
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+# proxy.iogrid.org — DNS-01 because the Gateway listener is TLS-passthrough.
+# Secret is written to the iogrid namespace where proxy-gateway mounts it.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: proxy-iogrid-org
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/part-of: iogrid
+spec:
+  secretName: proxy-iogrid-org-tls
+  duration: 2160h
+  renewBefore: 360h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  dnsNames:
+    - proxy.iogrid.org
+  issuerRef:
+    name: letsencrypt-prod-dns01-dynadot
+    kind: ClusterIssuer
+    group: cert-manager.io

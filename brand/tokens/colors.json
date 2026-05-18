@@ -1,0 +1,39 @@
+{
+  "$schema": "https://design-tokens.github.io/community-group/format/",
+  "primary": {
+    "50":  { "value": "#EEF0FF" },
+    "100": { "value": "#D9DEFF" },
+    "200": { "value": "#B3BCFF" },
+    "300": { "value": "#8C99FF" },
+    "400": { "value": "#6577FF" },
+    "500": { "value": "#4257F5" },
+    "600": { "value": "#2F3FC9" },
+    "700": { "value": "#22309C" },
+    "800": { "value": "#19236E" },
+    "900": { "value": "#10174A" }
+  },
+  "accent": {
+    "300": { "value": "#7BE0B7" },
+    "500": { "value": "#2EC78B" },
+    "700": { "value": "#1B8C5F" }
+  },
+  "neutral": {
+    "0":   { "value": "#FFFFFF" },
+    "50":  { "value": "#FAFAF9" },
+    "100": { "value": "#F2F1EE" },
+    "200": { "value": "#E5E3DE" },
+    "300": { "value": "#C9C6BE" },
+    "400": { "value": "#A29E94" },
+    "500": { "value": "#7B776D" },
+    "600": { "value": "#56524A" },
+    "700": { "value": "#3A3731" },
+    "800": { "value": "#23211D" },
+    "900": { "value": "#15140F" }
+  },
+  "semantic": {
+    "success": { "value": "#2EC78B" },
+    "warning": { "value": "#E6A23C" },
+    "danger":  { "value": "#E5484D" },
+    "info":    { "value": "#4257F5" }
+  }
+}

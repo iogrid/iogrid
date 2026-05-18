@@ -1,0 +1,98 @@
+// Transparency dashboard: real-time + historical event feed of what is
+// happening through the provider's IP. Backed server-side by NATS
+// JetStream → SSE. Clients (web management plane + daemon-local UI) can
+// either pull historical pages or subscribe to the live stream.
+syntax = "proto3";
+
+package iogrid.providers.v1;
+
+import "google/protobuf/timestamp.proto";
+import "iogrid/common/v1/types.proto";
+
+option go_package = "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/providers/v1;providersv1";
+
+// EventKind classifies a transparency event.
+enum EventKind {
+  EVENT_KIND_UNSPECIFIED = 0;
+  // A workload was dispatched to this provider.
+  EVENT_KIND_WORKLOAD_DISPATCHED = 1;
+  // A workload completed successfully.
+  EVENT_KIND_WORKLOAD_COMPLETED = 2;
+  // A workload was refused at the pre-flight filter.
+  EVENT_KIND_WORKLOAD_BLOCKED = 3;
+  // The scheduler state changed (active ⇄ paused).
+  EVENT_KIND_SCHEDULER_TRANSITION = 4;
+  // Anti-abuse flagged a customer request.
+  EVENT_KIND_ABUSE_FLAGGED = 5;
+  // Earnings were credited.
+  EVENT_KIND_EARNINGS_CREDITED = 6;
+}
+
+// AuditEvent is the projection rendered in the transparency feed.
+message AuditEvent {
+  iogrid.common.v1.UUID id = 1;
+  iogrid.common.v1.UUID provider_id = 2;
+  EventKind kind = 3;
+  google.protobuf.Timestamp occurred_at = 4;
+
+  // Workload context (set when kind ∈ WORKLOAD_*).
+  iogrid.common.v1.WorkloadType workload_type = 5;
+  // Customer-facing category slug (e.g. "e_commerce", "seo").
+  string category = 6;
+  // Customer display name (the brand the workload was running for).
+  string customer_display_name = 7;
+  // Destination summary — for bandwidth, the destination host. For
+  // Docker workloads, the image name. Truncated for privacy.
+  string destination_summary = 8;
+  // Bytes relayed / transferred. Zero when non-bandwidth.
+  uint64 bytes = 9;
+
+  // Free-form structured metadata (e.g. {"abuse_reason": "csam_hash"}).
+  map<string, string> metadata = 10;
+}
+
+// EarningsSummary aggregates the provider's earnings for a window.
+message EarningsSummary {
+  iogrid.common.v1.UUID provider_id = 1;
+  iogrid.common.v1.TimeWindow window = 2;
+  iogrid.common.v1.Money total_earned = 3;
+  // Breakdown per workload type.
+  map<string, iogrid.common.v1.Money> by_workload_type = 4;
+}
+
+// --- RPCs -----------------------------------------------------------------
+
+message ListAuditEventsRequest {
+  iogrid.common.v1.UUID provider_id = 1;
+  iogrid.common.v1.PageRequest page = 2;
+  // Optional time-window filter.
+  iogrid.common.v1.TimeWindow window = 3;
+  // Optional kind filter; empty means all.
+  repeated EventKind kind_filter = 4;
+}
+message ListAuditEventsResponse {
+  repeated AuditEvent events = 1;
+  iogrid.common.v1.PageResponse page = 2;
+}
+
+message StreamAuditEventsRequest {
+  iogrid.common.v1.UUID provider_id = 1;
+  // Optional kind filter.
+  repeated EventKind kind_filter = 2;
+}
+
+message GetEarningsSummaryRequest {
+  iogrid.common.v1.UUID provider_id = 1;
+  iogrid.common.v1.TimeWindow window = 2;
+}
+message GetEarningsSummaryResponse {
+  EarningsSummary summary = 1;
+}
+
+// DashboardService backs the /provide/transparency UI. Server-streaming
+// for the live feed; unary calls for history and aggregates.
+service DashboardService {
+  rpc ListAuditEvents(ListAuditEventsRequest) returns (ListAuditEventsResponse);
+  rpc StreamAuditEvents(StreamAuditEventsRequest) returns (stream AuditEvent);
+  rpc GetEarningsSummary(GetEarningsSummaryRequest) returns (GetEarningsSummaryResponse);
+}

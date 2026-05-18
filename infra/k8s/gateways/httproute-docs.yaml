@@ -1,0 +1,50 @@
+# docs.iogrid.org — placeholder for the static documentation site.
+#
+# Until the docs builder lands, this routes to a generic placeholder
+# service `docs-site` (e.g. nginx serving a single "iogrid docs —
+# coming soon" page). When the real docs static site is published
+# (likely Nextra or VitePress built to a static bundle hosted in S3
+# behind a CDN-style cache), swap the backendRef to point at the
+# fronting service.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: docs
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/part-of: iogrid
+spec:
+  parentRefs:
+    - name: iogrid-gateway
+      sectionName: https-docs
+  hostnames:
+    - docs.iogrid.org
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: docs-site
+          port: 80
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: docs-redirect-https
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/part-of: iogrid
+spec:
+  parentRefs:
+    - name: iogrid-gateway
+      sectionName: http
+  hostnames:
+    - docs.iogrid.org
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301

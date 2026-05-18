@@ -1,0 +1,41 @@
+---
+title: "Why a mesh, not a data center"
+description: "Residential IPs, GPU diversity, and Mac hardware mean a mesh wins three different markets at once — none of which a data center can serve."
+date: "2026-05-18"
+author: "iogrid team"
+tags: ["architecture", "strategy"]
+---
+
+The conventional wisdom is that infrastructure belongs in data centers. AWS, GCP, Azure, the hyperscalers — all bet on consolidating compute behind a small number of very large facilities. For most workloads, that wisdom is correct.
+
+It's correct for almost everything **except** the three markets iogrid serves.
+
+## Residential IPs cannot live in a data center
+
+Residential proxy demand exists because customers need to reach the public web from an IP that isn't on a known data-center range. The whole product category is defined by **not being a data center**. The moment a residential proxy provider puts capacity in a data center, the major target sites detect the ASN and bounce the requests. Bright Data, Honeygain, Pawns — every player in this market is, by definition, a mesh.
+
+iogrid does the same thing, with a transparency layer that the incumbents structurally can't bolt on.
+
+## GPU diversity wins inference, not training
+
+Training a frontier model requires hundreds of H100s wired together with InfiniBand. That belongs in a data center.
+
+Inference is a different beast. A 70B-parameter model running batch jobs doesn't need exotic interconnect — it needs **lots of consumer GPUs with 24+ GB of VRAM**. A 4090 fine-tunes 7B-13B models perfectly well. An M3 Max runs Llama 70B at usable tokens-per-second via MLX. The world has millions of these chips sitting idle 16+ hours a day.
+
+The economics are stark: a data-center H100 costs $2–3 per hour. A 4090 in someone's living room earns its owner $0.20–0.50 per hour, while delivering 80% of the inference throughput for many workloads. Salad, Vast.ai, and io.net have all proven the model works. The question is execution quality — which is where the iogrid mesh wins on the bundling angle (one daemon, four workloads).
+
+## Apple licensing locks iOS builds to Macs
+
+Apple's licensing terms forbid running macOS on non-Apple hardware. AWS works around this with bare-metal Mac instances, but they charge $26 per 24-hour minimum. MacStadium leases dedicated hardware monthly. Bitrise and Codemagic run their own racks of Mac minis.
+
+Meanwhile, a home M3 MacBook is idle when its owner sleeps. iogrid's iOS-build workload turns those idle hours into pay-per-minute CI capacity. Provider economics: ~$145/month for 4 hours/day of Xcode CI work. Customer economics: $0.04 per minute, half the GitHub Actions Mac price.
+
+This is the only sub-market where the mesh model has **structural cost advantage** vs the centralized incumbents. We don't pay AWS's margin. We don't pay MacStadium's rent. The provider's electricity is already amortized across their personal Mac use.
+
+## A mesh is just a network with diffuse capital
+
+The capital intensity of running a mesh network is dramatically lower than running a data center. iogrid doesn't lease racks, doesn't sign cross-connects, doesn't pay for cooling. Providers bring their own hardware, electricity, and bandwidth. We provide the routing, the anti-abuse, the billing, and — most importantly — the transparency.
+
+Our marginal cost to add provider capacity is approximately zero. Hyperscalers' marginal cost to add capacity is approximately one server. That difference compounds.
+
+This is the whole architecture of the network. The next post in this series walks through how the audit dashboard works under the hood.

@@ -1,0 +1,71 @@
+---
+title: "iOS CI is 50% cheaper on home Macs (and it's not even close)"
+description: "How a per-minute Tart-VM pricing model on idle home M3 hardware beats GitHub Actions, Bitrise, and AWS EC2 Mac at the same time."
+date: "2026-05-18"
+author: "iogrid team"
+tags: ["ios", "ci", "pricing"]
+---
+
+iOS build CI sits in a strange corner of the dev-tools market. The economics are punishing:
+
+| Provider | Per minute | Real-world floor |
+|----------|------------|------------------|
+| GitHub Actions Mac (Intel) | $0.08 | none |
+| GitHub Actions Mac (M-series) | $0.16 | none |
+| Bitrise | $0.10–0.30 | monthly platform fee |
+| Codemagic | $0.10–0.20 | tier minimums |
+| MacStadium | $0.05–0.20 effective | monthly lease |
+| AWS EC2 Mac | $0.018 effective | $26 per 24-hour session |
+
+Every option above is constrained by **Apple's hardware licensing**. macOS only runs legally on Apple-branded silicon. So every CI vendor either rents Apple Silicon from Apple (Microsoft, AWS) or buys Mac minis and racks them in a data center (MacStadium, Bitrise).
+
+The result: the cheapest no-commit option (GitHub Actions Intel at $0.08/min) is still 5× the marginal cost of running the build on a developer's own Mac. The cheapest per-minute price (AWS EC2 Mac at $0.018) imposes a 24-hour lease floor that turns a 5-minute build into a $26 build.
+
+There's a third option no one has scaled: **other people's idle Macs**.
+
+## Why home Macs work
+
+Three trends converged:
+
+1. **Apple Silicon is fast.** An M3 Max compiles a typical Swift project ~30% faster than a 2019 Mac Pro. Indie devs already use their personal Mac for CI by accident — they just hit "Build" 100 times a day.
+
+2. **Tart enables real isolation.** [Tart](https://tart.run/) is an open-source macOS VM provisioning tool from Cirrus Labs. It uses Apple's Virtualization framework to spawn a fresh macOS VM in ~10 seconds. Each build runs in a hypervisor-isolated VM; the host Mac is untouchable.
+
+3. **Macs are idle ~70% of the time.** Even a busy developer's Mac runs at <30% utilization averaged across 24 hours. Overnight, weekend, lunch — it's just sitting there.
+
+iogrid puts a thin daemon on the provider's Mac that, when idle and opted-in, spawns a Tart VM per incoming build job, runs the build, ships artifacts to S3, and tears down the VM. The provider sees a usage chart; their Xcode environment is untouched.
+
+## The math
+
+Assume an indie iOS dev pushes 10 commits/day with an 8-minute CI build per commit, 22 working days/month. That's 1,760 build-minutes/month.
+
+| Service | Per minute | Monthly |
+|---------|------------|---------|
+| iogrid | $0.04 | $70 |
+| GitHub Actions Mac (Intel) | $0.08 | $141 |
+| GitHub Actions Mac (M-series) | $0.16 | $282 |
+| Bitrise (typical) | $0.20 | $352 |
+
+For a single solo dev, $70/month is a no-brainer.
+
+For an enterprise: assume 50 devs at the same volume = 88,000 build-minutes/month. iogrid is $3,500/month vs $7,040 on GitHub Actions Intel. The savings are large enough to pay one engineer's salary. Some teams will switch for that math alone.
+
+## What can go wrong
+
+We've thought hard about the failure modes:
+
+- **Provider Mac goes offline mid-build.** The job is retried on another provider within seconds. You're charged only for completed seconds.
+- **Provider's Xcode version differs.** We tag builds by Xcode version requirement; jobs route to providers running a matching base image.
+- **Provider tampers with the VM.** Tart's VM disk is signed by us. A modified VM image is rejected at boot.
+- **Provider sees customer source.** They don't. The git fetch happens inside the VM via a one-shot token. The provider's host Mac never touches your source.
+- **Apple changes Tart's terms.** This is our biggest external risk. We maintain a fallback path to Anka (commercial alternative). And iOS-build is one of four workloads — losing it doesn't kill the network.
+
+## When you should NOT use us
+
+We're honest about this: if your build needs an obscure Xcode version pinned exactly, or if your provisioning profile is signed-out on a specific datacenter machine, GitHub Actions is still simpler. Phase 1 is best for build-and-test workflows where source code is committed and CI runs deterministic compilation. Code-signing-then-upload workflows work but require some setup to ship the cert chain to the VM.
+
+## How to switch
+
+Self-hosted GitHub Actions runner labelled `iogrid-mac`. Five lines of YAML, one API key. We have a guide on the docs site.
+
+That's it. Half the cost, no lease, your existing workflow.

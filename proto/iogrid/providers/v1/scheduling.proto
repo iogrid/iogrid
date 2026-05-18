@@ -1,0 +1,174 @@
+// Scheduling: combined cap + calendar + idle-only state machine.
+//
+// Three independent signals AND together to gate workload acceptance,
+// mirroring the Rust enum in daemon/crates/scheduler. The coordinator
+// stores the desired config; the daemon evaluates it locally and reports
+// its computed state back via streaming heartbeats.
+syntax = "proto3";
+
+package iogrid.providers.v1;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+import "iogrid/common/v1/types.proto";
+
+option go_package = "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/providers/v1;providersv1";
+
+// ResourceCaps bounds bandwidth / CPU / RAM / GPU usage. The daemon
+// enforces these locally; the coordinator uses them as input to the
+// metering pipeline (also publishes "approaching cap" warnings).
+message ResourceCaps {
+  // Monthly bandwidth budget in gigabytes (default 50).
+  uint32 bandwidth_cap_gb_per_month = 1;
+  // Hard ceiling for sustained CPU usage as percent (0-100, default 30).
+  uint32 cpu_cap_percent = 2;
+  // Hard ceiling for RAM usage as percent of system RAM (default 25).
+  uint32 memory_cap_percent = 3;
+  // GPU usage ceiling as percent when system is idle (default 100).
+  uint32 gpu_cap_percent_when_idle = 4;
+  // GPU usage ceiling as percent when user is active (default 0).
+  uint32 gpu_cap_percent_when_active = 5;
+}
+
+// CalendarWindow is a recurring weekly active interval, e.g. "weeknights
+// 22:00–07:00". Days-of-week are bit-set; times are 24h local clock.
+message CalendarWindow {
+  // ISO 8601 weekday set (Monday=1 ... Sunday=7) when the window applies.
+  repeated uint32 days_of_week = 1;
+  // Start local time in HH:MM (24h) form, e.g. "22:00".
+  string start_local_time = 2;
+  // End local time in HH:MM form. If end < start, window wraps midnight.
+  string end_local_time = 3;
+  // IANA timezone, e.g. "America/New_York".
+  string timezone = 4;
+}
+
+// CalendarSchedule is the full calendar setting. Empty windows array
+// means "always active" (the default).
+message CalendarSchedule {
+  repeated CalendarWindow windows = 1;
+}
+
+// IdleDetection configures the "only run when user is away" gate.
+message IdleDetection {
+  // True when this gate is enabled (default true).
+  bool enabled = 1;
+  // How many seconds of input inactivity count as "idle" (default 300).
+  uint32 idle_threshold_seconds = 2;
+}
+
+// CategoryOptIn lists workload categories the provider has opted into.
+// (See antiabuse/v1/filters.proto for the full category enum.) Empty
+// list means "use platform defaults" (e-commerce/SEO/ad-verif/etc).
+message CategoryOptIn {
+  // Canonical category slugs, e.g. "e_commerce", "seo", "ad_verification".
+  repeated string allowed_categories = 1;
+  // Categories explicitly disallowed even if added to the defaults later.
+  repeated string disallowed_categories = 2;
+}
+
+// DestinationPolicy: per-host blocklist + per-customer rate limit.
+message DestinationPolicy {
+  // Domain patterns the provider refuses to relay to (e.g. "*.chase.com",
+  // "*.linkedin.com"). Matches via glob, case-insensitive.
+  repeated string destination_blocklist = 1;
+  // Max consecutive minutes a single customer can hold this provider's
+  // IP before auto-rotation. 0 means unlimited.
+  uint32 per_customer_minutes_cap = 2;
+}
+
+// SchedulingConfig is the desired-state for a single provider.
+message SchedulingConfig {
+  iogrid.common.v1.UUID provider_id = 1;
+  ResourceCaps caps = 2;
+  CalendarSchedule calendar = 3;
+  IdleDetection idle = 4;
+  CategoryOptIn category_opt_in = 5;
+  DestinationPolicy destination_policy = 6;
+  // Server-side audit fields.
+  google.protobuf.Timestamp updated_at = 7;
+  iogrid.common.v1.UUID updated_by_user_id = 8;
+}
+
+// SchedulerState is the daemon's computed gate. Reported on every
+// heartbeat; mirrors the SchedulerState enum in the Rust daemon.
+enum SchedulerState {
+  SCHEDULER_STATE_UNSPECIFIED = 0;
+  SCHEDULER_STATE_ACTIVE = 1;
+  SCHEDULER_STATE_PAUSED_BANDWIDTH_CAP = 2;
+  SCHEDULER_STATE_PAUSED_CPU_CAP = 3;
+  SCHEDULER_STATE_PAUSED_MEMORY_CAP = 4;
+  SCHEDULER_STATE_PAUSED_OUTSIDE_CALENDAR = 5;
+  SCHEDULER_STATE_PAUSED_USER_ACTIVE = 6;
+  SCHEDULER_STATE_PAUSED_OPERATIONS = 7; // manual override by staff
+}
+
+// CurrentUsageSnapshot is the daemon's latest measured usage. Used by
+// the management plane to render the cap progress bars.
+message CurrentUsageSnapshot {
+  uint64 bandwidth_used_bytes_this_month = 1;
+  uint32 cpu_percent = 2;
+  uint32 memory_percent = 3;
+  uint32 gpu_percent = 4;
+  // Seconds since last detected user input (0 if active).
+  uint32 idle_seconds = 5;
+  google.protobuf.Timestamp observed_at = 6;
+}
+
+// --- RPCs -----------------------------------------------------------------
+
+message GetSchedulingConfigRequest {
+  iogrid.common.v1.UUID provider_id = 1;
+}
+message GetSchedulingConfigResponse {
+  SchedulingConfig config = 1;
+}
+
+message UpdateSchedulingConfigRequest {
+  // Full replacement semantics — caller must read-modify-write. Server
+  // rejects with FAILED_PRECONDITION if updated_at doesn't match.
+  SchedulingConfig config = 1;
+}
+message UpdateSchedulingConfigResponse {
+  SchedulingConfig config = 1;
+}
+
+message GetCurrentStateRequest {
+  iogrid.common.v1.UUID provider_id = 1;
+}
+message GetCurrentStateResponse {
+  SchedulerState state = 1;
+  CurrentUsageSnapshot usage = 2;
+  // When the next scheduled transition is expected (e.g. when the
+  // calendar window opens / closes). Unset when no transition is known.
+  google.protobuf.Timestamp next_transition_at = 3;
+}
+
+// Heartbeat is streamed from daemon → coordinator at ~5s intervals.
+message Heartbeat {
+  iogrid.common.v1.UUID provider_id = 1;
+  SchedulerState state = 2;
+  CurrentUsageSnapshot usage = 3;
+  // Monotonic counter for ordering, since timestamps can skew.
+  uint64 sequence = 4;
+  // Time spent processing workloads since last heartbeat.
+  google.protobuf.Duration active_duration = 5;
+}
+
+message HeartbeatAck {
+  // Server may push an immediate config refresh on top of the ack.
+  bool config_changed = 1;
+  // Server-side directive to pause for operations reasons.
+  bool operations_pause = 2;
+}
+
+// SchedulingService manages the desired-state config plus the live
+// state-stream from each daemon.
+service SchedulingService {
+  rpc GetSchedulingConfig(GetSchedulingConfigRequest) returns (GetSchedulingConfigResponse);
+  rpc UpdateSchedulingConfig(UpdateSchedulingConfigRequest) returns (UpdateSchedulingConfigResponse);
+  rpc GetCurrentState(GetCurrentStateRequest) returns (GetCurrentStateResponse);
+  // Bidirectional heartbeat stream. Daemon sends Heartbeat; server
+  // replies with HeartbeatAck (may include config-change flags).
+  rpc StreamHeartbeats(stream Heartbeat) returns (stream HeartbeatAck);
+}

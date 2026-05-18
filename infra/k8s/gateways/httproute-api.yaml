@@ -1,0 +1,48 @@
+# api.iogrid.org → gateway-bff (Go BFF service, :8080).
+#
+# BFF (Backend-For-Frontend) sits in front of the Go microservices,
+# fronts REST + gRPC-web to mobile/desktop daemons. mTLS is added at
+# the service mesh layer (Cilium SPIFFE — see issue #35), the Gateway
+# only does TLS terminate for browser/REST callers.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: api
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/part-of: iogrid
+spec:
+  parentRefs:
+    - name: iogrid-gateway
+      sectionName: https-api
+  hostnames:
+    - api.iogrid.org
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: gateway-bff
+          port: 8080
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: api-redirect-https
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/part-of: iogrid
+spec:
+  parentRefs:
+    - name: iogrid-gateway
+      sectionName: http
+  hostnames:
+    - api.iogrid.org
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301

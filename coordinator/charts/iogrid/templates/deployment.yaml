@@ -1,0 +1,60 @@
+{{- range $name, $svc := .Values.services }}
+{{- $cfg := include "iogrid.svcConfig" (dict "Values" $.Values "svcName" $name "svcCfg" $svc) | fromYaml }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "iogrid.fullname" (dict "Release" $.Release "svcName" $name) }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "iogrid.labels" (dict "Release" $.Release "svcName" $name) | nindent 4 }}
+spec:
+  {{- if not $cfg.autoscaling.enabled }}
+  replicas: {{ $cfg.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "iogrid.selectorLabels" (dict "Release" $.Release "svcName" $name) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "iogrid.labels" (dict "Release" $.Release "svcName" $name) | nindent 8 }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "{{ $cfg.service.targetPort }}"
+    spec:
+      serviceAccountName: {{ include "iogrid.fullname" (dict "Release" $.Release "svcName" $name) }}
+      {{- with $.Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml $cfg.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ $name }}
+          image: {{ include "iogrid.image" (dict "Values" $.Values "svcCfg" $svc) | quote }}
+          imagePullPolicy: {{ $.Values.imagePullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ $cfg.service.targetPort }}
+              protocol: TCP
+          env:
+            - name: LISTEN_ADDR
+              value: ":{{ $cfg.service.targetPort }}"
+            - name: LOG_LEVEL
+              value: "info"
+            - name: DEPLOY_ENV
+              value: {{ $.Release.Namespace | quote }}
+            {{- with $cfg.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          livenessProbe:
+            {{- toYaml $cfg.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml $cfg.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml $cfg.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml $cfg.containerSecurityContext | nindent 12 }}
+{{- end }}

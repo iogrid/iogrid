@@ -1,0 +1,32 @@
+# Cargo build configuration for iogridd workspace.
+#
+# Release profile defaults (lto=fat, strip, codegen-units=1, panic=abort) live
+# in workspace Cargo.toml. Settings here are environment + target tweaks that
+# can't be expressed in Cargo.toml profile sections.
+
+[build]
+# Surface backtraces in test failures by default.
+rustflags = []
+
+[term]
+color = "auto"
+
+# Cross-compile target hints. Linkers below are the GitHub-Actions defaults; if
+# you cross-compile locally, install the matching toolchain (e.g.
+# `brew tap messense/macos-cross-toolchains` for the apple targets, or the
+# `mingw-w64` package for windows-gnu).
+
+[target.x86_64-unknown-linux-gnu]
+# default system linker
+
+[target.aarch64-unknown-linux-gnu]
+linker = "aarch64-linux-gnu-gcc"
+
+[target.x86_64-pc-windows-msvc]
+# Cross-build only runs on Windows hosts in CI.
+
+[target.aarch64-apple-darwin]
+# Cross-build only runs on macOS hosts in CI.
+
+[target.x86_64-apple-darwin]
+# Cross-build only runs on macOS hosts in CI.

@@ -1,0 +1,17 @@
+# Aggregate Kustomization for the iogrid k8s infra layer. Flux's
+# iogrid-ops repo will reference this path; locally `kubectl kustomize
+# infra/k8s/ | kubectl apply -f-` brings up DNS+TLS+Gateway in one go.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespaces/iogrid.yaml
+  - cert-manager/cluster-issuer-letsencrypt.yaml
+  - gateways/gateway.yaml
+  - gateways/httproute-apex-www.yaml
+  - gateways/httproute-app.yaml
+  - gateways/httproute-api.yaml
+  - gateways/httproute-build.yaml
+  - gateways/httproute-docs.yaml
+  - gateways/httproute-status.yaml
+  - gateways/tlsroute-proxy.yaml
+  - certificates/iogrid-org-cert.yaml
