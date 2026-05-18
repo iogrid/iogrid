@@ -1,0 +1,103 @@
+#!/bin/bash
+# pkgbuild postinstall — runs as root after the payload has been laid
+# down at the install destination.
+#
+# Tasks:
+#   1. Re-template the LaunchAgent plist (substitute the installing
+#      user's HOME paths for log/config locations).
+#   2. Move the templated plist from /Library/LaunchAgents to the
+#      INSTALLING USER's ~/Library/LaunchAgents (so it runs as that
+#      user, NOT as root — per docs/TECH.md).
+#   3. Bootstrap + enable + kickstart the LaunchAgent under the user's
+#      gui domain.
+#   4. Mint a one-time pairing code and surface it via stdout so the
+#      installer's "Summary" pane can print it, and write it to
+#      ~/.iogrid/pairing-code.txt for the installer's "open browser"
+#      step.
+#
+# pkgbuild postinstall env vars we care about:
+#   $USER        — the installing user (set when invoked via Installer.app)
+#   $HOME        — that user's home
+#   $1           — full path to package being installed
+#   $2           — full path to install location
+#   $3           — install volume mount point ("/")
+
+set -euo pipefail
+
+LOG_TAG="iogrid-postinstall"
+
+log() { /usr/bin/logger -t "$LOG_TAG" "$@"; echo "[iogrid] $*"; }
+
+# pkgbuild sometimes drops $USER when invoked from command-line installer;
+# fall back to /usr/bin/stat on the mountpoint to recover it.
+USER_NAME="${USER:-$(/usr/bin/stat -f%Su /dev/console)}"
+USER_HOME=$(/usr/bin/dscl . -read "/Users/$USER_NAME" NFSHomeDirectory | /usr/bin/awk '{print $2}')
+USER_UID=$(/usr/bin/id -u "$USER_NAME")
+
+log "postinstall for user=$USER_NAME home=$USER_HOME uid=$USER_UID"
+
+# 1) Stage user-scoped LaunchAgent
+SRC_PLIST="/Library/LaunchAgents/org.iogrid.daemon.plist"
+USER_LA_DIR="$USER_HOME/Library/LaunchAgents"
+USER_PLIST="$USER_LA_DIR/org.iogrid.daemon.plist"
+
+mkdir -p "$USER_LA_DIR"
+mkdir -p "$USER_HOME/Library/Logs/iogrid"
+mkdir -p "$USER_HOME/Library/Application Support/iogrid"
+mkdir -p "$USER_HOME/.iogrid"
+
+# Substitute placeholders in the template.
+/usr/bin/sed \
+    -e "s|@USER_HOME@|$USER_HOME|g" \
+    -e "s|@USER_NAME@|$USER_NAME|g" \
+    "$SRC_PLIST" > "$USER_PLIST"
+
+chown -R "$USER_NAME":staff "$USER_LA_DIR" "$USER_HOME/Library/Logs/iogrid" "$USER_HOME/Library/Application Support/iogrid" "$USER_HOME/.iogrid"
+
+# 2) Remove the root-owned copy under /Library/LaunchAgents (the system
+# location runs as root which is the WRONG behaviour for the provider
+# daemon; we deliberately install per-user).
+rm -f "$SRC_PLIST" || true
+
+# 3) Bootstrap / enable / kickstart under the user's GUI domain.
+TARGET="gui/$USER_UID/org.iogrid.daemon"
+
+/bin/launchctl bootout "$TARGET" 2>/dev/null || true
+if ! /bin/launchctl bootstrap "gui/$USER_UID" "$USER_PLIST"; then
+    log "WARN: launchctl bootstrap returned non-zero (already loaded?)"
+fi
+/bin/launchctl enable "$TARGET" 2>/dev/null || true
+/bin/launchctl kickstart -k "$TARGET" 2>/dev/null \
+    || log "WARN: launchctl kickstart returned non-zero"
+
+# 4) Mint pairing code via daemon CLI. Daemon may not have come up yet
+# (kickstart is async), so retry briefly.
+PAIR_CODE=""
+for i in 1 2 3 4 5 6 7 8 9 10; do
+    if PAIR_CODE=$(/usr/local/iogrid/iogridd pair --request 2>/dev/null); then
+        if [ -n "$PAIR_CODE" ]; then
+            break
+        fi
+    fi
+    sleep 0.5
+done
+
+if [ -n "$PAIR_CODE" ]; then
+    echo -n "$PAIR_CODE" > "$USER_HOME/.iogrid/pairing-code.txt"
+    chown "$USER_NAME":staff "$USER_HOME/.iogrid/pairing-code.txt"
+    log "Pairing code minted: $PAIR_CODE"
+else
+    log "WARN: daemon did not produce a pairing code; user will need to run 'iogridd pair --request'"
+fi
+
+# 5) Open the onboarding URL in the user's default browser. Using
+# `sudo -u` so the open(1) call lands in the user's GUI session, not
+# the installer's root session.
+ONBOARD_URL="${IOGRID_BASE_URL:-https://app.iogrid.org}/onboard/${PAIR_CODE:-}"
+if [ -n "$PAIR_CODE" ]; then
+    /usr/bin/sudo -u "$USER_NAME" /usr/bin/open "$ONBOARD_URL" || \
+        log "WARN: failed to open browser; user URL is $ONBOARD_URL"
+fi
+
+log "postinstall complete"
+exit 0

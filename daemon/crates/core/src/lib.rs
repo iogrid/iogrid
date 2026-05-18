@@ -12,6 +12,9 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+pub mod pair;
+pub mod updater;
+
 /// Top-level supervisor state. Mirrors the public dashboard chip in the web UI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SupervisorState {

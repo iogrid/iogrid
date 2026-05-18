@@ -80,6 +80,20 @@ func Mount(deps Deps) func(chi.Router) {
 				r.Get("/sessions", api.ListSessions)
 			})
 
+			// /onboard ----------------------------------------------------
+			// Daemon-pairing handshake. /start + /complete require the
+			// browser user to be signed in; /poll is called by the daemon
+			// itself (no Bearer token — proof-of-liveness via the daemon
+			// pubkey it includes in the body). EPIC #5.
+			r.Route("/onboard", func(r chi.Router) {
+				r.Group(func(r chi.Router) {
+					r.Use(auth.RequireAuth)
+					r.Post("/start", api.StartOnboard)
+					r.Post("/complete", api.CompleteOnboard)
+				})
+				r.Post("/poll", api.PollOnboard)
+			})
+
 			// /provide ----------------------------------------------------
 			r.Route("/provide", func(r chi.Router) {
 				r.Use(auth.RequireAuth)

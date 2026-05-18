@@ -31,6 +31,10 @@ type API struct {
 	Clients      *clients.Set
 	Logger       *slog.Logger
 	APIKeyStore  APIKeyStore
+	// OnboardStore backs the /onboard/* family of routes. In Phase 0
+	// this is the in-memory MemoryOnboardStore; production wires a
+	// Redis-backed implementation via WithOnboardStore.
+	OnboardStore OnboardStore
 }
 
 // New constructs an API. logger defaults to slog.Default(). store
@@ -42,7 +46,12 @@ func New(c *clients.Set, store APIKeyStore, logger *slog.Logger) *API {
 	if store == nil {
 		store = NewMemoryAPIKeyStore()
 	}
-	return &API{Clients: c, Logger: logger, APIKeyStore: store}
+	return &API{
+		Clients:      c,
+		Logger:       logger,
+		APIKeyStore:  store,
+		OnboardStore: NewMemoryOnboardStore(),
+	}
 }
 
 // --- JSON helpers --------------------------------------------------------

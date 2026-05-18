@@ -41,12 +41,12 @@ export default function HomePage() {
           workloads on a network that is cheaper, more resilient, and closer to
           the data than centralised clouds.
         </p>
-        <div className="mt-8 flex gap-4">
+        <div className="mt-8 flex flex-wrap gap-4">
           <Link
-            href="/provide"
+            href="/install"
             className="rounded-md bg-zinc-900 px-5 py-3 text-sm font-medium text-white hover:bg-zinc-700"
           >
-            Become a provider
+            Install — become a provider
           </Link>
           <Link
             href="/customer"

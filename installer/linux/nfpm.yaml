@@ -1,0 +1,101 @@
+# nfpm config for the iogrid Linux packages.
+#
+# Builds .deb (Debian/Ubuntu) and .rpm (Fedora/RHEL) from the same Go-
+# style "single binary + systemd unit" layout. nfpm reads this file,
+# emits packages, never invokes a target distro's toolchain. CI runs:
+#
+#   nfpm pkg --packager deb --target dist/iogrid_${VERSION}_amd64.deb
+#   nfpm pkg --packager rpm --target dist/iogrid-${VERSION}-1.x86_64.rpm
+#   nfpm pkg --packager apk --target dist/iogrid_${VERSION}_x86_64.apk
+#
+# Variables come from CI env via nfpm's $ENV{VAR} interpolation; the
+# build script (build.sh) wraps that.
+
+name: iogrid
+arch: ${IOGRID_ARCH}                          # amd64 / arm64 — set by build.sh
+platform: linux
+version: ${IOGRID_VERSION}
+section: net
+priority: optional
+maintainer: iogrid <eng@iogrid.org>
+description: |
+  iogrid — distributed compute mesh.
+  This package installs the iogridd daemon (binary + systemd unit) that
+  contributes idle cycles from this machine to the iogrid network.
+vendor: iogrid
+homepage: https://iogrid.org
+license: Apache-2.0
+
+# Cross-distro Docker dependency. apt/dnf both have a "docker.io" or
+# "docker-ce" package; we deliberately list "docker.io" for Debian
+# family (which is the canonical name in main repos) and add a soft
+# RPM dependency. install.sh handles repo bootstrapping if Docker is
+# missing entirely.
+depends:
+  - docker.io | docker-ce | docker
+recommends:
+  - libc6
+
+contents:
+  # The daemon binary itself.
+  - src: ${IOGRID_BIN}
+    dst: /usr/local/bin/iogridd
+    file_info:
+      mode: 0755
+      owner: root
+      group: root
+
+  # System-wide systemd unit (NOT user unit — package installers can't
+  # know who the human user is; user unit is created by install.sh).
+  - src: systemd/iogridd.service
+    dst: /lib/systemd/system/iogridd.service
+    type: config
+    file_info:
+      mode: 0644
+
+  - src: systemd/iogridd-user.service.template
+    dst: /usr/share/iogrid/systemd/iogridd.service.tmpl
+    file_info:
+      mode: 0644
+
+  # Default config (TOML stub).
+  - src: config/config.toml
+    dst: /etc/iogrid/config.toml
+    type: config|noreplace
+    file_info:
+      mode: 0644
+
+  # Documentation.
+  - src: ../README.md
+    dst: /usr/share/doc/iogrid/README.md
+    file_info:
+      mode: 0644
+
+scripts:
+  preinstall:  scripts/preinstall.sh
+  postinstall: scripts/postinstall.sh
+  preremove:   scripts/preremove.sh
+  postremove:  scripts/postremove.sh
+
+# Per-packager overrides (rpm/deb diverge on signing + path conventions).
+deb:
+  fields:
+    Bugs: https://github.com/iogrid/iogrid/issues
+  triggers:
+    interest_noawait:
+      - /usr/share/applications
+
+rpm:
+  group: Applications/Internet
+  summary: iogrid provider daemon (distributed compute mesh)
+  signature:
+    # gpg signing is optional and gated on the CI secret; nfpm
+    # interpolates ${ENV} at runtime and treats empty paths as
+    # "skip signing".
+    key_file: ${RPM_SIGNING_KEY_FILE}
+    key_id: ${RPM_SIGNING_KEY_ID}
+
+apk:
+  signature:
+    key_file: ${APK_SIGNING_KEY_FILE}
+    key_name: ${APK_SIGNING_KEY_NAME}

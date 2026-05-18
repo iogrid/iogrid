@@ -1,0 +1,22 @@
+# User unit template — installed at /usr/share/iogrid/systemd/iogridd.service.tmpl
+# by the .deb/.rpm/.apk; install.sh stamps this into ~/.config/systemd/user/.
+#
+# This is the PREFERRED running mode (per docs/TECH.md): the daemon
+# runs as the human user, not root, so it can detect idle state, the
+# user's GUI session etc.
+
+[Unit]
+Description=iogrid provider daemon (user)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/iogridd run
+Environment=IOGRID_CONFIG=%h/.config/iogrid/config.toml
+Environment=RUST_LOG=info
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=default.target
