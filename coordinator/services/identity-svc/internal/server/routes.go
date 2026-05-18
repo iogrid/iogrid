@@ -1,36 +1,34 @@
-// Package server holds the HTTP route definitions for the identity-svc microservice.
+// Package server holds the HTTP route definitions for the identity-svc
+// microservice. It composes the bearer-token middleware over the
+// per-feature handlers in internal/server/handlers.
 //
-// Google OAuth + magic-link issuance + identity merging + JWT issuance.
-//
-// At this stage the routes are stubs that document the intended surface area
-// without making any external calls. They return JSON envelopes shaped the
-// same way the final implementation will, so downstream callers can be
-// scaffolded in parallel.
+// The Mount() function preserves the contract the shared bootstrap
+// (coordinator/shared/server) expects: a single callback that decorates
+// a chi.Router with all business endpoints. Health, readiness, and
+// metrics are wired by the shared bootstrap before Mount fires.
 package server
 
 import (
-	"encoding/json"
-	"net/http"
-
 	"github.com/go-chi/chi/v5"
+
+	"github.com/iogrid/iogrid/coordinator/services/identity-svc/internal/server/handlers"
+	authmw "github.com/iogrid/iogrid/coordinator/services/identity-svc/internal/server/middleware"
+	"github.com/iogrid/iogrid/coordinator/services/identity-svc/internal/tokens"
 )
 
-// Mount attaches the identity-svc routes onto the shared chi router. Called by main()
-// after /healthz, /readyz, /metrics are already wired up by the shared
-// bootstrap.
-func Mount(r chi.Router) {
-	r.Route("/v1", func(r chi.Router) {
-		r.Get("/", indexHandler)
-	})
+// MountConfig bundles every collaborator the routes need. We pass the
+// API + signer in rather than reach for globals.
+type MountConfig struct {
+	API    *handlers.API
+	Signer *tokens.Signer
 }
 
-// indexHandler returns a stable JSON envelope identifying the service. Used
-// by smoke tests and the gateway-bff service discovery probe.
-func indexHandler(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(map[string]string{
-		"service": "identity-svc",
-		"status":  "stub",
-	})
+// MountFunc returns the function the shared bootstrap will hand to its
+// internal chi.Router. Decorates every request with bearer-token parsing
+// so handlers can read the authed user from context.
+func MountFunc(cfg MountConfig) func(r chi.Router) {
+	return func(r chi.Router) {
+		r.Use(authmw.VerifyBearer(cfg.Signer))
+		cfg.API.Mount(r)
+	}
 }
