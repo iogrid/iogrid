@@ -1,0 +1,81 @@
+# Per-host certificate set for iogrid.org.
+#
+# We intentionally do NOT request a wildcard `*.iogrid.org`: a wildcard
+# would require DNS-01 (HTTP-01 cannot prove control of a wildcard), and
+# DNS-01 would couple iogrid to either Dynadot API automation or
+# PowerDNS delegation. Per the end-state architecture (commit f49fe50)
+# iogrid is an independent brand — its DNS sits at Dynadot with a fixed,
+# enumerated subdomain set. Each subdomain gets its own SAN-listing
+# certificate via HTTP-01 against the iogrid Gateway.
+#
+# The Certificate stores the issued chain + key in a TLS secret in the
+# iogrid namespace; the HTTPRoute Gateway references that secret via
+# its `tls.certificateRefs`.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: iogrid-org-tls
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: tls
+spec:
+  secretName: iogrid-org-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  # ECDSA P-256: 1/3 the handshake CPU of RSA-2048, supported by every
+  # client we will ever see (TLS 1.2+ on a 2018+ browser/OS). Matches
+  # OpenOva ClusterIssuer convention.
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  duration: 2160h    # 90d Let's Encrypt max
+  renewBefore: 720h  # renew 30d before expiry
+  usages:
+    - server auth
+    - digital signature
+    - key encipherment
+  # SAN list. Apex + www + 5 service subdomains. Adding a new subdomain
+  # later = append here, commit, Flux reconciles, cert-manager re-issues.
+  dnsNames:
+    - iogrid.org
+    - www.iogrid.org
+    - api.iogrid.org
+    - app.iogrid.org
+    - build.iogrid.org
+    - docs.iogrid.org
+    - status.iogrid.org
+---
+# proxy.iogrid.org gets its OWN certificate because it serves TLS
+# passthrough — the residential-proxy frontend terminates TLS on its
+# own internal cert (SOCKS5 over TLS, or HTTPS proxy with customer-
+# pinned CN). cert-manager still issues a public cert so the Gateway
+# can do hostname-based SNI routing even though the bytes are then
+# forwarded as-is to the backend service.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: iogrid-proxy-tls
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: tls
+spec:
+  secretName: iogrid-proxy-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  duration: 2160h
+  renewBefore: 720h
+  usages:
+    - server auth
+    - digital signature
+    - key encipherment
+  dnsNames:
+    - proxy.iogrid.org

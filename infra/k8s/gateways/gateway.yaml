@@ -1,0 +1,153 @@
+# Cilium Gateway for iogrid.org.
+#
+# A single Gateway object hosts all listeners for the iogrid product
+# surface. HTTPRoute objects (separate files) attach themselves to the
+# matching listener via `parentRefs[].sectionName`.
+#
+# Topology:
+#   45.151.123.50  (mothership Hetzner Cloud LB, single-VM today)
+#     │
+#     ├─ :80   listener "http"        → ACME-only, redirects all else
+#     ├─ :443  listener "https-app"   → app.iogrid.org   (TLS terminate)
+#     ├─ :443  listener "https-api"   → api.iogrid.org   (TLS terminate)
+#     ├─ :443  listener "https-build" → build.iogrid.org (TLS terminate)
+#     ├─ :443  listener "https-docs"  → docs.iogrid.org  (TLS terminate)
+#     ├─ :443  listener "https-status"→ status.iogrid.org(TLS terminate)
+#     ├─ :443  listener "https-www"   → iogrid.org + www (TLS terminate)
+#     └─ :443  listener "tls-proxy"   → proxy.iogrid.org (TLS passthrough)
+#
+# When Cilium Gateway is the IngressController, the Gateway address is
+# the public IP of the cilium-gateway LoadBalancer Service. Today,
+# while iogrid co-resides on the OpenOva mothership using Traefik, this
+# manifest is the *source of truth* for the routing intent — a thin
+# Traefik IngressRoute shim can be derived from it (see scripts/gateway-to-traefik.sh
+# in a follow-up PR). When the mothership migrates to Cilium Gateway,
+# this object becomes live as-is.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: iogrid-gateway
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/part-of: iogrid
+  annotations:
+    # Pin to the public LB IP that DNS already points at. Cilium reads
+    # this annotation when materializing the LoadBalancer Service.
+    io.cilium/lb-ipam-ips: "45.151.123.50"
+spec:
+  gatewayClassName: cilium
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      hostname: "*.iogrid.org"
+      allowedRoutes:
+        namespaces:
+          from: Same
+    - name: http-apex
+      protocol: HTTP
+      port: 80
+      hostname: "iogrid.org"
+      allowedRoutes:
+        namespaces:
+          from: Same
+    - name: https-www
+      protocol: HTTPS
+      port: 443
+      hostname: "iogrid.org"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: iogrid-org-tls
+            kind: Secret
+      allowedRoutes:
+        namespaces:
+          from: Same
+    - name: https-www-www
+      protocol: HTTPS
+      port: 443
+      hostname: "www.iogrid.org"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: iogrid-org-tls
+            kind: Secret
+      allowedRoutes:
+        namespaces:
+          from: Same
+    - name: https-app
+      protocol: HTTPS
+      port: 443
+      hostname: "app.iogrid.org"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: iogrid-org-tls
+            kind: Secret
+      allowedRoutes:
+        namespaces:
+          from: Same
+    - name: https-api
+      protocol: HTTPS
+      port: 443
+      hostname: "api.iogrid.org"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: iogrid-org-tls
+            kind: Secret
+      allowedRoutes:
+        namespaces:
+          from: Same
+    - name: https-build
+      protocol: HTTPS
+      port: 443
+      hostname: "build.iogrid.org"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: iogrid-org-tls
+            kind: Secret
+      allowedRoutes:
+        namespaces:
+          from: Same
+    - name: https-docs
+      protocol: HTTPS
+      port: 443
+      hostname: "docs.iogrid.org"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: iogrid-org-tls
+            kind: Secret
+      allowedRoutes:
+        namespaces:
+          from: Same
+    - name: https-status
+      protocol: HTTPS
+      port: 443
+      hostname: "status.iogrid.org"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: iogrid-org-tls
+            kind: Secret
+      allowedRoutes:
+        namespaces:
+          from: Same
+    # TLS passthrough listener for proxy.iogrid.org. The proxy gateway
+    # is itself a TLS server (residential-proxy frontend); we do NOT
+    # decrypt at the edge — SNI-route the bytes to the backend Service
+    # as-is. This is why `tls.mode: Passthrough` and no certificateRefs.
+    - name: tls-proxy
+      protocol: TLS
+      port: 443
+      hostname: "proxy.iogrid.org"
+      tls:
+        mode: Passthrough
+      allowedRoutes:
+        kinds:
+          - kind: TLSRoute
+            group: gateway.networking.k8s.io
+        namespaces:
+          from: Same

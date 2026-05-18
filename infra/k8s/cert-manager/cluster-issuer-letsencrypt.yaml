@@ -1,0 +1,64 @@
+# Let's Encrypt ClusterIssuer used by every iogrid.org Certificate CR.
+#
+# Architecture choice (2026-05-18, see docs/DNS_TLS.md):
+#   - HTTP-01 over Cilium Gateway API (gatewayHTTPRoute solver) is the
+#     target. While the mothership is still on the legacy Traefik Ingress
+#     (transitional, shared with the OpenOva tenant), a co-resident
+#     `letsencrypt-prod` ClusterIssuer already exists on the cluster
+#     using `http01.ingress.ingressClassName=traefik`. The iogrid
+#     Certificate CRs reference that same Issuer name so they can solve
+#     via Traefik today and the *same* Issuer object can be swapped to
+#     `gatewayHTTPRoute` once Cilium Gateway replaces Traefik without
+#     touching Certificate or HTTPRoute manifests.
+#
+#   - DNS-01 was NOT chosen: it would require iogrid.org NS records to
+#     delegate to PowerDNS in `openova-system`, coupling iogrid to the
+#     OpenOva DNS stack. End-state decision (commit f49fe50): iogrid is
+#     an independent brand — keep its DNS at Dynadot with A records
+#     direct to the mothership LB IP.
+#
+# This file is APPLY-IF-ABSENT — the same ClusterIssuer is already
+# managed by the OpenOva cluster's apps Kustomization. If Flux for
+# iogrid runs in a separate vCluster or new mothership, this manifest
+# bootstraps it standalone.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+  labels:
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: cert-issuer
+spec:
+  acme:
+    email: admin@iogrid.org
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-prod-account-key
+    solvers:
+      # Solver 1 — Cilium Gateway API (gatewayHTTPRoute). cert-manager
+      # auto-creates a temporary HTTPRoute attaching to the matching
+      # Gateway listener on port 80 for the /.well-known/acme-challenge
+      # path during the validation window.
+      - http01:
+          gatewayHTTPRoute:
+            parentRefs:
+              - name: iogrid-gateway
+                namespace: iogrid
+                kind: Gateway
+                group: gateway.networking.k8s.io
+        selector:
+          dnsNames:
+            - iogrid.org
+            - www.iogrid.org
+            - api.iogrid.org
+            - app.iogrid.org
+            - build.iogrid.org
+            - docs.iogrid.org
+            - status.iogrid.org
+      # Solver 2 — legacy Traefik Ingress (transitional). Matches any
+      # dnsName not caught by solver 1, including wildcards we don't
+      # currently route through Gateway API. Safe to remove once all
+      # iogrid traffic flows through the Cilium Gateway.
+      - http01:
+          ingress:
+            ingressClassName: traefik
