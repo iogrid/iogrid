@@ -16,8 +16,8 @@ repository = "https://github.com/iogrid/iogrid"
 authors = ["iogrid contributors"]
 
 [workspace.dependencies]
-anchor-lang = { version = "0.31.0", features = ["init-if-needed"] }
-anchor-spl  = { version = "0.31.0", features = ["token_2022", "token"] }
+anchor-lang = { version = "0.31.1", features = ["init-if-needed"] }
+anchor-spl  = { version = "0.31.1", features = ["token_2022", "token"] }
 
 [profile.release]
 overflow-checks = true

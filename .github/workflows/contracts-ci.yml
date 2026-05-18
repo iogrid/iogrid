@@ -19,7 +19,9 @@ concurrency:
 
 env:
   SOLANA_VERSION: "v1.18.26"
-  ANCHOR_VERSION: "0.31.0"
+  # 0.31.1 fixes a transitive proc-macro-error 1.0.4 build break on modern rustc.
+  # See https://github.com/coral-xyz/anchor/releases/tag/v0.31.1
+  ANCHOR_VERSION: "0.31.1"
   NODE_VERSION: "20"
   CARGO_TERM_COLOR: always
   # `-D warnings` would fail the build on the noisy `unexpected cfg condition value:
