@@ -1,0 +1,56 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: vpn-gateway
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: vpn-gateway
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: vpn
+  annotations:
+    # The HTTP control surface is ClusterIP-internal — only gateway-bff
+    # and admin tooling talk to it.
+    iogrid.org/role: "control"
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: vpn-gateway
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vpn-gateway-wireguard
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: vpn-gateway
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: vpn
+  annotations:
+    # The WireGuard data-plane is a SEPARATE LoadBalancer service so it
+    # binds a distinct public IP (not the same one as proxy.iogrid.org).
+    # vpn.iogrid.org resolves to this LB; coordinator's mesh-internal
+    # iogrid-tunnel runs on its own private IPs and is unrelated.
+    iogrid.org/role: "data-plane"
+    iogrid.org/public-endpoint: "vpn.iogrid.org:51820"
+    # externalTrafficPolicy=Local preserves the customer's source IP
+    # so per-session metering and abuse pipelines can geo-locate them.
+    service.beta.kubernetes.io/load-balancer-source-ranges: "0.0.0.0/0"
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  selector:
+    app.kubernetes.io/name: vpn-gateway
+  ports:
+    - name: wireguard
+      port: 51820
+      targetPort: wireguard
+      protocol: UDP

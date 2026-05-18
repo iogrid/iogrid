@@ -1,0 +1,105 @@
+# vpn-gateway — consumer-VPN aggregator.
+# Ingress: UDP :51820 from the internet (via the LoadBalancer service),
+#          HTTP :8080 from gateway-bff (config render, admit), metrics from
+#          the monitoring namespace.
+# Egress:  billing-svc (tier lookup), workloads-svc (provider selection),
+#          identity-svc (customer lookup), antiabuse-svc (pre-flight),
+#          NATS (metering events), Redis (sticky-session table),
+#          BLOCKLIST_URL refresh — to the internet.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vpn-gateway-allow
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: vpn-gateway
+    app.kubernetes.io/part-of: iogrid
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: vpn-gateway
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: gateway-system
+      ports:
+        - protocol: TCP
+          port: 8080
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: gateway-bff
+      ports:
+        - protocol: TCP
+          port: 8080
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9090
+    # Customer WireGuard handshakes (UDP) arrive via the LoadBalancer
+    # ingress controller, which is treated as "everywhere" for the
+    # purposes of the NetworkPolicy.
+    - ports:
+        - protocol: UDP
+          port: 51820
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: billing-svc
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: workloads-svc
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: identity-svc
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: antiabuse-svc
+      ports:
+        - protocol: TCP
+          port: 8080
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: nats
+      ports:
+        - protocol: TCP
+          port: 4222
+    # DNS (kube-dns) + the public blocklist refresh fetch (StevenBlack).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443

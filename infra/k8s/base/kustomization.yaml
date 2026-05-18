@@ -14,6 +14,7 @@ resources:
   - telemetry-svc
   - gateway-bff
   - proxy-gateway
+  - vpn-gateway
   - build-gateway
   - web
   - gateway
