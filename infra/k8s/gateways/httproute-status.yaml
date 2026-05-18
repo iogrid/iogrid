@@ -1,0 +1,56 @@
+# status.iogrid.org — placeholder, currently URL-rewrites onto
+# gateway-bff's /status endpoint.
+#
+# End-state: a dedicated statuspage-style service (independent of the
+# main API so it stays up during incidents). For now we route to
+# gateway-bff with a URLRewrite filter so `status.iogrid.org/` becomes
+# `gateway-bff/status` — a single endpoint serving a JSON health
+# summary plus an HTML page driven by the same data.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: status
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/part-of: iogrid
+spec:
+  parentRefs:
+    - name: iogrid-gateway
+      sectionName: https-status
+  hostnames:
+    - status.iogrid.org
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /status
+      backendRefs:
+        - name: gateway-bff
+          port: 8080
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: status-redirect-https
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/part-of: iogrid
+spec:
+  parentRefs:
+    - name: iogrid-gateway
+      sectionName: http
+  hostnames:
+    - status.iogrid.org
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301
