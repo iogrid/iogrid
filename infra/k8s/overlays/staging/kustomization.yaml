@@ -1,0 +1,89 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Staging overlay — `*.staging.iogrid.org`, lower replicas, LE staging issuer.
+resources:
+  - ../../base
+namespace: iogrid
+commonAnnotations:
+  iogrid.org/environment: staging
+# Replace LE prod ClusterIssuer with staging in cert-manager certificate refs.
+patches:
+  - target:
+      kind: Certificate
+      group: cert-manager.io
+    patch: |-
+      - op: replace
+        path: /spec/issuerRef/name
+        value: letsencrypt-staging-http01
+  # Halve service replica baselines for cost
+  - target:
+      kind: Deployment
+      labelSelector: app.kubernetes.io/component=backend
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+  - target:
+      kind: Deployment
+      labelSelector: app.kubernetes.io/component=gateway
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+  - target:
+      kind: HorizontalPodAutoscaler
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 1
+      - op: replace
+        path: /spec/maxReplicas
+        value: 4
+  - target:
+      kind: Cluster
+      group: postgresql.cnpg.io
+      name: iogrid-pg
+    patch: |-
+      - op: replace
+        path: /spec/instances
+        value: 2
+  - target:
+      kind: StatefulSet
+      name: redis
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 3
+  # Rewrite hostnames app/api/build/proxy.iogrid.org → *.staging.iogrid.org.
+  - target:
+      kind: HTTPRoute
+      group: gateway.networking.k8s.io
+      name: api-iogrid-org
+    patch: |-
+      - op: replace
+        path: /spec/hostnames/0
+        value: api.staging.iogrid.org
+  - target:
+      kind: HTTPRoute
+      group: gateway.networking.k8s.io
+      name: app-iogrid-org
+    patch: |-
+      - op: replace
+        path: /spec/hostnames/0
+        value: app.staging.iogrid.org
+  - target:
+      kind: HTTPRoute
+      group: gateway.networking.k8s.io
+      name: build-iogrid-org
+    patch: |-
+      - op: replace
+        path: /spec/hostnames/0
+        value: build.staging.iogrid.org
+  - target:
+      kind: TLSRoute
+      group: gateway.networking.k8s.io
+      name: proxy-iogrid-org
+    patch: |-
+      - op: replace
+        path: /spec/hostnames/0
+        value: proxy.staging.iogrid.org

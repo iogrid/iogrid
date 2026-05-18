@@ -1,0 +1,27 @@
+{{- range $name, $svc := .Values.services }}
+{{- $cfg := include "iogrid.svcConfig" (dict "Values" $.Values "svcName" $name "svcCfg" $svc) | fromYaml }}
+{{- if $cfg.autoscaling.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "iogrid.fullname" (dict "Release" $.Release "svcName" $name) }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "iogrid.labels" (dict "Release" $.Release "svcName" $name) | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "iogrid.fullname" (dict "Release" $.Release "svcName" $name) }}
+  minReplicas: {{ $cfg.autoscaling.minReplicas }}
+  maxReplicas: {{ $cfg.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $cfg.autoscaling.targetCPUUtilizationPercentage }}
+{{- end }}
+{{- end }}

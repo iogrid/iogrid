@@ -1,0 +1,99 @@
+---
+# api.iogrid.org → gateway-bff (BFF terminates HTTP/JSON and gRPC-web).
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: api-iogrid-org
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/part-of: iogrid
+spec:
+  parentRefs:
+    - name: iogrid
+      namespace: gateway-system
+      sectionName: api-https
+  hostnames:
+    - api.iogrid.org
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: gateway-bff
+          port: 8080
+          weight: 100
+---
+# app.iogrid.org → web (Next.js 15 RSC frontend).
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: app-iogrid-org
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/part-of: iogrid
+spec:
+  parentRefs:
+    - name: iogrid
+      namespace: gateway-system
+      sectionName: app-https
+  hostnames:
+    - app.iogrid.org
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: web
+          port: 3000
+          weight: 100
+---
+# build.iogrid.org → build-gateway (iOS-build submissions, large multipart uploads).
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: build-iogrid-org
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/part-of: iogrid
+spec:
+  parentRefs:
+    - name: iogrid
+      namespace: gateway-system
+      sectionName: build-https
+  hostnames:
+    - build.iogrid.org
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: build-gateway
+          port: 8080
+          weight: 100
+---
+# HTTP → HTTPS redirect for all hostnames.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: iogrid-http-redirect
+  namespace: gateway-system
+  labels:
+    app.kubernetes.io/part-of: iogrid
+spec:
+  parentRefs:
+    - name: iogrid
+      sectionName: http
+  hostnames:
+    - app.iogrid.org
+    - api.iogrid.org
+    - build.iogrid.org
+    - proxy.iogrid.org
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301

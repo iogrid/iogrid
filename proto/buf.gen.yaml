@@ -1,0 +1,29 @@
+version: v2
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: github.com/iogrid/iogrid/coordinator/internal/pb
+plugins:
+  # Go protobuf message bindings
+  - remote: buf.build/protocolbuffers/go:v1.34.2
+    out: ../coordinator/internal/pb
+    opt: paths=source_relative
+  # Connect-Go service bindings
+  - remote: buf.build/connectrpc/go:v1.16.2
+    out: ../coordinator/internal/pb
+    opt: paths=source_relative
+  # TypeScript message bindings (Protobuf-ES)
+  - remote: buf.build/bufbuild/es:v1.10.0
+    out: ../web/src/lib/pb
+    opt:
+      - target=ts
+      - import_extension=js
+  # Connect-Web TypeScript service bindings
+  - remote: buf.build/connectrpc/es:v1.4.0
+    out: ../web/src/lib/pb
+    opt:
+      - target=ts
+      - import_extension=js
+inputs:
+  - directory: .

@@ -1,0 +1,19 @@
+[package]
+name = "iogrid-platform-linux"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "iogridd platform-linux — systemd user unit paths, idle detection."
+
+[lib]
+name = "iogrid_platform_linux"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }

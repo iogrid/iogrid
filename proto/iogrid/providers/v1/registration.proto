@@ -1,0 +1,182 @@
+// Provider registration and capability inventory. Called by the Rust
+// daemon during first-run pairing and on every reconnect to refresh its
+// advertised capabilities.
+syntax = "proto3";
+
+package iogrid.providers.v1;
+
+import "google/protobuf/timestamp.proto";
+import "iogrid/common/v1/types.proto";
+
+option go_package = "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/providers/v1;providersv1";
+
+// Platform identifies the host OS family. Daemon reports this on every
+// register call; routing uses it to filter eligible workloads (e.g. only
+// macOS hosts can run iOS-build).
+enum Platform {
+  PLATFORM_UNSPECIFIED = 0;
+  PLATFORM_MACOS = 1;
+  PLATFORM_LINUX = 2;
+  PLATFORM_WINDOWS = 3;
+}
+
+// Architecture for binary selection (e.g. signed installer downloads).
+enum Architecture {
+  ARCHITECTURE_UNSPECIFIED = 0;
+  ARCHITECTURE_AMD64 = 1;
+  ARCHITECTURE_ARM64 = 2;
+}
+
+// HostInfo captures static-ish facts about the provider's machine. Sent
+// at registration and re-sent on hardware change (CPU/RAM/GPU swap).
+message HostInfo {
+  Platform platform = 1;
+  Architecture architecture = 2;
+  // Kernel/OS version string (e.g. "Darwin 24.2.0", "Linux 6.8.0", "Windows 11 23H2").
+  string os_version = 3;
+  // Daemon semantic version (e.g. "0.4.1").
+  string daemon_version = 4;
+  // Total physical RAM in mebibytes.
+  uint64 total_memory_mib = 5;
+  // CPU model display string (e.g. "Apple M2 Pro", "AMD Ryzen 9 5950X").
+  string cpu_model = 6;
+  // Logical CPU count.
+  uint32 cpu_logical_cores = 7;
+  // GPU model(s) if any — empty for headless servers.
+  repeated string gpu_models = 8;
+  // True iff Docker is installed AND the daemon can spawn a test container.
+  bool docker_available = 9;
+  // True iff Tart is installed (macOS only).
+  bool tart_available = 10;
+}
+
+// NetworkInfo summarises the egress posture of the provider. Updated on
+// connectivity change.
+message NetworkInfo {
+  // Public IP last observed (may rotate; just an advisory snapshot).
+  string public_ip = 1;
+  // ASN of the egress (helps anti-abuse score commercial-vs-residential).
+  uint32 asn = 2;
+  // ISP / carrier display name.
+  string isp = 3;
+  // Estimated symmetric throughput in Mbps (one-shot measurement).
+  uint32 throughput_mbps = 4;
+  // Estimated p50 latency to the nearest coordinator region, in ms.
+  uint32 latency_ms = 5;
+  // Inferred geo, used until the provider confirms.
+  iogrid.common.v1.Region inferred_region = 6;
+}
+
+// CapabilityInventory enumerates which workload types this provider can
+// run. Daemon recomputes on every connect — coordinator's source of
+// truth is the most-recent successful registration.
+message CapabilityInventory {
+  repeated iogrid.common.v1.WorkloadType supported_workload_types = 1;
+  // True iff GPU compute is available AND opt-in.
+  bool gpu_enabled = 2;
+  // True iff macOS+Tart is available AND opt-in.
+  bool ios_build_enabled = 3;
+}
+
+// ProviderStatus is the lifecycle of a provider account on the platform.
+enum ProviderStatus {
+  PROVIDER_STATUS_UNSPECIFIED = 0;
+  // Daemon paired, ready to receive workloads.
+  PROVIDER_STATUS_ACTIVE = 1;
+  // Daemon paired but currently offline.
+  PROVIDER_STATUS_OFFLINE = 2;
+  // Suspended by operations (anti-abuse hit, payout failure, manual).
+  PROVIDER_STATUS_SUSPENDED = 3;
+  // Self-deactivated by the provider.
+  PROVIDER_STATUS_DEACTIVATED = 4;
+}
+
+// Provider record, server-side projection of the daemon's identity.
+message Provider {
+  iogrid.common.v1.UUID id = 1;
+  // User who owns this provider node (one user can have many providers
+  // — one per machine).
+  iogrid.common.v1.UUID owner_user_id = 2;
+  // Human-friendly nickname, e.g. "Living-room iMac".
+  string display_name = 3;
+  ProviderStatus status = 4;
+  HostInfo host_info = 5;
+  NetworkInfo network_info = 6;
+  CapabilityInventory capabilities = 7;
+  google.protobuf.Timestamp registered_at = 8;
+  google.protobuf.Timestamp last_seen_at = 9;
+}
+
+// --- RPCs -----------------------------------------------------------------
+
+message PairDaemonRequest {
+  // One-time pairing token displayed in the browser onboarding flow.
+  string pairing_token = 1;
+  HostInfo host_info = 2;
+  NetworkInfo network_info = 3;
+  // Daemon-generated keypair: server stores the public key, daemon keeps
+  // the private key. Used for mTLS on subsequent connections.
+  bytes daemon_public_key = 4;
+  // Provider-chosen display name; if empty, server derives from hostname.
+  string display_name = 5;
+}
+message PairDaemonResponse {
+  Provider provider = 1;
+  // The signed mTLS certificate the daemon uses to connect from here on.
+  bytes daemon_certificate = 2;
+  // CA bundle the daemon should trust for coordinator connections.
+  bytes server_ca_bundle = 3;
+}
+
+message UpdateHostInfoRequest {
+  iogrid.common.v1.UUID provider_id = 1;
+  HostInfo host_info = 2;
+  NetworkInfo network_info = 3;
+}
+message UpdateHostInfoResponse {
+  Provider provider = 1;
+}
+
+message UpdateCapabilityInventoryRequest {
+  iogrid.common.v1.UUID provider_id = 1;
+  CapabilityInventory capabilities = 2;
+}
+message UpdateCapabilityInventoryResponse {
+  Provider provider = 1;
+}
+
+message GetProviderRequest {
+  iogrid.common.v1.UUID provider_id = 1;
+}
+message GetProviderResponse {
+  Provider provider = 1;
+}
+
+message ListProvidersRequest {
+  iogrid.common.v1.PageRequest page = 1;
+  // Filter by owner — empty UUID means "any owner" (admin-only).
+  iogrid.common.v1.UUID owner_user_id = 2;
+  ProviderStatus status_filter = 3;
+}
+message ListProvidersResponse {
+  repeated Provider providers = 1;
+  iogrid.common.v1.PageResponse page = 2;
+}
+
+message DeactivateProviderRequest {
+  iogrid.common.v1.UUID provider_id = 1;
+  // Optional human reason captured in audit log.
+  string reason = 2;
+}
+message DeactivateProviderResponse {}
+
+// ProviderRegistrationService is called by the Rust daemon (pair, update)
+// and by the management plane (read, deactivate).
+service ProviderRegistrationService {
+  rpc PairDaemon(PairDaemonRequest) returns (PairDaemonResponse);
+  rpc UpdateHostInfo(UpdateHostInfoRequest) returns (UpdateHostInfoResponse);
+  rpc UpdateCapabilityInventory(UpdateCapabilityInventoryRequest) returns (UpdateCapabilityInventoryResponse);
+  rpc GetProvider(GetProviderRequest) returns (GetProviderResponse);
+  rpc ListProviders(ListProvidersRequest) returns (ListProvidersResponse);
+  rpc DeactivateProvider(DeactivateProviderRequest) returns (DeactivateProviderResponse);
+}

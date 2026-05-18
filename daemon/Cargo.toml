@@ -1,0 +1,97 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/core",
+    "crates/transport",
+    "crates/routing",
+    "crates/workload-docker",
+    "crates/workload-gpu",
+    "crates/workload-ios",
+    "crates/anti-abuse",
+    "crates/scheduler",
+    "crates/ui-bridge",
+    "crates/platform-mac",
+    "crates/platform-linux",
+    "crates/platform-windows",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.95"
+license = "Apache-2.0"
+repository = "https://github.com/iogrid/iogrid"
+authors = ["iogrid contributors <eng@iogrid.org>"]
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+async-trait = "0.1"
+futures = "0.3"
+
+# Errors / tracing
+anyhow = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Serde
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# gRPC + HTTP
+tonic = { version = "0.12", features = ["tls"] }
+tonic-build = "0.12"
+prost = "0.13"
+prost-types = "0.13"
+axum = { version = "0.7", features = ["macros"] }
+hyper = "1"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace", "cors"] }
+
+# TLS / crypto
+rustls = "0.23"
+tokio-rustls = "0.26"
+rustls-pemfile = "2"
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+time = "0.3"
+
+# Misc
+bytes = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+parking_lot = "0.12"
+once_cell = "1"
+
+# Container runners
+bollard = "0.18"
+
+# Local workspace crates
+iogrid-core = { path = "crates/core" }
+iogrid-transport = { path = "crates/transport" }
+iogrid-routing = { path = "crates/routing" }
+iogrid-workload-docker = { path = "crates/workload-docker" }
+iogrid-workload-gpu = { path = "crates/workload-gpu" }
+iogrid-workload-ios = { path = "crates/workload-ios" }
+iogrid-anti-abuse = { path = "crates/anti-abuse" }
+iogrid-scheduler = { path = "crates/scheduler" }
+iogrid-ui-bridge = { path = "crates/ui-bridge" }
+iogrid-platform-mac = { path = "crates/platform-mac" }
+iogrid-platform-linux = { path = "crates/platform-linux" }
+iogrid-platform-windows = { path = "crates/platform-windows" }
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+opt-level = 3
+panic = "abort"
+debug = false
+incremental = false
+
+[profile.dev]
+opt-level = 0
+debug = true

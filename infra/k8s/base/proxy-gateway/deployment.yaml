@@ -1,0 +1,136 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: proxy-gateway
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: proxy-gateway
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: gateway
+  annotations:
+    # proxy-gateway terminates customer TLS sessions IN-POD (raw TLS passthrough
+    # from the Gateway-API listener). It is the data-plane SOCKS5/HTTP-CONNECT
+    # relay that forwards traffic into the provider daemon WireGuard tunnels.
+    iogrid.org/data-plane: "true"
+spec:
+  replicas: 3
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: proxy-gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: proxy-gateway
+        app.kubernetes.io/part-of: iogrid
+        app.kubernetes.io/component: gateway
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: proxy-gateway
+      automountServiceAccountToken: true
+      # proxy-gateway speaks raw TLS to customer clients (passthrough). It uses
+      # SO_REUSEPORT to spread incoming TCP connections across replicas on the
+      # same node when running with a DaemonSet host-network deployment. The
+      # default rollout is non-host-network ClusterIP via Gateway-API TLS-passthrough.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: proxy-gateway
+          image: ghcr.io/iogrid/proxy-gateway:scaffold
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: tls
+              containerPort: 8443
+              protocol: TCP
+            - name: socks5
+              containerPort: 1080
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: LOG_LEVEL
+              value: info
+            - name: SERVICE_NAME
+              value: proxy-gateway
+            # In passthrough mode, proxy-gateway terminates TLS using a server
+            # cert sourced from cert-manager via projected secret.
+            - name: TLS_CERT_FILE
+              value: /etc/proxy-gateway/tls/tls.crt
+            - name: TLS_KEY_FILE
+              value: /etc/proxy-gateway/tls/tls.key
+          envFrom:
+            - configMapRef:
+                name: proxy-gateway-config
+                optional: true
+            - secretRef:
+                name: proxy-gateway-secrets
+                optional: true
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 2000m
+              memory: 1Gi
+          livenessProbe:
+            tcpSocket:
+              port: tls
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            tcpSocket:
+              port: tls
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tls
+              mountPath: /etc/proxy-gateway/tls
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tls
+          secret:
+            secretName: proxy-iogrid-org-tls
+            optional: true
+        - name: tmp
+          emptyDir: {}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: proxy-gateway

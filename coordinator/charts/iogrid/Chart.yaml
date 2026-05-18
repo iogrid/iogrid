@@ -1,0 +1,16 @@
+apiVersion: v2
+name: iogrid
+description: Helm chart for the iogrid coordinator microservices (Go).
+type: application
+version: 0.1.0
+appVersion: "0.0.1"
+keywords:
+  - iogrid
+  - coordinator
+  - mesh
+  - distributed
+sources:
+  - https://github.com/iogrid/iogrid
+maintainers:
+  - name: iogrid
+    url: https://iogrid.org

@@ -1,0 +1,22 @@
+[package]
+name = "iogrid-anti-abuse"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "iogridd anti-abuse — local pre-flight filters that mirror server-side rules."
+
+[lib]
+name = "iogrid_anti_abuse"
+path = "src/lib.rs"
+
+[dependencies]
+tokio = { workspace = true }
+async-trait = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+parking_lot = { workspace = true }
