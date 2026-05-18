@@ -70,6 +70,11 @@ spotless {
         endWithNewline()
         trimTrailingWhitespace()
     }
+    // Spotless wires `spotlessCheck` as a dependency of `check` by
+    // default. We want `gradle check` (CI gate) to mean compile + test
+    // only; format violations should be a separate, advisory task
+    // (`gradle spotlessCheck`) that CI runs with `continue-on-error`.
+    isEnforceCheck = false
 }
 
 publishing {
