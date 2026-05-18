@@ -27,7 +27,13 @@ describe("vesting", () => {
     const tierType = resolveType(program.idl, "VestTier");
     assert.exists(tierType, "VestTier enum should exist");
     const variants = ((tierType as any).type?.variants ?? []).map((v: any) => v.name);
-    assert.includeMembers(variants, ["Standard", "Loyalty", "Conviction", "Maximum"]);
+    // Anchor 0.31 normalises enum *variant* names to camelCase (initial-lowercase),
+    // same as instructions / error variants. Use the helper to tolerate both forms.
+    assertIdlIncludes(
+      variants,
+      ["Standard", "Loyalty", "Conviction", "Maximum"],
+      "VestTier variants",
+    );
   });
 
   it("IDL exposes early-unlock + cooldown errors", () => {

@@ -14,8 +14,9 @@ describe("staking", () => {
     const kind = resolveType(program.idl, "StakeKind");
     assert.exists(kind, "StakeKind enum should exist in idl.types");
     const variants = ((kind as any).type?.variants ?? []).map((v: any) => v.name);
-    // User-defined enum variants are kept verbatim by Anchor across 0.30/0.31.
-    assert.includeMembers(variants, ["Provider", "Customer"]);
+    // Anchor 0.31 normalises enum *variant* names to camelCase (initial-lowercase),
+    // same as instructions / error variants. Use the helper to tolerate both forms.
+    assertIdlIncludes(variants, ["Provider", "Customer"], "StakeKind variants");
   });
 
   it("IDL exposes stake/unstake/accrue/claim", () => {
