@@ -10,6 +10,7 @@ on:
     paths:
       - "contracts/**"
       - ".github/workflows/contracts-ci.yml"
+  workflow_dispatch: {}
 
 # Conservative concurrency: cancel older runs of the same ref to save CI minutes; main runs
 # are not cancelled (they may be required for branch protection).
