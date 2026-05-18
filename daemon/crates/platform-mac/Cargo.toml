@@ -1,0 +1,19 @@
+[package]
+name = "iogrid-platform-mac"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "iogridd platform-mac — IOKit idle detection, LaunchAgent paths."
+
+[lib]
+name = "iogrid_platform_mac"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }

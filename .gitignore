@@ -42,3 +42,9 @@ logs/
 # Coverage
 coverage.txt
 coverage.html
+
+# Rust
+daemon/target/
+target/
+**/*.rs.bk
+Cargo.lock.bak

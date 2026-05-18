@@ -1,0 +1,48 @@
+[package]
+name = "iogrid-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "iogridd supervisor — tokio runtime, top-level state machine, lifecycle orchestration."
+
+[lib]
+name = "iogrid_core"
+path = "src/lib.rs"
+
+[[bin]]
+name = "iogridd"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+async-trait = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+parking_lot = { workspace = true }
+
+iogrid-transport = { workspace = true }
+iogrid-routing = { workspace = true }
+iogrid-anti-abuse = { workspace = true }
+iogrid-scheduler = { workspace = true }
+iogrid-ui-bridge = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+iogrid-platform-mac = { workspace = true }
+iogrid-workload-ios = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+iogrid-platform-linux = { workspace = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+iogrid-platform-windows = { workspace = true }
