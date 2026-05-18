@@ -7,7 +7,8 @@
 #
 # The container preserves the repo layout under /src so the per-service
 # go.mod 'replace github.com/iogrid/iogrid/coordinator/shared => ../../shared'
-# resolves against the in-tree shared module.
+# and 'replace ...coordinator/internal/pb => ../../internal/pb' resolve
+# against the in-tree shared + pb modules.
 FROM --platform=$BUILDPLATFORM golang:1.23-bookworm AS builder
 
 ARG TARGETOS=linux
@@ -15,8 +16,10 @@ ARG TARGETARCH=amd64
 
 WORKDIR /src
 
-# Copy the shared module first so layer caching survives service-only edits.
+# Copy the shared + pb modules first so layer caching survives
+# service-only edits.
 COPY coordinator/shared /src/coordinator/shared
+COPY coordinator/internal/pb /src/coordinator/internal/pb
 COPY coordinator/services/gateway-bff /src/coordinator/services/gateway-bff
 
 WORKDIR /src/coordinator/services/gateway-bff
