@@ -1,0 +1,16 @@
+---
+# Reference copy. Authoritative version in iogrid/iogrid-ops.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: iogrid
+  namespace: flux-system
+spec:
+  interval: 1m
+  url: https://github.com/iogrid/iogrid
+  ref:
+    branch: main
+  ignore: |
+    # exclude everything except infra/k8s
+    /*
+    !/infra/k8s

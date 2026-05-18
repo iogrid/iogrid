@@ -1,0 +1,94 @@
+---
+# CNPG Cluster — single Postgres cluster, multi-database via post-init scripts.
+# Per-service databases: identity, providers, workloads, antiabuse, billing, telemetry.
+# Each microservice connects with its own role + database — isolation via Postgres ACLs,
+# not via separate clusters (cost/operational tradeoff; clusters split later when warranted).
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: iogrid-pg
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: iogrid-pg
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: database
+spec:
+  instances: 3
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.4
+  primaryUpdateStrategy: unsupervised
+  storage:
+    size: 50Gi
+    storageClass: local-path
+  monitoring:
+    enablePodMonitor: true
+  postgresql:
+    parameters:
+      max_connections: "400"
+      shared_buffers: 512MB
+      effective_cache_size: 1536MB
+      work_mem: 8MB
+      maintenance_work_mem: 128MB
+      wal_buffers: 16MB
+      wal_compression: "on"
+      log_min_duration_statement: "250"
+      log_checkpoints: "on"
+      log_connections: "off"
+      log_disconnections: "off"
+      log_lock_waits: "on"
+      log_temp_files: "0"
+    pg_hba:
+      # Allow each microservice role from inside the cluster
+      - host all all 10.0.0.0/8 scram-sha-256
+      - host all all 172.16.0.0/12 scram-sha-256
+      - host all all 192.168.0.0/16 scram-sha-256
+  bootstrap:
+    initdb:
+      database: iogrid
+      owner: iogrid
+      postInitApplicationSQL:
+        # Per-service databases. Roles are created via SealedSecrets out-of-band
+        # (each service ships its own Secret with its connection string at deploy time).
+        - CREATE DATABASE identity;
+        - CREATE DATABASE providers;
+        - CREATE DATABASE workloads;
+        - CREATE DATABASE antiabuse;
+        - CREATE DATABASE billing;
+        - CREATE DATABASE telemetry;
+        - CREATE ROLE identity_user LOGIN;
+        - CREATE ROLE providers_user LOGIN;
+        - CREATE ROLE workloads_user LOGIN;
+        - CREATE ROLE antiabuse_user LOGIN;
+        - CREATE ROLE billing_user LOGIN;
+        - CREATE ROLE telemetry_user LOGIN;
+        - GRANT ALL PRIVILEGES ON DATABASE identity TO identity_user;
+        - GRANT ALL PRIVILEGES ON DATABASE providers TO providers_user;
+        - GRANT ALL PRIVILEGES ON DATABASE workloads TO workloads_user;
+        - GRANT ALL PRIVILEGES ON DATABASE antiabuse TO antiabuse_user;
+        - GRANT ALL PRIVILEGES ON DATABASE billing TO billing_user;
+        - GRANT ALL PRIVILEGES ON DATABASE telemetry TO telemetry_user;
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+  affinity:
+    podAntiAffinityType: preferred
+    topologyKey: kubernetes.io/hostname
+  backup:
+    retentionPolicy: 30d
+    barmanObjectStore:
+      destinationPath: s3://iogrid-backups/cnpg/iogrid-pg
+      endpointURL: https://hel1.your-objectstorage.com
+      s3Credentials:
+        accessKeyId:
+          name: iogrid-pg-backup-s3
+          key: ACCESS_KEY_ID
+        secretAccessKey:
+          name: iogrid-pg-backup-s3
+          key: SECRET_ACCESS_KEY
+      wal:
+        compression: gzip
+      data:
+        compression: gzip

@@ -1,0 +1,70 @@
+---
+# Production ClusterIssuer — Let's Encrypt via HTTP-01 (Gateway-API solver).
+# Used by app/api/build hostnames.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod-http01
+  labels:
+    app.kubernetes.io/part-of: iogrid
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: ops@iogrid.org
+    privateKeySecretRef:
+      name: letsencrypt-prod-http01-account
+    solvers:
+      - http01:
+          gatewayHTTPRoute:
+            parentRefs:
+              - name: iogrid
+                namespace: gateway-system
+                kind: Gateway
+                sectionName: http
+---
+# Staging issuer for E2E tests (don't burn the LE rate limit on dev rebuilds).
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging-http01
+  labels:
+    app.kubernetes.io/part-of: iogrid
+spec:
+  acme:
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    email: ops@iogrid.org
+    privateKeySecretRef:
+      name: letsencrypt-staging-http01-account
+    solvers:
+      - http01:
+          gatewayHTTPRoute:
+            parentRefs:
+              - name: iogrid
+                namespace: gateway-system
+                kind: Gateway
+                sectionName: http
+---
+# DNS-01 issuer (Dynadot) — used for proxy.iogrid.org since proxy is TLS
+# passthrough and HTTP-01 cannot answer the challenge on port 80 for it.
+# Webhook lives in cert-manager-dynadot pod (Helm chart in `iogrid-ops`).
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod-dns01-dynadot
+  labels:
+    app.kubernetes.io/part-of: iogrid
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: ops@iogrid.org
+    privateKeySecretRef:
+      name: letsencrypt-prod-dns01-dynadot-account
+    solvers:
+      - dns01:
+          webhook:
+            groupName: acme.dynadot.iogrid.org
+            solverName: dynadot
+            config:
+              apiKeySecretRef:
+                name: dynadot-api-key
+                key: api-key

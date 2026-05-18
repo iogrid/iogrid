@@ -1,0 +1,263 @@
+---
+# NATS JetStream — 3-replica clustered, durable streams for cross-service events:
+#  - daemon.events (registrations, heartbeats, offline)
+#  - workload.events (submit, dispatch, finish, fail)
+#  - billing.events (usage metering)
+#  - antiabuse.events (filter hits, blocks)
+#  - audit.events (transparency dashboard feed)
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: nats
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: messaging
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: nats
+  ports:
+    - name: client
+      port: 4222
+      targetPort: 4222
+    - name: cluster
+      port: 6222
+      targetPort: 6222
+    - name: monitor
+      port: 8222
+      targetPort: 8222
+    - name: metrics
+      port: 7777
+      targetPort: 7777
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nats-config
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: nats
+    app.kubernetes.io/part-of: iogrid
+data:
+  nats.conf: |
+    server_name: $POD_NAME
+    listen: 0.0.0.0:4222
+    http: 0.0.0.0:8222
+    pid_file: "/var/run/nats/nats.pid"
+
+    jetstream {
+      store_dir: /data/jetstream
+      max_mem: 256MB
+      max_file: 8GB
+    }
+
+    cluster {
+      name: iogrid-nats
+      listen: 0.0.0.0:6222
+      routes: [
+        nats://nats-0.nats.iogrid.svc.cluster.local:6222,
+        nats://nats-1.nats.iogrid.svc.cluster.local:6222,
+        nats://nats-2.nats.iogrid.svc.cluster.local:6222
+      ]
+      connect_retries: 30
+    }
+
+    accounts {
+      SYS: { users: [ { user: sys, pass: "$NATS_SYS_PASSWORD" } ] }
+    }
+    system_account: SYS
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: nats
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: nats
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: messaging
+spec:
+  serviceName: nats
+  replicas: 3
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nats
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nats
+        app.kubernetes.io/part-of: iogrid
+        app.kubernetes.io/component: messaging
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "7777"
+        prometheus.io/path: "/metrics"
+    spec:
+      terminationGracePeriodSeconds: 60
+      shareProcessNamespace: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: nats
+          image: nats:2.10-alpine
+          imagePullPolicy: IfNotPresent
+          command:
+            - /nats-server
+            - --config
+            - /etc/nats/nats.conf
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NATS_SYS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: nats-sys
+                  key: password
+                  optional: true
+          ports:
+            - name: client
+              containerPort: 4222
+            - name: cluster
+              containerPort: 6222
+            - name: monitor
+              containerPort: 8222
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: monitor
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: monitor
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: config
+              mountPath: /etc/nats
+              readOnly: true
+            - name: data
+              mountPath: /data
+            - name: pid
+              mountPath: /var/run/nats
+        - name: nats-exporter
+          image: natsio/prometheus-nats-exporter:0.15.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - -varz
+            - -connz
+            - -routez
+            - -subz
+            - -jsz=all
+            - http://localhost:8222
+          ports:
+            - name: metrics
+              containerPort: 7777
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: config
+          configMap:
+            name: nats-config
+        - name: pid
+          emptyDir: {}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: nats
+                topologyKey: kubernetes.io/hostname
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 20Gi
+        storageClassName: local-path
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nats-allow
+  namespace: iogrid
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: nats
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: iogrid
+      ports:
+        - protocol: TCP
+          port: 4222
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: nats
+      ports:
+        - protocol: TCP
+          port: 6222
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 7777
+        - protocol: TCP
+          port: 8222
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: nats
+      ports:
+        - protocol: TCP
+          port: 6222
+        - protocol: TCP
+          port: 4222
