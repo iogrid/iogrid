@@ -18,7 +18,7 @@ describe("grid-token", () => {
   anchor.setProvider(provider);
   const program = anchor.workspace.GridToken as Program<GridToken>;
 
-  it("IDL exposes initialize_config + initialize_mint + mint_to_recipient + lock_authorities", () => {
+  it("IDL exposes initialize_config + initialize_mint + mint_to_recipient + set_metadata + lock_authorities", () => {
     const ixs = program.idl.instructions.map((i: any) => i.name);
     assertIdlIncludes(
       ixs,
@@ -26,10 +26,29 @@ describe("grid-token", () => {
         "initialize_config",
         "initialize_mint",
         "mint_to_recipient",
+        "set_metadata",
         "transfer_mint_authority",
         "lock_authorities",
       ],
       "grid-token instructions",
+    );
+  });
+
+  it("IDL declares the GridMetadata account with name/symbol/uri", () => {
+    const def = resolveType(program.idl, "GridMetadata");
+    assert.exists(def, "GridMetadata type definition should exist");
+    const fields = ((def as any).type?.fields ?? []).map((f: any) => f.name);
+    assertIdlIncludes(
+      fields,
+      ["mint", "name", "symbol", "uri", "name_len", "symbol_len", "uri_len"],
+      "GridMetadata fields",
+    );
+  });
+
+  it("MetadataFieldTooLong error code present", () => {
+    assert.exists(
+      findByAnyName(program.idl.errors, "MetadataFieldTooLong"),
+      "MetadataFieldTooLong error code",
     );
   });
 
