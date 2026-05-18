@@ -1,0 +1,76 @@
+---
+# Gateway API v1 Gateway for iogrid hostnames.
+# Sits in gateway-system namespace, exposed via Cilium / Envoy Gateway controller.
+# Listeners:
+#  - HTTPS  443 (terminate)     → app.iogrid.org, api.iogrid.org, build.iogrid.org
+#  - TLS    443 (passthrough)   → proxy.iogrid.org   (raw TLS forwarded to proxy-gateway)
+#  - HTTP   80                  → redirect to HTTPS
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: iogrid
+  namespace: gateway-system
+  labels:
+    app.kubernetes.io/part-of: iogrid
+spec:
+  gatewayClassName: cilium
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: All
+    - name: app-https
+      protocol: HTTPS
+      port: 443
+      hostname: app.iogrid.org
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: app-iogrid-org-tls
+            namespace: gateway-system
+      allowedRoutes:
+        namespaces:
+          from: All
+          # selector below cannot be combined with from: All — Gateway-API spec.
+    - name: api-https
+      protocol: HTTPS
+      port: 443
+      hostname: api.iogrid.org
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: api-iogrid-org-tls
+            namespace: gateway-system
+      allowedRoutes:
+        namespaces:
+          from: All
+    - name: build-https
+      protocol: HTTPS
+      port: 443
+      hostname: build.iogrid.org
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: build-iogrid-org-tls
+            namespace: gateway-system
+      allowedRoutes:
+        namespaces:
+          from: All
+    # proxy.iogrid.org — TLS passthrough; the customer's TLS terminates inside
+    # the proxy-gateway pod, not at the Gateway. Gateway only does SNI routing.
+    - name: proxy-tls
+      protocol: TLS
+      port: 443
+      hostname: proxy.iogrid.org
+      tls:
+        mode: Passthrough
+      allowedRoutes:
+        kinds:
+          - kind: TLSRoute
+        namespaces:
+          from: All

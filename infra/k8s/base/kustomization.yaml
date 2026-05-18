@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: iogrid
+commonLabels:
+  app.kubernetes.io/part-of: iogrid
+resources:
+  - namespaces
+  - data
+  - identity-svc
+  - providers-svc
+  - workloads-svc
+  - antiabuse-svc
+  - billing-svc
+  - telemetry-svc
+  - gateway-bff
+  - proxy-gateway
+  - build-gateway
+  - web
+  - gateway
+  - certs
