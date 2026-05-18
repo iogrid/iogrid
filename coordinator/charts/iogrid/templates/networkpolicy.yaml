@@ -1,0 +1,60 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- range $name, $svc := .Values.services }}
+---
+# Default-deny + allow-intra-mesh policy for {{ $name }}. The proxy-gateway,
+# build-gateway, and gateway-bff services additionally accept traffic from
+# the ingress controller namespace. Other services are mesh-only (gRPC
+# calls between coordinator microservices).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "iogrid.fullname" (dict "Release" $.Release "svcName" $name) }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "iogrid.labels" (dict "Release" $.Release "svcName" $name) | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "iogrid.selectorLabels" (dict "Release" $.Release "svcName" $name) | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Intra-mesh: any pod in the same namespace may call us.
+    - from:
+        - podSelector: {}
+    # Ingress controller may reach the public-facing services.
+    {{- if or (eq $name "gateway-bff") (eq $name "proxy-gateway") (eq $name "build-gateway") }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $.Values.networkPolicy.ingressNamespace }}
+    {{- end }}
+  egress:
+    # Allow DNS lookups (kube-dns / coredns).
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Intra-mesh egress to any pod in the namespace (Postgres / Redis / NATS / sibling services).
+    - to:
+        - podSelector: {}
+    # Outbound HTTPS to the public internet (Stripe, OAuth providers, OTLP collector).
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - {{ $.Values.networkPolicy.podCIDR }}
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 4317  # OTLP gRPC
+{{- end }}
+{{- end }}
