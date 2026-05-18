@@ -15,8 +15,12 @@ ARG TARGETARCH=amd64
 
 WORKDIR /src
 
-# Copy the shared module first so layer caching survives service-only edits.
+# Copy the shared + generated-pb modules first so layer caching survives
+# service-only edits. The workloads-svc go.mod has relative `replace`
+# directives pointing at ../../shared and ../../internal/pb for the
+# Connect-RPC stubs.
 COPY coordinator/shared /src/coordinator/shared
+COPY coordinator/internal /src/coordinator/internal
 COPY coordinator/services/workloads-svc /src/coordinator/services/workloads-svc
 
 WORKDIR /src/coordinator/services/workloads-svc
