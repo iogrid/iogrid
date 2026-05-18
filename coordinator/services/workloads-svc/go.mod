@@ -5,8 +5,12 @@ go 1.22
 toolchain go1.23.4
 
 require (
+	connectrpc.com/connect v1.18.1
 	github.com/go-chi/chi/v5 v5.1.0
+	github.com/google/uuid v1.6.0
+	github.com/iogrid/iogrid/coordinator/internal/pb v0.0.0-00010101000000-000000000000
 	github.com/iogrid/iogrid/coordinator/shared v0.0.0-00010101000000-000000000000
+	google.golang.org/protobuf v1.35.1
 )
 
 require (
@@ -16,7 +20,6 @@ require (
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.22.0 // indirect
 	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
@@ -38,7 +41,8 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20241007155032-5fefd90f89a9 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20241007155032-5fefd90f89a9 // indirect
 	google.golang.org/grpc v1.67.1 // indirect
-	google.golang.org/protobuf v1.35.1 // indirect
 )
 
 replace github.com/iogrid/iogrid/coordinator/shared => ../../shared
+
+replace github.com/iogrid/iogrid/coordinator/internal/pb => ../../internal/pb

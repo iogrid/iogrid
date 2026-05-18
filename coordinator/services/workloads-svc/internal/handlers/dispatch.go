@@ -1,0 +1,224 @@
+package handlers
+
+import (
+	"context"
+	"errors"
+	"io"
+	"log/slog"
+	"sync"
+	"time"
+
+	"connectrpc.com/connect"
+
+	workloadsv1 "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/workloads/v1"
+	"github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/workloads/v1/workloadsv1connect"
+	"github.com/iogrid/iogrid/coordinator/services/workloads-svc/internal/dispatcher"
+	"github.com/iogrid/iogrid/coordinator/services/workloads-svc/internal/scheduler"
+	"github.com/iogrid/iogrid/coordinator/services/workloads-svc/internal/store"
+	"google.golang.org/protobuf/types/known/timestamppb"
+)
+
+// DispatchHandler implements the WorkloadDispatchService Connect-Go
+// interface. The bidi stream is the canonical production path: daemons
+// open the stream, identify themselves with a DaemonHello, and the
+// coordinator pushes WorkloadAssignment frames over the same channel.
+type DispatchHandler struct {
+	workloadsv1connect.UnimplementedWorkloadDispatchServiceHandler
+	Store      store.Store
+	Dispatcher *dispatcher.D
+	Log        *slog.Logger
+}
+
+// NewDispatchHandler wires the deps.
+func NewDispatchHandler(s store.Store, d *dispatcher.D, log *slog.Logger) *DispatchHandler {
+	if log == nil {
+		log = slog.Default()
+	}
+	return &DispatchHandler{Store: s, Dispatcher: d, Log: log}
+}
+
+// Dispatch is the long-lived bidi stream. The handler:
+//
+//  1. Waits for a DaemonHello, registers the daemon in the dispatcher.
+//  2. Sends a CoordinatorHello ack.
+//  3. Forwards every Assignment the dispatcher pushes onto the stream.
+//  4. Persists every WorkloadStatusUpdate the daemon sends back.
+//  5. On error / EOF / drain, unregisters the daemon cleanly.
+func (h *DispatchHandler) Dispatch(
+	ctx context.Context,
+	stream *connect.BidiStream[workloadsv1.DispatchFrame, workloadsv1.DispatchFrame],
+) error {
+	// Reception loop runs in this goroutine; sending lives on the
+	// `outbox` channel populated by the dispatcher Send hook.
+	hello, err := stream.Receive()
+	if err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		return err
+	}
+	dh := hello.GetDaemonHello()
+	if dh == nil {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("first frame must be daemon_hello"))
+	}
+	providerID := uuidString(dh.GetProviderId())
+	if providerID == "" {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("daemon_hello.provider_id required"))
+	}
+
+	// Send back a coordinator-hello so the daemon knows we adopted it.
+	if err := stream.Send(&workloadsv1.DispatchFrame{
+		Frame: &workloadsv1.DispatchFrame_CoordinatorHello{
+			CoordinatorHello: &workloadsv1.CoordinatorHello{
+				ProviderId: uuidProto(providerID),
+				AcceptedAt: timestamppb.New(time.Now().UTC()),
+			},
+		},
+	}); err != nil {
+		return err
+	}
+
+	// Register with the dispatcher. The Send hook converts the
+	// dispatcher's internal Assignment struct into the wire frame.
+	var sendMu sync.Mutex
+	conn := &dispatcher.Connection{
+		ProviderID: providerID,
+		Snapshot: scheduler.ProviderSnapshot{
+			ID:             providerID,
+			Status:         "active",
+			State:          "SCHEDULER_STATE_ACTIVE",
+			SupportedTypes: capabilityTypesFromHello(dh),
+		},
+		Send: func(a *dispatcher.Assignment) error {
+			sendMu.Lock()
+			defer sendMu.Unlock()
+			w, err := h.Store.GetWorkload(ctx, a.WorkloadID)
+			if err != nil {
+				return err
+			}
+			return stream.Send(&workloadsv1.DispatchFrame{
+				Frame: &workloadsv1.DispatchFrame_Assignment{
+					Assignment: &workloadsv1.WorkloadAssignment{
+						Workload:  workloadToProto(w),
+						AttemptId: uuidProto(a.ID),
+						Deadline:  timestamppb.New(a.Deadline),
+					},
+				},
+			})
+		},
+	}
+	h.Dispatcher.Register(conn)
+	defer h.Dispatcher.Unregister(providerID)
+
+	// Drain frames from the daemon until disconnect.
+	for {
+		f, err := stream.Receive()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return err
+		}
+		switch {
+		case f.GetUpdate() != nil:
+			u := f.GetUpdate()
+			wid := uuidString(u.GetWorkloadId())
+			if wid == "" {
+				continue
+			}
+			s := statusFromProto(u.GetStatus())
+			_ = h.Store.UpdateWorkloadStatus(ctx, wid, s, u.GetNote())
+			if isTerminal(s) {
+				_ = h.Store.SetWorkloadResult(ctx, wid, &store.Result{
+					TerminalStatus: string(s),
+					ExitCode:       u.GetExitCode(),
+					LogsS3Key:      u.GetLogsS3Key(),
+					BytesIn:        u.GetBytesIn(),
+					BytesOut:       u.GetBytesOut(),
+					ArtifactS3Keys: append([]string(nil), u.GetArtifactS3Keys()...),
+					CompletedAt:    time.Now().UTC(),
+				})
+			}
+		case f.GetPing() != nil:
+			// daemon liveness — no-op (otelhttp records the rtt).
+		case f.GetDrain():
+			h.Log.Info("daemon requested drain",
+				slog.String("provider_id", providerID))
+			return nil
+		}
+	}
+}
+
+// AckAssignment is the side-band path for replay / debug tooling — the
+// production path is the bidi Update frame above.
+func (h *DispatchHandler) AckAssignment(
+	ctx context.Context,
+	req *connect.Request[workloadsv1.AckAssignmentRequest],
+) (*connect.Response[workloadsv1.AckAssignmentResponse], error) {
+	id := uuidString(req.Msg.GetAttemptId())
+	if id == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("attempt_id required"))
+	}
+	a, err := h.Store.GetAssignment(ctx, id)
+	if err != nil {
+		return nil, mapStoreErr(err)
+	}
+	a.Accepted = req.Msg.GetAccepted()
+	if !a.Accepted {
+		a.LatestStatus = store.StatusRejected
+		a.RejectionReason = req.Msg.GetRejectionReason()
+	} else {
+		a.LatestStatus = store.StatusRunning
+	}
+	if err := h.Store.UpdateAssignment(ctx, a); err != nil {
+		return nil, mapStoreErr(err)
+	}
+	return connect.NewResponse(&workloadsv1.AckAssignmentResponse{}), nil
+}
+
+func (h *DispatchHandler) GetAssignment(
+	ctx context.Context,
+	req *connect.Request[workloadsv1.GetAssignmentRequest],
+) (*connect.Response[workloadsv1.GetAssignmentResponse], error) {
+	id := uuidString(req.Msg.GetAttemptId())
+	if id == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("attempt_id required"))
+	}
+	a, err := h.Store.GetAssignment(ctx, id)
+	if err != nil {
+		return nil, mapStoreErr(err)
+	}
+	w, err := h.Store.GetWorkload(ctx, a.WorkloadID)
+	if err != nil {
+		return nil, mapStoreErr(err)
+	}
+	return connect.NewResponse(&workloadsv1.GetAssignmentResponse{
+		Assignment: &workloadsv1.WorkloadAssignment{
+			Workload:  workloadToProto(w),
+			AttemptId: uuidProto(a.ID),
+			Deadline:  timestamppb.New(a.Deadline),
+		},
+		LatestStatus: statusToProto(a.LatestStatus),
+	}), nil
+}
+
+// capabilityTypesFromHello extracts the slug list the dispatcher needs
+// from the DaemonHello frame.
+func capabilityTypesFromHello(dh *workloadsv1.DaemonHello) []string {
+	out := make([]string, 0, len(dh.GetEligibleTypes()))
+	for _, t := range dh.GetEligibleTypes() {
+		if s := workloadTypeSlug(t); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func isTerminal(s store.Status) bool {
+	switch s {
+	case store.StatusSucceeded, store.StatusFailed, store.StatusTimedOut, store.StatusCancelled, store.StatusRejected:
+		return true
+	default:
+		return false
+	}
+}

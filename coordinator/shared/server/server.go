@@ -40,6 +40,11 @@ type Options struct {
 	// Health is the registry used for /healthz and /readyz. If nil, a
 	// fresh registry is created and marked Ready immediately.
 	Health *health.Registry
+	// LongLivedStreams, when true, disables the request Timeout middleware
+	// and the WriteTimeout / ReadTimeout on the http.Server so that
+	// Connect bidi / server-stream RPCs can stay open for minutes-to-hours
+	// (heartbeats, dispatch, audit feeds).
+	LongLivedStreams bool
 }
 
 // Run starts the HTTP server and blocks until SIGINT/SIGTERM. Returns the
@@ -67,7 +72,9 @@ func Run(ctx context.Context, opts Options) error {
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
-	r.Use(middleware.Timeout(60 * time.Second))
+	if !opts.LongLivedStreams {
+		r.Use(middleware.Timeout(60 * time.Second))
+	}
 
 	r.Get("/healthz", hr.Healthz)
 	r.Get("/readyz", hr.Readyz)
@@ -85,9 +92,11 @@ func Run(ctx context.Context, opts Options) error {
 		Addr:              addr,
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      60 * time.Second,
 		IdleTimeout:       120 * time.Second,
+	}
+	if !opts.LongLivedStreams {
+		srv.ReadTimeout = 30 * time.Second
+		srv.WriteTimeout = 60 * time.Second
 	}
 
 	// Listen for SIGINT/SIGTERM and trigger graceful shutdown.
