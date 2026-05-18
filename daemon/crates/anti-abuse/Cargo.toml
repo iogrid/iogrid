@@ -19,4 +19,6 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 parking_lot = { workspace = true }
+chrono = { workspace = true }
