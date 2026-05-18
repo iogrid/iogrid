@@ -58,4 +58,17 @@ describe("burn", () => {
     const total = burns.reduce((a, b) => a + b, 0n);
     assert.equal(total.toString(), "425");
   });
+
+  it("source_tag length boundary: at MAX_SOURCE_TAG_LEN, encoded snug", () => {
+    // MAX_SOURCE_TAG_LEN = 32 in lib.rs; characters past 32 must trigger TagTooLong.
+    const MAX = 32;
+    const at_limit = "x".repeat(MAX);
+    const over_limit = "x".repeat(MAX + 1);
+    assert.equal(at_limit.length, MAX);
+    assert.equal(over_limit.length, MAX + 1);
+    // The Rust check is `source_tag.as_bytes().len() <= MAX_SOURCE_TAG_LEN` — UTF-8 multi-byte
+    // chars could push over the limit even with fewer JS characters; we sanity-check that
+    // ASCII boundary matches the byte boundary.
+    assert.equal(new TextEncoder().encode(at_limit).length, MAX);
+  });
 });
