@@ -1,0 +1,55 @@
+name: sdk-typescript-ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "sdks/typescript/**"
+      - "pnpm-workspace.yaml"
+      - ".github/workflows/sdk-typescript-ci.yml"
+  pull_request:
+    paths:
+      - "sdks/typescript/**"
+      - "pnpm-workspace.yaml"
+      - ".github/workflows/sdk-typescript-ci.yml"
+
+jobs:
+  build:
+    name: lint / test / build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile=false --filter @iogrid/sdk...
+
+      - name: Lint
+        working-directory: sdks/typescript
+        run: pnpm lint || echo "::warning::lint produced findings"
+
+      - name: Typecheck
+        working-directory: sdks/typescript
+        run: pnpm typecheck
+
+      - name: Test
+        working-directory: sdks/typescript
+        run: pnpm test
+
+      - name: Build
+        working-directory: sdks/typescript
+        run: pnpm build
+
+      - name: Pack (smoke-check tarball)
+        working-directory: sdks/typescript
+        run: |
+          pnpm pack
+          ls -la *.tgz

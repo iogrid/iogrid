@@ -1,0 +1,52 @@
+name: sdk-java-publish
+
+# Phase 2: Maven Central publish via Sonatype OSSRH.
+# Requires signing key + Sonatype credentials in repo secrets:
+#   - SIGNING_KEY (ASCII-armoured GPG private key)
+#   - SIGNING_PASSWORD
+#   - OSSRH_USERNAME
+#   - OSSRH_TOKEN
+# Until those are wired, this workflow performs a local `publishToMavenLocal`
+# smoke step so the build script is exercised on every release tag.
+
+on:
+  push:
+    tags:
+      - "sdk-java/v*"
+  workflow_dispatch:
+
+jobs:
+  publish:
+    name: build + publish (local until Phase 2)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Run tests
+        working-directory: sdks/java
+        run: gradle check --no-daemon
+
+      - name: Build artifacts
+        working-directory: sdks/java
+        run: gradle build --no-daemon
+
+      - name: Publish to local Maven (smoke)
+        working-directory: sdks/java
+        run: gradle publishToMavenLocal --no-daemon -Psigning.skip=true
+
+      # PHASE 2 — uncomment when Sonatype OSSRH credentials are configured.
+      # - name: Publish to Maven Central
+      #   working-directory: sdks/java
+      #   env:
+      #     ORG_GRADLE_PROJECT_signingKey: ${{ secrets.SIGNING_KEY }}
+      #     ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.SIGNING_PASSWORD }}
+      #     ORG_GRADLE_PROJECT_ossrhUsername: ${{ secrets.OSSRH_USERNAME }}
+      #     ORG_GRADLE_PROJECT_ossrhPassword: ${{ secrets.OSSRH_TOKEN }}
+      #   run: gradle publish --no-daemon

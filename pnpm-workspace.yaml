@@ -1,2 +1,3 @@
 packages:
   - "web"
+  - "sdks/typescript"

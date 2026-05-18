@@ -1,0 +1,10 @@
+src/
+test/
+tsconfig.json
+tsup.config.ts
+vitest.config.ts
+eslint.config.js
+coverage/
+.turbo/
+*.log
+.DS_Store

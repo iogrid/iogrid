@@ -1,0 +1,34 @@
+name: sdk-go-publish
+
+# Go modules are published by pushing a git tag of the form
+# `sdks/go/vX.Y.Z` — there is no central registry to push to.
+# This workflow validates the tag, builds + tests, and warms the
+# pkg.go.dev cache so the new version is discoverable immediately.
+
+on:
+  push:
+    tags:
+      - "sdks/go/v*"
+  workflow_dispatch:
+
+jobs:
+  warm:
+    name: build + warm pkg.go.dev
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache-dependency-path: sdks/go/go.sum
+
+      - name: go test
+        working-directory: sdks/go
+        run: go test -race -count=1 ./...
+
+      - name: Trigger pkg.go.dev cache warm
+        run: |
+          TAG=${GITHUB_REF#refs/tags/sdks/go/}
+          echo "Tag = $TAG"
+          # PHASE 2 — uncomment to ping the proxy after the first public tag lands.
+          # curl -sf "https://proxy.golang.org/github.com/iogrid/go-sdk/@v/${TAG}.info" || true

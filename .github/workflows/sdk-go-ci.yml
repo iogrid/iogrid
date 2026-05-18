@@ -1,0 +1,36 @@
+name: sdk-go-ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "sdks/go/**"
+      - ".github/workflows/sdk-go-ci.yml"
+  pull_request:
+    paths:
+      - "sdks/go/**"
+      - ".github/workflows/sdk-go-ci.yml"
+
+jobs:
+  test:
+    name: vet + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache-dependency-path: sdks/go/go.sum
+
+      - name: go vet
+        working-directory: sdks/go
+        run: go vet ./...
+
+      - name: go test
+        working-directory: sdks/go
+        run: go test -race -count=1 ./...
+
+      - name: go build
+        working-directory: sdks/go
+        run: go build ./...
