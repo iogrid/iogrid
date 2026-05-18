@@ -1,0 +1,13 @@
+node_modules
+.next
+out
+coverage
+.git
+.github
+tests
+playwright-report
+test-results
+storybook-static
+*.log
+.env*
+README.md
