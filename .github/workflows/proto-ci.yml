@@ -42,28 +42,27 @@ jobs:
         working-directory: proto
         run: buf format --diff --exit-code
 
-      # Breaking-change detection is skipped when there's no prior baseline
-      # (the very first PR that introduces proto/ would otherwise fail).
+      # Breaking-change detection is skipped when proto/ doesn't yet exist
+      # on main (e.g. the very first PR that introduces it).
       - name: buf breaking (against main)
         working-directory: proto
+        shell: bash
         run: |
-          if git rev-parse --verify origin/main >/dev/null 2>&1; then
-            # 'git#branch=main,subdir=proto' tells buf to read proto/ from
-            # the main branch of the local clone and use it as the baseline.
-            if buf breaking --against '../.git#branch=main,subdir=proto' 2>buf-breaking.err; then
-              echo "buf breaking: OK"
-            else
-              if grep -qi "could not find module" buf-breaking.err; then
-                echo "buf breaking: no baseline on main yet — skipping"
-                cat buf-breaking.err
-              else
-                cat buf-breaking.err
-                exit 1
-              fi
-            fi
-          else
+          set +e
+          if ! git rev-parse --verify origin/main >/dev/null 2>&1; then
             echo "buf breaking: origin/main not present — skipping"
+            exit 0
           fi
+          # Does proto/ exist on main? If not, there is no baseline.
+          if ! git cat-file -e "origin/main:proto/buf.yaml" 2>/dev/null; then
+            echo "buf breaking: proto/buf.yaml does not exist on main yet — skipping"
+            exit 0
+          fi
+          # 'git#branch=origin/main,subdir=proto' uses the local clone's
+          # origin/main as the baseline (actions/checkout fetched the whole
+          # history with fetch-depth: 0).
+          buf breaking --against '../.git#ref=origin/main,subdir=proto'
+          exit $?
 
       - name: buf generate
         working-directory: proto
