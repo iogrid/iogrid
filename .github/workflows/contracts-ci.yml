@@ -19,12 +19,11 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
-  # Solana / Agave 2.x ships a modern bundled cargo-build-sbf that supports lockfile v4
-  # and edition2024 manifests (required by transitive deps such as hashbrown 0.17 and
-  # cpufeatures 0.3). 2.2.21 has no matching release artifact at release.anza.xyz/...; the
-  # earliest 2.x with a published install bundle that we verified live is 2.3.13. Anchor
-  # 0.31.1 is forward-compatible with the 2.3 toolchain.
-  SOLANA_VERSION: "v2.3.13"
+  # Solana / Agave 4.0.0: bundled cargo-build-sbf is on cargo 1.85+, which is the first
+  # version that has stabilised edition2024 (required by transitive deps `crypto-common`
+  # 0.2.1, `cpufeatures` 0.3, `hashbrown` 0.17 — all pulled by spl-token-2022 6.x).
+  # 2.3.13 ships cargo 1.84, which still rejects those manifests.
+  SOLANA_VERSION: "v4.0.0"
   ANCHOR_VERSION: "0.31.1"
   NODE_VERSION: "20"
   CARGO_TERM_COLOR: always
