@@ -15,8 +15,11 @@ ARG TARGETARCH=amd64
 
 WORKDIR /src
 
-# Copy the shared module first so layer caching survives service-only edits.
+# Copy the shared + generated-pb modules first so layer caching survives
+# service-only edits. The antiabuse-svc go.mod has a relative `replace`
+# pointing at ../../internal/pb for the Connect-RPC stubs.
 COPY coordinator/shared /src/coordinator/shared
+COPY coordinator/internal /src/coordinator/internal
 COPY coordinator/services/antiabuse-svc /src/coordinator/services/antiabuse-svc
 
 WORKDIR /src/coordinator/services/antiabuse-svc
