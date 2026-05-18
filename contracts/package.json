@@ -1,0 +1,27 @@
+{
+  "name": "@iogrid/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "description": "$GRID Solana programs — Anchor workspace",
+  "scripts": {
+    "lint:fix": "prettier */*.js \"*/**/*{.js,.ts}\" -w",
+    "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check",
+    "test": "anchor test"
+  },
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.31.0",
+    "@solana/spl-token": "^0.4.6",
+    "@solana/web3.js": "^1.95.0"
+  },
+  "devDependencies": {
+    "@types/bn.js": "^5.1.5",
+    "@types/chai": "^4.3.11",
+    "@types/mocha": "^10.0.6",
+    "chai": "^4.3.10",
+    "mocha": "^10.4.0",
+    "prettier": "^3.2.5",
+    "ts-mocha": "^10.0.0",
+    "typescript": "^5.4.5"
+  }
+}

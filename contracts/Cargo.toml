@@ -1,0 +1,30 @@
+[workspace]
+resolver = "2"
+members = [
+    "programs/grid-token",
+    "programs/emission",
+    "programs/vesting",
+    "programs/staking",
+    "programs/burn",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/iogrid/iogrid"
+authors = ["iogrid contributors"]
+
+[workspace.dependencies]
+anchor-lang = { version = "0.31.0", features = ["init-if-needed"] }
+anchor-spl  = { version = "0.31.0", features = ["token_2022", "token"] }
+
+[profile.release]
+overflow-checks = true
+lto = "fat"
+codegen-units = 1
+
+[profile.release.build-override]
+opt-level = 3
+incremental = false
+codegen-units = 1

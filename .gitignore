@@ -42,3 +42,17 @@ logs/
 # Coverage
 coverage.txt
 coverage.html
+
+# Anchor / Solana build artifacts
+contracts/.anchor/
+contracts/target/
+contracts/node_modules/
+contracts/yarn.lock
+contracts/package-lock.json
+contracts/test-ledger/
+
+# Wallet keypairs — never commit
+contracts/*.json
+!contracts/package.json
+!contracts/tsconfig.json
+

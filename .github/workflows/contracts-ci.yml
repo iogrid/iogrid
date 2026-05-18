@@ -1,0 +1,167 @@
+name: contracts-ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "contracts/**"
+      - ".github/workflows/contracts-ci.yml"
+  pull_request:
+    paths:
+      - "contracts/**"
+      - ".github/workflows/contracts-ci.yml"
+
+# Conservative concurrency: cancel older runs of the same ref to save CI minutes; main runs
+# are not cancelled (they may be required for branch protection).
+concurrency:
+  group: contracts-ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  SOLANA_VERSION: "v1.18.22"
+  ANCHOR_VERSION: "0.31.0"
+  NODE_VERSION: "20"
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  anchor-build-test:
+    name: anchor build + test
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: contracts
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build deps (pkg-config, libudev, libssl)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config build-essential libudev-dev libssl-dev
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache Cargo registry + git
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('contracts/Cargo.lock', 'contracts/**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache Solana CLI
+        id: solana-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/solana
+          key: ${{ runner.os }}-solana-${{ env.SOLANA_VERSION }}
+
+      - name: Install Solana CLI
+        if: steps.solana-cache.outputs.cache-hit != 'true'
+        run: |
+          sh -c "$(curl -sSfL https://release.solana.com/${SOLANA_VERSION}/install)"
+
+      - name: Add Solana to PATH
+        run: echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
+
+      - name: Verify Solana
+        run: |
+          solana --version
+          solana-keygen --version
+
+      - name: Cache Anchor CLI
+        id: anchor-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/anchor
+          key: ${{ runner.os }}-anchor-${{ env.ANCHOR_VERSION }}
+
+      - name: Install Anchor CLI ${{ env.ANCHOR_VERSION }}
+        if: steps.anchor-cache.outputs.cache-hit != 'true'
+        run: |
+          cargo install --git https://github.com/coral-xyz/anchor anchor-cli --tag v${ANCHOR_VERSION} --locked
+
+      - name: Verify Anchor
+        run: anchor --version
+
+      - name: Generate ephemeral keypair (for anchor test signer)
+        run: |
+          mkdir -p ~/.config/solana
+          solana-keygen new --no-bip39-passphrase --silent --outfile ~/.config/solana/id.json
+          solana config set --keypair ~/.config/solana/id.json
+          solana config set --url localhost
+
+      - name: Cache target/
+        uses: actions/cache@v4
+        with:
+          path: contracts/target
+          key: ${{ runner.os }}-anchor-target-${{ env.ANCHOR_VERSION }}-${{ hashFiles('contracts/**/Cargo.toml', 'contracts/**/*.rs') }}
+          restore-keys: |
+            ${{ runner.os }}-anchor-target-${{ env.ANCHOR_VERSION }}-
+
+      - name: Install node deps
+        run: |
+          if [ -f yarn.lock ]; then
+            yarn install --frozen-lockfile
+          else
+            yarn install
+          fi
+
+      - name: Anchor build
+        run: anchor build
+
+      - name: Anchor test (skip deploy — uses bundled local validator)
+        run: anchor test --skip-deploy
+
+  cargo-clippy:
+    name: cargo clippy
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: contracts
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config build-essential libudev-dev libssl-dev
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache Cargo registry + git
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('contracts/Cargo.lock', 'contracts/**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache target/
+        uses: actions/cache@v4
+        with:
+          path: contracts/target
+          key: ${{ runner.os }}-cargo-clippy-target-${{ hashFiles('contracts/**/Cargo.toml', 'contracts/**/*.rs') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-clippy-target-
+
+      - name: Clippy (host arch, lib only — skips BPF compile)
+        run: cargo clippy --workspace --lib --all-features -- -D warnings
