@@ -19,7 +19,12 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
-  SOLANA_VERSION: "v1.18.26"
+  # Solana 2.2.x is the Anza-maintained line that anchor 0.31.1 targets
+  # (anchor-cli 0.31.1 pins `solana-* = "2"` in its own Cargo.toml). The 1.18.x
+  # line's bundled cargo-build-sbf (cargo 1.75) cannot parse lockfile v4 NOR the
+  # `edition2024` manifests of modern transitive deps such as `hashbrown 0.17`.
+  # 2.2.21 ships a sufficiently modern bundled cargo for both.
+  SOLANA_VERSION: "v2.2.21"
   ANCHOR_VERSION: "0.31.1"
   NODE_VERSION: "20"
   CARGO_TERM_COLOR: always
@@ -136,18 +141,10 @@ jobs:
           fi
 
       - name: Anchor build
-        # Two-phase to work around the host-cargo-1.85 (v4 lockfile) vs cargo-build-sbf-1.79
-        # (v3 lockfile only) mismatch: let host cargo write Cargo.lock, then patch the
-        # version header back to 3 so the bundled BPF cargo can parse it.
-        run: |
-          # First pass: generate lockfile via host cargo (will produce v4)
-          cargo generate-lockfile || true
-          # Patch version header back to v3 (the BPF toolchain understands v3 fully)
-          if [ -f Cargo.lock ] && grep -q "^version = 4" Cargo.lock; then
-            sed -i 's/^version = 4$/version = 3/' Cargo.lock
-            echo "Patched Cargo.lock from v4 to v3"
-          fi
-          anchor build
+        # Solana 2.2.21's bundled cargo speaks lockfile v4 and supports edition2024,
+        # so no lockfile post-processing is needed — host cargo (1.85) and SBF cargo
+        # are aligned.
+        run: anchor build
 
       - name: Anchor test (skip deploy — uses bundled local validator)
         run: anchor test --skip-deploy
