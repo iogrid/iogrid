@@ -14,7 +14,9 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/iogrid/iogrid/coordinator/services/providers-svc/internal/ca"
 	"github.com/iogrid/iogrid/coordinator/services/providers-svc/internal/server"
+	"github.com/iogrid/iogrid/coordinator/services/providers-svc/internal/store"
 	"github.com/iogrid/iogrid/coordinator/shared/health"
 	"github.com/iogrid/iogrid/coordinator/shared/log"
 	"github.com/iogrid/iogrid/coordinator/shared/otel"
@@ -47,11 +49,25 @@ func main() {
 	hr := health.New()
 	hr.MarkReady()
 
+	// In-memory store + in-memory CA for now. The pg-backed store lives
+	// behind the `postgres` build tag — see internal/db/migrations.
+	memStore := store.NewInMemory()
+	internalCA, err := ca.NewInMemory()
+	if err != nil {
+		logger.Error("ca bootstrap failed", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+
 	if err := sharedserver.Run(ctx, sharedserver.Options{
 		ServiceName: serviceName,
 		Logger:      logger,
 		Health:      hr,
-		Mount:       server.Mount,
+		Mount: server.Mount(server.Deps{
+			Store: memStore,
+			CA:    internalCA,
+			Log:   logger,
+		}),
+		LongLivedStreams: true,
 	}); err != nil {
 		logger.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)
