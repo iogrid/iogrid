@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" role="img" aria-label="iogrid mark">
+  <title>iogrid</title>
+  <!--
+    Six nodes arranged on the vertices of a regular hexagon (radius 22, centered at 32,32):
+      top         (32, 10)
+      top-right   (51.05, 21)
+      bot-right   (51.05, 43)
+      bottom      (32, 54)
+      bot-left    (12.95, 43)
+      top-left    (12.95, 21)
+    Edges form the perimeter + three long diagonals through center, creating a mesh.
+  -->
+  <g stroke="#4257F5" stroke-width="2.5" stroke-linecap="round">
+    <!-- perimeter -->
+    <line x1="32" y1="10"    x2="51.05" y2="21" />
+    <line x1="51.05" y1="21" x2="51.05" y2="43" />
+    <line x1="51.05" y1="43" x2="32"    y2="54" />
+    <line x1="32" y1="54"    x2="12.95" y2="43" />
+    <line x1="12.95" y1="43" x2="12.95" y2="21" />
+    <line x1="12.95" y1="21" x2="32"    y2="10" />
+    <!-- diagonals through center, weighted lighter -->
+    <line x1="32" y1="10" x2="32" y2="54"        stroke-opacity="0.55" />
+    <line x1="51.05" y1="21" x2="12.95" y2="43"  stroke-opacity="0.55" />
+    <line x1="12.95" y1="21" x2="51.05" y2="43"  stroke-opacity="0.55" />
+  </g>
+  <!-- nodes -->
+  <g fill="#4257F5">
+    <circle cx="32"    cy="10" r="3.5" />
+    <circle cx="51.05" cy="21" r="3.5" />
+    <circle cx="51.05" cy="43" r="3.5" />
+    <circle cx="32"    cy="54" r="3.5" />
+    <circle cx="12.95" cy="43" r="3.5" />
+    <circle cx="12.95" cy="21" r="3.5" />
+  </g>
+  <!-- center node (the mesh router), accent -->
+  <circle cx="32" cy="32" r="4.5" fill="#2EC78B" />
+</svg>

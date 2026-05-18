@@ -1,0 +1,41 @@
+{
+  "$schema": "https://design-tokens.github.io/community-group/format/",
+  "spacing": {
+    "0":    { "value": "0px" },
+    "px":   { "value": "1px" },
+    "0.5":  { "value": "2px" },
+    "1":    { "value": "4px" },
+    "1.5":  { "value": "6px" },
+    "2":    { "value": "8px" },
+    "3":    { "value": "12px" },
+    "4":    { "value": "16px" },
+    "5":    { "value": "20px" },
+    "6":    { "value": "24px" },
+    "8":    { "value": "32px" },
+    "10":   { "value": "40px" },
+    "12":   { "value": "48px" },
+    "16":   { "value": "64px" },
+    "20":   { "value": "80px" },
+    "24":   { "value": "96px" },
+    "32":   { "value": "128px" },
+    "40":   { "value": "160px" },
+    "48":   { "value": "192px" },
+    "64":   { "value": "256px" }
+  },
+  "radius": {
+    "none": { "value": "0px" },
+    "sm":   { "value": "4px" },
+    "md":   { "value": "8px" },
+    "lg":   { "value": "12px" },
+    "xl":   { "value": "16px" },
+    "2xl":  { "value": "24px" },
+    "full": { "value": "9999px" }
+  },
+  "container": {
+    "sm":   { "value": "640px" },
+    "md":   { "value": "768px" },
+    "lg":   { "value": "1024px" },
+    "xl":   { "value": "1280px" },
+    "2xl":  { "value": "1440px" }
+  }
+}

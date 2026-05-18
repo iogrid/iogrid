@@ -1,0 +1,128 @@
+name: marketing-ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "marketing/**"
+      - "brand/**"
+      - ".github/workflows/marketing-ci.yml"
+  pull_request:
+    paths:
+      - "marketing/**"
+      - "brand/**"
+      - ".github/workflows/marketing-ci.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: marketing-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: typecheck · lint · build · export
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+          cache-dependency-path: marketing/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: marketing
+        run: pnpm install --frozen-lockfile || pnpm install
+
+      - name: Typecheck
+        working-directory: marketing
+        run: pnpm typecheck
+
+      - name: Lint
+        working-directory: marketing
+        run: pnpm lint
+
+      - name: Build (static export)
+        working-directory: marketing
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          NEXT_PUBLIC_SITE_URL: "https://iogrid.org"
+        run: pnpm build
+
+      - name: Verify export artifact
+        working-directory: marketing
+        run: |
+          test -d out
+          test -f out/index.html
+          test -f out/pricing/index.html
+          test -f out/sitemap.xml
+          test -f out/robots.txt
+          echo "Files in out/:"
+          find out -maxdepth 2 -type f | sort | head -40
+
+      - name: Upload export artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: marketing-export
+          path: marketing/out
+          retention-days: 14
+
+  lighthouse:
+    name: lighthouse (accessibility, SEO, perf)
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: marketing-export
+          path: marketing/out
+
+      - name: Serve and run Lighthouse CI
+        run: |
+          npm install -g @lhci/cli@0.14.x http-server
+          cd marketing
+          http-server out -p 8080 -s &
+          SERVER_PID=$!
+          # Wait for server
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            if curl -sf http://localhost:8080/ >/dev/null; then break; fi
+            sleep 1
+          done
+          # Audit pages
+          lhci collect \
+            --url=http://localhost:8080/ \
+            --url=http://localhost:8080/proxy/ \
+            --url=http://localhost:8080/ios-build/ \
+            --url=http://localhost:8080/pricing/ \
+            --url=http://localhost:8080/providers/ \
+            --url=http://localhost:8080/token/ \
+            --url=http://localhost:8080/about/ \
+            --numberOfRuns=1 \
+            --settings.preset=desktop \
+            --settings.chromeFlags="--no-sandbox --headless=new"
+          lhci assert \
+            --assertions.categories:performance="[\"warn\", {\"minScore\":0.90}]" \
+            --assertions.categories:accessibility="[\"error\", {\"minScore\":0.90}]" \
+            --assertions.categories:best-practices="[\"warn\", {\"minScore\":0.90}]" \
+            --assertions.categories:seo="[\"error\", {\"minScore\":0.90}]" || EXIT=$?
+          kill $SERVER_PID || true
+          exit ${EXIT:-0}
+        continue-on-error: true
+
+      - name: Upload Lighthouse reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lighthouse-reports
+          path: marketing/.lighthouseci
+          retention-days: 14
+          if-no-files-found: ignore
