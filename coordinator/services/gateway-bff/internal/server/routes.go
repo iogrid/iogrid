@@ -32,13 +32,16 @@ import (
 
 // Deps bundles everything Mount needs. Constructed at boot in main.go.
 type Deps struct {
-	Config         *config.Config
-	Clients        *clients.Set
-	Verifier       auth.Verifier
-	APIKeyStore    handlers.APIKeyStore
-	AuthedLimiter  *ratelimit.Limiter
-	AnonLimiter    *ratelimit.Limiter
-	Logger         *slog.Logger
+	Config        *config.Config
+	Clients       *clients.Set
+	Verifier      auth.Verifier
+	APIKeyStore   handlers.APIKeyStore
+	AuthedLimiter *ratelimit.Limiter
+	AnonLimiter   *ratelimit.Limiter
+	Logger        *slog.Logger
+	// VPNGateway is optional; when present the BFF surfaces
+	// /api/v1/vpn/config-for-platform proxying to the vpn-gateway pod.
+	VPNGateway *handlers.VPNGatewayProxy
 }
 
 // Mount builds the routes from the supplied Deps. Pass the returned
@@ -48,6 +51,7 @@ func Mount(deps Deps) func(chi.Router) {
 		deps.Logger = slog.Default()
 	}
 	api := handlers.New(deps.Clients, deps.APIKeyStore, deps.Logger)
+	api.VPNGateway = deps.VPNGateway
 
 	return func(r chi.Router) {
 		// Index lives under /v1 for symmetry with the other services
@@ -113,6 +117,10 @@ func Mount(deps Deps) func(chi.Router) {
 				r.Use(auth.RequireAuth)
 				r.Get("/account", api.GetVPNAccount)
 				r.Post("/upgrade", api.UpgradeVPN)
+				// config-for-platform proxies to vpn-gateway and streams
+				// the per-platform artefact (.conf | .mobileconfig | QR
+				// payload) straight to the browser.
+				r.Get("/config-for-platform", api.GetVPNConfigForPlatform)
 			})
 		})
 	}

@@ -28,9 +28,13 @@ import (
 // API is the wired HTTP surface. Constructed once at process boot and
 // passed to chi.Router.Mount().
 type API struct {
-	Clients      *clients.Set
-	Logger       *slog.Logger
-	APIKeyStore  APIKeyStore
+	Clients     *clients.Set
+	Logger      *slog.Logger
+	APIKeyStore APIKeyStore
+	// VPNGateway is the HTTP proxy to the consumer-VPN microservice.
+	// Optional — when nil the /api/v1/vpn/config-for-platform endpoint
+	// responds 503 vpn_gateway_unavailable.
+	VPNGateway *VPNGatewayProxy
 }
 
 // New constructs an API. logger defaults to slog.Default(). store

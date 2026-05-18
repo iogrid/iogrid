@@ -32,6 +32,10 @@ type Config struct {
 	WorkloadsSvcURL  string `env:"WORKLOADS_SVC_URL"  envDefault:"http://workloads-svc:8080"`
 	AntiAbuseSvcURL  string `env:"ANTIABUSE_SVC_URL"  envDefault:"http://antiabuse-svc:8080"`
 	BillingSvcURL    string `env:"BILLING_SVC_URL"    envDefault:"http://billing-svc:8080"`
+	// VPNGatewayURL is the vpn-gateway control-plane URL (in-cluster).
+	// The BFF proxies the per-platform config download request to this
+	// endpoint via /v1/config/render.
+	VPNGatewayURL    string `env:"VPN_GATEWAY_URL"    envDefault:"http://vpn-gateway:8080"`
 
 	// Downstream timeouts ------------------------------------------------
 
