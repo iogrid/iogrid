@@ -51,9 +51,13 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: Install Rust toolchain (stable)
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust toolchain (1.79.0 — anchor 0.31 compat)
+        # Pin to 1.79.0: anchor-cli 0.31.x transitively depends on proc-macro-error 1.0.4
+        # which fails to build on rustc >= 1.80 (the trait `proc_macro2::Span: From<proc_macro::Span>`
+        # is no longer satisfied). 1.79 is the highest stable that still builds.
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: "1.79.0"
           components: clippy, rustfmt
 
       - name: Cache Cargo registry + git
@@ -148,9 +152,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y pkg-config build-essential libudev-dev libssl-dev
 
-      - name: Install Rust toolchain (stable)
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust toolchain (1.79.0 — anchor 0.31 compat)
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: "1.79.0"
           components: clippy
 
       - name: Cache Cargo registry + git
