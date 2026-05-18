@@ -1,0 +1,27 @@
+[package]
+name = "iogrid-workload-gpu"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "iogridd GPU workload runner — NVML on Linux/Windows, Metal/MLX on macOS."
+
+[lib]
+name = "iogrid_workload_gpu"
+path = "src/lib.rs"
+
+[features]
+default = []
+# Real NVML / MLX bindings only behind `gpu-real`.
+gpu-real = []
+
+[dependencies]
+tokio = { workspace = true }
+async-trait = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+uuid = { workspace = true }
