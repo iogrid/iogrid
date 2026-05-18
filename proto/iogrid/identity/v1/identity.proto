@@ -1,0 +1,146 @@
+// Identity service: canonical user records and bound identifiers (Google
+// OAuth, magic-link, future Apple/GitHub). This service owns the
+// `users` and `identifiers` tables in identity-svc's Postgres.
+syntax = "proto3";
+
+package iogrid.identity.v1;
+
+import "google/protobuf/timestamp.proto";
+import "iogrid/common/v1/types.proto";
+
+option go_package = "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/identity/v1;identityv1";
+
+// IdentifierKind enumerates supported auth providers / mechanisms.
+enum IdentifierKind {
+  IDENTIFIER_KIND_UNSPECIFIED = 0;
+  IDENTIFIER_KIND_GOOGLE = 1;
+  IDENTIFIER_KIND_MAGIC_LINK = 2;
+  IDENTIFIER_KIND_APPLE = 3;
+  IDENTIFIER_KIND_GITHUB = 4;
+}
+
+// UserRole encodes the role(s) a user holds. A single user can be both
+// PROVIDER and CUSTOMER (and may also be STAFF). Roles drive route gating
+// in the management plane.
+enum UserRole {
+  USER_ROLE_UNSPECIFIED = 0;
+  USER_ROLE_PROVIDER = 1;
+  USER_ROLE_CUSTOMER = 2;
+  USER_ROLE_STAFF = 3;
+  USER_ROLE_ADMIN = 4;
+}
+
+// User is the canonical, immutable account record. Bound Identifiers
+// can come and go but a User exists for the life of the account.
+message User {
+  iogrid.common.v1.UUID id = 1;
+
+  // Primary display email. Always one of the verified emails attached
+  // through Identifiers; chosen by the user.
+  string primary_email = 2;
+
+  // Human display name (may be empty for magic-link-only signups until
+  // the user fills their profile).
+  string display_name = 3;
+
+  // Avatar URL (may be empty).
+  string picture_url = 4;
+
+  // Set of roles the user currently holds.
+  repeated UserRole roles = 5;
+
+  // Audit timestamps.
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+  google.protobuf.Timestamp last_login_at = 8;
+
+  // Soft-delete sentinel; null when active.
+  google.protobuf.Timestamp deleted_at = 9;
+}
+
+// Identifier represents a single way the user can authenticate. A user
+// may have many identifiers; we auto-merge on verified-email match
+// (see auth.proto for the merge flow).
+message Identifier {
+  iogrid.common.v1.UUID id = 1;
+  iogrid.common.v1.UUID user_id = 2;
+  IdentifierKind kind = 3;
+
+  // For OAuth providers: the provider's stable subject id ("sub" in
+  // OpenID Connect). For magic-link: empty.
+  string subject = 4;
+
+  // The verified email attached to this identifier (may be empty for
+  // some non-email-based providers in the future).
+  string verified_email = 5;
+
+  // For Google Workspace users: the `hd` claim — feeds enterprise
+  // routing. Empty for consumer accounts.
+  string hosted_domain = 6;
+
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp last_used_at = 8;
+}
+
+// --- RPCs -----------------------------------------------------------------
+
+message GetUserRequest {
+  iogrid.common.v1.UUID id = 1;
+}
+message GetUserResponse {
+  User user = 1;
+  // All identifiers currently bound to this user.
+  repeated Identifier identifiers = 2;
+}
+
+message ListUsersRequest {
+  iogrid.common.v1.PageRequest page = 1;
+  // Optional filters. Empty = "no filter".
+  UserRole role_filter = 2;
+  string email_contains = 3;
+}
+message ListUsersResponse {
+  repeated User users = 1;
+  iogrid.common.v1.PageResponse page = 2;
+}
+
+message UpdateUserRequest {
+  iogrid.common.v1.UUID id = 1;
+  // Only the fields below are mutable via this RPC; other User fields
+  // are managed implicitly (created_at, roles, login timestamps).
+  string display_name = 2;
+  string primary_email = 3;
+  string picture_url = 4;
+}
+message UpdateUserResponse {
+  User user = 1;
+}
+
+message DeleteUserRequest {
+  iogrid.common.v1.UUID id = 1;
+  // Caller MUST have a fresh step-up auth token (see auth.proto).
+  string step_up_token = 2;
+}
+message DeleteUserResponse {}
+
+message MergeIdentitiesRequest {
+  iogrid.common.v1.UUID target_user_id = 1;
+  iogrid.common.v1.UUID source_user_id = 2;
+  // Fresh step-up token required.
+  string step_up_token = 3;
+}
+message MergeIdentitiesResponse {
+  // The surviving user after merge (always == target_user_id).
+  User user = 1;
+}
+
+// IdentityService manages canonical users and their identifiers. Auth
+// flows (sign-in, magic-link, OAuth callback) live in AuthService; this
+// service exposes the post-auth account-management surface.
+service IdentityService {
+  rpc GetUser(GetUserRequest) returns (GetUserResponse);
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
+  rpc UpdateUser(UpdateUserRequest) returns (UpdateUserResponse);
+  rpc DeleteUser(DeleteUserRequest) returns (DeleteUserResponse);
+  rpc MergeIdentities(MergeIdentitiesRequest) returns (MergeIdentitiesResponse);
+}

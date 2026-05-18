@@ -1,0 +1,194 @@
+// Customer-facing workload submission. Customers POST workloads here
+// (via gateway-bff); workloads-svc validates, queues, then hands off to
+// the dispatcher (see dispatch.proto).
+syntax = "proto3";
+
+package iogrid.workloads.v1;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+import "iogrid/common/v1/types.proto";
+
+option go_package = "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/workloads/v1;workloadsv1";
+
+// WorkloadPriority hints at scheduler urgency. Has no SLA force on its
+// own — used as a tie-breaker among queued jobs.
+enum WorkloadPriority {
+  WORKLOAD_PRIORITY_UNSPECIFIED = 0;
+  WORKLOAD_PRIORITY_LOW = 1;
+  WORKLOAD_PRIORITY_NORMAL = 2;
+  WORKLOAD_PRIORITY_HIGH = 3;
+}
+
+// BandwidthRequest: HTTPS proxy / SOCKS5 relay job.
+message BandwidthRequest {
+  // The URL the customer wants fetched / proxied (full request URL).
+  string target_url = 1;
+  // Allowed HTTP method (GET, POST, ...). Empty == "any".
+  string method = 2;
+  // Sticky-session id — if set, dispatcher tries to reuse the same
+  // provider IP for subsequent requests with the same id.
+  string session_id = 3;
+  // Desired egress region (server matches best-effort).
+  iogrid.common.v1.Region preferred_region = 4;
+  // Desired category slug (e.g. "e_commerce").
+  string category = 5;
+  // Per-request budget; dispatcher refuses if no eligible provider.
+  iogrid.common.v1.Money max_spend = 6;
+}
+
+// DockerRequest: ephemeral container workload.
+message DockerRequest {
+  // Image reference, including digest if the customer pinned it
+  // (e.g. "ghcr.io/example/scraper@sha256:abc..."). Plain tags accepted
+  // but digest is recommended for reproducibility.
+  string image = 1;
+  // Container command and args (overrides image's CMD).
+  repeated string command = 2;
+  // Environment variables passed to the container.
+  map<string, string> env = 3;
+  // Per-job hard wall-clock budget.
+  google.protobuf.Duration timeout = 4;
+  // Required vCPU / RAM. Dispatcher won't pick providers below these.
+  uint32 min_cpu_cores = 5;
+  uint64 min_memory_mib = 6;
+  // Optional GPU minimum (vRAM MiB). 0 = "no GPU required".
+  uint64 min_gpu_memory_mib = 7;
+}
+
+// IosBuildRequest: macOS / iOS CI job.
+message IosBuildRequest {
+  // S3 object key for the uploaded source tarball.
+  string source_tarball_s3_key = 1;
+  // Tart image slug (e.g. "ghcr.io/cirruslabs/macos-sequoia-xcode:latest").
+  string tart_image = 2;
+  // Shell command(s) executed inside the VM (typically `xcodebuild ...`).
+  repeated string build_commands = 3;
+  // Where build artifacts should be uploaded after success.
+  string artifact_s3_bucket = 4;
+  string artifact_s3_prefix = 5;
+}
+
+// GpuRequest: compute-heavy GPU workload (CUDA, MLX, ROCm).
+message GpuRequest {
+  string image = 1;
+  repeated string command = 2;
+  map<string, string> env = 3;
+  google.protobuf.Duration timeout = 4;
+  // vRAM minimum the workload needs.
+  uint64 min_vram_mib = 5;
+  // Allowed GPU vendors (empty = any).
+  repeated string allowed_vendors = 6;
+}
+
+// Workload is the customer submission envelope. Exactly ONE of the
+// payload oneofs is set.
+message Workload {
+  iogrid.common.v1.UUID id = 1;
+  // Owning customer/workspace.
+  iogrid.common.v1.UUID workspace_id = 2;
+  iogrid.common.v1.UUID submitted_by_user_id = 3;
+  iogrid.common.v1.WorkloadType type = 4;
+  WorkloadPriority priority = 5;
+  // Latest known status (mirrors WorkloadStatus, see dispatch.proto).
+  string status = 6;
+  google.protobuf.Timestamp submitted_at = 7;
+  google.protobuf.Timestamp started_at = 8;
+  google.protobuf.Timestamp finished_at = 9;
+
+  // Free-form labels for customer-side bookkeeping. NEVER used for
+  // routing; just propagated back in audit logs and metering.
+  map<string, string> labels = 10;
+
+  // Exactly one of the typed payloads.
+  oneof payload {
+    BandwidthRequest bandwidth = 20;
+    DockerRequest docker = 21;
+    IosBuildRequest ios_build = 22;
+    GpuRequest gpu = 23;
+  }
+}
+
+// WorkloadResult is the customer-facing terminal state of a workload.
+message WorkloadResult {
+  iogrid.common.v1.UUID workload_id = 1;
+  // Terminal status: "succeeded", "failed", "timed_out", "cancelled".
+  string terminal_status = 2;
+  // Provider exit code (0 on success), where applicable.
+  int32 exit_code = 3;
+  // For Docker/GPU: S3 key holding stdout+stderr (capped at 10 MiB).
+  string logs_s3_key = 4;
+  // For Bandwidth: bytes transferred + summary URL.
+  uint64 bytes_in = 5;
+  uint64 bytes_out = 6;
+  // For iOS build: list of produced artifact S3 keys.
+  repeated string artifact_s3_keys = 7;
+  // Final billable amount (denominated in micros).
+  iogrid.common.v1.Money cost = 8;
+  google.protobuf.Timestamp completed_at = 9;
+}
+
+// --- RPCs -----------------------------------------------------------------
+
+message SubmitWorkloadRequest {
+  Workload workload = 1;
+}
+message SubmitWorkloadResponse {
+  // The persisted workload (with id assigned + submitted_at filled).
+  Workload workload = 1;
+}
+
+message GetWorkloadRequest {
+  iogrid.common.v1.UUID id = 1;
+}
+message GetWorkloadResponse {
+  Workload workload = 1;
+  // Set once workload reaches a terminal state.
+  WorkloadResult result = 2;
+}
+
+message ListWorkloadsRequest {
+  iogrid.common.v1.UUID workspace_id = 1;
+  iogrid.common.v1.PageRequest page = 2;
+  // Optional filters.
+  iogrid.common.v1.WorkloadType type_filter = 3;
+  string status_filter = 4;
+  iogrid.common.v1.TimeWindow submitted_window = 5;
+}
+message ListWorkloadsResponse {
+  repeated Workload workloads = 1;
+  iogrid.common.v1.PageResponse page = 2;
+}
+
+message CancelWorkloadRequest {
+  iogrid.common.v1.UUID id = 1;
+  // Optional reason captured in audit.
+  string reason = 2;
+}
+message CancelWorkloadResponse {
+  Workload workload = 1;
+}
+
+message StreamWorkloadEventsRequest {
+  iogrid.common.v1.UUID id = 1;
+}
+
+// Streamed per-event update — minimal payload; clients re-fetch the
+// full Workload via GetWorkload when they need details.
+message WorkloadEvent {
+  iogrid.common.v1.UUID workload_id = 1;
+  string new_status = 2;
+  google.protobuf.Timestamp occurred_at = 3;
+  // Free-form note (e.g. "dispatched to provider sha-prefix abc123").
+  string note = 4;
+}
+
+// WorkloadSubmissionService is the customer-facing API. Backs the
+// REST/Connect endpoints exposed via gateway-bff.
+service WorkloadSubmissionService {
+  rpc SubmitWorkload(SubmitWorkloadRequest) returns (SubmitWorkloadResponse);
+  rpc GetWorkload(GetWorkloadRequest) returns (GetWorkloadResponse);
+  rpc ListWorkloads(ListWorkloadsRequest) returns (ListWorkloadsResponse);
+  rpc CancelWorkload(CancelWorkloadRequest) returns (CancelWorkloadResponse);
+  rpc StreamWorkloadEvents(StreamWorkloadEventsRequest) returns (stream WorkloadEvent);
+}

@@ -1,0 +1,123 @@
+// Internal coordinator → daemon dispatch protocol. The daemon holds a
+// long-lived bidirectional stream open against the coordinator; the
+// coordinator pushes WorkloadAssignments down the wire, the daemon pushes
+// WorkloadStatusUpdates back.
+syntax = "proto3";
+
+package iogrid.workloads.v1;
+
+import "google/protobuf/timestamp.proto";
+import "iogrid/common/v1/types.proto";
+import "iogrid/workloads/v1/submit.proto";
+
+option go_package = "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/workloads/v1;workloadsv1";
+
+// WorkloadStatus is the dispatcher-side lifecycle. Mirrors what the
+// daemon reports via status updates. Stringified into Workload.status.
+enum WorkloadStatus {
+  WORKLOAD_STATUS_UNSPECIFIED = 0;
+  WORKLOAD_STATUS_QUEUED = 1;
+  WORKLOAD_STATUS_DISPATCHED = 2;
+  WORKLOAD_STATUS_RUNNING = 3;
+  WORKLOAD_STATUS_SUCCEEDED = 4;
+  WORKLOAD_STATUS_FAILED = 5;
+  WORKLOAD_STATUS_TIMED_OUT = 6;
+  WORKLOAD_STATUS_CANCELLED = 7;
+  // Daemon rejected at pre-flight (abuse filter, cap exceeded, etc).
+  WORKLOAD_STATUS_REJECTED = 8;
+}
+
+// WorkloadAssignment is what the coordinator pushes to a chosen daemon.
+message WorkloadAssignment {
+  Workload workload = 1;
+  // Server-generated, per-attempt id (a workload may be retried on a
+  // different provider if the first one fails — each attempt has its
+  // own id).
+  iogrid.common.v1.UUID attempt_id = 2;
+  // Deadline after which the daemon MUST abort the workload.
+  google.protobuf.Timestamp deadline = 3;
+  // Short-lived dispatch JWT proving the workload was authorized.
+  string dispatch_token = 4;
+}
+
+// WorkloadStatusUpdate is the daemon → coordinator delta. Sent on every
+// state change and periodically (heartbeat-on-progress) for long runs.
+message WorkloadStatusUpdate {
+  iogrid.common.v1.UUID workload_id = 1;
+  iogrid.common.v1.UUID attempt_id = 2;
+  WorkloadStatus status = 3;
+  google.protobuf.Timestamp observed_at = 4;
+  // Free-form daemon-side note (e.g. "image pulled in 4.2s").
+  string note = 5;
+  // For bandwidth jobs: running byte counters.
+  uint64 bytes_in = 6;
+  uint64 bytes_out = 7;
+  // For terminal updates: exit code and result references.
+  int32 exit_code = 8;
+  string logs_s3_key = 9;
+  repeated string artifact_s3_keys = 10;
+  // For REJECTED status: machine-readable reason slug.
+  string rejection_reason = 11;
+}
+
+// DaemonHello opens the dispatch stream. The first message a daemon
+// sends, identifying itself and the workload types it can receive.
+message DaemonHello {
+  iogrid.common.v1.UUID provider_id = 1;
+  repeated iogrid.common.v1.WorkloadType eligible_types = 2;
+  // Max concurrent workloads the daemon is willing to run right now.
+  uint32 max_concurrent = 3;
+}
+
+// CoordinatorHello acknowledges DaemonHello.
+message CoordinatorHello {
+  // The coordinator's view of this provider's id (sanity check).
+  iogrid.common.v1.UUID provider_id = 1;
+  google.protobuf.Timestamp accepted_at = 2;
+}
+
+// DispatchFrame is the bidi envelope used in the long-lived stream. One
+// of the oneof fields is set per frame.
+message DispatchFrame {
+  oneof frame {
+    DaemonHello daemon_hello = 1;
+    CoordinatorHello coordinator_hello = 2;
+    WorkloadAssignment assignment = 3;
+    WorkloadStatusUpdate update = 4;
+    // Coordinator-side cancel request (e.g. customer pressed cancel).
+    iogrid.common.v1.UUID cancel_workload_id = 5;
+    // Liveness pings — daemon sends every 15s when idle.
+    google.protobuf.Timestamp ping = 6;
+    // Coordinator-side directive to drain (stop accepting NEW
+    // assignments, finish in-flight, then disconnect).
+    bool drain = 7;
+  }
+}
+
+// AckAssignmentRequest / Response are used as an OUT-OF-STREAM RPC for
+// debugging / replays — the canonical path is the stream above.
+message AckAssignmentRequest {
+  iogrid.common.v1.UUID attempt_id = 1;
+  bool accepted = 2;
+  string rejection_reason = 3;
+}
+message AckAssignmentResponse {}
+
+message GetAssignmentRequest {
+  iogrid.common.v1.UUID attempt_id = 1;
+}
+message GetAssignmentResponse {
+  WorkloadAssignment assignment = 1;
+  WorkloadStatus latest_status = 2;
+}
+
+// WorkloadDispatchService is the internal RPC surface that workloads-svc
+// exposes to the daemon. Production traffic flows on the bidi stream.
+service WorkloadDispatchService {
+  // Long-lived bidi stream — the canonical path for production traffic.
+  rpc Dispatch(stream DispatchFrame) returns (stream DispatchFrame);
+  // Side-band acknowledgement used for replay/debug paths only.
+  rpc AckAssignment(AckAssignmentRequest) returns (AckAssignmentResponse);
+  // Inspect a single attempt — used by ops tooling.
+  rpc GetAssignment(GetAssignmentRequest) returns (GetAssignmentResponse);
+}

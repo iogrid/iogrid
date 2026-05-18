@@ -1,0 +1,136 @@
+// Provider payouts via Stripe Connect: KYC onboarding, balance, payout
+// history, eligibility checks. Mirrors customer-side subscription.proto.
+syntax = "proto3";
+
+package iogrid.billing.v1;
+
+import "google/protobuf/timestamp.proto";
+import "iogrid/common/v1/types.proto";
+
+option go_package = "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/billing/v1;billingv1";
+
+// PayoutAccountStatus mirrors the Stripe Connect onboarding lifecycle.
+enum PayoutAccountStatus {
+  PAYOUT_ACCOUNT_STATUS_UNSPECIFIED = 0;
+  // Not yet onboarded.
+  PAYOUT_ACCOUNT_STATUS_NOT_STARTED = 1;
+  // Stripe Connect started but missing required fields (KYC, bank).
+  PAYOUT_ACCOUNT_STATUS_PENDING_INFO = 2;
+  // Stripe says fully verified — payouts can be sent.
+  PAYOUT_ACCOUNT_STATUS_ACTIVE = 3;
+  // Stripe restricted (KYC failed, sanctions, etc).
+  PAYOUT_ACCOUNT_STATUS_RESTRICTED = 4;
+}
+
+// PayoutAccount is the user-level (NOT provider-level) payout binding —
+// a user can own multiple provider machines but receives one consolidated
+// payout per supported currency.
+message PayoutAccount {
+  iogrid.common.v1.UUID id = 1;
+  iogrid.common.v1.UUID user_id = 2;
+  string stripe_connect_account_id = 3;
+  PayoutAccountStatus status = 4;
+  // ISO 3166-1 alpha-2 country of the bank account.
+  string country_code = 5;
+  // Default payout currency for this account (ISO 4217).
+  string default_currency = 6;
+  google.protobuf.Timestamp onboarded_at = 7;
+  google.protobuf.Timestamp last_payout_at = 8;
+}
+
+// BalanceLedger summarises a user's pending and available balance.
+message BalanceLedger {
+  iogrid.common.v1.UUID user_id = 1;
+  // Funds earned but not yet through clearing (held for the dispute
+  // window after the workload settled).
+  iogrid.common.v1.Money pending = 2;
+  // Funds eligible for next payout.
+  iogrid.common.v1.Money available = 3;
+  // Funds reserved against open disputes / chargebacks.
+  iogrid.common.v1.Money reserved = 4;
+  google.protobuf.Timestamp last_updated_at = 5;
+}
+
+// PayoutStatus is the per-payout lifecycle.
+enum PayoutStatus {
+  PAYOUT_STATUS_UNSPECIFIED = 0;
+  PAYOUT_STATUS_PENDING = 1;
+  PAYOUT_STATUS_IN_TRANSIT = 2;
+  PAYOUT_STATUS_PAID = 3;
+  PAYOUT_STATUS_FAILED = 4;
+  PAYOUT_STATUS_CANCELLED = 5;
+}
+
+// Payout is the per-period record sent to the provider's bank.
+message Payout {
+  iogrid.common.v1.UUID id = 1;
+  iogrid.common.v1.UUID user_id = 2;
+  iogrid.common.v1.UUID payout_account_id = 3;
+  iogrid.common.v1.Money amount = 4;
+  PayoutStatus status = 5;
+  // Stripe payout id for cross-reference.
+  string stripe_payout_id = 6;
+  // Period this payout covers.
+  iogrid.common.v1.TimeWindow period = 7;
+  google.protobuf.Timestamp initiated_at = 8;
+  google.protobuf.Timestamp settled_at = 9;
+  // For FAILED status: machine-readable Stripe reason.
+  string failure_reason = 10;
+}
+
+// --- RPCs -----------------------------------------------------------------
+
+message GetPayoutAccountRequest {
+  iogrid.common.v1.UUID user_id = 1;
+}
+message GetPayoutAccountResponse {
+  PayoutAccount account = 1;
+}
+
+message StartPayoutOnboardingRequest {
+  iogrid.common.v1.UUID user_id = 1;
+  // Where Stripe should redirect the browser after onboarding.
+  string return_url = 2;
+  // Where Stripe should redirect on user-cancel.
+  string refresh_url = 3;
+}
+message StartPayoutOnboardingResponse {
+  // Stripe Connect onboarding URL.
+  string onboarding_url = 1;
+}
+
+message GetBalanceRequest {
+  iogrid.common.v1.UUID user_id = 1;
+}
+message GetBalanceResponse {
+  BalanceLedger ledger = 1;
+}
+
+message ListPayoutsRequest {
+  iogrid.common.v1.UUID user_id = 1;
+  iogrid.common.v1.PageRequest page = 2;
+  iogrid.common.v1.TimeWindow window = 3;
+}
+message ListPayoutsResponse {
+  repeated Payout payouts = 1;
+  iogrid.common.v1.PageResponse page = 2;
+}
+
+message RequestInstantPayoutRequest {
+  iogrid.common.v1.UUID user_id = 1;
+  // Caller MUST have a fresh step-up token from identity-svc.
+  string step_up_token = 2;
+}
+message RequestInstantPayoutResponse {
+  Payout payout = 1;
+}
+
+// PayoutService backs the `/provide/payout` page in the management
+// plane plus internal cron jobs that issue periodic payouts.
+service PayoutService {
+  rpc GetPayoutAccount(GetPayoutAccountRequest) returns (GetPayoutAccountResponse);
+  rpc StartPayoutOnboarding(StartPayoutOnboardingRequest) returns (StartPayoutOnboardingResponse);
+  rpc GetBalance(GetBalanceRequest) returns (GetBalanceResponse);
+  rpc ListPayouts(ListPayoutsRequest) returns (ListPayoutsResponse);
+  rpc RequestInstantPayout(RequestInstantPayoutRequest) returns (RequestInstantPayoutResponse);
+}

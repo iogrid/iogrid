@@ -1,0 +1,90 @@
+// Common scalar and value types shared across all iogrid service contracts.
+//
+// Keep this file dependency-free (only google.protobuf imports) so every
+// other package can pull it in without creating dependency cycles.
+syntax = "proto3";
+
+package iogrid.common.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/common/v1;commonv1";
+
+// UUID wraps the canonical 36-character RFC 4122 string form (e.g.
+// "f47ac10b-58cc-4372-a567-0e02b2c3d479"). Stored as text so it can be
+// indexed by Postgres' native uuid type without extra coercion.
+message UUID {
+  // Canonical lower-case hyphenated string. Empty string means "unset".
+  string value = 1;
+}
+
+// Money represents a fixed-precision monetary amount. We do NOT use floats
+// anywhere in the system; amounts are always integer micro-units so that
+// summation across the metering pipeline is loss-free.
+//
+// Example: 12.34 USD => { currency: "USD", micros: 12_340_000 }
+message Money {
+  // ISO 4217 three-letter currency code, upper-case (e.g. "USD", "EUR").
+  string currency = 1;
+
+  // Amount in millionths of the major currency unit. 1 USD == 1_000_000.
+  // Signed so that refunds and adjustments can be represented.
+  int64 micros = 2;
+}
+
+// Region identifies a geographic deployment region. Matches the slug the
+// coordinator publishes via its routing table; the daemon advertises which
+// region(s) it is closest to during registration.
+message Region {
+  // Stable machine slug, e.g. "us-east-1", "eu-west-1", "ap-southeast-1".
+  string slug = 1;
+
+  // Human readable display name, e.g. "US East (Virginia)".
+  string display_name = 2;
+
+  // ISO 3166-1 alpha-2 country code of the primary egress, e.g. "US".
+  string country_code = 3;
+}
+
+// WorkloadType enumerates the kinds of work the grid can route to providers.
+// New types are appended; existing values must NEVER be renumbered.
+enum WorkloadType {
+  WORKLOAD_TYPE_UNSPECIFIED = 0;
+
+  // HTTPS proxy / bandwidth relay (residential-IP egress).
+  WORKLOAD_TYPE_BANDWIDTH = 1;
+
+  // Generic Docker container workload (Linux/Windows).
+  WORKLOAD_TYPE_DOCKER = 2;
+
+  // GPU-accelerated container workload (CUDA, MLX, ROCm).
+  WORKLOAD_TYPE_GPU = 3;
+
+  // macOS / iOS build job dispatched to Mac providers via Tart VMs.
+  WORKLOAD_TYPE_IOS_BUILD = 4;
+}
+
+// Pagination cursor used across list RPCs. Servers MUST treat the page
+// token as an opaque value — clients MUST NOT parse it.
+message PageRequest {
+  // Maximum number of records to return. Server may cap to a lower value;
+  // 0 means "use server default" (typically 50).
+  int32 page_size = 1;
+
+  // Opaque continuation token returned by a prior call.
+  string page_token = 2;
+}
+
+// PageResponse is embedded in every list response.
+message PageResponse {
+  // Opaque continuation token to pass to the next call. Empty when the
+  // result set has been fully iterated.
+  string next_page_token = 1;
+}
+
+// TimeWindow is a half-open interval [start, end). Either bound may be
+// unset to indicate "open".
+message TimeWindow {
+  google.protobuf.Timestamp start = 1;
+  google.protobuf.Timestamp end = 2;
+}
