@@ -49,3 +49,14 @@ daemon/target/
 target/
 **/*.rs.bk
 Cargo.lock.bak
+
+# Marketing (Next.js) — safety net on top of marketing/.gitignore
+marketing/node_modules/
+marketing/.next/
+marketing/out/
+marketing/coverage/
+marketing/.lighthouseci/
+marketing/.vercel/
+marketing/.turbo/
+marketing/*.tsbuildinfo
+
