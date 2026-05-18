@@ -50,7 +50,7 @@ jobs:
           cluster_name: iogrid-validate
           version: v0.24.0
 
-      - name: Install CRDs (Gateway-API experimental, CNPG, cert-manager, Flux)
+      - name: Install CRDs (Gateway-API experimental, CNPG, cert-manager, Flux, prometheus-operator)
         run: |
           # Gateway-API experimental channel includes TLSRoute v1alpha2
           kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.0/experimental-install.yaml
@@ -60,9 +60,14 @@ jobs:
           kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.16.1/cert-manager.crds.yaml
           # Flux CRDs
           kubectl apply -f https://github.com/fluxcd/flux2/releases/download/v2.4.0/install.yaml || true
+          # prometheus-operator CRDs (PrometheusRule, ServiceMonitor, PodMonitor, etc.)
+          # — needed for telemetry-svc manifests to resolve kind→resource mappings.
+          kubectl apply --server-side -f https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/v0.78.2/example/prometheus-operator-crd/monitoring.coreos.com_prometheusrules.yaml
+          kubectl apply --server-side -f https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/v0.78.2/example/prometheus-operator-crd/monitoring.coreos.com_servicemonitors.yaml
+          kubectl apply --server-side -f https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/v0.78.2/example/prometheus-operator-crd/monitoring.coreos.com_podmonitors.yaml
           # Wait briefly for API discovery to refresh
           sleep 5
-          kubectl api-resources | grep -E "(tlsroutes|certificates|clusters.postgresql|kustomizations.kustomize.toolkit)" || true
+          kubectl api-resources | grep -E "(tlsroutes|certificates|clusters.postgresql|kustomizations.kustomize.toolkit|prometheusrules|servicemonitors)" || true
 
       - name: kustomize build base
         run: |
@@ -84,13 +89,13 @@ jobs:
           # Ignore missing CRD schemas for CNPG / Gateway-API / cert-manager / Flux —
           # those are validated via their own controllers at apply time.
           kubeval --strict --ignore-missing-schemas \
-            --skip-kinds Cluster,Certificate,ClusterIssuer,Gateway,HTTPRoute,TLSRoute,ReferenceGrant,GitRepository,Kustomization \
+            --skip-kinds Cluster,Certificate,ClusterIssuer,Gateway,HTTPRoute,TLSRoute,ReferenceGrant,GitRepository,Kustomization,PrometheusRule,ServiceMonitor,PodMonitor \
             /tmp/staging.yaml
 
       - name: kubeval prod
         run: |
           kubeval --strict --ignore-missing-schemas \
-            --skip-kinds Cluster,Certificate,ClusterIssuer,Gateway,HTTPRoute,TLSRoute,ReferenceGrant,GitRepository,Kustomization \
+            --skip-kinds Cluster,Certificate,ClusterIssuer,Gateway,HTTPRoute,TLSRoute,ReferenceGrant,GitRepository,Kustomization,PrometheusRule,ServiceMonitor,PodMonitor \
             /tmp/prod.yaml
 
       - name: kubectl dry-run staging

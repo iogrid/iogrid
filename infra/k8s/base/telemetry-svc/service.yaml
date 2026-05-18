@@ -1,3 +1,7 @@
+---
+# telemetry-svc control surface — used by gateway-bff for service
+# discovery and by Grafana for the public status page (proxied via the
+# gateway).
 apiVersion: v1
 kind: Service
 metadata:
@@ -16,7 +20,33 @@ spec:
       port: 8080
       targetPort: http
       protocol: TCP
-    - name: metrics
-      port: 9090
-      targetPort: metrics
+---
+# OTel Collector gateway — receives OTLP from every iogrid service and
+# the Rust daemon. Single endpoint, central tail-sampling, central
+# attribute enrichment.
+apiVersion: v1
+kind: Service
+metadata:
+  name: telemetry-otelcol
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: telemetry-svc
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: otel-gateway
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: telemetry-svc
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: otlp-grpc
+      protocol: TCP
+    - name: otlp-http
+      port: 4318
+      targetPort: otlp-http
+      protocol: TCP
+    - name: otelcol-metrics
+      port: 8888
+      targetPort: otelcol-metrics
       protocol: TCP

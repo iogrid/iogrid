@@ -6,3 +6,48 @@ resources:
   - service.yaml
   - hpa.yaml
   - networkpolicy.yaml
+  - configmap.yaml
+  - servicemonitor.yaml
+  - prometheusrules.yaml
+  - grafana-dashboards-kustomization.yaml
+
+# The assets under ./assets/{slo,dashboards} are SYNCED COPIES of the
+# canonical source under coordinator/services/telemetry-svc/{slo,dashboards}.
+# Resync via `make sync-telemetry-assets` (top-level Makefile) — the
+# only reason for the duplication is kustomize's default load-restrictor
+# which forbids references outside the kustomization root.
+configMapGenerator:
+  - name: telemetry-svc-slo
+    namespace: iogrid
+    files:
+      - assets/slo/magic-link-delivery.yaml
+      - assets/slo/proxy-gateway-availability.yaml
+      - assets/slo/web-tti.yaml
+      - assets/slo/workloads-dispatch-latency.yaml
+    options:
+      labels:
+        app.kubernetes.io/name: telemetry-svc
+        app.kubernetes.io/part-of: iogrid
+        app.kubernetes.io/component: slo
+
+  # Grafana dashboards — each entry is one dashboard JSON.
+  # The `grafana_dashboard: "1"` label is what the kiwigrid sidecar in
+  # the mothership monitoring namespace watches for.
+  - name: iogrid-dashboards
+    namespace: iogrid
+    files:
+      - assets/dashboards/iogrid-overview.json
+      - assets/dashboards/iogrid-services.json
+      - assets/dashboards/iogrid-customers.json
+      - assets/dashboards/iogrid-providers.json
+      - assets/dashboards/iogrid-abuse.json
+      - assets/dashboards/iogrid-revenue.json
+    options:
+      labels:
+        app.kubernetes.io/name: telemetry-svc
+        app.kubernetes.io/part-of: iogrid
+        app.kubernetes.io/component: dashboards
+        grafana_dashboard: "1"
+
+generatorOptions:
+  disableNameSuffixHash: false

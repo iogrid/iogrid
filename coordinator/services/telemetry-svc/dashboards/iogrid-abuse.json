@@ -1,0 +1,72 @@
+{
+  "uid": "iogrid-abuse",
+  "title": "iogrid — Anti-abuse",
+  "tags": ["iogrid", "abuse"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "30s",
+  "time": {"from": "now-6h", "to": "now"},
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Total blocks / 5m",
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+      "targets": [{"expr": "sum(rate(antiabuse_filter_block_total[5m]))", "refId": "A"}]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Active filters",
+      "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+      "targets": [{"expr": "count(antiabuse_filter_enabled == 1)", "refId": "A"}]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Filters disabled",
+      "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
+      "targets": [{"expr": "count(antiabuse_filter_enabled == 0)", "refId": "A"}],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "red", "value": 1}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Spike alerts firing",
+      "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+      "targets": [{"expr": "ALERTS{alertname=\"AntiAbuseHitRateSpike\",alertstate=\"firing\"}", "refId": "A"}]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Blocks by filter",
+      "gridPos": {"x": 0, "y": 4, "w": 12, "h": 9},
+      "targets": [{
+        "expr": "sum by (filter) (rate(antiabuse_filter_block_total[5m]))",
+        "legendFormat": "{{filter}}",
+        "refId": "A"
+      }]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Block ratio (blocks / total)",
+      "gridPos": {"x": 12, "y": 4, "w": 12, "h": 9},
+      "targets": [{
+        "expr": "sum(rate(antiabuse_filter_block_total[5m])) / sum(rate(antiabuse_filter_evaluations_total[5m]))",
+        "refId": "A"
+      }],
+      "fieldConfig": {"defaults": {"unit": "percentunit"}}
+    }
+  ]
+}
