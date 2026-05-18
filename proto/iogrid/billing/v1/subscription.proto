@@ -1,0 +1,154 @@
+// Customer subscriptions, Stripe integration, metering aggregation,
+// invoice generation.
+syntax = "proto3";
+
+package iogrid.billing.v1;
+
+import "google/protobuf/timestamp.proto";
+import "iogrid/common/v1/types.proto";
+
+option go_package = "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/billing/v1;billingv1";
+
+// SubscriptionTier matches the public pricing page tiers.
+enum SubscriptionTier {
+  SUBSCRIPTION_TIER_UNSPECIFIED = 0;
+  // Pay-as-you-go, no monthly commitment.
+  SUBSCRIPTION_TIER_PAYG = 1;
+  // Starter monthly plan.
+  SUBSCRIPTION_TIER_STARTER = 2;
+  // Growth plan.
+  SUBSCRIPTION_TIER_GROWTH = 3;
+  // Enterprise (custom contracts).
+  SUBSCRIPTION_TIER_ENTERPRISE = 4;
+}
+
+// SubscriptionStatus mirrors the Stripe lifecycle (subset we expose).
+enum SubscriptionStatus {
+  SUBSCRIPTION_STATUS_UNSPECIFIED = 0;
+  SUBSCRIPTION_STATUS_ACTIVE = 1;
+  SUBSCRIPTION_STATUS_TRIALING = 2;
+  SUBSCRIPTION_STATUS_PAST_DUE = 3;
+  SUBSCRIPTION_STATUS_CANCELED = 4;
+  SUBSCRIPTION_STATUS_INCOMPLETE = 5;
+  SUBSCRIPTION_STATUS_UNPAID = 6;
+}
+
+// Subscription is the workspace-level commercial relationship.
+message Subscription {
+  iogrid.common.v1.UUID id = 1;
+  iogrid.common.v1.UUID workspace_id = 2;
+  SubscriptionTier tier = 3;
+  SubscriptionStatus status = 4;
+  // Stripe customer id / subscription id (for support escalation).
+  string stripe_customer_id = 5;
+  string stripe_subscription_id = 6;
+  // Current period bounds.
+  iogrid.common.v1.TimeWindow current_period = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp canceled_at = 9;
+}
+
+// UsageRecord is the metered-line item, written by workloads-svc at
+// terminal status.
+message UsageRecord {
+  iogrid.common.v1.UUID id = 1;
+  iogrid.common.v1.UUID workspace_id = 2;
+  iogrid.common.v1.UUID workload_id = 3;
+  iogrid.common.v1.WorkloadType type = 4;
+  // Quantity in workload-type-appropriate unit (bytes for BANDWIDTH,
+  // seconds for DOCKER/GPU/IOS_BUILD).
+  uint64 quantity = 5;
+  // Computed cost at submission time (we honour the price observed
+  // when the workload was accepted, not the current rate card).
+  iogrid.common.v1.Money cost = 6;
+  google.protobuf.Timestamp recorded_at = 7;
+}
+
+// Invoice is the period-end aggregate.
+message Invoice {
+  iogrid.common.v1.UUID id = 1;
+  iogrid.common.v1.UUID workspace_id = 2;
+  iogrid.common.v1.TimeWindow period = 3;
+  iogrid.common.v1.Money subtotal = 4;
+  iogrid.common.v1.Money tax = 5;
+  iogrid.common.v1.Money total = 6;
+  // Stripe invoice id for cross-reference.
+  string stripe_invoice_id = 7;
+  string status = 8; // "draft" | "open" | "paid" | "void" | "uncollectible"
+  google.protobuf.Timestamp issued_at = 9;
+  google.protobuf.Timestamp paid_at = 10;
+  // Optional PDF hosted URL (Stripe-hosted).
+  string hosted_invoice_url = 11;
+}
+
+// --- RPCs -----------------------------------------------------------------
+
+message GetSubscriptionRequest {
+  iogrid.common.v1.UUID workspace_id = 1;
+}
+message GetSubscriptionResponse {
+  Subscription subscription = 1;
+}
+
+message CreateCheckoutSessionRequest {
+  iogrid.common.v1.UUID workspace_id = 1;
+  SubscriptionTier desired_tier = 2;
+  string success_url = 3;
+  string cancel_url = 4;
+}
+message CreateCheckoutSessionResponse {
+  // Hosted Stripe Checkout URL the browser navigates to.
+  string checkout_url = 1;
+}
+
+message CreatePortalSessionRequest {
+  iogrid.common.v1.UUID workspace_id = 1;
+  string return_url = 2;
+}
+message CreatePortalSessionResponse {
+  string portal_url = 1;
+}
+
+message ListUsageRequest {
+  iogrid.common.v1.UUID workspace_id = 1;
+  iogrid.common.v1.PageRequest page = 2;
+  iogrid.common.v1.TimeWindow window = 3;
+  iogrid.common.v1.WorkloadType type_filter = 4;
+}
+message ListUsageResponse {
+  repeated UsageRecord usage = 1;
+  iogrid.common.v1.PageResponse page = 2;
+  // Convenience aggregate for the current page filter set.
+  iogrid.common.v1.Money page_subtotal = 3;
+}
+
+message ListInvoicesRequest {
+  iogrid.common.v1.UUID workspace_id = 1;
+  iogrid.common.v1.PageRequest page = 2;
+}
+message ListInvoicesResponse {
+  repeated Invoice invoices = 1;
+  iogrid.common.v1.PageResponse page = 2;
+}
+
+message CancelSubscriptionRequest {
+  iogrid.common.v1.UUID workspace_id = 1;
+  // True == cancel at period end (default); false == immediate.
+  bool at_period_end = 2;
+  // Optional reason captured in audit + Stripe metadata.
+  string reason = 3;
+}
+message CancelSubscriptionResponse {
+  Subscription subscription = 1;
+}
+
+// SubscriptionService is the customer-side billing surface, backing
+// `/customer/billing` in the management plane.
+service SubscriptionService {
+  rpc GetSubscription(GetSubscriptionRequest) returns (GetSubscriptionResponse);
+  rpc CreateCheckoutSession(CreateCheckoutSessionRequest) returns (CreateCheckoutSessionResponse);
+  rpc CreatePortalSession(CreatePortalSessionRequest) returns (CreatePortalSessionResponse);
+  rpc ListUsage(ListUsageRequest) returns (ListUsageResponse);
+  rpc ListInvoices(ListInvoicesRequest) returns (ListInvoicesResponse);
+  rpc CancelSubscription(CancelSubscriptionRequest) returns (CancelSubscriptionResponse);
+}
