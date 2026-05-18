@@ -38,5 +38,3 @@ upgradeable = false
 
 [[test.validator.clone]]
 address = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
-
-[test.genesis]
