@@ -75,12 +75,62 @@ Distribution proportions configurable up to mainnet launch; locked at TGE (Token
 
 Hard-coded into the SPL emission program; no governance can override.
 
-### Layer 3 — Staking-induced supply lockup
+### Layer 3 — Mandatory provider-earnings lockup (the alignment mechanic)
 
-- Providers can stake $GRID to earn **routing priority** (their devices are preferred for premium workloads, earning ~30% more).
-- Customers can stake $GRID to earn **volume discounts** (up to 25% off list price).
-- Staked tokens are illiquid for the staking duration (minimum 30 days). Effectively reduces circulating supply.
-- Target: 40%+ of circulating supply locked in staking by Year 2.
+**Every $GRID earned by a provider is auto-locked the moment it's distributed.** Providers cannot sell freshly-earned tokens; they earn into a vesting position that releases on a schedule.
+
+Base lockup applied to ALL earned $GRID:
+
+| Time since earned | % unlocked |
+|-------------------|------------|
+| Day 0 – 30 | 0% (cliff) |
+| Day 30 – 90 | Linear vest 0% → 100% |
+| Day 90+ | 100% unlocked (provider can sell, transfer, withdraw) |
+
+This is **rolling per payout** — each weekly distribution starts its own 30/90-day clock. A provider who has been earning continuously will always have most of their balance in some stage of vesting.
+
+#### Why it works
+
+1. **Stops day-1 dump.** Without lockup, every provider would convert $GRID → USDC the moment they receive it, crashing the price. With lockup, only ~33% of any month's earnings are sellable at any time.
+2. **Compounds with deflation.** Locked tokens count toward "circulating supply removed" — they're untradable. As more providers join, the lockup pool grows, supply pressure shrinks.
+3. **Skin in the game.** Providers care about $GRID price even after they stop providing — their vesting position keeps appreciating.
+
+#### Optional bonus lockup tiers (provider's choice, opt-in)
+
+Providers can elect a LONGER lockup at signup for a rewards multiplier:
+
+| Lockup tier | Cliff + vest schedule | Rewards multiplier |
+|-------------|----------------------|--------------------|
+| **Standard** (default) | 30-day cliff + 60-day linear vest | **1.0×** |
+| **Loyalty** | 90-day cliff + 180-day linear vest | **1.25×** |
+| **Conviction** | 180-day cliff + 365-day linear vest | **1.5×** |
+| **Maximum** | 365-day cliff + 730-day linear vest | **2.0×** |
+
+A provider who picks the "Maximum" tier earns 2× the $GRID for the same work — but cannot touch it for 1 year, with another 2 years of linear vest. Designed for true believers / long-term holders.
+
+Tier is set per-provider at onboarding; can be UPGRADED any time (locks more, never less), but cannot be downgraded.
+
+#### Early-unlock with penalty (escape hatch, not free)
+
+A provider in genuine financial need can early-unlock locked $GRID, but:
+
+- **50% penalty** on the locked portion
+- The penalty is **burned** (not retained by iogrid) — strengthens deflation
+- One early-unlock event per 12 months per provider (anti-gaming)
+
+So a provider with 10,000 locked $GRID who early-unlocks gets 5,000 unlocked tokens + 5,000 burned forever. Painful enough that few will use it, soft enough that we're not "trapping" anyone.
+
+#### Stake-while-locked
+
+Locked tokens automatically count toward the provider's **routing-priority stake weight.** Providers don't lose yield/priority just because their tokens are vesting — they get the alignment benefit for free.
+
+#### Customer-side staking (separate, voluntary)
+
+Customers may also stake $GRID for **volume discounts** (up to 25% off list price). Minimum 30 days, customer's choice.
+
+#### Target supply lockup
+
+By Year 2: **60%+** of circulating supply locked across provider earnings + voluntary customer stakes. This effectively halves the trading float, amplifying both upside volatility (good for holders) and the deflationary buy-and-burn impact (each $1 of burn removes 2× more % of circulating supply).
 
 ### Layer 4 — Customer-pays-in-$GRID discount
 
@@ -270,9 +320,90 @@ This document **assumes yes** and proceeds. If you want to reverse, say so.
 ## Open decisions (founder to confirm)
 
 1. **Final token symbol** — `$GRID` vs `$IOG` vs other (this doc assumes `$GRID`)
-2. **Chain choice** — Solana (this doc) vs Base (Ethereum L2) vs Polygon
-3. **Foundation jurisdiction** — Cayman vs BVI vs Liechtenstein vs Wyoming DAO LLC
-4. **Initial supply** — 1B (this doc) vs 100M vs 10B
-5. **Halving period** — 2 years (this doc) vs 4 years (full Bitcoin parity)
-6. **Burn percentage** — 2% of revenue (this doc) vs higher
-7. **Pre-TGE strategic raise** — yes/no, target amount
+2. **Foundation jurisdiction** — Cayman vs BVI vs Liechtenstein vs Wyoming DAO LLC
+3. **Initial supply** — 1B (this doc) vs 100M vs 10B
+4. **Halving period** — 2 years (this doc) vs 4 years (full Bitcoin parity)
+5. **Burn percentage** — 2% of revenue (this doc) vs higher
+6. **Pre-TGE strategic raise** — yes/no, target amount
+
+(Chain choice locked: **Solana primary + Base bridge** — see chain-rationale section.)
+
+---
+
+## Chain choice rationale — Solana primary, Base as bridge
+
+Founder asked which L1 best fits iogrid's needs. Decision:
+
+| Factor | Solana | Base (Eth L2) | Polygon | Eth L1 | Verdict |
+|--------|--------|---------------|---------|--------|---------|
+| Cost / tx | $0.0005 | $0.005–0.05 | $0.001–0.01 | $5–50 | Solana 10× cheaper than Base |
+| Finality | <1 sec | ~2 sec | ~2 sec | ~12 sec | Solana wins |
+| Throughput sustained | 3000+ TPS | ~50 TPS | ~50 TPS | ~15 TPS | Solana wins |
+| Native DEX depth | Raydium / Orca / Jupiter | Uniswap (bridged) | Quickswap (declining) | Uniswap | Solana wins |
+| Token primitives | Token-2022 with transfer hooks (burn / fee / limit) | ERC-20 + ERC-4626 | ERC-20 | ERC-20 | Solana wins |
+| Vesting | Streamflow (audited, production) | Sablier / Llamapay | Sablier | Sablier | Tie |
+| Multisig | Squads Protocol (Solana-native) | Safe (Gnosis) | Safe | Safe | Tie |
+| CEX listing path | Strong: Bybit, Binance, OKX, Coinbase, Kraken | Coinbase-native (parent) | Weakening | Universal | Solana strong; Base parent-advantage |
+| 2026 ecosystem momentum | Highest among non-Eth | Fastest-growing L2 | Declining | Stable | Solana wins |
+| Concentrated liquidity AMM | Raydium CLMM, Orca Whirlpools | Uniswap v3/v4 | Quickswap | Uniswap | Tie |
+
+**Decision:** Solana primary. Daily payout swaps + thousands of monthly provider payouts + 2% buy-and-burn at Solana cost = ~$5/month gas. Same volume on Base = $50–500/month. Same volume on Ethereum mainnet = $5K–50K/month. Solana is the only chain whose economics scale to 100K providers without architecture rework.
+
+**Bridge to Base** via [Wormhole NTT](https://wormhole.com/products/ntt) within 30 days of TGE: this enables $GRID-on-Base, which is what Coinbase (parent of Base) lists. For providers who prefer Coinbase off-ramp over Solana-native off-ramps, the bridge is one-click.
+
+## Launch sequence — modern DEX-first playbook (no IEO dependency)
+
+| Phase | Action | Why |
+|-------|--------|-----|
+| **Pre-TGE strategic raise (Months 1–3)** | Reg D / Reg S, ~$2M @ $20M FDV → 10M tokens (1% supply) sold to accredited investors. CoinList private rounds or direct. | Funds legal + audit + initial liquidity. |
+| **Smart contract dev + audit (Months 1–4)** | Anchor program development + audit by OtterSec or Halborn ($30–80K). | Required before TGE — no shortcuts. |
+| **Mainnet TGE on Solana (Month 6–9)** | Token mint. Streamflow vesting contracts activated. Squads treasury multisig live. | TGE = official token genesis event. |
+| **Bootstrap own liquidity pool (TGE Day 0)** | Seed Raydium CLMM with 5M $GRID + $250K USDC in concentrated range ($0.05–$5.00 = 100× price discovery range). | **THIS is our primary trading venue. No exchange required.** Anyone can swap USDC↔$GRID immediately. |
+| **Jupiter Launchpad public sale (TGE Day 0–7)** | 5M tokens at fixed price via Jupiter Launchpad (decentralized, KYC for >$1K). | Public access, no 5–10% IEO fee that CEX launchpads charge. |
+| **Bridge to Base (TGE Day 30)** | Wormhole NTT deploys $GRID on Base | Coinbase off-ramp accessible for non-crypto-native providers |
+| **Tier-2 CEX listings (Month 6+)** | Bybit Launchpad, KuCoin, Gate.io | Adds visibility; not mission-critical thanks to DEX-first launch |
+| **Tier-1 CEX listings (Year 1+)** | Binance Spot, Coinbase, Kraken | Requires 6+ months organic volume, full legal review, audit reports. Aspirational. |
+
+**Key insight:** by seeding our own Raydium CLMM pool at TGE, we eliminate the "we need to get listed somewhere" risk that early-stage tokens face. Bonk, Jupiter, Wormhole, Pyth, Helium — all launched DEX-first on Solana, none waited for CEX listings. Tier-1 CEX listings followed organically once volume + liquidity proved out.
+
+## Concentrated liquidity strategy — Raydium CLMM
+
+Raydium CLMM is the Solana equivalent of Uniswap v3 — providers pin liquidity to a price range and earn fees only when the pair trades in that range. Mechanics:
+
+```
+Seed pool:
+- 5,000,000 $GRID (from 5% initial liquidity allocation)
+- $250,000 USDC (from pre-TGE raise proceeds)
+
+Range: $0.05 – $5.00 (100× price discovery)
+Implied launch price: ~$0.05 (low end of range)
+Implied FDV at launch: $50M
+Implied FDV ceiling: $5B (top of range)
+
+Fee tier: 0.25% (standard for new pairs)
+LP tokens: locked in 4-year-vest Streamflow contract → cannot be rugged
+```
+
+**Liquidity defense layers:**
+1. **Locked LP tokens** — anyone can verify on-chain that we cannot rug the pool
+2. **Permanent burn of LP token at end of vesting** — locks liquidity forever, signals trust
+3. **MEV protection** — use Jupiter swap routing (built-in sandwich-attack mitigation)
+4. **Pool concentration adjustments** — as price discovers, narrow the range to concentrate liquidity for tighter spreads. Done via 3-of-5 Squads multisig vote.
+
+## Strategic raise — terms sketch
+
+For founder reference if pursuing the $2M pre-TGE round:
+
+- Tokens: 10M $GRID (1% of supply) at $0.20/token = $2M raised
+- FDV at strategic round: $200M
+- TGE launch FDV (DEX implied): $50M (4× discount for strategic investors)
+- Vesting: 12-month cliff, 24-month linear vest after TGE (3 years total)
+- Investor rights: information rights, no board seat, no veto, governance vote weighted equal to community
+- Use of proceeds:
+  - Legal + counsel — $200K
+  - Smart contract audit — $50K
+  - Foundation setup — $100K
+  - Initial liquidity seed — $250K
+  - Tokenomics-specific engineering — $400K (1 senior dev × 12 mo)
+  - Reserve / runway — $1M
+
