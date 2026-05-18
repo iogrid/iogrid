@@ -1,7 +1,8 @@
 # iogrid top-level Makefile. Hubs into per-area sub-makefiles as they land.
-# For now, only proto/ is wired up.
+# Wires proto/ + the customer SDK pipelines (sdks/).
 
-.PHONY: help proto proto-lint proto-format proto-format-check proto-check proto-breaking
+.PHONY: help proto proto-lint proto-format proto-format-check proto-check proto-breaking \
+        openapi openapi-lint sdks sdk-typescript sdk-python sdk-go sdk-java
 
 help:
 	@echo "iogrid Makefile targets:"
@@ -11,6 +12,13 @@ help:
 	@echo "  make proto-format-check - run 'buf format --diff --exit-code' (CI parity)"
 	@echo "  make proto-breaking     - run 'buf breaking' against origin/main"
 	@echo "  make proto-check        - full CI parity: lint + format-check + generate-and-diff"
+	@echo "  make openapi            - regenerate OpenAPI 3.1 spec from proto/"
+	@echo "  make openapi-lint       - run Spectral over the OpenAPI spec"
+	@echo "  make sdks               - build all customer SDKs (typescript+python+go+java)"
+	@echo "  make sdk-typescript     - build the @iogrid/sdk npm package"
+	@echo "  make sdk-python         - build the iogrid PyPI package"
+	@echo "  make sdk-go             - go vet + test for the Go SDK"
+	@echo "  make sdk-java           - gradle build for the Java SDK"
 
 proto:
 	cd proto && buf generate
@@ -35,3 +43,24 @@ proto-check: proto-lint proto-format-check
 		exit 1; \
 	fi
 	@echo "proto-check OK"
+
+openapi:
+	cd proto && buf generate --template buf.gen.openapi.yaml
+
+openapi-lint:
+	cd proto/gen/openapi && spectral lint iogrid.yaml --ruleset .spectral.yaml
+
+sdks: sdk-typescript sdk-python sdk-go sdk-java
+	@echo "All SDKs built."
+
+sdk-typescript:
+	cd sdks/typescript && pnpm install --frozen-lockfile && pnpm test && pnpm build
+
+sdk-python:
+	cd sdks/python && hatch env create && hatch run test
+
+sdk-go:
+	cd sdks/go && go vet ./... && go test ./...
+
+sdk-java:
+	cd sdks/java && ./gradlew check
