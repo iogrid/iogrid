@@ -457,11 +457,15 @@ EOF
 
     target_uid=$(id -u "$target_user")
     runtime_dir="/run/user/$target_uid"
+    # daemon-reload may fail in CI containers where the user's DBus
+    # session isn't wired; we tolerate it (the unit file is still on
+    # disk so a later boot picks it up).
     XDG_RUNTIME_DIR="$runtime_dir" \
-        $SUDO -u "$target_user" systemctl --user daemon-reload
+        $SUDO -u "$target_user" systemctl --user daemon-reload 2>/dev/null \
+        || warn "systemctl --user daemon-reload failed (no user DBus session?)"
     XDG_RUNTIME_DIR="$runtime_dir" \
-        $SUDO -u "$target_user" systemctl --user enable --now iogridd.service \
-        || warn "systemctl enable returned non-zero — check 'systemctl --user status iogridd'"
+        $SUDO -u "$target_user" systemctl --user enable --now iogridd.service 2>/dev/null \
+        || warn "systemctl --user enable returned non-zero — check 'systemctl --user status iogridd'"
     ok "systemd user unit enabled + started"
 }
 

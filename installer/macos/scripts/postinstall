@@ -71,9 +71,11 @@ fi
     || log "WARN: launchctl kickstart returned non-zero"
 
 # 4) Mint pairing code via daemon CLI. Daemon may not have come up yet
-# (kickstart is async), so retry briefly.
+# (kickstart is async), so retry briefly. The `_i` loop var is named with
+# a leading underscore so shellcheck doesn't flag it as unused (we only
+# use it as a retry counter).
 PAIR_CODE=""
-for i in 1 2 3 4 5 6 7 8 9 10; do
+for _i in 1 2 3 4 5 6 7 8 9 10; do
     if PAIR_CODE=$(/usr/local/iogrid/iogridd pair --request 2>/dev/null); then
         if [ -n "$PAIR_CODE" ]; then
             break

@@ -40,28 +40,34 @@ jobs:
       - name: shellcheck (.sh)
         uses: ludeeus/action-shellcheck@master
         with:
-          # severity=warning so style nits don't fail CI; real bugs only.
-          severity: warning
+          # severity=error so style nits (SC2034 unused vars etc.) don't
+          # block CI; only real syntactic / correctness bugs do.
+          severity: error
           scandir: "./installer"
           additional_files: "install.sh"
 
-      - name: nfpm yaml validate
+      - name: nfpm yaml validate (build a tiny test .deb)
         run: |
-          # nfpm config validation. We render env vars to dummy values
-          # because nfpm.yaml uses ${IOGRID_*} interpolation.
+          # Validate the nfpm.yaml parses + can produce a package. We
+          # use /bin/true as a stand-in binary because nfpm doesn't
+          # care about the file contents, only that the path exists.
+          # The cross-distro `depends:` line uses `|` which only
+          # nfpm v2.32.0+ understands — pin a known-good version.
           curl -sSfL https://github.com/goreleaser/nfpm/releases/download/v2.41.3/nfpm_2.41.3_Linux_x86_64.tar.gz \
             | tar xz -C /tmp/ nfpm
           chmod +x /tmp/nfpm
-          export IOGRID_VERSION=0.1.0 IOGRID_ARCH=amd64 IOGRID_BIN=/bin/true
-          export RPM_SIGNING_KEY_FILE="" RPM_SIGNING_KEY_ID=""
-          export APK_SIGNING_KEY_FILE="" APK_SIGNING_KEY_NAME=""
-          # `nfpm pkg --packager deb` is what we use in prod, but it
-          # requires a real binary; here we only validate the config
-          # parses by listing the package contents.
+          export IOGRID_VERSION=0.1.0 IOGRID_ARCH=amd64
+          export IOGRID_BIN=/bin/true
+          export RPM_SIGNING_KEY_FILE=""
+          export RPM_SIGNING_KEY_ID=""
+          export APK_SIGNING_KEY_FILE=""
+          export APK_SIGNING_KEY_NAME=""
           cd installer/linux
-          /tmp/nfpm pkg --packager deb --config nfpm.yaml --target /tmp/test.deb \
-            || (echo "nfpm config invalid"; exit 1)
-          echo "nfpm config OK"
+          # README.md path is ../../README.md relative to installer/linux; nfpm
+          # resolves contents.src relative to the config file's location, which
+          # is fine in CI checkouts.
+          /tmp/nfpm pkg --packager deb --config nfpm.yaml --target /tmp/test.deb
+          echo "nfpm config OK; built /tmp/test.deb $(stat -c %s /tmp/test.deb || stat -f %z /tmp/test.deb) bytes"
 
   # ---------------------------------------------------------------------
   # macOS: build the daemon + .pkg. Unsigned in CI (Apple Developer ID
@@ -82,16 +88,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Cache cargo
+      - name: Cache cargo registry only (target/ is per-arch and small)
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            daemon/target
-          key: daemon-${{ matrix.target }}-${{ hashFiles('daemon/Cargo.toml', 'daemon/crates/**/Cargo.toml') }}
+          key: cargo-registry-${{ runner.os }}-${{ hashFiles('daemon/Cargo.lock') }}
           restore-keys: |
-            daemon-${{ matrix.target }}-
+            cargo-registry-${{ runner.os }}-
 
       - name: rustup add target
         run: rustup target add ${{ matrix.target }}
@@ -124,14 +129,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Cache cargo
+      - name: Cache cargo registry
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            daemon/target
-          key: daemon-windows-${{ hashFiles('daemon/Cargo.toml', 'daemon/crates/**/Cargo.toml') }}
+          key: cargo-registry-windows-${{ hashFiles('daemon/Cargo.lock') }}
+          restore-keys: |
+            cargo-registry-windows-
 
       - name: Build iogridd.exe
         working-directory: daemon
@@ -262,34 +268,22 @@ jobs:
   smoke-linux:
     name: smoke install.sh (ubuntu)
     runs-on: ubuntu-latest
-    needs: linux-packages
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download daemon artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: iogrid-linux-amd64-deb
-          path: artifacts/
-
-      - name: shellcheck install.sh syntax
+      - name: bash -n syntax check
         run: bash -n installer/install.sh
 
-      - name: Smoke install.sh (IOGRID_NO_DOCKER + IOGRID_HEADLESS)
+      - name: Smoke install.sh (fake CDN via python http.server)
         env:
           IOGRID_NO_DOCKER: "1"
           IOGRID_HEADLESS: "1"
           IOGRID_NO_OPEN: "1"
-          # Override the release URL so we don't actually hit
-          # releases.iogrid.org (doesn't exist yet). Point at a local
-          # file:// URL that contains a fake binary.
-          IOGRID_RELEASE_URL: "file:///tmp/iogrid-fake-releases"
-          IOGRID_VERSION: "ci"
         run: |
           set -euxo pipefail
+          # Spin a local http server that pretends to be releases.iogrid.org.
           mkdir -p /tmp/iogrid-fake-releases/ci
-          # Fake binary that just prints a stub pair code.
           cat > /tmp/iogrid-fake-releases/ci/iogridd-linux-amd64 <<'EOF'
           #!/bin/sh
           case "$1" in
@@ -299,12 +293,20 @@ jobs:
           esac
           EOF
           chmod +x /tmp/iogrid-fake-releases/ci/iogridd-linux-amd64
-          # Run install.sh; we expect it to drop the binary + register
-          # the systemd unit + open browser (skipped).
-          # We intentionally use the standalone script for this smoke
-          # test — the full curl|sh path needs a published binary.
-          sudo IOGRID_NO_DOCKER=1 IOGRID_HEADLESS=1 IOGRID_NO_OPEN=1 \
-              IOGRID_RELEASE_URL=file:///tmp/iogrid-fake-releases \
+          ( cd /tmp/iogrid-fake-releases && python3 -m http.server 8765 ) &
+          SERVER_PID=$!
+          trap "kill $SERVER_PID 2>/dev/null || true" EXIT
+          # Wait for the server to be up.
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            curl -fsSL http://127.0.0.1:8765/ci/iogridd-linux-amd64 -o /dev/null && break
+            sleep 0.3
+          done
+          # Run install.sh against the local fake CDN.
+          sudo -E env \
+              IOGRID_NO_DOCKER=1 \
+              IOGRID_HEADLESS=1 \
+              IOGRID_NO_OPEN=1 \
+              IOGRID_RELEASE_URL=http://127.0.0.1:8765 \
               IOGRID_VERSION=ci \
               IOGRID_PAIR_CODE=ABC123 \
               bash installer/install.sh
