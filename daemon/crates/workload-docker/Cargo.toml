@@ -1,0 +1,30 @@
+[package]
+name = "iogrid-workload-docker"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "iogridd Docker workload runner — bollard-driven, gVisor/Kata isolation."
+
+[lib]
+name = "iogrid_workload_docker"
+path = "src/lib.rs"
+
+[features]
+default = []
+# Pull in bollard only when building the real runner. Scaffold keeps `cargo
+# check` light.
+docker-real = ["dep:bollard"]
+
+[dependencies]
+tokio = { workspace = true }
+async-trait = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+uuid = { workspace = true }
+
+bollard = { workspace = true, optional = true }

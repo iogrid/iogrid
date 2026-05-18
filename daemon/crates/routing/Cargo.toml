@@ -1,0 +1,29 @@
+[package]
+name = "iogrid-routing"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "iogridd routing — WireGuard tunnel + SOCKS5/HTTP CONNECT acceptor for the bandwidth workload."
+
+[lib]
+name = "iogrid_routing"
+path = "src/lib.rs"
+
+[features]
+default = []
+# Pull in heavy crates (boringtun / socks5-server) only when the daemon binary
+# is built with the `routing-real` feature. The scaffold compiles trait-shaped
+# stubs that satisfy `cargo check --workspace`.
+routing-real = []
+
+[dependencies]
+tokio = { workspace = true }
+async-trait = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+bytes = { workspace = true }

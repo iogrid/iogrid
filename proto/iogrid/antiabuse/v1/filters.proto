@@ -1,0 +1,141 @@
+// Anti-abuse filters: pre-flight checks the daemon (and proxy-gateway)
+// run before relaying customer traffic. The SAME filters run server-side
+// in antiabuse-svc and locally in the Rust daemon (mirrored), so the
+// provider can audit them via the local UI bridge.
+syntax = "proto3";
+
+package iogrid.antiabuse.v1;
+
+import "google/protobuf/timestamp.proto";
+import "iogrid/common/v1/types.proto";
+
+option go_package = "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/antiabuse/v1;antiabusev1";
+
+// FilterDecision is the per-check outcome.
+enum FilterDecision {
+  FILTER_DECISION_UNSPECIFIED = 0;
+  FILTER_DECISION_ALLOW = 1;
+  FILTER_DECISION_BLOCK = 2;
+  // Allow but record for review (yellow-flag).
+  FILTER_DECISION_REVIEW = 3;
+}
+
+// CategorySlug captures the high-level intent of the customer's
+// workload — used for opt-in matching against provider preferences
+// (see CategoryOptIn in providers/v1/scheduling.proto).
+enum CategorySlug {
+  CATEGORY_SLUG_UNSPECIFIED = 0;
+  CATEGORY_SLUG_E_COMMERCE = 1;
+  CATEGORY_SLUG_SEO = 2;
+  CATEGORY_SLUG_AD_VERIFICATION = 3;
+  CATEGORY_SLUG_AI_TRAINING_DATA = 4;
+  CATEGORY_SLUG_IOGRID_INTERNAL = 5;
+  CATEGORY_SLUG_LEAD_GEN = 6;
+  CATEGORY_SLUG_SOCIAL_INTEL = 7;
+  CATEGORY_SLUG_ADULT_CONTENT = 8;
+}
+
+// FilterContext is the request envelope passed to every CheckXxx RPC.
+// It carries the actor identifiers + the category + an optional dry-run
+// flag (daemon uses dry-run to surface rules without enforcing).
+message FilterContext {
+  iogrid.common.v1.UUID provider_id = 1;
+  iogrid.common.v1.UUID workspace_id = 2;
+  iogrid.common.v1.UUID workload_id = 3;
+  CategorySlug category = 4;
+  // True iff the caller just wants the decision returned but NOT
+  // recorded as an audit event.
+  bool dry_run = 5;
+  // For propagation across the daemon → coordinator path.
+  string trace_id = 6;
+}
+
+// FilterVerdict is the standard reply for every CheckXxx call.
+message FilterVerdict {
+  FilterDecision decision = 1;
+  // Machine slug, e.g. "csam_hash_match", "phishtank_listed",
+  // "rate_limited", "category_disallowed", "destination_blocked".
+  string reason = 2;
+  // Optional human-readable explanation suitable for surfacing in
+  // operator dashboards (never to end-users verbatim).
+  string explanation = 3;
+  // For RATE_LIMIT decisions: when the caller may retry.
+  google.protobuf.Timestamp retry_after = 4;
+}
+
+// CheckUrlRequest is used before relaying an HTTP/HTTPS request.
+message CheckUrlRequest {
+  FilterContext context = 1;
+  // Full URL the customer wants fetched.
+  string url = 2;
+  // HTTP method.
+  string method = 3;
+  // Optional partial request body (first 64 KiB) for filters that
+  // need content (e.g. CSAM-image pre-hash). Daemon only sends if
+  // it is configured to.
+  bytes sample_body = 4;
+}
+message CheckUrlResponse {
+  FilterVerdict verdict = 1;
+}
+
+// CheckDomainRequest is the lighter, header-time variant used by
+// SOCKS5 CONNECT before TLS-handshake-through.
+message CheckDomainRequest {
+  FilterContext context = 1;
+  string domain = 2;
+  uint32 port = 3;
+}
+message CheckDomainResponse {
+  FilterVerdict verdict = 1;
+}
+
+// CheckContainerImageRequest runs before pulling a Docker image.
+message CheckContainerImageRequest {
+  FilterContext context = 1;
+  // Full reference (e.g. "ghcr.io/example/scraper@sha256:abc...").
+  string image_ref = 2;
+  // Resolved digest if the caller already pulled it.
+  string image_digest = 3;
+}
+message CheckContainerImageResponse {
+  FilterVerdict verdict = 1;
+}
+
+// ReportEventRequest streams audit-events back to antiabuse-svc — used
+// for review-flagged hits and for the transparency feed.
+message ReportEventRequest {
+  FilterContext context = 1;
+  string event_kind = 2; // e.g. "workload_blocked", "review_flagged".
+  map<string, string> metadata = 3;
+  google.protobuf.Timestamp occurred_at = 4;
+}
+message ReportEventResponse {}
+
+// ListFiltersRequest returns the active rule snapshot — used by the
+// provider's local UI to display "here is what we're filtering for you".
+message ListFiltersRequest {}
+message FilterRule {
+  string id = 1;
+  string description = 2;
+  string slug = 3;
+  string version = 4;
+  google.protobuf.Timestamp last_updated_at = 5;
+}
+message ListFiltersResponse {
+  repeated FilterRule rules = 1;
+  // The hash the daemon should compare against its local mirror to
+  // detect drift.
+  string ruleset_hash = 2;
+}
+
+// AbuseFilterService is the canonical interface. Both the proxy-gateway
+// (per request) and the Rust daemon (per request, locally) implement
+// the same wire RPCs so audits compare apples to apples.
+service AbuseFilterService {
+  rpc CheckUrl(CheckUrlRequest) returns (CheckUrlResponse);
+  rpc CheckDomain(CheckDomainRequest) returns (CheckDomainResponse);
+  rpc CheckContainerImage(CheckContainerImageRequest) returns (CheckContainerImageResponse);
+  rpc ReportEvent(ReportEventRequest) returns (ReportEventResponse);
+  rpc ListFilters(ListFiltersRequest) returns (ListFiltersResponse);
+}

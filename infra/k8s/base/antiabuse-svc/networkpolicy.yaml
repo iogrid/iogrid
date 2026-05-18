@@ -1,0 +1,74 @@
+---
+# antiabuse-svc — pre-flight filters (CSAM, fraud, blocklists, rate limits).
+# Ingress: workloads-svc, proxy-gateway, build-gateway.
+# Egress: Postgres (rule store), Redis (hot blocklists), NATS, external HTTPS (PhishTank/OpenPhish feeds).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: antiabuse-svc-allow
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: antiabuse-svc
+    app.kubernetes.io/part-of: iogrid
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: antiabuse-svc
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: workloads-svc
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: proxy-gateway
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: build-gateway
+      ports:
+        - protocol: TCP
+          port: 8080
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9090
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: iogrid-pg
+      ports:
+        - protocol: TCP
+          port: 5432
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: nats
+      ports:
+        - protocol: TCP
+          port: 4222
+    # External feeds (PhishTank, OpenPhish, NCMEC) over HTTPS
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443

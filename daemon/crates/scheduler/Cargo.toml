@@ -1,0 +1,19 @@
+[package]
+name = "iogrid-scheduler"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "iogridd scheduler — combined caps + calendar + idle-detect state machine."
+
+[lib]
+name = "iogrid_scheduler"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }

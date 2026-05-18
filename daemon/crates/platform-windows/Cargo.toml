@@ -1,0 +1,19 @@
+[package]
+name = "iogrid-platform-windows"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "iogridd platform-windows — Windows Service paths, idle detection."
+
+[lib]
+name = "iogrid_platform_windows"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }

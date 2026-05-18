@@ -1,0 +1,122 @@
+name: k8s-validate
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'infra/**'
+      - '.github/workflows/k8s-validate.yml'
+  pull_request:
+    paths:
+      - 'infra/**'
+      - '.github/workflows/k8s-validate.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: kubectl + kubeval + kustomize build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: latest
+
+      - name: Install kustomize
+        run: |
+          curl -fsSL "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+          kustomize version
+
+      - name: Install kubeval
+        run: |
+          wget -qO- https://github.com/instrumenta/kubeval/releases/latest/download/kubeval-linux-amd64.tar.gz | tar xz
+          sudo mv kubeval /usr/local/bin/
+          kubeval --version
+
+      - name: Spin up kind cluster with required CRDs
+        # We need the CRDs available so `kubectl apply --dry-run=client` can
+        # resolve kind→resource mappings (TLSRoute experimental, CNPG Cluster,
+        # cert-manager Certificate/ClusterIssuer, Flux GitRepository/Kustomization).
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: iogrid-validate
+          version: v0.24.0
+
+      - name: Install CRDs (Gateway-API experimental, CNPG, cert-manager, Flux)
+        run: |
+          # Gateway-API experimental channel includes TLSRoute v1alpha2
+          kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.0/experimental-install.yaml
+          # CNPG operator CRDs only (not the full operator)
+          kubectl apply --server-side -f https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/release-1.24/releases/cnpg-1.24.1.yaml || true
+          # cert-manager CRDs only
+          kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.16.1/cert-manager.crds.yaml
+          # Flux CRDs
+          kubectl apply -f https://github.com/fluxcd/flux2/releases/download/v2.4.0/install.yaml || true
+          # Wait briefly for API discovery to refresh
+          sleep 5
+          kubectl api-resources | grep -E "(tlsroutes|certificates|clusters.postgresql|kustomizations.kustomize.toolkit)" || true
+
+      - name: kustomize build base
+        run: |
+          kustomize build infra/k8s/base > /tmp/base.yaml
+          wc -l /tmp/base.yaml
+
+      - name: kustomize build overlays/staging
+        run: |
+          kustomize build infra/k8s/overlays/staging > /tmp/staging.yaml
+          wc -l /tmp/staging.yaml
+
+      - name: kustomize build overlays/prod
+        run: |
+          kustomize build infra/k8s/overlays/prod > /tmp/prod.yaml
+          wc -l /tmp/prod.yaml
+
+      - name: kubeval staging
+        run: |
+          # Ignore missing CRD schemas for CNPG / Gateway-API / cert-manager / Flux —
+          # those are validated via their own controllers at apply time.
+          kubeval --strict --ignore-missing-schemas \
+            --skip-kinds Cluster,Certificate,ClusterIssuer,Gateway,HTTPRoute,TLSRoute,ReferenceGrant,GitRepository,Kustomization \
+            /tmp/staging.yaml
+
+      - name: kubeval prod
+        run: |
+          kubeval --strict --ignore-missing-schemas \
+            --skip-kinds Cluster,Certificate,ClusterIssuer,Gateway,HTTPRoute,TLSRoute,ReferenceGrant,GitRepository,Kustomization \
+            /tmp/prod.yaml
+
+      - name: kubectl dry-run staging
+        run: |
+          # The kind cluster above has all CRDs installed, so client-side
+          # dry-run can resolve every kind in the manifests.
+          kubectl apply --dry-run=client -f /tmp/staging.yaml
+
+      - name: kubectl dry-run prod
+        run: |
+          kubectl apply --dry-run=client -f /tmp/prod.yaml
+
+      - name: kubectl dry-run flux kustomizations
+        run: |
+          kustomize build infra/k8s/flux > /tmp/flux.yaml
+          kubectl apply --dry-run=client -f /tmp/flux.yaml
+
+      - name: kubectl server-side dry-run staging
+        # Server-side dry-run catches schema issues that client-side misses
+        # (e.g. CRD-defined required fields, OpenAPI validation).
+        run: |
+          # Namespace must exist for server-side dry-run of namespaced resources.
+          kubectl create namespace iogrid --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create namespace gateway-system --dry-run=client -o yaml | kubectl apply -f -
+          # Server-side dry-run; allow CNPG webhook absence (kind has no operator).
+          kubectl apply --dry-run=server -f /tmp/staging.yaml 2>&1 | tee /tmp/ssdr-staging.log || {
+            # Filter benign webhook-absent errors (no controller running, but CRD validation still ran)
+            grep -vE "(no endpoints available|connection refused|webhook .* not found)" /tmp/ssdr-staging.log | grep -iE "error" && exit 1 || exit 0
+          }
