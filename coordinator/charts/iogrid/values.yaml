@@ -1,0 +1,115 @@
+# Default values for the iogrid coordinator chart.
+#
+# Every microservice is rendered from the same Deployment / Service /
+# ServiceAccount / HPA / NetworkPolicy templates by iterating `.Values.services`.
+# Override a single service via:
+#   helm install iogrid ./charts/iogrid \
+#     --set services.identity-svc.image.tag=abc123 \
+#     --set services.identity-svc.replicaCount=3
+
+# -- Global image registry shared by every service unless overridden per-service.
+imageRegistry: ghcr.io/iogrid
+
+# -- Container image pull policy used when no per-service override is set.
+imagePullPolicy: IfNotPresent
+
+# -- Shared image-pull secrets (e.g. for ghcr.io private repos).
+imagePullSecrets: []
+
+# -- Defaults applied to every service. Per-service blocks override individual keys.
+defaults:
+  replicaCount: 2
+  service:
+    type: ClusterIP
+    port: 8080
+    targetPort: 8080
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    runAsGroup: 65532
+    fsGroup: 65532
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
+  env: []
+  livenessProbe:
+    httpGet:
+      path: /healthz
+      port: 8080
+    initialDelaySeconds: 5
+    periodSeconds: 10
+  readinessProbe:
+    httpGet:
+      path: /readyz
+      port: 8080
+    initialDelaySeconds: 3
+    periodSeconds: 5
+
+# -- Per-service configuration. Add new microservices here without touching the templates.
+services:
+  identity-svc:
+    image:
+      repository: identity-svc
+      tag: latest
+  providers-svc:
+    image:
+      repository: providers-svc
+      tag: latest
+  workloads-svc:
+    image:
+      repository: workloads-svc
+      tag: latest
+  antiabuse-svc:
+    image:
+      repository: antiabuse-svc
+      tag: latest
+  billing-svc:
+    image:
+      repository: billing-svc
+      tag: latest
+  telemetry-svc:
+    image:
+      repository: telemetry-svc
+      tag: latest
+  gateway-bff:
+    image:
+      repository: gateway-bff
+      tag: latest
+  proxy-gateway:
+    image:
+      repository: proxy-gateway
+      tag: latest
+    # proxy-gateway is data-plane: scale horizontally aggressively.
+    autoscaling:
+      enabled: true
+      minReplicas: 3
+      maxReplicas: 50
+      targetCPUUtilizationPercentage: 60
+  build-gateway:
+    image:
+      repository: build-gateway
+      tag: latest
+
+# -- NetworkPolicy stubs. Only intra-mesh + ingress allowed by default.
+networkPolicy:
+  enabled: true
+  # CIDR of the in-cluster mesh (overlay). Override per-environment.
+  podCIDR: 10.0.0.0/8
+  # Allow ingress controller to reach gateway-bff / proxy-gateway / build-gateway.
+  ingressNamespace: ingress-nginx

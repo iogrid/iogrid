@@ -1,0 +1,137 @@
+name: coordinator-ci
+
+# CI for the iogrid coordinator (Go microservices).
+#
+# - lint:     golangci-lint over every module via go.work
+# - test:     go test ./... in each module
+# - vet:      go vet ./... in each module
+# - build:    go build ./... per service (ensures cmd/<svc> compiles)
+# - docker:   multi-arch (amd64 + arm64) image build, pushed to ghcr.io
+#             tagged with the commit SHA and "latest" on main.
+#
+# Triggers on any change under coordinator/ to avoid running on unrelated
+# pushes (docs, charts unrelated to coordinator, etc.).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'coordinator/**'
+      - '.github/workflows/coordinator-ci.yml'
+  pull_request:
+    paths:
+      - 'coordinator/**'
+      - '.github/workflows/coordinator-ci.yml'
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+concurrency:
+  group: coordinator-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # --------------------------------------------------------------------------
+  # Lint, vet, test, build — runs once across the whole workspace.
+  # --------------------------------------------------------------------------
+  go-quality:
+    name: Go quality (lint / vet / test / build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: true
+          cache-dependency-path: |
+            coordinator/shared/go.sum
+            coordinator/services/*/go.sum
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.61.0
+          working-directory: coordinator/shared
+          args: --timeout=5m
+
+      - name: Vet / test / build every module
+        working-directory: coordinator
+        run: |
+          set -euo pipefail
+          modules=(shared $(ls services))
+          for m in "${modules[@]}"; do
+            if [[ "$m" == "shared" ]]; then dir="shared"; else dir="services/$m"; fi
+            echo "=== $dir: vet ==="
+            (cd "$dir" && go vet ./...)
+            echo "=== $dir: test ==="
+            (cd "$dir" && go test ./... -count=1)
+            echo "=== $dir: build ==="
+            (cd "$dir" && go build ./...)
+          done
+
+  # --------------------------------------------------------------------------
+  # Multi-arch container build per microservice. Each service is a separate
+  # matrix entry so failures are isolated and parallelism is maximised.
+  # --------------------------------------------------------------------------
+  docker:
+    name: Docker (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: go-quality
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - identity-svc
+          - providers-svc
+          - workloads-svc
+          - antiabuse-svc
+          - billing-svc
+          - telemetry-svc
+          - gateway-bff
+          - proxy-gateway
+          - build-gateway
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU (for arm64 cross-build)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ghcr.io
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/iogrid/${{ matrix.service }}
+          tags: |
+            type=sha,format=long
+            type=sha
+            type=ref,event=branch
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build and push (${{ matrix.service }})
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: coordinator/services/${{ matrix.service }}/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name == 'push' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,scope=${{ matrix.service }},mode=max
