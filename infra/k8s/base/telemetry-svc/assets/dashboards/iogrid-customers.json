@@ -1,0 +1,78 @@
+{
+  "uid": "iogrid-customers",
+  "title": "iogrid — Customers (admin-only)",
+  "tags": ["iogrid", "customers", "admin-only"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "1m",
+  "time": {"from": "now-24h", "to": "now"},
+  "annotations": {
+    "list": [{
+      "name": "Notice",
+      "datasource": "-- Grafana --",
+      "enable": true,
+      "iconColor": "#ff5555",
+      "type": "dashboard"
+    }]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "customer_id",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "mimir"},
+        "query": "label_values(proxy_requests_total, customer_id)",
+        "current": {"text": "All", "value": ".*"},
+        "includeAll": true,
+        "multi": false,
+        "refresh": 2
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "table",
+      "title": "Top customers by request rate (5m)",
+      "gridPos": {"x": 0, "y": 0, "w": 12, "h": 10},
+      "targets": [{
+        "expr": "topk(20, sum by (customer_id) (rate(proxy_requests_total{customer_id=~\"$customer_id\"}[5m])))",
+        "format": "table",
+        "refId": "A"
+      }]
+    },
+    {
+      "id": 2,
+      "type": "table",
+      "title": "Top customers by bandwidth (5m)",
+      "gridPos": {"x": 12, "y": 0, "w": 12, "h": 10},
+      "targets": [{
+        "expr": "topk(20, sum by (customer_id) (rate(proxy_egress_bytes_total{customer_id=~\"$customer_id\"}[5m])))",
+        "format": "table",
+        "refId": "A"
+      }]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "[$customer_id] request rate",
+      "gridPos": {"x": 0, "y": 10, "w": 12, "h": 8},
+      "targets": [{
+        "expr": "sum(rate(proxy_requests_total{customer_id=~\"$customer_id\"}[5m]))",
+        "legendFormat": "req/s",
+        "refId": "A"
+      }]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "[$customer_id] anti-abuse blocks",
+      "gridPos": {"x": 12, "y": 10, "w": 12, "h": 8},
+      "targets": [{
+        "expr": "sum by (filter) (rate(antiabuse_filter_block_total{customer_id=~\"$customer_id\"}[5m]))",
+        "legendFormat": "{{filter}}",
+        "refId": "A"
+      }]
+    }
+  ]
+}

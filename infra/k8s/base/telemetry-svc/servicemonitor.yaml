@@ -1,0 +1,37 @@
+---
+# ServiceMonitor lets the upstream kube-prometheus / Mimir operator
+# auto-discover the otelcol gateway's self-metrics (port 8888) and the
+# telemetry-svc control-surface metrics (port 8080).
+#
+# This is the BACKUP path — the otelcol's own prometheus receiver
+# already scrapes every annotated Pod in the iogrid namespace and
+# remote-writes to Mimir. ServiceMonitor exists so a vanilla kube-prom
+# install ALSO sees telemetry-svc, which is useful for the bootstrap
+# phase before the otelcol gateway is healthy.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: telemetry-svc
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: telemetry-svc
+    app.kubernetes.io/part-of: iogrid
+    # release label matches kube-prometheus-stack's selector. Adjust
+    # if the mothership uses a different operator release tag.
+    release: kube-prometheus-stack
+spec:
+  namespaceSelector:
+    matchNames:
+      - iogrid
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: telemetry-svc
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+    - port: otelcol-metrics
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s

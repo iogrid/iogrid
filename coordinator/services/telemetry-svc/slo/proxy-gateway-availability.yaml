@@ -1,0 +1,28 @@
+# proxy-gateway availability: 99.9% / month
+#
+# Per docs/MARKET.md and docs/TECH.md SLO commitments.
+# The proxy-gateway is the customer-facing data plane — every outbound
+# customer request flows through it before being dispatched to a
+# provider. Availability is measured as "request received → response sent
+# without 5xx / connection error". Provider-side errors (gateway dispatch
+# fails because no provider matched) count as 5xx — that is the
+# coordinator's bug, not the customer's.
+#
+# Burn windows: page on 14x (full month budget burned in 2.6h), warn on 2x.
+service: proxy-gateway
+name: availability
+description: |
+  proxy-gateway HTTP availability over rolling 30 days.
+  Excludes 4xx (client error). 5xx and connection failures count
+  against the budget.
+objective: 99.9
+time_window: 30d
+sli:
+  good: sum(rate(http_server_requests_total{service="proxy-gateway",code!~"5.."}[5m]))
+  total: sum(rate(http_server_requests_total{service="proxy-gateway"}[5m]))
+labels:
+  team: platform
+  tier: data-plane
+annotations:
+  summary: proxy-gateway availability budget
+  user_impact: Customers experience proxy request failures.

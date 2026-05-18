@@ -1,0 +1,74 @@
+{
+  "uid": "iogrid-providers",
+  "title": "iogrid — Providers (admin-only)",
+  "tags": ["iogrid", "providers", "admin-only"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "1m",
+  "time": {"from": "now-24h", "to": "now"},
+  "templating": {
+    "list": [
+      {
+        "name": "provider_id",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "mimir"},
+        "query": "label_values(providers_connected, provider_id)",
+        "current": {"text": "All", "value": ".*"},
+        "includeAll": true,
+        "refresh": 2
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Connected providers",
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+      "targets": [{"expr": "sum(providers_connected)", "refId": "A"}]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Total egress / 5m",
+      "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+      "targets": [{"expr": "sum(rate(providers_egress_bytes_total[5m]))", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "Bps"}}
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "Top providers by egress (5m)",
+      "gridPos": {"x": 0, "y": 4, "w": 24, "h": 10},
+      "targets": [{
+        "expr": "topk(50, sum by (provider_id, region) (rate(providers_egress_bytes_total{provider_id=~\"$provider_id\"}[5m])))",
+        "format": "table",
+        "refId": "A"
+      }]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "[$provider_id] egress bandwidth",
+      "gridPos": {"x": 0, "y": 14, "w": 12, "h": 8},
+      "targets": [{
+        "expr": "sum by (provider_id) (rate(providers_egress_bytes_total{provider_id=~\"$provider_id\"}[5m]))",
+        "legendFormat": "{{provider_id}}",
+        "refId": "A"
+      }],
+      "fieldConfig": {"defaults": {"unit": "Bps"}}
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "[$provider_id] earnings rate",
+      "gridPos": {"x": 12, "y": 14, "w": 12, "h": 8},
+      "targets": [{
+        "expr": "sum by (provider_id) (rate(billing_provider_earnings_usd_total{provider_id=~\"$provider_id\"}[1h]))",
+        "legendFormat": "{{provider_id}}",
+        "refId": "A"
+      }],
+      "fieldConfig": {"defaults": {"unit": "currencyUSD"}}
+    }
+  ]
+}

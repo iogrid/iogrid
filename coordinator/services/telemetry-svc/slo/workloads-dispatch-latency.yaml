@@ -1,0 +1,26 @@
+# Workload dispatch latency: p95 < 100ms over 30 days
+#
+# Per docs/TECH.md SLO commitment. "Dispatch" = the time from
+# workloads-svc receiving a customer's submit RPC to the dispatch
+# message being placed on the NATS bus for a provider. Provider-side
+# execution latency is NOT in this SLI (different SLO).
+#
+# We bucket the histogram and treat anything < 100ms as good.
+service: workloads-svc
+name: dispatch-latency
+description: |
+  Workload dispatch p95 latency under 100ms.
+  Measured as the wall-clock between submit RPC ingress and the
+  dispatch message being placed on NATS.
+objective: 99
+time_window: 30d
+sli:
+  good: |
+    sum(rate(workloads_dispatch_duration_seconds_bucket{le="0.1"}[5m]))
+  total: sum(rate(workloads_dispatch_duration_seconds_count[5m]))
+labels:
+  team: platform
+  tier: control-plane
+annotations:
+  summary: workloads-svc dispatch latency budget
+  user_impact: Customers see slow first-byte latency on workload submission.
