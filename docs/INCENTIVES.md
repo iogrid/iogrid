@@ -8,7 +8,7 @@ iogrid is a two-sided market with three rate-setting axes:
 - **Customer side:** how much customers pay for the same units of supply
 - **Margin:** the spread between, which funds infrastructure, anti-abuse, legal defense, customer support, and (eventually) profit
 
-Providers can be paid four different ways, but customers only pay one way (USD via Stripe). The non-cash payout currencies are where margin compounds.
+Providers can be paid three different ways, but customers only pay one way (USD via Stripe). The non-cash payout currencies are where margin compounds.
 
 ---
 
@@ -33,23 +33,7 @@ When a provider installs iogrid, they pick how they want to be paid. They can sw
 - Audience: tech-savvy users who already pay $60–130/year for a VPN; they realize this is the same thing for free
 - **Our cost: $0.20/month. Margin: ~98%.**
 
-### Tier 3 — Free OpenOva ecosystem premium
-
-The differentiator no competitor can match — we own the products, marginal cost is near zero.
-
-| Bundle item | Retail value | Our marginal cost |
-|-------------|--------------|-------------------|
-| vCard Pro (custom domain, analytics, multi-card) | $5–10/mo | $0.10/mo |
-| Stalwart email hosting (yours@openova.io) | $4/mo | $0.20/mo |
-| Custom domain registration (.com via Dynadot) | $1/mo amortized | $1/mo (we pay registrar) |
-| OpenOva storage tier (100 GB) | $5/mo | $0.30/mo |
-| **Total** | **$25–40/mo** | **~$1.60/mo** |
-
-- Provider perceived value: equivalent to ~$300–500/year of services
-- Audience: founders, freelancers, indie hackers, professionals — exactly the audience that finds OpenOva attractive anyway
-- **Our cost: $1.60/month. Margin: ~94–96%.**
-
-### Tier 4 — Charity / mission
+### Tier 3 — Charity / mission
 
 - Provider's bandwidth-share revenue is donated to a chosen cause: EFF, Tor Project, Wikipedia, Doctors Without Borders, etc.
 - Marginal cost equivalent to cash tier (we forward the donation)
@@ -57,7 +41,7 @@ The differentiator no competitor can match — we own the products, marginal cos
 - Useful as a brand signal: "we're not extracting from users, we're enabling them to support causes they care about"
 - **Our cost: $9/month per provider (donated). Margin: 0% but huge brand value.**
 
-### Tier 5 (deferred) — Crypto tokens
+### Tier 4 (deferred) — Crypto tokens
 
 - Stablecoin or governance token payouts
 - Regulatory complexity is real (Howey test, AML for token sales)
@@ -91,11 +75,10 @@ Customer rates are deliberately ~30% under market for B2B workloads — gives us
 |-----------|----------------|----------|--------|
 | Cash tier | $9 | $9 | 0% |
 | Free VPN tier | "$5/mo perceived" | $0.20 | 96% |
-| OpenOva premium tier | "$25/mo perceived" | $1.60 | 94% |
 | Charity tier | $9 to cause | $9 | 0% |
 
 iogrid revenue per provider from B2B customers (sold at ~$0.50/GB): $15/month
-Net margin per provider (assuming 50% pick Tier 2/3): **~$10/month / provider**
+Net margin per provider (assuming 40% pick Tier 2): **~$5–7/month / provider**
 
 ### Typical Mac provider, 30 GB bandwidth + 4 hours/day Xcode CI
 
@@ -107,22 +90,24 @@ Net margin per provider (assuming 50% pick Tier 2/3): **~$10/month / provider**
 
 Mac providers are 15× more valuable to iogrid than bandwidth-only providers, because iOS builds are a premium workload with thin competition (only GitHub Actions, MacStadium, Bitrise, AWS EC2 Mac in the market).
 
-### Tier 2/3 hybrid example
+### Tier mix example
 
-100 providers, mix: 40 cash, 40 free-VPN, 20 OpenOva-premium
+100 providers, mix: 50 cash, 40 free-VPN, 10 charity
 
 | Provider count | Their take | Our cost | Net margin / month |
 |----------------|-----------|----------|--------------------|
-| 40 × cash | $9 each = $360 | $360 | $0 |
+| 50 × cash | $9 each = $450 | $450 | $0 |
 | 40 × free VPN | "$5 each = $200 perceived" | $8 | $192 |
-| 20 × OpenOva premium | "$25 each = $500 perceived" | $32 | $468 |
-| **Net coordinator margin** | | | **$660 / month** |
+| 10 × charity (donated) | $9 each = $90 | $90 | $0 (brand-value) |
+| **Net coordinator margin** | | | **$192 / month** |
 
 Revenue from these 100 providers at $15/month each: $1500
-Cost: $400 cash + $8 VPN + $32 premium = $440
-**Net margin: $1060/month from a 100-provider base.**
+Cost: $450 cash + $8 VPN + $90 charity = $548
+**Net margin: $952/month from a 100-provider base.**
 
-At 1000 providers: ~$10K/month net. At 10K providers: ~$100K/month net (Phase 2 target).
+At 1000 providers: ~$10K/month net. At 10K providers: ~$100K/month net.
+
+Provider acquisition strategy lives or dies on Tier 2 (free VPN). The user who would pay $130/year for NordVPN saves real money and we save ~$9/month per such provider vs cash payouts. Marketing message: *"Why pay for VPN? Share your idle bandwidth instead. You see exactly what flows through. You control everything."*
 
 ---
 
