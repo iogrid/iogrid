@@ -1,7 +1,7 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
-import { PublicKey } from "@solana/web3.js";
 import { assert } from "chai";
+import { assertIdlIncludes, resolveType, findByAnyName } from "./_idl-helpers";
 
 type Vesting = any;
 
@@ -24,31 +24,40 @@ describe("vesting", () => {
   const program = anchor.workspace.Vesting as Program<Vesting>;
 
   it("IDL exposes all four tiers", () => {
-    const tierType = program.idl.types.find((t: any) => t.name === "VestTier");
+    const tierType = resolveType(program.idl, "VestTier");
     assert.exists(tierType, "VestTier enum should exist");
-    const variants = (tierType as any).type.variants.map((v: any) => v.name);
-    assert.includeMembers(variants, [
-      "Standard",
-      "Loyalty",
-      "Conviction",
-      "Maximum",
-    ]);
+    const variants = ((tierType as any).type?.variants ?? []).map((v: any) => v.name);
+    assert.includeMembers(variants, ["Standard", "Loyalty", "Conviction", "Maximum"]);
   });
 
   it("IDL exposes early-unlock + cooldown errors", () => {
-    const errs = program.idl.errors.map((e: any) => e.name);
-    assert.include(errs, "EarlyUnlockOnCooldown");
-    assert.include(errs, "CannotDowngradeTier");
-    assert.include(errs, "DepositMismatch");
+    assert.exists(
+      findByAnyName(program.idl.errors, "EarlyUnlockOnCooldown"),
+      "EarlyUnlockOnCooldown error code",
+    );
+    assert.exists(
+      findByAnyName(program.idl.errors, "CannotDowngradeTier"),
+      "CannotDowngradeTier error code",
+    );
+    assert.exists(
+      findByAnyName(program.idl.errors, "DepositMismatch"),
+      "DepositMismatch error code",
+    );
   });
 
   it("IDL declares record_deposit + early_unlock + withdraw_unlocked", () => {
     const ixs = program.idl.instructions.map((i: any) => i.name);
-    assert.include(ixs, "initialize_provider");
-    assert.include(ixs, "record_deposit");
-    assert.include(ixs, "withdraw_unlocked");
-    assert.include(ixs, "early_unlock");
-    assert.include(ixs, "upgrade_tier");
+    assertIdlIncludes(
+      ixs,
+      [
+        "initialize_provider",
+        "record_deposit",
+        "withdraw_unlocked",
+        "early_unlock",
+        "upgrade_tier",
+      ],
+      "vesting instructions",
+    );
   });
 
   it("schedule math: at-cliff = 0, mid-linear = ~half, post-linear = full", () => {

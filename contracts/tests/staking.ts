@@ -1,6 +1,7 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import { assert } from "chai";
+import { assertIdlIncludes, resolveType, findByAnyName } from "./_idl-helpers";
 
 type Staking = any;
 
@@ -10,26 +11,27 @@ describe("staking", () => {
   const program = anchor.workspace.Staking as Program<Staking>;
 
   it("IDL exposes both stake kinds", () => {
-    const kind = program.idl.types.find((t: any) => t.name === "StakeKind");
-    assert.exists(kind);
-    const variants = (kind as any).type.variants.map((v: any) => v.name);
+    const kind = resolveType(program.idl, "StakeKind");
+    assert.exists(kind, "StakeKind enum should exist in idl.types");
+    const variants = ((kind as any).type?.variants ?? []).map((v: any) => v.name);
+    // User-defined enum variants are kept verbatim by Anchor across 0.30/0.31.
     assert.includeMembers(variants, ["Provider", "Customer"]);
   });
 
   it("IDL exposes stake/unstake/accrue/claim", () => {
     const ixs = program.idl.instructions.map((i: any) => i.name);
-    assert.includeMembers(ixs, [
-      "initialize_pool",
-      "stake",
-      "unstake",
-      "accrue_yield",
-      "claim_yield",
-    ]);
+    assertIdlIncludes(
+      ixs,
+      ["initialize_pool", "stake", "unstake", "accrue_yield", "claim_yield"],
+      "staking instructions",
+    );
   });
 
   it("min-stake-not-met error code present", () => {
-    const errs = program.idl.errors.map((e: any) => e.name);
-    assert.include(errs, "MinStakeNotMet");
+    assert.exists(
+      findByAnyName(program.idl.errors, "MinStakeNotMet"),
+      "MinStakeNotMet error code present",
+    );
   });
 
   it("yield math: 1y at 5% APR = 5% of principal", () => {

@@ -1,6 +1,7 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import { assert } from "chai";
+import { assertIdlIncludes } from "./_idl-helpers";
 
 type Emission = any;
 
@@ -70,22 +71,25 @@ describe("emission", () => {
 
   it("IDL exposes initialize + claim_epoch + distribute_to + finalize_epoch", () => {
     const ixs = program.idl.instructions.map((i: any) => i.name);
-    assert.includeMembers(ixs, [
-      "initialize",
-      "claim_epoch",
-      "distribute_to",
-      "finalize_epoch",
-      "current_annual_emission",
-    ]);
+    assertIdlIncludes(
+      ixs,
+      [
+        "initialize",
+        "claim_epoch",
+        "distribute_to",
+        "finalize_epoch",
+        "current_annual_emission",
+      ],
+      "emission instructions",
+    );
   });
 
   it("IDL exposes budget-exceeded + epoch-out-of-order + over-distribution errors", () => {
     const errs = program.idl.errors.map((e: any) => e.name);
-    assert.includeMembers(errs, [
-      "BudgetExceeded",
-      "EpochOutOfOrder",
-      "OverDistribution",
-      "EpochFinalized",
-    ]);
+    assertIdlIncludes(
+      errs,
+      ["BudgetExceeded", "EpochOutOfOrder", "OverDistribution", "EpochFinalized"],
+      "emission errors",
+    );
   });
 });

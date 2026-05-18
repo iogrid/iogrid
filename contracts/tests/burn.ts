@@ -1,6 +1,7 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import { assert } from "chai";
+import { assertIdlIncludes, resolveType, findByAnyName } from "./_idl-helpers";
 
 type Burn = any;
 
@@ -11,34 +12,36 @@ describe("burn", () => {
 
   it("IDL exposes record_burn + burn_via_program + initialize_registry", () => {
     const ixs = program.idl.instructions.map((i: any) => i.name);
-    assert.includeMembers(ixs, [
-      "initialize_registry",
-      "record_burn",
-      "burn_via_program",
-      "rotate_attestor",
-    ]);
+    assertIdlIncludes(
+      ixs,
+      ["initialize_registry", "record_burn", "burn_via_program", "rotate_attestor"],
+      "burn instructions",
+    );
   });
 
   it("IDL declares total_burned + burn_count + total_revenue_cents_attributed", () => {
-    const reg = program.idl.accounts.find(
-      (a: any) => a.name === "BurnRegistry",
+    const def = resolveType(program.idl, "BurnRegistry");
+    assert.exists(def, "BurnRegistry type definition should exist");
+    const fields = ((def as any).type?.fields ?? []).map((f: any) => f.name);
+    assertIdlIncludes(
+      fields,
+      [
+        "mint",
+        "admin",
+        "attestor",
+        "burn_count",
+        "total_burned",
+        "total_revenue_cents_attributed",
+      ],
+      "BurnRegistry fields",
     );
-    assert.exists(reg);
-    const fields = (reg as any).type.fields.map((f: any) => f.name);
-    assert.includeMembers(fields, [
-      "mint",
-      "admin",
-      "attestor",
-      "burn_count",
-      "total_burned",
-      "total_revenue_cents_attributed",
-    ]);
   });
 
   it("source_tag length constraint", () => {
     const errs = program.idl.errors.map((e: any) => e.name);
-    assert.include(errs, "TagTooLong");
-    assert.include(errs, "ZeroAmount");
+    assert.exists(findByAnyName(program.idl.errors, "TagTooLong"), "TagTooLong error code");
+    assert.exists(findByAnyName(program.idl.errors, "ZeroAmount"), "ZeroAmount error code");
+    void errs;
   });
 
   it("burn target rate: 2% of revenue", () => {
