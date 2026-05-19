@@ -1,0 +1,25 @@
+{
+  "name": "iogrid-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "description": "iogrid monorepo root — exists solely to host workspace-wide pnpm overrides + peer-dependency rules. Each workspace package owns its own scripts.",
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "@types/react": "^18.3.12",
+      "@types/react-dom": "^18.3.1"
+    },
+    "peerDependencyRules": {
+      "ignoreMissing": [
+        "react-native",
+        "@react-native/virtualized-lists",
+        "utf-8-validate",
+        "bufferutil",
+        "encoding"
+      ]
+    }
+  }
+}

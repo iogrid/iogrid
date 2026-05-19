@@ -7,4 +7,5 @@ export const PROVIDE_NAV: NavItem[] = [
   { href: "/provide/audit", label: "Transparency feed" },
   { href: "/provide/schedule", label: "Schedule" },
   { href: "/provide/earnings", label: "Earnings" },
+  { href: "/provide/staking", label: "Staking" },
 ];
