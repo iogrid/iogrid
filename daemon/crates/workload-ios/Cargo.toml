@@ -20,3 +20,6 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 serde = { workspace = true }
 uuid = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+iogrid-platform-mac = { workspace = true }

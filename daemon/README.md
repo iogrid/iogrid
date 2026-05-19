@@ -69,9 +69,28 @@ The full matrix runs in `.github/workflows/daemon-ci.yml` on every push or pull 
 |------------------------|---------------|------------------|
 | `iogrid-routing`       | `routing-real`| boringtun + socks5-server (real WG + SOCKS5) |
 | `iogrid-workload-docker` | `docker-real` | bollard (real Docker daemon client) |
-| `iogrid-workload-gpu`  | `gpu-real`    | nvml-wrapper (Linux/Windows) or objc2+Metal (macOS) |
+| `iogrid-workload-docker` | `integration-docker` | bollard + the live-host integration test under `tests/integration_docker.rs`. Requires a reachable Docker daemon. |
+| `iogrid-workload-gpu`  | `gpu-real`    | bollard with NVIDIA Container Toolkit runtime (Linux/Windows). Refer to `iogrid_workload_gpu::NvidiaContainerRunner`. |
+| `iogrid-workload-gpu`  | `gpu-mlx`     | macOS MLX bridge. Currently a documented stub (`MlxStubGpuRunner` returns `BackendUnimplemented`) until `mlx-rs` ships a stable Apple Silicon wheel. |
 
 Default builds do NOT enable these — the scaffold compiles and passes tests on every supported target with zero vendor dependencies. CI exercises the default profile across all five targets, plus a sanity-check job that flips `routing-real` + `docker-real` on Linux.
+
+## Workload runners
+
+The daemon ships three workload-execution engines (PRs #12, #13, #14):
+
+* **`iogrid-workload-docker`** — bollard-backed Docker runner. Pulls only from images on the anti-abuse registry allowlist (`docker.io`, `ghcr.io`, `registry.iogrid.org`, `public.ecr.aws` by default), creates a container with cgroup CPU/memory caps, read-only rootfs, `no-new-privileges`, all caps dropped, attached to the iogrid-managed `iogrid-egress` bridge so customer outbound traffic flows through the same SOCKS5 / anti-abuse pipeline as the bandwidth workload. Wall-clock time-boxed by `timeout_secs`; logs captured + capped at 1 MiB; container + image cleanup on exit.
+  * Requirement: **Docker Engine / Docker Desktop** on the provider machine. Mac users: install Docker Desktop and ensure the `docker` CLI is on `$PATH` (see issue #81). Linux: any recent Docker Engine works; for hardened isolation pin the container runtime to `runsc` (gVisor) or `kata`.
+  * To use the live bollard runtime, build the daemon with `--features docker-real` (pulls bollard into the workspace) and call `BollardDockerRunner::connect_local`.
+* **`iogrid-workload-gpu`** — GPU container runner. Two backends, picked by `cfg`:
+  * Linux/Windows with `gpu-real`: bollard + `host_config.runtime = "nvidia"` (NVIDIA Container Toolkit). Requires the NVIDIA driver + container toolkit pre-installed on the host.
+  * macOS with `gpu-mlx`: currently `MlxStubGpuRunner` (refuses every workload with `BackendUnimplemented`). Real MLX FFI wiring is tracked in #13 and will land once `mlx-rs` builds cleanly on the macos-latest CI runner.
+  * The supervisor must therefore filter eligible workload types it advertises based on the runner's `backend()` slug.
+* **`iogrid-workload-ios`** — Tart subprocess driver. Spawns macOS VMs via the `tart` CLI (clone → set CPU/memory → run --no-graphics → poll `tart ip` → ssh `sshpass` → scp artifact out → curl PUT to coordinator-supplied URL → tart delete). Mac-only — every other target's `TartRunner::run` returns `IosBuildError::UnsupportedPlatform`.
+  * Requirement: **macOS 15 Sequoia** or newer on the provider machine. The supervisor uses `iogrid_platform_mac::supports_ios_build()` at startup; on older macOS it must NOT advertise `IOS_BUILD` as an eligible workload type. Build hosts also need `tart`, `sshpass`, and `curl` on `$PATH` (all `brew install`-able).
+  * Recommended base image: `ghcr.io/cirruslabs/macos-sequoia-xcode:latest`. The Tart default VM password is `admin` (already wired into the runner's defaults).
+
+The supervisor (`iogrid_core::WorkloadRouter`) decodes `DispatchFrame::NewAssignment` envelopes and routes them to the right runner. It tracks active assignments in `ActiveRegistry`, surfaces `running` → `succeeded` / `failed` / `timed_out` / `cancelled` `Update` frames back to the coordinator, and revokes every in-flight runner when the scheduler flips to `Paused` or when the daemon shuts down.
 
 ## Adding a new crate
 
