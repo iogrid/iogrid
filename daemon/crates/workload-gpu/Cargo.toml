@@ -18,10 +18,18 @@ default = []
 # `host_config.runtime = "nvidia"` (NVIDIA Container Toolkit); on macOS this
 # would link the MLX Rust bindings when those compile cleanly on CI.
 gpu-real = ["dep:bollard", "dep:futures-util"]
-# Opt-in to compile the MLX FFI bridge. Off by default because the upstream
-# `mlx-rs` crate does not yet build on every macOS CI runner (Apple Silicon
-# + xcodebuild + MLX wheel availability). The CUDA path stays usable.
-gpu-mlx = []
+# Apple-Silicon MLX runner. Enables the real `MlxRunner` (Docker-backed,
+# pulls a pre-built mlx-runtime image; macOS 14+ + aarch64 enforced at
+# runtime). When off, the crate exposes `MlxStubGpuRunner` which refuses
+# every workload with `BackendUnimplemented`. The flag pulls bollard +
+# futures-util in for the Docker driver; this keeps default builds light
+# while letting CI flip the real runner on for the
+# `aarch64-apple-darwin` target.
+gpu-mlx = ["dep:bollard", "dep:futures-util"]
+# Live-host MLX integration test. Off by default — only flipped on a
+# self-hosted Apple-Silicon runner that already has Docker Desktop +
+# the mlx-runtime image present locally.
+integration-mlx = ["gpu-mlx"]
 
 [dependencies]
 tokio = { workspace = true }
@@ -30,6 +38,7 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 uuid = { workspace = true }
 
 iogrid-workload-docker = { workspace = true }
