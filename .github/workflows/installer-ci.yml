@@ -204,7 +204,9 @@ jobs:
   windows-msi:
     name: windows .msi
     runs-on: windows-latest
-    continue-on-error: true
+    # NOTE: `continue-on-error` was removed in #142 once the WiX 7 vs
+    # 4.0.6 PATH clash was resolved. If this job starts failing again,
+    # diagnose rather than re-add the flag.
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
@@ -231,9 +233,21 @@ jobs:
           # https://wixtoolset.org/osmf/. We pin to 4.0.x — the last
           # fully MIT-licensed line — so CI can build the .msi
           # unattended. The .wxs schema we use is v4-compatible.
+          #
+          # GitHub-hosted `windows-latest` ships WiX 7 pre-installed and
+          # earlier in $env:PATH than the dotnet-tools directory, so
+          # bare `wix ...` resolves to v7 and dies on the OSMF EULA
+          # (error WIX7015). build.ps1 calls wix.exe via its absolute
+          # path under ~/.dotnet/tools — we do the same here for
+          # `extension add` so the install step actually exercises the
+          # 4.0.6 binary instead of (silently) registering extensions
+          # against the v7 toolset.
           dotnet tool install --global wix --version 4.0.6
-          wix extension add -g WixToolset.UI.wixext/4.0.6
-          wix extension add -g WixToolset.Util.wixext/4.0.6
+          $wixExe = Join-Path $env:USERPROFILE '.dotnet\tools\wix.exe'
+          if (-not (Test-Path $wixExe)) { throw "wix 4.0.6 not found at $wixExe after dotnet tool install" }
+          & $wixExe --version
+          & $wixExe extension add -g WixToolset.UI.wixext/4.0.6
+          & $wixExe extension add -g WixToolset.Util.wixext/4.0.6
 
       - name: Build .msi
         shell: pwsh

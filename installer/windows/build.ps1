@@ -59,17 +59,40 @@ The iogrid client is licensed under the Apache License 2.0.\par
 "@ | Set-Content -Path (Join-Path $stage 'License.rtf') -Encoding ASCII
 
 Section "Locate wix.exe"
-$wix = Get-Command wix -ErrorAction SilentlyContinue
-if (-not $wix) { throw "WiX 4 toolset not found. Install with: dotnet tool install --global wix" }
-Write-Host "Using WiX: $($wix.Path)"
+# GitHub-hosted `windows-latest` runners ship a pre-installed WiX 7 that
+# appears earlier in $env:PATH than the dotnet-tools dir where our pinned
+# WiX 4.0.6 lands. `Get-Command wix` therefore resolves to v7, which
+# refuses to run unattended without accepting the Open Source Maintenance
+# Fee EULA (error WIX7015) and breaks the build. Bypass PATH entirely:
+# resolve the dotnet-tools wix.exe directly so we always invoke 4.0.6.
+$dotnetToolsDir = if ($env:DOTNET_TOOLS) {
+    $env:DOTNET_TOOLS
+} else {
+    Join-Path $env:USERPROFILE '.dotnet\tools'
+}
+$wixExe = Join-Path $dotnetToolsDir 'wix.exe'
+if (-not (Test-Path $wixExe)) {
+    # Fallback: look on PATH but warn loudly if it resolves to v5+ so the
+    # failure is obvious.
+    $cmd = Get-Command wix -ErrorAction SilentlyContinue
+    if (-not $cmd) {
+        throw "WiX 4 toolset not found at $wixExe and no 'wix' on PATH. Install with: dotnet tool install --global wix --version 4.0.6"
+    }
+    $wixExe = $cmd.Path
+    Write-Host "WARN: falling back to PATH-resolved wix: $wixExe" -ForegroundColor Yellow
+}
+Write-Host "Using WiX: $wixExe"
+& $wixExe --version
 
 Section "Add WiX extensions"
 # Idempotent; ignore non-zero exit (e.g. "already installed"). Pin to
 # 4.0.6 to avoid pulling WiX 5+ which now requires accepting the
 # Open Source Maintenance Fee EULA on every invocation (incompatible
 # with unattended CI). 4.0.x is the last fully MIT-licensed line.
-wix extension add -g WixToolset.UI.wixext/4.0.6 2>$null
-wix extension add -g WixToolset.Util.wixext/4.0.6 2>$null
+# Invoke via the absolute path so we don't accidentally hit the
+# runner's pre-installed WiX 7 (see "Locate wix.exe" above).
+& $wixExe extension add -g WixToolset.UI.wixext/4.0.6 2>$null
+& $wixExe extension add -g WixToolset.Util.wixext/4.0.6 2>$null
 
 Section "Build .msi"
 $absOutDir = if ([System.IO.Path]::IsPathRooted($OutDir)) {
@@ -87,7 +110,10 @@ $msi = Join-Path $absOutDir "iogrid-$Version-$Arch.msi"
 # relative paths resolve.
 Push-Location $PSScriptRoot
 try {
-    & wix build 'iogrid.wxs' `
+    # Use $wixExe (absolute path to the dotnet-tools wix 4.0.6) instead
+    # of bare `wix` so the runner's pre-installed WiX 7 on PATH is never
+    # consulted. See "Locate wix.exe" above for the rationale.
+    & $wixExe build 'iogrid.wxs' `
         -arch $Arch `
         -d "DaemonExeArch=$Arch" `
         -d "Version=$Version" `
