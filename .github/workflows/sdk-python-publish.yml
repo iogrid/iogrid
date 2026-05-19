@@ -1,7 +1,13 @@
 name: sdk-python-publish
 
-# Phase 2: PyPI publish is wired but commented out until the first
-# release. Triggering today is a build + dry-run check.
+# Publishes the `iogrid` package to PyPI via Trusted Publishing (OIDC).
+#
+# Trigger: push a tag matching `sdk-python/v*` (e.g. `sdk-python/v0.1.0`).
+# Auth:    PyPI Trusted Publisher (OIDC) — NO long-lived API token needed.
+#          The trusted publisher MUST be configured once on pypi.org
+#          (see `sdks/RELEASING.md` § "Founder one-time setup").
+#
+# See `sdks/RELEASING.md` for the release cadence.
 
 on:
   push:
@@ -11,13 +17,19 @@ on:
 
 jobs:
   publish:
-    name: build + publish (dry-run until Phase 2)
+    name: build + publish to PyPI
     runs-on: ubuntu-latest
+    # The environment binds this workflow to the Trusted Publisher entry
+    # configured on pypi.org. Required for OIDC publish.
+    environment:
+      name: pypi
+      url: https://pypi.org/p/iogrid
     permissions:
       contents: read
       id-token: write # PyPI Trusted Publishing
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -29,6 +41,18 @@ jobs:
         working-directory: sdks/python
         run: hatch run test
 
+      - name: Verify package metadata matches tag
+        working-directory: sdks/python
+        run: |
+          set -euo pipefail
+          PKG_VER=$(hatch version)
+          TAG_VER="${GITHUB_REF#refs/tags/sdk-python/v}"
+          if [ "$PKG_VER" != "$TAG_VER" ]; then
+            echo "::error::package version ($PKG_VER) does not match tag ($TAG_VER)"
+            exit 1
+          fi
+          echo "version match: $PKG_VER"
+
       - name: Build wheel + sdist
         working-directory: sdks/python
         run: hatch build
@@ -37,8 +61,10 @@ jobs:
         working-directory: sdks/python
         run: ls -la dist/
 
-      # PHASE 2 — uncomment to publish to PyPI via Trusted Publishing.
-      # - name: Publish to PyPI
-      #   uses: pypa/gh-action-pypi-publish@release/v1
-      #   with:
-      #     packages-dir: sdks/python/dist/
+      - name: Publish to PyPI (Trusted Publishing)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: sdks/python/dist/
+          # No `password:` — Trusted Publishing uses OIDC.
+          # `attestations: true` is the default since v1.10; sigstore
+          # signs every artefact and PyPI stores the attestation.
