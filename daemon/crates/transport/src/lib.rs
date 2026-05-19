@@ -33,12 +33,14 @@ pub mod ruleset;
 mod convert;
 mod pb;
 
+use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, RwLock, Semaphore};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::transport::{Channel as TonicChannel, ClientTlsConfig, Endpoint, Identity};
 
@@ -117,6 +119,46 @@ pub struct ConnectConfig {
     pub max_backoff: Duration,
     /// Initial reconnect backoff.
     pub initial_backoff: Duration,
+
+    /// Supervisor-resolved coordinator `SocketAddr` shared across every
+    /// reconnect-loop attempt (see #253).
+    ///
+    /// When `Some`, [`Channel::connect`] short-circuits the in-loop DNS
+    /// path entirely: it reads the current IP, builds the tonic endpoint
+    /// as an `https://<ip>:<port>` literal, and pins SNI + cert-SAN
+    /// validation to the original hostname via `ClientTlsConfig::domain_name`.
+    /// The lookup_host future is therefore owned by the supervisor (not
+    /// by tower's per-attempt reconnect future) and cannot be cancelled
+    /// when the connect attempt is dropped.
+    ///
+    /// On connect failure the field is mutated in place (re-resolve +
+    /// write under the `RwLock`) so the next attempt picks up a fresh
+    /// IP without restarting the daemon.
+    ///
+    /// Skipped from serde because `RwLock<SocketAddr>` is a runtime
+    /// handle, not config-on-disk data. Defaults to `None`, in which
+    /// case the legacy in-loop `resolve_host_for_endpoint` path
+    /// (PR #251) still works — unit tests don't have to construct an
+    /// `Arc` for every fixture.
+    #[serde(skip)]
+    pub resolved_addr: Option<Arc<RwLock<SocketAddr>>>,
+
+    /// Single-permit semaphore the reconnect loop acquires before every
+    /// `connect_once` (see #253).
+    ///
+    /// The Phase 0 daemon currently spawns one live dispatch loop, but
+    /// the heartbeat + ruleset paths will become real gRPC channels in
+    /// follow-up PRs and would otherwise dial concurrently — three
+    /// parallel `connect()` futures racing the same blocking-getaddrinfo
+    /// pool is exactly the #248/#253 failure mode. Serialising every
+    /// connect attempt behind one permit keeps reconnect storms tame
+    /// and gives the supervisor a single choke point if we ever need to
+    /// add jitter / rate-limiting.
+    ///
+    /// `None` keeps the legacy single-stream behaviour for tests and
+    /// callers that don't need cross-loop coordination.
+    #[serde(skip)]
+    pub connect_semaphore: Option<Arc<Semaphore>>,
 }
 
 impl Default for ConnectConfig {
@@ -129,6 +171,8 @@ impl Default for ConnectConfig {
             ca_pem: None,
             max_backoff: Duration::from_secs(60),
             initial_backoff: Duration::from_secs(1),
+            resolved_addr: None,
+            connect_semaphore: None,
         }
     }
 }
@@ -309,22 +353,53 @@ impl Channel {
     /// (issue #250: 63,879 WARN lines in 31s — daemon never reaches
     /// `coordinator mTLS channel connected`).
     ///
-    /// The current path (post-#250) sidesteps the in-process resolver
-    /// entirely: we call [`tokio::net::lookup_host`] **once** from a
-    /// process-global LRU-style cache (1 h TTL, refreshed on connect
-    /// failure). The lookup runs from `Channel::connect` which is itself
-    /// driven by [`run_with_reconnect`]'s sequential closure — there is
-    /// no concurrent caller, no tower buffer to drop the future, no
-    /// blocking-task cancellation. We then build the tonic [`Endpoint`]
-    /// pointing at the resolved IP literal, while pinning TLS
-    /// [`ClientTlsConfig::domain_name`] to the original hostname so
-    /// SNI + server-cert SAN validation still match. The mTLS flow from
-    /// #236 (identity + native + webpki roots) stays bit-for-bit
-    /// identical — only the host→IP step changes.
+    /// PR #251 moved the resolver to `tokio::net::lookup_host` with a
+    /// 1 h process-global cache, but the lookup itself still ran on the
+    /// per-attempt future the supervisor's reconnect loop owned — and
+    /// tonic/tower can drop that future mid-flight. The spawn_blocking
+    /// task running `getaddrinfo` would then be cancelled and the failure
+    /// surfaced as `dns lookup (api.iogrid.org): task was cancelled`
+    /// (issue #253).
+    ///
+    /// The current path (post-#253) lifts the lookup off the connect
+    /// future entirely. The supervisor calls [`pre_resolve_addr`] **once**
+    /// at startup and stashes the resulting `Arc<RwLock<SocketAddr>>` on
+    /// [`ConnectConfig::resolved_addr`]. Every `Channel::connect` then
+    /// reads the cached `SocketAddr` synchronously — no DNS work happens
+    /// inside the cancellable per-attempt future. A background task
+    /// ([`spawn_addr_refresh`]) re-resolves hourly and the error path
+    /// here mutates the arc in place after a failed dial. We then build
+    /// the tonic [`Endpoint`] pointing at the resolved IP literal while
+    /// pinning TLS [`ClientTlsConfig::domain_name`] to the original
+    /// hostname so SNI + server-cert SAN validation still match. The
+    /// mTLS flow from #236 (identity + native + webpki roots) stays
+    /// bit-for-bit identical — only the host→IP step changes.
+    ///
+    /// Callers that don't wire the arc (unit tests + first-boot paths
+    /// that take the loopback fork) still get the PR #251 fallback path
+    /// via [`resolve_host_for_endpoint`].
     pub async fn connect(&mut self) -> Result<(), TransportError> {
         if !self.cfg.coordinator_url.starts_with("https://") {
             return Err(TransportError::InvalidUrl(self.cfg.coordinator_url.clone()));
         }
+        // Serialise concurrent connect attempts across the supervisor's
+        // reconnect loops (see #253). The permit is held for the full
+        // duration of the dial — TLS handshake + h2 settings — and is
+        // released when this stack frame returns. Phase 0 the dispatch
+        // loop is the only caller, so the semaphore is a no-op in
+        // practice; once heartbeat + ruleset get their own gRPC streams
+        // the permit prevents the three reconnect loops from racing
+        // through three parallel getaddrinfo + TLS-handshake stacks.
+        //
+        // We DELIBERATELY do not log on the wait path: at steady state
+        // it's instant, and on the rare contention case the connect
+        // logs already tell the story.
+        let _permit = match self.cfg.connect_semaphore.as_ref() {
+            Some(sem) => Some(sem.clone().acquire_owned().await.map_err(|e| {
+                TransportError::Unreachable(format!("connect semaphore closed: {e}"))
+            })?),
+            None => None,
+        };
         let cert = read_pem(&self.cfg.cert_pem)?;
         let key = read_pem(&self.cfg.key_pem)?;
         let identity = Identity::from_pem(cert, key);
@@ -339,12 +414,25 @@ impl Channel {
             .to_string();
         let port = parsed.port().unwrap_or(443);
 
-        // Resolve the coordinator host via the OS resolver (cached;
-        // see `resolve_host_for_endpoint` docs). Serialised behind
-        // the supervisor's single reconnect loop, so the #248 failure
-        // mode (spawn_blocking task cancelled by tower buffer drop)
-        // can't occur on this code path.
-        let target_authority = resolve_host_for_endpoint(&host, port).await?;
+        // Resolve the coordinator host.
+        //
+        // Preferred path (#253): the supervisor pre-resolved at startup
+        // and handed us an `Arc<RwLock<SocketAddr>>`. We just read the
+        // current IP — no DNS work happens on the reconnect-loop's
+        // future, so when tonic / tower drops that future the lookup
+        // can't be cancelled mid-flight (the failure mode #251 fixed
+        // for the steady-state case but #253 caught on first attempt).
+        //
+        // Fallback path: legacy in-loop `resolve_host_for_endpoint`
+        // (PR #251) so unit tests + callers that don't wire the arc
+        // still work bit-for-bit identically.
+        let target_authority = match self.cfg.resolved_addr.as_ref() {
+            Some(arc) => {
+                let addr = *arc.read().await;
+                format_socket_addr_authority(addr)
+            }
+            None => resolve_host_for_endpoint(&host, port).await?,
+        };
 
         // tonic 0.12 + tls-roots: the feature compiles in
         // rustls-native-certs but does NOT auto-populate the
@@ -410,6 +498,26 @@ impl Channel {
                 // Plain hostnames only — IP-literal entries don't get
                 // cached so there's nothing to invalidate.
                 invalidate_resolved_host(&host, port);
+                // Supervisor-managed arc: rewrite in place so the next
+                // attempt picks up a fresh IP (best-effort — if DNS is
+                // currently broken we keep the stale entry rather than
+                // failing here, since the connect error already speaks
+                // for itself and the next loop iteration will retry).
+                if let Some(arc) = self.cfg.resolved_addr.as_ref() {
+                    match refresh_addr(&host, port).await {
+                        Ok(fresh) => {
+                            *arc.write().await = fresh;
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                host = %host,
+                                port = port,
+                                error = %e,
+                                "supervisor-managed DNS refresh failed after connect error; keeping stale IP"
+                            );
+                        }
+                    }
+                }
                 return Err(TransportError::Unreachable(chain));
             }
         };
@@ -558,6 +666,154 @@ fn format_ip_authority(ip: std::net::IpAddr, port: u16) -> String {
         std::net::IpAddr::V4(v4) => format!("https://{v4}:{port}"),
         std::net::IpAddr::V6(v6) => format!("https://[{v6}]:{port}"),
     }
+}
+
+/// Render a [`SocketAddr`] as the `https://<ip>:<port>` authority tonic's
+/// `Endpoint::from_shared` accepts. Mirrors [`format_ip_authority`] but
+/// avoids splitting+rejoining the port that's already in the address.
+fn format_socket_addr_authority(addr: SocketAddr) -> String {
+    match addr {
+        SocketAddr::V4(v4) => format!("https://{}:{}", v4.ip(), v4.port()),
+        SocketAddr::V6(v6) => format!("https://[{}]:{}", v6.ip(), v6.port()),
+    }
+}
+
+/// Resolve `host:port` to a single [`SocketAddr`] via the OS resolver,
+/// without touching the process-global `RESOLVED_HOST_CACHE`. Used by:
+///
+///   * [`pre_resolve_addr`] at supervisor startup, before any reconnect
+///     loop has a chance to spawn a future that could be cancelled
+///     (the #248/#253 failure mode).
+///   * [`Channel::connect`]'s error path, to mutate the supervisor-shared
+///     `Arc<RwLock<SocketAddr>>` in place so the next attempt dials a
+///     fresh IP.
+///   * [`spawn_addr_refresh`]'s hourly tick.
+///
+/// IP literals are accepted and short-circuit (no DNS work).
+async fn refresh_addr(host: &str, port: u16) -> Result<SocketAddr, TransportError> {
+    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+        return Ok(SocketAddr::new(ip, port));
+    }
+    let target = format!("{host}:{port}");
+    let mut addrs = tokio::net::lookup_host(&target)
+        .await
+        .map_err(|e| TransportError::Unreachable(format!("dns lookup ({host}): {e}")))?;
+    addrs
+        .next()
+        .ok_or_else(|| TransportError::Unreachable(format!("dns lookup ({host}): no records")))
+}
+
+/// Pre-resolve the coordinator host **before** spawning any reconnect
+/// loop and return the shared `Arc<RwLock<SocketAddr>>` callers should
+/// stash on every [`ConnectConfig`] that targets the same coordinator
+/// (see #253).
+///
+/// This is the core fix for #253: PR #251 moved DNS off the hickory
+/// driver but the lookup itself still ran *inside* the per-attempt
+/// future tonic/tower can drop, so the `tokio::task::spawn_blocking`
+/// closure that getaddrinfo runs under got cancelled mid-flight and
+/// surfaced as `dns lookup (api.iogrid.org): task was cancelled`. By
+/// resolving from the supervisor task — which is never dropped —
+/// the lookup completes once and every subsequent connect attempt
+/// just reads the cached `SocketAddr`.
+///
+/// Parsing rules match [`Channel::connect`]: the URL must start with
+/// `https://` and carry a non-empty host. Port defaults to 443. The
+/// returned arc is intended to be cloned into [`ConnectConfig::resolved_addr`]
+/// for every coordinator-talking subsystem (dispatch / heartbeat /
+/// ruleset) so they share one IP across reconnects.
+pub async fn pre_resolve_addr(
+    coordinator_url: &str,
+) -> Result<Arc<RwLock<SocketAddr>>, TransportError> {
+    if !coordinator_url.starts_with("https://") {
+        return Err(TransportError::InvalidUrl(coordinator_url.to_string()));
+    }
+    let parsed = url::Url::parse(coordinator_url)
+        .map_err(|e| TransportError::InvalidUrl(e.to_string()))?;
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| TransportError::InvalidUrl("coordinator URL has no host".into()))?
+        .to_string();
+    let port = parsed.port().unwrap_or(443);
+    let addr = refresh_addr(&host, port).await?;
+    tracing::info!(
+        coordinator = %coordinator_url,
+        resolved = %addr,
+        "supervisor pre-resolved coordinator host (will be shared across reconnect loops)"
+    );
+    Ok(Arc::new(RwLock::new(addr)))
+}
+
+/// Hourly background refresh of the supervisor-shared coordinator IP.
+///
+/// Re-runs `lookup_host` once per `interval` and writes the result into
+/// the shared `Arc<RwLock<SocketAddr>>` (transient lookup failures keep
+/// the previous IP). Returns a JoinHandle the supervisor can park on its
+/// JoinSet; the loop terminates when the `cancel` watch flips to `true`.
+///
+/// The refresh complements the per-error invalidate path in
+/// [`Channel::connect`]: connect errors invalidate immediately, while
+/// this catches LB-IP rotations that happen even when the daemon is
+/// healthy and connected for hours on end.
+pub fn spawn_addr_refresh(
+    coordinator_url: String,
+    addr: Arc<RwLock<SocketAddr>>,
+    interval: Duration,
+    mut cancel: tokio::sync::watch::Receiver<bool>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        // Parse once — invalid URL never reaches this task in practice
+        // (pre_resolve_addr would have rejected it). Defensive bail-out.
+        let parsed = match url::Url::parse(&coordinator_url) {
+            Ok(u) => u,
+            Err(e) => {
+                tracing::warn!(error = %e, "addr-refresh: bad coordinator URL; exiting");
+                return;
+            }
+        };
+        let host = match parsed.host_str() {
+            Some(h) => h.to_string(),
+            None => {
+                tracing::warn!("addr-refresh: coordinator URL has no host; exiting");
+                return;
+            }
+        };
+        let port = parsed.port().unwrap_or(443);
+        let mut ticker = tokio::time::interval(interval);
+        // First tick fires immediately — skip it so we don't double-resolve
+        // right after `pre_resolve_addr`.
+        ticker.tick().await;
+        loop {
+            tokio::select! {
+                _ = ticker.tick() => {
+                    match refresh_addr(&host, port).await {
+                        Ok(fresh) => {
+                            let mut g = addr.write().await;
+                            if *g != fresh {
+                                tracing::info!(
+                                    coordinator = %coordinator_url,
+                                    old = %*g,
+                                    new = %fresh,
+                                    "addr-refresh: coordinator IP changed"
+                                );
+                            }
+                            *g = fresh;
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                coordinator = %coordinator_url,
+                                error = %e,
+                                "addr-refresh: lookup_host failed; keeping previous IP"
+                            );
+                        }
+                    }
+                }
+                _ = cancel.changed() => {
+                    if *cancel.borrow() { return; }
+                }
+            }
+        }
+    })
 }
 
 /// Reconnect-loop driver. Caller supplies a `connect_once` closure that
@@ -1097,6 +1353,177 @@ mod tests {
         invalidate_resolved_host("127.0.0.1", 1);
     }
 
+    // ---- #253 supervisor-level pre-resolve --------------------------------
+
+    #[tokio::test]
+    async fn pre_resolve_addr_rejects_plaintext_url() {
+        let err = pre_resolve_addr("http://insecure.example").await.unwrap_err();
+        assert!(
+            matches!(err, TransportError::InvalidUrl(_)),
+            "expected InvalidUrl, got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn pre_resolve_addr_returns_arc_with_socketaddr_for_ipv4_literal() {
+        // IP-literal hosts must short-circuit: refresh_addr parses the
+        // literal directly without involving the OS resolver, so the
+        // returned arc carries exactly 127.0.0.1:8443.
+        let arc = pre_resolve_addr("https://127.0.0.1:8443")
+            .await
+            .expect("pre-resolve ipv4 literal");
+        let got = *arc.read().await;
+        assert_eq!(got, "127.0.0.1:8443".parse::<SocketAddr>().unwrap());
+    }
+
+    #[tokio::test]
+    async fn pre_resolve_addr_default_port_443() {
+        let arc = pre_resolve_addr("https://10.0.0.1")
+            .await
+            .expect("pre-resolve no-port literal");
+        let got = *arc.read().await;
+        assert_eq!(got.port(), 443);
+    }
+
+    #[tokio::test]
+    async fn pre_resolve_addr_rejects_url_with_no_host() {
+        // An https:// URL that the url crate accepts but with no host —
+        // url 2.x rejects this earlier than tonic would. We want a
+        // typed error so callers can decide whether to fall back to
+        // loopback.
+        let err = pre_resolve_addr("https://").await.unwrap_err();
+        assert!(
+            matches!(err, TransportError::InvalidUrl(_)),
+            "expected InvalidUrl, got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn connect_uses_resolved_addr_when_set_instead_of_in_loop_dns() {
+        // Wire a ConnectConfig.resolved_addr pointing at 127.0.0.1:1
+        // (port 1 is reserved → connect will refuse, but cheaply +
+        // quickly). The PEMs intentionally fail TLS parse so we don't
+        // actually need an OS socket — we only need to observe that
+        // Channel::connect honours the arc.
+        //
+        // The success criterion is "connect returns a TransportError
+        // shape that came from the IP-literal endpoint we injected,
+        // not from any DNS lookup". We check this indirectly by also
+        // setting coordinator_url to a hostname that would NOT resolve
+        // (`this-host-must-not-exist-253.invalid.`): if Channel::connect
+        // were still calling the in-loop resolver we'd see a DNS error
+        // bubbling up; with the arc honored we see the TLS / I/O error
+        // for the IP-literal endpoint instead.
+        let dir = tempfile::tempdir().unwrap();
+        let cert = dir.path().join("cert.pem");
+        let key = dir.path().join("key.pem");
+        std::fs::write(
+            &cert,
+            b"-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n",
+        )
+        .unwrap();
+        std::fs::write(
+            &key,
+            b"-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n",
+        )
+        .unwrap();
+        let arc = Arc::new(RwLock::new(
+            "127.0.0.1:1".parse::<SocketAddr>().unwrap(),
+        ));
+        let cfg = ConnectConfig {
+            coordinator_url: "https://this-host-must-not-exist-253.invalid:443".into(),
+            cert_pem: cert,
+            key_pem: key,
+            ca_pem: None,
+            max_backoff: Duration::from_millis(20),
+            initial_backoff: Duration::from_millis(5),
+            resolved_addr: Some(arc),
+            connect_semaphore: None,
+        };
+        let mut ch = Channel::new(cfg);
+        let err = ch.connect().await.unwrap_err();
+        // Critical: the error must NOT mention DNS — the supervisor's
+        // pre-resolved arc is supposed to bypass the in-loop resolver
+        // entirely. If you see "dns lookup" in this assertion, you
+        // regressed the #253 fix.
+        let s = format!("{err}");
+        assert!(
+            !s.contains("dns lookup"),
+            "regression: Channel::connect did DNS work even with resolved_addr set: {s}"
+        );
+    }
+
+    #[tokio::test]
+    async fn connect_semaphore_serialises_concurrent_attempts() {
+        // Two parallel connects against the same semaphore must not
+        // overlap inside the critical section. We model that by giving
+        // them a 1-permit semaphore and measuring observable
+        // serialisation: only one connect can hold the permit at a
+        // time, so the second connect waits for the first to release.
+        //
+        // We don't actually need network success — both will fail (PEM
+        // parse) — but the error path still releases the permit on
+        // drop, so the second future must complete after the first
+        // returns. We assert ordering via a shared counter incremented
+        // inside `Channel::connect` once the permit is held.
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let sem = Arc::new(Semaphore::new(1));
+        let dir = tempfile::tempdir().unwrap();
+        let cert = dir.path().join("cert.pem");
+        let key = dir.path().join("key.pem");
+        std::fs::write(
+            &cert,
+            b"-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n",
+        )
+        .unwrap();
+        std::fs::write(
+            &key,
+            b"-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n",
+        )
+        .unwrap();
+
+        // Hold the permit ourselves first.
+        let held = sem.clone().acquire_owned().await.unwrap();
+        let started = Arc::new(AtomicUsize::new(0));
+        let started_c = started.clone();
+
+        let cfg = ConnectConfig {
+            coordinator_url: "https://127.0.0.1:1".into(),
+            cert_pem: cert,
+            key_pem: key,
+            ca_pem: None,
+            max_backoff: Duration::from_millis(20),
+            initial_backoff: Duration::from_millis(5),
+            resolved_addr: Some(Arc::new(RwLock::new(
+                "127.0.0.1:1".parse::<SocketAddr>().unwrap(),
+            ))),
+            connect_semaphore: Some(sem.clone()),
+        };
+        // Spawn a connect attempt — it must block on the permit we hold.
+        let mut ch = Channel::new(cfg);
+        let handle = tokio::spawn(async move {
+            let _ = ch.connect().await;
+            started_c.fetch_add(1, Ordering::SeqCst);
+        });
+        // Give the spawned task time to reach the await point.
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        // It must not have progressed past `acquire_owned` yet.
+        assert_eq!(
+            started.load(Ordering::SeqCst),
+            0,
+            "spawned connect ran while we held the only permit"
+        );
+        // Release the permit — spawned task may now proceed.
+        drop(held);
+        // It must complete now.
+        tokio::time::timeout(Duration::from_millis(500), handle)
+            .await
+            .expect("spawned connect should complete after permit release")
+            .ok();
+        // Sanity: the connect attempt counter must have incremented.
+        assert_eq!(started.load(Ordering::SeqCst), 1);
+    }
+
     #[tokio::test]
     async fn connect_rejects_plaintext_url() {
         let cfg = ConnectConfig {
@@ -1206,6 +1633,8 @@ mod tests {
             ca_pem: None,
             max_backoff: Duration::from_millis(20),
             initial_backoff: Duration::from_millis(5),
+            resolved_addr: None,
+            connect_semaphore: None,
         };
         let hello = DispatchHello {
             provider_id: "00000000-0000-0000-0000-000000000001".into(),
