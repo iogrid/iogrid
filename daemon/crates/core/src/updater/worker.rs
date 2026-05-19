@@ -226,12 +226,14 @@ fn jitter_for(interval: Duration) -> Duration {
     // scale ∈ 0..=2000, mapped to 0..=0.2 of `interval` via /10_000,
     // then we subtract `interval / 10` to centre on zero. Final range:
     // ±interval/10 (i.e. ±10%), saturating to 0 for sub-second intervals.
-    let scale = nanos % 2001; // 0..=2000
-    let micros = interval.as_micros() as u64;
+    let scale: u64 = nanos % 2001; // 0..=2000
+    let micros: u64 = u64::try_from(interval.as_micros()).unwrap_or(u64::MAX);
     let twenty_pct = micros.saturating_mul(scale) / 10_000; // 0..=micros/5
     let ten_pct = micros / 10;
-    let abs = (twenty_pct as i64 - ten_pct as i64).unsigned_abs();
-    Duration::from_micros(abs)
+    // Compute via i128 so the subtraction can't underflow even if
+    // `twenty_pct` somehow saturates above u64::MAX/5.
+    let signed = i128::from(twenty_pct) - i128::from(ten_pct);
+    Duration::from_micros(u64::try_from(signed.unsigned_abs()).unwrap_or(u64::MAX))
 }
 
 fn record_outcome(
