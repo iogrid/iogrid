@@ -1,0 +1,72 @@
+/* docs.iogrid.org brand override for Starlight
+ *
+ * Brand tokens live in ../../../brand/tokens/colors.json — values mirrored here
+ * because Starlight wants raw CSS vars at the :root level. Update this file in
+ * lockstep with the token JSON (kept in sync by hand for now; a generator can
+ * be added later if drift becomes an issue).
+ */
+
+:root {
+  /* Starlight's --sl-color-accent* maps to our `primary` ramp (#4257F5 family). */
+  --sl-color-accent-low: #d9deff;
+  --sl-color-accent: #4257f5;
+  --sl-color-accent-high: #22309c;
+
+  /* Neutrals — match marketing site warm-paper palette */
+  --sl-color-white: #fafaf9;
+  --sl-color-gray-1: #f2f1ee;
+  --sl-color-gray-2: #e5e3de;
+  --sl-color-gray-3: #c9c6be;
+  --sl-color-gray-4: #7b776d;
+  --sl-color-gray-5: #56524a;
+  --sl-color-gray-6: #3a3731;
+  --sl-color-black: #15140f;
+
+  /* Selection */
+  --sl-color-bg-accent: #4257f5;
+  --sl-color-text-accent: #ffffff;
+
+  /* Type */
+  --sl-font:
+    "Inter var", "Inter", system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --sl-font-mono:
+    "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+}
+
+:root[data-theme="dark"] {
+  --sl-color-accent-low: #19236e;
+  --sl-color-accent: #6577ff;
+  --sl-color-accent-high: #b3bcff;
+}
+
+/* Make the homepage hero accent pop without overriding Starlight internals. */
+.hero h1,
+.hero .tagline {
+  letter-spacing: -0.02em;
+}
+
+/* Tighten code blocks slightly (Starlight default is generous). */
+.expressive-code,
+.expressive-code pre {
+  font-size: 0.875rem;
+}
+
+/* Inline pill helper — used in MDX for the anti-Hola transparency callouts. */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  background: var(--sl-color-accent-low);
+  color: var(--sl-color-accent-high);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+::selection {
+  background: #4257f5;
+  color: #ffffff;
+}

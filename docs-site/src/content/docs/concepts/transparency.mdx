@@ -1,0 +1,133 @@
+---
+title: Transparency — the anti-Hola
+description: What every provider sees about every byte that flows through their IP.
+sidebar:
+  label: Transparency
+  order: 4
+---
+
+import { Aside, Card, CardGrid } from '@astrojs/starlight/components';
+
+The original sin of residential proxy networks was Hola: a free VPN that
+silently sold its users' bandwidth to Bright Data with no consent and no
+visibility. iogrid is the deliberate opposite — categorical opt-in consent at
+install time, and a live audit dashboard that shows providers exactly what
+their IP carries.
+
+<Aside type="note" title="Why this page exists">
+  Every other section of these docs explains what iogrid **does**. This one
+  explains what we let providers **see** — the single biggest differentiator
+  versus every incumbent.
+</Aside>
+
+## The provider audit dashboard
+
+Open the local control UI at [http://localhost:7777](http://localhost:7777)
+or the hosted view at `dashboard.iogrid.org/provide` after linking.
+
+The dashboard shows, for each provider, in real time and historically:
+
+### Per-request stream
+
+- Timestamp · destination domain · category label · bytes in · bytes out
+- Customer ID (aggregated — `cus_abc123` only, never email or company name)
+- Whether the request was passed, blocked, rate-limited, or rerouted
+
+### Category rollups
+
+Every byte is labeled with one of the well-defined categories:
+
+| Category | What it means | Default opt-in |
+|---|---|---|
+| `ecommerce-monitor` | Price / availability / SKU scraping of public storefronts | ✅ |
+| `seo-serp` | Search-engine result-page scraping | ✅ |
+| `ad-verify` | Verifying ad placements / brand-safety crawls | ✅ |
+| `travel-aggregate` | Flight, hotel, car-rental price aggregation | ✅ |
+| `lead-gen` | Public business contact info scraping | ✅ |
+| `ai-training-data` | Public-web crawling for AI training corpora | ✅ |
+| `social-intel` | Social-media platform scraping | 🟡 opt-in |
+| `adult` | Adult-content destinations | 🟡 opt-in |
+| `banking` | Bank, fintech, money-services domains | 🟡 opt-in + KYC |
+| `government` | `.gov`, `.mil`, public-sector | ❌ blocked |
+| `csam-suspect` | Hash matches against NCMEC / INTERPOL | ❌ blocked |
+| `other` | Doesn't match any taxonomy bucket | ✅ |
+
+The category is decided **pre-flight** by the coordinator (so blocking happens
+before the byte ever leaves the provider). Providers see the category label
+on every entry of their audit stream.
+
+### One-click controls
+
+- **Block this destination forever** — adds a regex match to the provider's
+  personal blocklist. Scoped to the provider, doesn't affect anyone else.
+- **Block this category** — opts the provider out of that whole category.
+- **Block this customer** — refuses any future scheduling to that customer ID.
+- **Drain me now** — stops new workloads immediately. In-flight workloads
+  finish naturally.
+
+### Historical export
+
+- 24-hour rolling view in the UI.
+- 90-day audit log retained server-side (legal / compliance requirement).
+- CSV / JSONL export available per provider, at any time, no questions asked.
+
+## Real-time anomaly alerts
+
+Several alerts fire automatically and surface in the dashboard + via email:
+
+- "Your IP just served LinkedIn for 8 minutes" — happens when a customer
+  session lingers on a hot destination. One-click block destination.
+- "Unusual destination diversity" — when a new customer pattern is detected.
+- "Pre-flight blocks elevated" — when more than the usual share of requests
+  are being refused (could indicate a malicious customer trying to abuse you).
+- "Quality score dropped" — uptime / latency / success-rate regression.
+
+## What providers do **not** see
+
+For privacy reasons (and to honor customer contracts), some things are
+**deliberately** hidden from providers:
+
+- Customer's full identity (only their abstract `cus_*` ID)
+- The customer's HTTPS payload (the coordinator does not decrypt customer TLS;
+  the provider sees encrypted bytes only)
+- Other providers' traffic
+- The customer's billing or address info
+
+## How this compares to incumbents
+
+<CardGrid>
+  <Card title="Bright Data / Hola" icon="error">
+    Provider sees nothing. Opaque ToS. The 2015 Hola scandal — "your bandwidth
+    was sold to Bright Data customers" — became known via researchers, not
+    through any in-product disclosure.
+  </Card>
+  <Card title="Honeygain / Pawns" icon="seti:lock">
+    Provider sees aggregate bytes shared and total earnings. No category
+    breakdown, no destination visibility, no blocklist controls.
+  </Card>
+  <Card title="Mysterium" icon="approve-check-circle">
+    Some category labels available. Destination visibility partial. Closest
+    to what iogrid offers, but crypto-native UX limits adoption.
+  </Card>
+  <Card title="iogrid" icon="rocket">
+    Live audit dashboard with per-byte category labels, one-click destination
+    and category blocklists, 90-day historical export, anomaly alerts.
+  </Card>
+</CardGrid>
+
+## Why this is also our legal defense
+
+Aggressive pre-flight filtering + per-provider categorical opt-in + live
+audit log + 90-day server-side retention is what lets us argue providers are
+**passive intermediaries with informed consent**. It's not just a marketing
+posture; it's the difference between a defensible position and the position
+that got William Weber convicted for running a Tor exit relay with no
+filtering and no commercial intermediary.
+
+See [security: anti-abuse](/security/anti-abuse/) for the full filter list.
+
+## Where next
+
+- [Security: anti-abuse](/security/anti-abuse/)
+- [Security: privacy](/security/privacy/)
+- [Provider quickstart](/getting-started/provider-quickstart/)

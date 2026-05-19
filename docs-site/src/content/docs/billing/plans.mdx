@@ -1,0 +1,84 @@
+---
+title: Plans and pricing
+description: Free, Pro, Business, and Enterprise — usage-metered with per-workload rates.
+sidebar:
+  label: Plans
+  order: 1
+---
+
+iogrid bills monthly. Every plan includes the platform fee plus
+usage-metered charges per workload. There are no per-seat fees, no
+per-API-call surcharges, no overage penalties beyond the metered rate.
+
+## Plan matrix
+
+| | Free | Pro | Business | Enterprise |
+|---|---|---|---|---|
+| Monthly platform fee | $0 | $19 | $199 | custom |
+| Included credit | $5 / month | $0 | $0 | custom |
+| API requests/min | 60 | 600 | 6000 | custom |
+| Concurrent workloads | 5 | 50 | 500 | custom |
+| SSO (SAML / OIDC) | — | — | ✅ | ✅ |
+| Audit log retention | 30 days | 90 days | 365 days | custom |
+| Sandbox keys | ✅ | ✅ | ✅ | ✅ |
+| SLA | — | 99.5% workload | 99.9% workload | 99.95% workload |
+| Support | community | email 24 h | email 4 h + slack | dedicated CSM |
+
+## Per-workload metered rates
+
+| Workload | Free | Pro | Business | Enterprise |
+|---|---|---|---|---|
+| Bandwidth proxy / GB | $0.60 | $0.45 | $0.35 | $0.30 |
+| Docker / CPU-hour | $0.10 | $0.06 | $0.03 | $0.02 |
+| Docker / GB-RAM-hour | $0.005 | $0.003 | $0.002 | $0.001 |
+| GPU / GPU-hour | varies by class — see [GPU workload](/workloads/gpu/) | | | |
+| iOS-build / Xcode-minute | $0.04 | $0.04 | $0.04 | custom |
+| Free VPN (consumer) | $0 | $0 | n/a | n/a |
+| VPN Plus (consumer) | n/a | $2.99 / month | n/a | n/a |
+| VPN Pro (consumer) | n/a | $4.99 / month | n/a | n/a |
+
+iOS-build pricing is flat across plans because that's the wedge we want to
+preserve — we'd rather have many small customers than gate the savings behind
+an enterprise tier.
+
+## Billing cycle
+
+- Invoices issued on the 1st of each month for the previous month's usage.
+- Net-30 payment terms; auto-debit via Stripe by default.
+- Outstanding invoices over 30 days disable new workload submissions
+  (returns `INVOICE_OVERDUE`) but keep your API key alive for read-only ops.
+
+## Annual commits
+
+Business and Enterprise plans support annual prepayment with 10% discount
+($199 × 12 × 0.9 = $2148 → $1933 annually). Usage is metered against the
+balance month-over-month.
+
+## Stripe customer portal
+
+Manage payment methods, download invoices, update billing email at
+[dashboard.iogrid.org/billing/portal](https://dashboard.iogrid.org/billing/portal).
+The portal is hosted by Stripe — iogrid never touches your card data.
+
+## Quotas
+
+- Maximum concurrent workloads (above)
+- Maximum spend per day (defaults to $100 USD-equivalent; raisable in dashboard)
+- Maximum API keys per account (10 on Free / Pro, unlimited on Business+)
+
+## Refunds
+
+iogrid issues refunds for **service incidents** under the SLA. We do not
+issue refunds for:
+
+- Customer-side bugs or misconfiguration
+- Workload failures caused by provider mid-run dropouts that the scheduler
+  retried successfully (only the failed first attempt is charged; retries are
+  free)
+- Spending past your daily cap (set the cap appropriately)
+
+## Where next
+
+- [Provider payouts](/billing/payouts/)
+- [Rate limits](/api/rate-limits/)
+- [Errors](/api/errors/)

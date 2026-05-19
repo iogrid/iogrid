@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" role="img" aria-label="iogrid docs">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#10174A"/>
+      <stop offset="100%" stop-color="#22309C"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <g transform="translate(80, 220)">
+    <text fill="#FAFAF9" font-family="Inter, system-ui, sans-serif" font-size="84" font-weight="800" letter-spacing="-2">
+      iogrid docs
+    </text>
+    <text x="0" y="80" fill="#C9C6BE" font-family="Inter, system-ui, sans-serif" font-size="36" font-weight="500">
+      The open mesh for compute.
+    </text>
+    <text x="0" y="140" fill="#7BE0B7" font-family="JetBrains Mono, ui-monospace, monospace" font-size="28" font-weight="600">
+      docs.iogrid.org
+    </text>
+  </g>
+  <circle cx="1080" cy="100" r="40" fill="#4257F5"/>
+  <circle cx="1100" cy="530" r="60" fill="#2EC78B" opacity="0.4"/>
+</svg>
