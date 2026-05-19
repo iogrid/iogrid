@@ -110,3 +110,31 @@ jobs:
           path: artifacts/${{ matrix.target }}/${{ matrix.binary }}
           if-no-files-found: error
           retention-days: 14
+
+  gpu-mlx-build:
+    name: gpu-mlx build (aarch64-apple-darwin)
+    needs: fmt-clippy-test
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: daemon
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            daemon/target
+          key: daemon-gpu-mlx-${{ hashFiles('daemon/Cargo.toml', 'daemon/rust-toolchain.toml', 'daemon/crates/**/Cargo.toml') }}
+          restore-keys: |
+            daemon-gpu-mlx-
+      - name: rustup add target
+        run: rustup target add aarch64-apple-darwin
+      - name: cargo check (gpu-mlx feature on)
+        run: cargo check -p iogrid-workload-gpu --features gpu-mlx --target aarch64-apple-darwin
+      - name: cargo clippy (gpu-mlx feature on)
+        run: cargo clippy -p iogrid-workload-gpu --features gpu-mlx --target aarch64-apple-darwin --all-targets -- -D warnings
+      - name: cargo test (gpu-mlx feature on, integration tests skipped)
+        run: cargo test -p iogrid-workload-gpu --features gpu-mlx --target aarch64-apple-darwin
