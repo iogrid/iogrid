@@ -875,6 +875,23 @@ mod tests {
         type DispatchStream =
             tokio_stream::wrappers::ReceiverStream<Result<wlv1::DispatchFrame, Status>>;
 
+        async fn ack_assignment(
+            &self,
+            _request: tonic::Request<wlv1::AckAssignmentRequest>,
+        ) -> Result<tonic::Response<wlv1::AckAssignmentResponse>, Status> {
+            Ok(tonic::Response::new(wlv1::AckAssignmentResponse {}))
+        }
+
+        async fn get_assignment(
+            &self,
+            _request: tonic::Request<wlv1::GetAssignmentRequest>,
+        ) -> Result<tonic::Response<wlv1::GetAssignmentResponse>, Status> {
+            Ok(tonic::Response::new(wlv1::GetAssignmentResponse {
+                assignment: None,
+                latest_status: 0,
+            }))
+        }
+
         async fn dispatch(
             &self,
             req: tonic::Request<tonic::Streaming<wlv1::DispatchFrame>>,
