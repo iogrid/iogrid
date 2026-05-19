@@ -4,12 +4,13 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-19T08:00:00Z` |
+| Last refreshed | `2026-05-19T08:10:00Z` |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
-| Merged PRs | **50** since project bootstrap |
-| Open PRs | 0 |
-| Open issues | **19** (8 EPICs + 11 sub-issues / chores) |
-| EPIC closure | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 9 / 17 closed = **53%** (+ 60+ sub-issues closed) |
+| Merged PRs | **58** since project bootstrap |
+| Open PRs | 1 (#199 axe-core + Playwright — iterating on red CI) |
+| Open issues | **8** (4 fresh from this cycle's agents + 3 founder-action-blocked + #201 Phase 0 blocker) |
+| EPIC closure | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 17 / 17 closed by audit (**code shipped**; Phase 0 runtime chain BLOCKED — see #201) |
+| Phase 0 chain | <img alt="OPEN" src="https://img.shields.io/badge/-BLOCKED-cf222e?style=flat-square" /> NOT WORKING end-to-end — see [#201](https://github.com/iogrid/iogrid/issues/201) |
 
 **Legend:** <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> done · <img alt="IN_FLIGHT" src="https://img.shields.io/badge/-IN__FLIGHT-bf8700?style=flat-square" /> work in progress · <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> open · <img alt="DEFERRED" src="https://img.shields.io/badge/-DEFERRED-6e7781?style=flat-square" /> deferred · <img alt="BLOCKED" src="https://img.shields.io/badge/-BLOCKED-8250df?style=flat-square" /> blocked on founder action
 
@@ -20,13 +21,15 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 | # | Step | Status | Link |
 |---|---|---|---|
 | 1 | Customer signup + workspace + API key | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | [PR #164](https://github.com/iogrid/iogrid/pull/164), [#165](https://github.com/iogrid/iogrid/pull/165) |
-| 2 | Rust daemon installed on founder's Mac | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | [PR #135](https://github.com/iogrid/iogrid/pull/135) |
-| 3 | SOCKS5 entry on `proxy.iogrid.org:443` | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | [PR #132](https://github.com/iogrid/iogrid/pull/132) |
-| 4 | DNS + TLS for `iogrid.org` zone | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | [PR #114](https://github.com/iogrid/iogrid/pull/114) |
+| 2 | Rust daemon **code** shipped (PR #135) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | [PR #135](https://github.com/iogrid/iogrid/pull/135) — code only; see row 2b |
+| 2b | Rust daemon **installed + running** on founder's Mac | <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> | [#201](https://github.com/iogrid/iogrid/issues/201) — `iogridd` binary not on PATH on Mac; install step never ran |
+| 3 | SOCKS5 entry **code** for `proxy.iogrid.org:443` (PR #132) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | [PR #132](https://github.com/iogrid/iogrid/pull/132) — code only; see row 3b |
+| 3b | SOCKS5 entry **live** on `proxy.iogrid.org:443` | <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> | [#201](https://github.com/iogrid/iogrid/issues/201) — Traefik default cert, no SOCKS5 listener; Flux not reconciling iogrid yet |
+| 4 | DNS for `iogrid.org` zone | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | [PR #114](https://github.com/iogrid/iogrid/pull/114) — verified `api/app/proxy.iogrid.org` → 45.151.123.50 |
 | 5 | Anti-abuse pre-flight (PhotoDNA + PhishTank + GSB) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | [PR #171](https://github.com/iogrid/iogrid/pull/171) |
 | 6 | E2E kind smoke suite | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | [PR #150](https://github.com/iogrid/iogrid/pull/150) |
-| 7 | Live deploy to mothership k8s | <img alt="IN_FLIGHT" src="https://img.shields.io/badge/-IN__FLIGHT-bf8700?style=flat-square" /> | Flux reconciles automatically; verifier walkthrough pending |
-| 8 | First real LinkedIn fetch via iogrid proxy | <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> | Founder runs `examples/phase0-vcard-customer/client.go` to validate |
+| 7 | Live deploy to mothership k8s | <img alt="OPEN" src="https://img.shields.io/badge/-BLOCKED-cf222e?style=flat-square" /> | [#201](https://github.com/iogrid/iogrid/issues/201) — `iogrid` namespace empty; no Flux GitRepository/Kustomization wired in `openova-io/openova-private` |
+| 8 | First real LinkedIn fetch via iogrid proxy | <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> | Blocked behind row 2b/3b/7 — Phase 0 vCard smoke run 2026-05-19 failed at SOCKS5 greeting timeout |
 
 ---
 
