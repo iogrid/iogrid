@@ -20,6 +20,9 @@ import (
 
 	"github.com/iogrid/iogrid/coordinator/services/billing-svc/internal/config"
 	"github.com/iogrid/iogrid/coordinator/services/billing-svc/internal/metering"
+	"github.com/iogrid/iogrid/coordinator/services/billing-svc/internal/offramp"
+	"github.com/iogrid/iogrid/coordinator/services/billing-svc/internal/offramp/moonpay"
+	"github.com/iogrid/iogrid/coordinator/services/billing-svc/internal/offramp/sociable_cash"
 	"github.com/iogrid/iogrid/coordinator/services/billing-svc/internal/server"
 	"github.com/iogrid/iogrid/coordinator/services/billing-svc/internal/solana"
 	"github.com/iogrid/iogrid/coordinator/services/billing-svc/internal/store"
@@ -91,6 +94,11 @@ func main() {
 	// Tax generator — always available; no external deps.
 	taxGen := tax.New(st)
 
+	// Off-ramp adapter registry. Per env OFFRAMP_PROVIDERS, register
+	// each adapter we ship. Adapter construction may fail (missing
+	// credentials) — we log and skip rather than crashing the service.
+	offRampSvc := buildOffRampService(cfg, st, logger)
+
 	// Metering consumer — only runs when NATS_URL configured.
 	if cfg.NATSURL != "" {
 		go func() {
@@ -115,10 +123,11 @@ func main() {
 	hr.MarkReady()
 
 	deps := server.Deps{
-		Store:  st,
-		Stripe: stripeSvc,
-		Solana: solSvc,
-		Tax:    taxGen,
+		Store:   st,
+		Stripe:  stripeSvc,
+		Solana:  solSvc,
+		Tax:     taxGen,
+		OffRamp: offRampSvc,
 	}
 
 	if err := sharedserver.Run(ctx, sharedserver.Options{
@@ -131,4 +140,59 @@ func main() {
 		logger.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
+}
+
+// buildOffRampService constructs the off-ramp adapter registry from
+// configured env vars. Returns nil when no providers are registered;
+// the routes layer responds 503 in that case.
+//
+// Adapter construction failures (e.g. MoonPay enabled but
+// MOONPAY_API_KEY missing) are logged and the adapter is skipped — the
+// rest of billing-svc continues to function so a misconfigured off-ramp
+// doesn't break Stripe/Solana paths.
+func buildOffRampService(cfg *config.Config, st *store.Store, logger *slog.Logger) *offramp.Service {
+	if len(cfg.OffRampProviders) == 0 {
+		logger.Info("offramp: OFFRAMP_PROVIDERS empty — routes return 503")
+		return nil
+	}
+	reg := offramp.NewRegistry()
+	for _, name := range cfg.OffRampProviders {
+		switch name {
+		case moonpay.ProviderName:
+			a, err := moonpay.New(moonpay.Config{
+				APIKey:        cfg.MoonPayAPIKey,
+				WebhookSecret: cfg.MoonPayWebhookSecret,
+				BaseURL:       cfg.MoonPayBaseURL,
+			})
+			if err != nil {
+				logger.Error("offramp: moonpay disabled", slog.String("error", err.Error()))
+				continue
+			}
+			if err := reg.Register(a); err != nil {
+				logger.Error("offramp: moonpay register failed", slog.String("error", err.Error()))
+			}
+		case sociable_cash.ProviderName:
+			a, err := sociable_cash.New(sociable_cash.Config{
+				WebhookSecret: cfg.CashWebhookSecret,
+				BaseURL:       cfg.CashBaseURL,
+			})
+			if err != nil {
+				logger.Error("offramp: sociable-cash disabled", slog.String("error", err.Error()))
+				continue
+			}
+			if err := reg.Register(a); err != nil {
+				logger.Error("offramp: sociable-cash register failed", slog.String("error", err.Error()))
+			}
+		default:
+			logger.Warn("offramp: unknown provider in OFFRAMP_PROVIDERS",
+				slog.String("provider", name))
+		}
+	}
+	if len(reg.ListAvailable()) == 0 {
+		logger.Warn("offramp: no adapters registered after parsing OFFRAMP_PROVIDERS")
+		return nil
+	}
+	logger.Info("offramp: registry ready",
+		slog.Int("providers", len(reg.ListAvailable())))
+	return offramp.NewService(reg, st, logger)
 }

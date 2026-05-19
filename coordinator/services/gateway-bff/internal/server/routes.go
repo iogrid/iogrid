@@ -55,6 +55,9 @@ type Deps struct {
 	// WorkspaceService. When nil the /api/v1/workspaces tree returns
 	// 503 — useful in dev environments where identity-svc isn't up.
 	Workspaces handlers.WorkspaceClient
+	// OffRamp is the thin HTTP proxy to billing-svc's off-ramp routes.
+	// When nil the /api/v1/offramp/* + webhook routes return 503.
+	OffRamp *handlers.OffRampProxy
 }
 
 // Mount builds the routes from the supplied Deps. Pass the returned
@@ -73,6 +76,7 @@ func Mount(deps Deps) func(chi.Router) {
 		api.Transparency = handlers.NewMemoryTransparencyStore()
 	}
 	api.Workspaces = deps.Workspaces
+	api.OffRamp = deps.OffRamp
 	// Phase 0: default to an in-memory customer-onboard store so
 	// POST /api/v1/onboard/customer works end-to-end without further
 	// wiring. Phase 1 swaps this for the identity-svc-backed impl.
@@ -210,6 +214,24 @@ func Mount(deps Deps) func(chi.Router) {
 				r.Post("/{id}/members", api.AddMember)
 				r.Patch("/{id}/members/{userID}", api.UpdateMemberRole)
 				r.Delete("/{id}/members/{userID}", api.RemoveMember)
+			})
+
+			// /offramp ----------------------------------------------------
+			// Off-ramp adapter surface (issue #167 / #169 / #170).
+			// /start + /status + /providers require auth. The webhook
+			// receiver is unauthed — partners cannot carry our bearer;
+			// their signature header is the auth (validated by
+			// billing-svc's adapter).
+			r.Route("/offramp", func(r chi.Router) {
+				r.Get("/providers", api.ListOffRampProviders)
+				r.Group(func(r chi.Router) {
+					r.Use(auth.RequireAuth)
+					r.Post("/start", api.StartOffRamp)
+					r.Get("/status/{requestID}", api.GetOffRampStatus)
+				})
+			})
+			r.Route("/webhooks", func(r chi.Router) {
+				r.Post("/offramp/{providerName}", api.HandleOffRampWebhook)
 			})
 
 			// /vpn --------------------------------------------------------
