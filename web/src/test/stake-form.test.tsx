@@ -37,18 +37,14 @@ describe("StakeForm", () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
-  it("rejects amounts exceeding the available balance", async () => {
+  it("disables the submit button when the amount exceeds available balance", () => {
     const onSubmit = vi.fn();
     render(<StakeForm availableGrid={5} onSubmit={onSubmit} />);
     fireEvent.change(screen.getByTestId("stake-amount-input"), {
       target: { value: "10" },
     });
-    fireEvent.click(screen.getByTestId("stake-submit-button"));
-    await waitFor(() => {
-      expect(screen.getByTestId("stake-form-error").textContent).toMatch(
-        /exceeds/,
-      );
-    });
+    const btn = screen.getByTestId("stake-submit-button") as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
