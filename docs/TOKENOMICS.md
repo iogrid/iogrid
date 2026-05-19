@@ -6,6 +6,120 @@ The founder's intent: providers benefit from token value appreciation as the net
 
 ---
 
+## $GRID vs $CASH — token positioning
+
+**$GRID and $CASH are two distinct tokens, issued by two distinct legal entities, with non-overlapping utility.** They are **NOT merged**, **NOT cross-equity**, and **NOT renamed forms of each other**. The fact that Sociable Cash is the founder's preferred off-ramp partner for $GRID providers does NOT change this separation — Cash is a tenant-neutral rail, iogrid is one tenant among many.
+
+| | **$GRID** (iogrid's token) | **$CASH** (Sociable Cash's future token) |
+|---|---|---|
+| **Issued by** | iogrid Foundation (Cayman) | Sociable Cash Foundation (separate entity, jurisdiction TBD by Cash team) |
+| **Project scope** | Distributed compute + bandwidth mesh | Multi-tenant stablecoin off-ramp rail |
+| **Primary utility** | Work-token: paid to compute providers; 20% pay-in-$GRID discount for customers | Platform fee-discount token: held by Cash users to get cheaper off-ramps (Binance BNB model) |
+| **Supply curve** | 1B cap, halving every 2 years, 2% revenue buyback-burn | TBD — Cash team owns the design |
+| **Audience** | B2B compute (customers + providers) | B2C remittance (Cash users) |
+| **TGE timing** | Coincides with iogrid mainnet launch | On Cash's own timeline (likely Year 2 once product-market fit proven) |
+| **Regulatory posture** | Cayman Foundation, geo-blocks US persons at launch, Reg D/S for strategic raise | Cash's own MTL + KYC stack (out of iogrid scope) |
+| **In-scope for this repo** | Yes — designed, audited, shipped by iogrid | **No** — out of scope, owned by Cash team |
+
+### What "not merged" means concretely
+
+- **Different SPL mints, different tickers, different supply curves.** $GRID is `$GRID` on Solana. $CASH is `$CASH` on Solana. Neither is a wrapped, bridged, or rebranded form of the other.
+- **Different legal entities.** iogrid Foundation does not control Cash Foundation, and vice-versa. Token-holder rights, governance votes, and treasury policies are scoped to each Foundation independently. This is a deliberate regulatory-isolation choice — neither project's compliance posture contaminates the other.
+- **Different audiences.** iogrid markets $GRID to compute providers and B2B customers. Sociable Cash markets $CASH to remittance senders/receivers and tenant projects. The marketing surfaces never cross-sell as if they were one product.
+
+### Mutual-incentive cross-investments allowed (NOT cross-equity)
+
+- iogrid Foundation **may** hold a small treasury position in $CASH at Cash's TGE (aligns incentives, signals trust). This is a discretionary treasury investment, not a merger or equity stake.
+- Sociable Cash **may** LP into the Raydium $GRID/USDC pool (deeper liquidity benefits iogrid users who off-ramp via Cash).
+- Either Foundation may run cross-token incentive programs (e.g. "hold both $GRID + $CASH for stacked discount") **without** that constituting a token merger — the discount is a marketing rule, not a contract change.
+
+### Cross-references
+
+- [`docs/MULTI_TENANT_MATRIX.md`](./MULTI_TENANT_MATRIX.md) — full capability matrix proving iogrid and AcmeMesh are symmetric tenants of Cash; iogrid's special status is "first tenant to integrate," not "owner."
+- Issue #167 — EPIC: Off-ramp partnership model with Sociable Cash
+- Issue #172 — this section
+
+---
+
+## Canonical $GRID liquidity venue — Raydium CLMM
+
+**The $GRID/USDC Raydium CLMM pool is the authoritative DEX-first liquidity source for $GRID.** All off-ramp routing — whether via Sociable Cash, MoonPay, Coinbase, or any future partner — discovers liquidity through this pool via the Jupiter swap aggregator. iogrid never routes provider payouts or customer swaps through a centralized exchange's order book; the Raydium pool is the venue.
+
+### Pool parameters at TGE
+
+```
+Pair: $GRID / USDC
+Venue: Raydium CLMM (Solana — concentrated liquidity AMM, Uniswap v3 equivalent)
+
+Seed:
+- 5,000,000 $GRID (5% initial liquidity allocation from token-allocation table above)
+- $250,000 USDC (from pre-TGE strategic raise proceeds)
+
+Range: $0.05 – $5.00 (100× price-discovery range)
+Fee tier: 0.25% (Raydium standard for new pairs)
+LP tokens: locked for 4 years via Streamflow vesting contract
+```
+
+### LP lock — 4-year vest, then permanent burn
+
+LP tokens are deposited into a Streamflow vesting contract on TGE day with a **4-year linear vest** to the iogrid Foundation Squads multisig. **At end of vest the LP tokens are permanently burned**, locking the seeded liquidity in the pool forever.
+
+This means:
+- iogrid cannot rug-pull the pool — the LP is provably non-removable for 4 years, then non-removable forever.
+- Anyone can verify on-chain by inspecting the Streamflow stream and the eventual LP-token burn tx.
+- The 4-year horizon matches the team-vesting curve — incentive alignment by design.
+
+### Jupiter routing — the canonical swap path
+
+All off-ramp partners route $GRID swaps through **Jupiter** (Solana's primary DEX aggregator), which always discovers the best-priced route. In practice the Raydium $GRID/USDC pool is the deepest venue, so Jupiter routes through it. As secondary venues emerge (Orca Whirlpools, Meteora DLMM, etc.) Jupiter discovers them automatically — no integration work for off-ramp partners.
+
+**Critically: off-ramp partners NEVER swap directly on a CEX order book.** The flow is always:
+
+```
+Provider $GRID  ──swap via Jupiter──▶  USDC  ──off-ramp partner──▶  Fiat bank deposit
+                       (Raydium CLMM)         (Cash / MoonPay / etc.)
+```
+
+This keeps three properties intact:
+1. **DEX-first price discovery.** The pool's mid-price is the canonical $GRID price; no CEX listing can manipulate it without first arbitraging the pool.
+2. **Permissionless integration.** Any future off-ramp partner integrates by pointing at Jupiter — no per-partner CEX listing negotiation needed.
+3. **Tenant-neutral liquidity.** Sociable Cash, MoonPay, and any 3rd-party off-ramp see the same pool, same prices, same depth. iogrid's preferred-partner status doesn't entitle Cash to special pricing — Cash earns its routing fee on the off-ramp leg, not on the swap leg.
+
+See `docs/MULTI_TENANT_MATRIX.md` for how this multi-tenant property generalises to any other token issuer (e.g. AcmeMesh's hypothetical $ACME) that wants to off-ramp via Cash.
+
+### LP-lock verification procedure (operator runbook)
+
+To prove on-chain that the pool is locked:
+
+1. Open `raydium.io/pools/<pool-id>` — pool-id published in `docs/TRACKER.md` at TGE.
+2. Click "LP tokens" → "Holders". The Streamflow vesting contract should be the sole non-trivial holder.
+3. Open Streamflow at `app.streamflow.finance/contract/<stream-id>` — stream-id published alongside pool-id.
+4. Verify: recipient = iogrid Foundation Squads multisig; cliff/vest = 0/4 years from TGE; cancellable = false; transferable-by-sender = false.
+5. After Year 4: verify the LP-token burn tx (sent to `1nc1nerator1111...`). Pool liquidity then locked permanently.
+
+### Pool-concentration adjustment protocol
+
+As price discovers within the $0.05–$5.00 range, the LP range may be narrowed to concentrate liquidity for tighter spreads. Procedure:
+
+1. **Proposal** by any Squads multisig signer with rationale (current price, current effective range, proposed new range).
+2. **3-of-5 Squads vote** required to approve. Vote published on-chain.
+3. **Atomic re-range tx** through Raydium CLMM's `decrease-liquidity` + `increase-liquidity` pair within a single Solana transaction. Slippage cap 0.5%.
+4. Adjustments capped at one per 90 days to prevent active-management drift.
+5. Each adjustment logged in a public registry (`burn.iogrid.org/lp-adjustments`).
+
+### CEX listings — aspirational, not blocking
+
+Tier-1 CEX listings (Binance Spot, Coinbase, Kraken) are tracked as aspirational milestones, **not** prerequisites for $GRID utility or off-ramp functionality. Bonk, Jupiter, Wormhole, Pyth, and Helium all launched DEX-first on Solana without waiting for CEX listings; iogrid follows the same playbook. CEX listings, when they arrive, are additive distribution — they do not move the canonical price (Jupiter arbitrage keeps CEX prices pegged to the Raydium pool's mid).
+
+### Cross-references
+
+- [`docs/MULTI_TENANT_MATRIX.md`](./MULTI_TENANT_MATRIX.md) — multi-tenant rail model; Raydium pool is the shared liquidity venue every tenant routes through.
+- `docs/whitepaper.md` — public-facing Jupiter routing narrative.
+- PR #177 — off-ramp adapter implementation (provider-side `Withdraw` → Jupiter swap → off-ramp partner redirect).
+- Issue #168 — this section.
+
+---
+
 ## Headline parameters
 
 | Parameter | Value | Rationale |
