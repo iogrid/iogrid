@@ -1,0 +1,43 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vpn-gateway-config
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: vpn-gateway
+    app.kubernetes.io/part-of: iogrid
+data:
+  # 30-country pool advertised to Plus/Pro customers. Free tier sees
+  # one server, server-chosen.
+  SUPPORTED_COUNTRIES: "US,CA,MX,BR,AR,GB,IE,DE,FR,NL,BE,ES,IT,PT,CH,AT,DK,SE,NO,FI,PL,CZ,RO,JP,KR,SG,HK,TW,AU,NZ"
+  # Weekly StevenBlack refresh. Pod fetches at boot and again every 7d.
+  BLOCKLIST_URL: "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
+---
+# Tiny seeded blocklist for boot-time use before the URL refresh lands.
+# Pod ultimately replaces this with the refreshed list in memory.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vpn-gateway-blocklist
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: vpn-gateway
+    app.kubernetes.io/part-of: iogrid
+data:
+  hosts.txt: |
+    # Seed blocklist — small, hand-curated. The pod replaces this list
+    # in-memory by fetching $BLOCKLIST_URL at startup + every 7 days.
+    0.0.0.0 doubleclick.net
+    0.0.0.0 google-analytics.com
+    0.0.0.0 googletagmanager.com
+    0.0.0.0 googletagservices.com
+    0.0.0.0 facebook.com
+    0.0.0.0 connect.facebook.net
+    0.0.0.0 scorecardresearch.com
+    0.0.0.0 quantserve.com
+    0.0.0.0 outbrain.com
+    0.0.0.0 taboola.com
+    0.0.0.0 criteo.com
+    0.0.0.0 adnxs.com
+    0.0.0.0 pubmatic.com
+    0.0.0.0 rubiconproject.com

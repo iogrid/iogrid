@@ -1,0 +1,22 @@
+# buf.gen.openapi.yaml — generates an OpenAPI 3.1 spec from the proto
+# contracts in this directory. Run via `buf generate --template buf.gen.openapi.yaml`.
+#
+# The generated spec lands at proto/gen/openapi/iogrid.yaml and is
+# consumed by the SDK build pipelines for languages that prefer an
+# OpenAPI source-of-truth over the .proto files directly.
+#
+# We use the `bufbuild/protoc-gen-openapi` remote plugin so contributors
+# do not need a local protoc-gen-openapi binary.
+version: v2
+managed:
+  enabled: true
+plugins:
+  - remote: buf.build/bufbuild/protoc-gen-openapi:v0.5.0
+    out: gen/openapi
+    opt:
+      - output_mode=merged
+      - default_response=false
+      - openapi_naming_strategy=fqn
+      - fq_schema_naming=true
+inputs:
+  - directory: .

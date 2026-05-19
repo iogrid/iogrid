@@ -30,6 +30,13 @@ pub const GRID_DECIMALS: u8 = 9;
 /// $GRID hard supply cap = 1,000,000,000 * 10^9 (with decimals).
 pub const GRID_HARD_CAP: u64 = 1_000_000_000u64 * 1_000_000_000u64;
 
+/// Max on-chain metadata field lengths (kept tight; Metaplex extension can store richer
+/// URI-fetched JSON off-chain). Sized to match the Metaplex Token Metadata Program defaults
+/// (name=32, symbol=10, uri=200) so post-launch migration is a no-op.
+pub const META_NAME_MAX: usize = 32;
+pub const META_SYMBOL_MAX: usize = 10;
+pub const META_URI_MAX: usize = 200;
+
 #[program]
 pub mod grid_token {
     use super::*;
@@ -137,6 +144,56 @@ pub mod grid_token {
         Ok(())
     }
 
+    /// Set/update on-chain token metadata fields (name, symbol, uri). Stored on a dedicated
+    /// PDA `GridMetadata` (seeds = ["grid-metadata", mint]). Initial intent is to provide a
+    /// queryable name/symbol/uri without taking a hard dependency on the Metaplex Token
+    /// Metadata Program in v0 (which adds 250+KB of audit surface).
+    ///
+    /// TODO(v1, post-audit): once OtterSec/Halborn have signed off on the v0 contracts, add a
+    /// CPI helper that mirrors these fields into a Metaplex MetadataAccount so explorers /
+    /// wallets that read Metaplex (Phantom, Solflare) display the name/symbol natively. The
+    /// instruction signature here is forward-compatible: same args, the CPI is additive.
+    pub fn set_metadata(
+        ctx: Context<SetMetadata>,
+        name: String,
+        symbol: String,
+        uri: String,
+    ) -> Result<()> {
+        require!(!ctx.accounts.config.authority_locked, GridTokenError::AuthorityLocked);
+        require!(
+            name.as_bytes().len() <= META_NAME_MAX,
+            GridTokenError::MetadataFieldTooLong
+        );
+        require!(
+            symbol.as_bytes().len() <= META_SYMBOL_MAX,
+            GridTokenError::MetadataFieldTooLong
+        );
+        require!(
+            uri.as_bytes().len() <= META_URI_MAX,
+            GridTokenError::MetadataFieldTooLong
+        );
+
+        let m = &mut ctx.accounts.metadata;
+        m.mint = ctx.accounts.config.mint;
+        m.name_len = name.as_bytes().len() as u8;
+        m.symbol_len = symbol.as_bytes().len() as u8;
+        m.uri_len = uri.as_bytes().len() as u16;
+        m.name = [0u8; META_NAME_MAX];
+        m.symbol = [0u8; META_SYMBOL_MAX];
+        m.uri = [0u8; META_URI_MAX];
+        m.name[..name.as_bytes().len()].copy_from_slice(name.as_bytes());
+        m.symbol[..symbol.as_bytes().len()].copy_from_slice(symbol.as_bytes());
+        m.uri[..uri.as_bytes().len()].copy_from_slice(uri.as_bytes());
+        m.bump = ctx.bumps.metadata;
+        emit!(MetadataSet {
+            mint: m.mint,
+            name,
+            symbol,
+            uri,
+        });
+        Ok(())
+    }
+
     /// Final freeze on the config — disables `mint_to_recipient` and authority rotation
     /// from this program. Practical effect: after `lock_authorities()` only on-chain
     /// programs holding the mint authority (e.g. emission) can ever mint $GRID.
@@ -215,6 +272,27 @@ pub struct TransferAuthorityCtx<'info> {
 }
 
 #[derive(Accounts)]
+pub struct SetMetadata<'info> {
+    #[account(
+        seeds = [b"grid-config", config.mint.as_ref()],
+        bump = config.bump,
+        has_one = admin
+    )]
+    pub config: Account<'info, GridConfig>,
+    #[account(
+        init_if_needed,
+        payer = admin,
+        space = 8 + GridMetadata::INIT_SPACE,
+        seeds = [b"grid-metadata", config.mint.as_ref()],
+        bump
+    )]
+    pub metadata: Account<'info, GridMetadata>,
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
 pub struct LockAuthoritiesCtx<'info> {
     #[account(
         mut,
@@ -237,6 +315,19 @@ pub struct GridConfig {
     pub minted_so_far: u64,
     pub decimals: u8,
     pub authority_locked: bool,
+    pub bump: u8,
+}
+
+#[account]
+#[derive(InitSpace)]
+pub struct GridMetadata {
+    pub mint: Pubkey,
+    pub name: [u8; META_NAME_MAX],
+    pub symbol: [u8; META_SYMBOL_MAX],
+    pub uri: [u8; META_URI_MAX],
+    pub name_len: u8,
+    pub symbol_len: u8,
+    pub uri_len: u16,
     pub bump: u8,
 }
 
@@ -273,6 +364,14 @@ pub struct AuthoritiesLocked {
     pub mint: Pubkey,
 }
 
+#[event]
+pub struct MetadataSet {
+    pub mint: Pubkey,
+    pub name: String,
+    pub symbol: String,
+    pub uri: String,
+}
+
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AuthKind {
     Mint,
@@ -289,4 +388,6 @@ pub enum GridTokenError {
     HardCapExceeded,
     #[msg("Authorities are locked; this operation is no longer allowed")]
     AuthorityLocked,
+    #[msg("Metadata field exceeds the maximum length")]
+    MetadataFieldTooLong,
 }

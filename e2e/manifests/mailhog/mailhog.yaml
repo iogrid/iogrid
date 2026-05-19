@@ -1,0 +1,66 @@
+# MailHog — SMTP intake stub for the identity-svc magic-link flow.
+# Replaces Stalwart in dev. Smoke flows poll the HTTP API at :8025 to
+# pull the most recent magic-link email and extract the token.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mailhog
+  labels:
+    app: mailhog
+spec:
+  selector:
+    app: mailhog
+  ports:
+    - { name: smtp, port: 1025, targetPort: 1025 }
+    - { name: http, port: 8025, targetPort: 8025 }
+  type: ClusterIP
+---
+# NodePort so smoke flows can fetch delivered mails from the host without
+# a port-forward (matches the kind extraPortMappings).
+apiVersion: v1
+kind: Service
+metadata:
+  name: mailhog-nodeport
+  labels:
+    app: mailhog
+spec:
+  selector:
+    app: mailhog
+  type: NodePort
+  ports:
+    - { name: smtp, port: 1025, targetPort: 1025, nodePort: 30025 }
+    - { name: http, port: 8025, targetPort: 8025, nodePort: 30180 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mailhog
+  labels:
+    app: mailhog
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mailhog
+  template:
+    metadata:
+      labels:
+        app: mailhog
+    spec:
+      containers:
+        - name: mailhog
+          image: mailhog/mailhog:v1.0.1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - { name: smtp, containerPort: 1025 }
+            - { name: http, containerPort: 8025 }
+          readinessProbe:
+            httpGet:
+              path: /api/v2/messages?limit=1
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 3
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits:   { cpu: 200m, memory: 128Mi }

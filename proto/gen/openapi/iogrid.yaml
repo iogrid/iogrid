@@ -1,0 +1,535 @@
+# iogrid customer-facing API — OpenAPI 3.1 specification.
+#
+# This spec is the source-of-truth for the customer-facing surface of
+# the iogrid platform. It is derived from (but deliberately simpler
+# than) the proto contracts in this directory.
+#
+# Why hand-curated rather than purely generated:
+#   1. The proto contracts include internal services (dispatch.proto,
+#      registration.proto, dashboard.proto) that customers never see.
+#   2. Customer ergonomics: top-level JSON fields like `targetUrl` rather
+#      than nested `payload.bandwidth.target_url`; UUIDs as bare strings
+#      rather than `{ "value": "..." }` envelopes; ISO-8601 timestamps
+#      rather than `{ "seconds": ..., "nanos": ... }`.
+#   3. API-key management (createApiKey/listApiKeys/deleteApiKey) is part
+#      of the SDK surface but its proto lands in a subsequent contracts
+#      PR; this spec defines the wire format now so the SDKs can compile.
+#
+# Whenever a proto field has an obvious customer-side mapping we mirror
+# the field semantics 1:1; whenever a customer would have to know
+# something about the dispatcher to use the proto field (e.g. internal
+# session_id semantics), we simplify.
+#
+# Regenerate-from-proto: `buf generate --template buf.gen.openapi.yaml`
+# (overwrites the same file; manual edits are tracked via git diff so
+# regen drift is visible in PR review).
+openapi: 3.1.0
+info:
+  title: iogrid customer API
+  version: 0.1.0
+  summary: Customer-facing REST + Connect-RPC API for the iogrid grid.
+  description: |
+    Customer-facing surface of iogrid: workload submission, real-time
+    event streaming, API-key management, billing / usage / invoices.
+
+    Two transport options:
+      * REST + JSON over HTTPS (this spec).
+      * Connect-RPC (Connect-Web, Connect-Go) using the .proto contracts
+        in https://github.com/iogrid/iogrid/tree/main/proto.
+
+    Authentication: every request requires `Authorization: Bearer <api_key>`.
+    API keys are scoped to a workspace; create / list / revoke them
+    under `/v1/keys`.
+
+    All timestamps are ISO-8601 with timezone. All monetary amounts are
+    `{ currency, micros }` (micros = millionths of the major currency
+    unit; 12.34 USD = `{ "currency": "USD", "micros": 12340000 }`).
+  contact:
+    name: iogrid support
+    url: https://iogrid.org/support
+    email: support@iogrid.org
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+servers:
+  - url: https://api.iogrid.org
+    description: Production
+  - url: https://api.staging.iogrid.org
+    description: Staging
+security:
+  - bearerAuth: []
+tags:
+  - name: workloads
+    description: Submit, track, and cancel workloads on the grid.
+  - name: keys
+    description: API key lifecycle.
+  - name: billing
+    description: Usage and invoices.
+paths:
+  /v1/workloads:
+    post:
+      operationId: createWorkload
+      tags: [workloads]
+      summary: Submit a new workload.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWorkloadRequest'
+      responses:
+        '201':
+          description: Workload accepted and queued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workload'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/AbuseBlocked' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    get:
+      operationId: listWorkloads
+      tags: [workloads]
+      summary: List workloads in the caller's workspace.
+      parameters:
+        - { in: query, name: pageSize,   schema: { type: integer, minimum: 1, maximum: 200 } }
+        - { in: query, name: pageToken,  schema: { type: string } }
+        - { in: query, name: type,       schema: { $ref: '#/components/schemas/WorkloadType' } }
+        - { in: query, name: status,     schema: { type: string } }
+        - { in: query, name: submittedAfter,  schema: { type: string, format: date-time } }
+        - { in: query, name: submittedBefore, schema: { type: string, format: date-time } }
+      responses:
+        '200':
+          description: Paged list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListWorkloadsResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/workloads/{id}:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: getWorkload
+      tags: [workloads]
+      summary: Retrieve a workload by id.
+      responses:
+        '200':
+          description: Found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetWorkloadResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      operationId: cancelWorkload
+      tags: [workloads]
+      summary: Cancel a pending or running workload.
+      parameters:
+        - { in: query, name: reason, schema: { type: string } }
+      responses:
+        '200':
+          description: Cancelled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workload'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/workloads/{id}/events:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: streamWorkloadEvents
+      tags: [workloads]
+      summary: Server-Sent Events stream of workload state transitions.
+      description: |
+        Long-lived SSE stream. Each event payload is a `WorkloadEvent`
+        JSON object. The stream completes when the workload reaches a
+        terminal status.
+      responses:
+        '200':
+          description: SSE stream.
+          content:
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/WorkloadEvent'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/keys:
+    post:
+      operationId: createApiKey
+      tags: [keys]
+      summary: Mint a new API key.
+      description: |
+        Returns the secret value ONCE; store it securely — subsequent
+        list calls return only the prefix + metadata.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateApiKeyRequest'
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatedApiKey'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/StepUpRequired' }
+    get:
+      operationId: listApiKeys
+      tags: [keys]
+      summary: List API keys (metadata only — secret is write-once).
+      responses:
+        '200':
+          description: Paged list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListApiKeysResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/keys/{id}:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    delete:
+      operationId: deleteApiKey
+      tags: [keys]
+      summary: Revoke an API key.
+      responses:
+        '204':
+          description: Revoked.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/usage:
+    get:
+      operationId: getUsage
+      tags: [billing]
+      summary: Metered usage records.
+      parameters:
+        - { in: query, name: pageSize,   schema: { type: integer, minimum: 1, maximum: 200 } }
+        - { in: query, name: pageToken,  schema: { type: string } }
+        - { in: query, name: type,       schema: { $ref: '#/components/schemas/WorkloadType' } }
+        - { in: query, name: windowStart, schema: { type: string, format: date-time } }
+        - { in: query, name: windowEnd,   schema: { type: string, format: date-time } }
+      responses:
+        '200':
+          description: Paged usage list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListUsageResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/invoices:
+    get:
+      operationId: getInvoices
+      tags: [billing]
+      summary: List invoices for the caller's workspace.
+      parameters:
+        - { in: query, name: pageSize,  schema: { type: integer, minimum: 1, maximum: 200 } }
+        - { in: query, name: pageToken, schema: { type: string } }
+      responses:
+        '200':
+          description: Paged invoice list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListInvoicesResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: iogrid_api_key
+  schemas:
+    WorkloadType:
+      type: string
+      enum:
+        - BANDWIDTH
+        - DOCKER
+        - GPU
+        - IOS_BUILD
+    WorkloadPriority:
+      type: string
+      enum: [LOW, NORMAL, HIGH]
+      default: NORMAL
+    Money:
+      type: object
+      additionalProperties: false
+      required: [currency, micros]
+      properties:
+        currency:
+          type: string
+          description: ISO 4217 currency code.
+          minLength: 3
+          maxLength: 3
+        micros:
+          type: integer
+          format: int64
+          description: Amount in millionths of the major currency unit.
+    Region:
+      type: object
+      additionalProperties: false
+      properties:
+        slug:        { type: string }
+        displayName: { type: string }
+        countryCode: { type: string, minLength: 2, maxLength: 2 }
+    BandwidthRequest:
+      type: object
+      additionalProperties: false
+      required: [targetUrl]
+      properties:
+        targetUrl:        { type: string, format: uri }
+        method:           { type: string }
+        sessionId:        { type: string }
+        preferredRegion:  { type: string, description: "Region slug." }
+        category:         { type: string }
+        maxSpend:         { $ref: '#/components/schemas/Money' }
+    DockerRequest:
+      type: object
+      additionalProperties: false
+      required: [image]
+      properties:
+        image:         { type: string }
+        command:       { type: array, items: { type: string } }
+        env:           { type: object, additionalProperties: { type: string } }
+        timeoutSeconds: { type: integer, format: int64 }
+        minCpuCores:   { type: integer, format: int32 }
+        minMemoryMib:  { type: integer, format: int64 }
+        minGpuMemoryMib: { type: integer, format: int64 }
+    GpuRequest:
+      type: object
+      additionalProperties: false
+      required: [image]
+      properties:
+        image:         { type: string }
+        command:       { type: array, items: { type: string } }
+        env:           { type: object, additionalProperties: { type: string } }
+        timeoutSeconds: { type: integer, format: int64 }
+        minVramMib:    { type: integer, format: int64 }
+        allowedVendors: { type: array, items: { type: string } }
+    IosBuildRequest:
+      type: object
+      additionalProperties: false
+      required: [sourceTarballS3Key, tartImage]
+      properties:
+        sourceTarballS3Key:  { type: string }
+        tartImage:           { type: string }
+        buildCommands:       { type: array, items: { type: string } }
+        artifactS3Bucket:    { type: string }
+        artifactS3Prefix:    { type: string }
+    CreateWorkloadRequest:
+      type: object
+      additionalProperties: false
+      required: [type]
+      properties:
+        type:      { $ref: '#/components/schemas/WorkloadType' }
+        priority:  { $ref: '#/components/schemas/WorkloadPriority' }
+        labels:    { type: object, additionalProperties: { type: string } }
+        bandwidth: { $ref: '#/components/schemas/BandwidthRequest' }
+        docker:    { $ref: '#/components/schemas/DockerRequest' }
+        gpu:       { $ref: '#/components/schemas/GpuRequest' }
+        iosBuild:  { $ref: '#/components/schemas/IosBuildRequest' }
+      description: Exactly one of bandwidth / docker / gpu / iosBuild MUST be set, matching `type`.
+    Workload:
+      type: object
+      additionalProperties: false
+      required: [id, workspaceId, type, status]
+      properties:
+        id:                 { type: string, format: uuid }
+        workspaceId:        { type: string, format: uuid }
+        submittedByUserId:  { type: string, format: uuid }
+        type:               { $ref: '#/components/schemas/WorkloadType' }
+        priority:           { $ref: '#/components/schemas/WorkloadPriority' }
+        status:             { type: string }
+        submittedAt:        { type: string, format: date-time }
+        startedAt:          { type: string, format: date-time }
+        finishedAt:         { type: string, format: date-time }
+        labels:             { type: object, additionalProperties: { type: string } }
+        bandwidth:          { $ref: '#/components/schemas/BandwidthRequest' }
+        docker:             { $ref: '#/components/schemas/DockerRequest' }
+        gpu:                { $ref: '#/components/schemas/GpuRequest' }
+        iosBuild:           { $ref: '#/components/schemas/IosBuildRequest' }
+    WorkloadResult:
+      type: object
+      additionalProperties: false
+      properties:
+        workloadId:      { type: string, format: uuid }
+        terminalStatus:  { type: string }
+        exitCode:        { type: integer, format: int32 }
+        logsS3Key:       { type: string }
+        bytesIn:         { type: integer, format: int64 }
+        bytesOut:        { type: integer, format: int64 }
+        artifactS3Keys:  { type: array, items: { type: string } }
+        cost:            { $ref: '#/components/schemas/Money' }
+        completedAt:     { type: string, format: date-time }
+    GetWorkloadResponse:
+      type: object
+      additionalProperties: false
+      required: [workload]
+      properties:
+        workload: { $ref: '#/components/schemas/Workload' }
+        result:   { $ref: '#/components/schemas/WorkloadResult' }
+    WorkloadEvent:
+      type: object
+      additionalProperties: false
+      required: [workloadId, newStatus, occurredAt]
+      properties:
+        workloadId: { type: string, format: uuid }
+        newStatus:  { type: string }
+        occurredAt: { type: string, format: date-time }
+        note:       { type: string }
+    ListWorkloadsResponse:
+      type: object
+      additionalProperties: false
+      required: [workloads]
+      properties:
+        workloads:    { type: array, items: { $ref: '#/components/schemas/Workload' } }
+        nextPageToken: { type: string }
+    CreateApiKeyRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:       { type: string, description: "Human-friendly label." }
+        expiresAt:  { type: string, format: date-time }
+        scopes:     { type: array, items: { type: string } }
+    ApiKeyMetadata:
+      type: object
+      additionalProperties: false
+      required: [id, name, prefix, createdAt]
+      properties:
+        id:         { type: string, format: uuid }
+        name:       { type: string }
+        prefix:     { type: string, description: "First 8 characters of the secret (e.g. 'iog_a1b2'). Safe to display." }
+        createdAt:  { type: string, format: date-time }
+        lastUsedAt: { type: string, format: date-time }
+        expiresAt:  { type: string, format: date-time }
+        scopes:     { type: array, items: { type: string } }
+    CreatedApiKey:
+      allOf:
+        - $ref: '#/components/schemas/ApiKeyMetadata'
+        - type: object
+          required: [secret]
+          properties:
+            secret:
+              type: string
+              description: |
+                The full API key secret — only returned at creation time.
+                Returned format is `iog_<32+ chars>`. Store securely.
+    ListApiKeysResponse:
+      type: object
+      additionalProperties: false
+      required: [keys]
+      properties:
+        keys:          { type: array, items: { $ref: '#/components/schemas/ApiKeyMetadata' } }
+        nextPageToken: { type: string }
+    UsageRecord:
+      type: object
+      additionalProperties: false
+      required: [id, workloadId, type, quantity, cost, recordedAt]
+      properties:
+        id:         { type: string, format: uuid }
+        workloadId: { type: string, format: uuid }
+        type:       { $ref: '#/components/schemas/WorkloadType' }
+        quantity:   { type: integer, format: int64 }
+        cost:       { $ref: '#/components/schemas/Money' }
+        recordedAt: { type: string, format: date-time }
+    ListUsageResponse:
+      type: object
+      additionalProperties: false
+      required: [usage]
+      properties:
+        usage:         { type: array, items: { $ref: '#/components/schemas/UsageRecord' } }
+        nextPageToken: { type: string }
+        pageSubtotal:  { $ref: '#/components/schemas/Money' }
+    Invoice:
+      type: object
+      additionalProperties: false
+      required: [id, status, total]
+      properties:
+        id:                 { type: string, format: uuid }
+        periodStart:        { type: string, format: date-time }
+        periodEnd:          { type: string, format: date-time }
+        subtotal:           { $ref: '#/components/schemas/Money' }
+        tax:                { $ref: '#/components/schemas/Money' }
+        total:              { $ref: '#/components/schemas/Money' }
+        status:             { type: string, enum: [draft, open, paid, void, uncollectible] }
+        issuedAt:           { type: string, format: date-time }
+        paidAt:             { type: string, format: date-time }
+        hostedInvoiceUrl:   { type: string, format: uri }
+    ListInvoicesResponse:
+      type: object
+      additionalProperties: false
+      required: [invoices]
+      properties:
+        invoices:      { type: array, items: { $ref: '#/components/schemas/Invoice' } }
+        nextPageToken: { type: string }
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Stable machine code mirroring iogrid.common.v1.ErrorCode.
+          enum:
+            - INVALID_ARGUMENT
+            - NOT_FOUND
+            - ALREADY_EXISTS
+            - PERMISSION_DENIED
+            - UNAUTHENTICATED
+            - RESOURCE_EXHAUSTED
+            - FAILED_PRECONDITION
+            - INTERNAL
+            - UNAVAILABLE
+            - DEADLINE_EXCEEDED
+            - ABUSE_BLOCKED
+            - ABUSE_RATE_LIMITED
+            - ABUSE_CATEGORY_DISALLOWED
+            - ABUSE_DESTINATION_BLOCKED
+            - STEP_UP_REQUIRED
+            - BILLING_PAST_DUE
+        message:    { type: string }
+        fieldPath:  { type: string }
+        metadata:   { type: object, additionalProperties: { type: string } }
+        requestId:  { type: string }
+  responses:
+    BadRequest:
+      description: Request payload failed validation.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    Unauthorized:
+      description: Missing or invalid API key.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    NotFound:
+      description: No such resource.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    RateLimited:
+      description: Rate limit exceeded.
+      headers:
+        Retry-After:
+          schema: { type: integer }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    AbuseBlocked:
+      description: Pre-flight anti-abuse filter refused the request.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    StepUpRequired:
+      description: This operation requires fresh step-up auth (within the last 5 minutes).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
