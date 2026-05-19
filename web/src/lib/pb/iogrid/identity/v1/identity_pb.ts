@@ -14,6 +14,10 @@ import { PageRequest, PageResponse, UUID } from "../../common/v1/types_pbjs";
 /**
  * IdentifierKind enumerates supported auth providers / mechanisms.
  *
+ * IDENTIFIER_KIND_SOLANA represents a Sign-In-With-Solana wallet binding
+ * where the user proved control of the address by signing a server-issued
+ * challenge. The Identifier's subject holds the base58-encoded pubkey.
+ *
  * @generated from enum iogrid.identity.v1.IdentifierKind
  */
 export enum IdentifierKind {
@@ -41,6 +45,11 @@ export enum IdentifierKind {
    * @generated from enum value: IDENTIFIER_KIND_GITHUB = 4;
    */
   GITHUB = 4,
+
+  /**
+   * @generated from enum value: IDENTIFIER_KIND_SOLANA = 5;
+   */
+  SOLANA = 5,
 }
 // Retrieve enum metadata with: proto3.getEnumType(IdentifierKind)
 proto3.util.setEnumType(IdentifierKind, "iogrid.identity.v1.IdentifierKind", [
@@ -49,6 +58,7 @@ proto3.util.setEnumType(IdentifierKind, "iogrid.identity.v1.IdentifierKind", [
   { no: 2, name: "IDENTIFIER_KIND_MAGIC_LINK" },
   { no: 3, name: "IDENTIFIER_KIND_APPLE" },
   { no: 4, name: "IDENTIFIER_KIND_GITHUB" },
+  { no: 5, name: "IDENTIFIER_KIND_SOLANA" },
 ]);
 
 /**

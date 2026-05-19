@@ -118,6 +118,15 @@ export class JwtClaims extends Message<JwtClaims> {
    */
   stepUp = false;
 
+  /**
+   * Base58-encoded Solana addresses bound to the user via SIWS. Downstream
+   * services (billing-svc payout queue, providers-svc payout routing) read
+   * this claim instead of round-tripping to identity-svc on every request.
+   *
+   * @generated from field: repeated string solana_addresses = 9;
+   */
+  solanaAddresses: string[] = [];
+
   constructor(data?: PartialMessage<JwtClaims>) {
     super();
     proto3.util.initPartial(data, this);
@@ -134,6 +143,7 @@ export class JwtClaims extends Message<JwtClaims> {
     { no: 6, name: "roles", kind: "enum", T: proto3.getEnumType(UserRole), repeated: true },
     { no: 7, name: "sid", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 8, name: "step_up", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 9, name: "solana_addresses", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): JwtClaims {
@@ -968,6 +978,443 @@ export class RevokeSessionResponse extends Message<RevokeSessionResponse> {
 
   static equals(a: RevokeSessionResponse | PlainMessage<RevokeSessionResponse> | undefined, b: RevokeSessionResponse | PlainMessage<RevokeSessionResponse> | undefined): boolean {
     return proto3.util.equals(RevokeSessionResponse, a, b);
+  }
+}
+
+/**
+ * WalletBinding describes one Solana wallet attached to a User.
+ *
+ * @generated from message iogrid.identity.v1.WalletBinding
+ */
+export class WalletBinding extends Message<WalletBinding> {
+  /**
+   * @generated from field: iogrid.common.v1.UUID id = 1;
+   */
+  id?: UUID;
+
+  /**
+   * @generated from field: iogrid.common.v1.UUID user_id = 2;
+   */
+  userId?: UUID;
+
+  /**
+   * Base58-encoded Solana public key (32 raw bytes). Stable; one row per
+   * (user_id, address).
+   *
+   * @generated from field: string address = 3;
+   */
+  address = "";
+
+  /**
+   * @generated from field: google.protobuf.Timestamp created_at = 4;
+   */
+  createdAt?: Timestamp;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp last_used_at = 5;
+   */
+  lastUsedAt?: Timestamp;
+
+  constructor(data?: PartialMessage<WalletBinding>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "iogrid.identity.v1.WalletBinding";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "id", kind: "message", T: UUID },
+    { no: 2, name: "user_id", kind: "message", T: UUID },
+    { no: 3, name: "address", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 4, name: "created_at", kind: "message", T: Timestamp },
+    { no: 5, name: "last_used_at", kind: "message", T: Timestamp },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): WalletBinding {
+    return new WalletBinding().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): WalletBinding {
+    return new WalletBinding().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): WalletBinding {
+    return new WalletBinding().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: WalletBinding | PlainMessage<WalletBinding> | undefined, b: WalletBinding | PlainMessage<WalletBinding> | undefined): boolean {
+    return proto3.util.equals(WalletBinding, a, b);
+  }
+}
+
+/**
+ * @generated from message iogrid.identity.v1.StartSiwsBindingRequest
+ */
+export class StartSiwsBindingRequest extends Message<StartSiwsBindingRequest> {
+  /**
+   * The User the wallet should bind to. When the caller has no User yet
+   * (first-time Solana sign-in) leave empty AND set create_if_missing on
+   * the Complete call.
+   *
+   * @generated from field: iogrid.common.v1.UUID user_id = 1;
+   */
+  userId?: UUID;
+
+  /**
+   * Base58-encoded Solana wallet pubkey the provider intends to bind.
+   *
+   * @generated from field: string wallet_address = 2;
+   */
+  walletAddress = "";
+
+  constructor(data?: PartialMessage<StartSiwsBindingRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "iogrid.identity.v1.StartSiwsBindingRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "user_id", kind: "message", T: UUID },
+    { no: 2, name: "wallet_address", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): StartSiwsBindingRequest {
+    return new StartSiwsBindingRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): StartSiwsBindingRequest {
+    return new StartSiwsBindingRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): StartSiwsBindingRequest {
+    return new StartSiwsBindingRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: StartSiwsBindingRequest | PlainMessage<StartSiwsBindingRequest> | undefined, b: StartSiwsBindingRequest | PlainMessage<StartSiwsBindingRequest> | undefined): boolean {
+    return proto3.util.equals(StartSiwsBindingRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message iogrid.identity.v1.StartSiwsBindingResponse
+ */
+export class StartSiwsBindingResponse extends Message<StartSiwsBindingResponse> {
+  /**
+   * The exact message bytes the wallet must sign. Format matches the
+   * SIWS spec so Phantom / Solflare / Backpack render a recognisable
+   * signature prompt.
+   *
+   * @generated from field: string challenge = 1;
+   */
+  challenge = "";
+
+  /**
+   * Server-side TTL on the nonce; client must complete within this
+   * window before the challenge is auto-expired.
+   *
+   * @generated from field: google.protobuf.Timestamp expires_at = 2;
+   */
+  expiresAt?: Timestamp;
+
+  constructor(data?: PartialMessage<StartSiwsBindingResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "iogrid.identity.v1.StartSiwsBindingResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "challenge", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "expires_at", kind: "message", T: Timestamp },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): StartSiwsBindingResponse {
+    return new StartSiwsBindingResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): StartSiwsBindingResponse {
+    return new StartSiwsBindingResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): StartSiwsBindingResponse {
+    return new StartSiwsBindingResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: StartSiwsBindingResponse | PlainMessage<StartSiwsBindingResponse> | undefined, b: StartSiwsBindingResponse | PlainMessage<StartSiwsBindingResponse> | undefined): boolean {
+    return proto3.util.equals(StartSiwsBindingResponse, a, b);
+  }
+}
+
+/**
+ * @generated from message iogrid.identity.v1.CompleteSiwsBindingRequest
+ */
+export class CompleteSiwsBindingRequest extends Message<CompleteSiwsBindingRequest> {
+  /**
+   * Same user_id passed to StartSiwsBinding (or empty if creating one).
+   *
+   * @generated from field: iogrid.common.v1.UUID user_id = 1;
+   */
+  userId?: UUID;
+
+  /**
+   * Base58-encoded Solana wallet pubkey.
+   *
+   * @generated from field: string wallet_address = 2;
+   */
+  walletAddress = "";
+
+  /**
+   * Base58-encoded ed25519 signature produced by the wallet over the
+   * challenge bytes from StartSiwsBindingResponse.
+   *
+   * @generated from field: string signature = 3;
+   */
+  signature = "";
+
+  /**
+   * When true and user_id is empty, the server creates a fresh User
+   * whose only identifier is this wallet. PROVIDER role is added by
+   * default; the caller can flip to CUSTOMER post-onboarding.
+   *
+   * @generated from field: bool create_if_missing = 4;
+   */
+  createIfMissing = false;
+
+  constructor(data?: PartialMessage<CompleteSiwsBindingRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "iogrid.identity.v1.CompleteSiwsBindingRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "user_id", kind: "message", T: UUID },
+    { no: 2, name: "wallet_address", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "signature", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 4, name: "create_if_missing", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): CompleteSiwsBindingRequest {
+    return new CompleteSiwsBindingRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): CompleteSiwsBindingRequest {
+    return new CompleteSiwsBindingRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): CompleteSiwsBindingRequest {
+    return new CompleteSiwsBindingRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: CompleteSiwsBindingRequest | PlainMessage<CompleteSiwsBindingRequest> | undefined, b: CompleteSiwsBindingRequest | PlainMessage<CompleteSiwsBindingRequest> | undefined): boolean {
+    return proto3.util.equals(CompleteSiwsBindingRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message iogrid.identity.v1.CompleteSiwsBindingResponse
+ */
+export class CompleteSiwsBindingResponse extends Message<CompleteSiwsBindingResponse> {
+  /**
+   * The wallet binding that now exists.
+   *
+   * @generated from field: iogrid.identity.v1.WalletBinding binding = 1;
+   */
+  binding?: WalletBinding;
+
+  /**
+   * True when this completion created a brand-new User.
+   *
+   * @generated from field: bool new_user = 2;
+   */
+  newUser = false;
+
+  /**
+   * Auth bundle when a fresh User was created (or when the caller passed
+   * no bearer token and the signature itself authenticates the request);
+   * null when the wallet was simply added to an already-authenticated
+   * User.
+   *
+   * @generated from field: iogrid.identity.v1.AuthBundle bundle = 3;
+   */
+  bundle?: AuthBundle;
+
+  constructor(data?: PartialMessage<CompleteSiwsBindingResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "iogrid.identity.v1.CompleteSiwsBindingResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "binding", kind: "message", T: WalletBinding },
+    { no: 2, name: "new_user", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 3, name: "bundle", kind: "message", T: AuthBundle },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): CompleteSiwsBindingResponse {
+    return new CompleteSiwsBindingResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): CompleteSiwsBindingResponse {
+    return new CompleteSiwsBindingResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): CompleteSiwsBindingResponse {
+    return new CompleteSiwsBindingResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: CompleteSiwsBindingResponse | PlainMessage<CompleteSiwsBindingResponse> | undefined, b: CompleteSiwsBindingResponse | PlainMessage<CompleteSiwsBindingResponse> | undefined): boolean {
+    return proto3.util.equals(CompleteSiwsBindingResponse, a, b);
+  }
+}
+
+/**
+ * @generated from message iogrid.identity.v1.ListBoundWalletsRequest
+ */
+export class ListBoundWalletsRequest extends Message<ListBoundWalletsRequest> {
+  /**
+   * @generated from field: iogrid.common.v1.UUID user_id = 1;
+   */
+  userId?: UUID;
+
+  constructor(data?: PartialMessage<ListBoundWalletsRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "iogrid.identity.v1.ListBoundWalletsRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "user_id", kind: "message", T: UUID },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListBoundWalletsRequest {
+    return new ListBoundWalletsRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ListBoundWalletsRequest {
+    return new ListBoundWalletsRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ListBoundWalletsRequest {
+    return new ListBoundWalletsRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ListBoundWalletsRequest | PlainMessage<ListBoundWalletsRequest> | undefined, b: ListBoundWalletsRequest | PlainMessage<ListBoundWalletsRequest> | undefined): boolean {
+    return proto3.util.equals(ListBoundWalletsRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message iogrid.identity.v1.ListBoundWalletsResponse
+ */
+export class ListBoundWalletsResponse extends Message<ListBoundWalletsResponse> {
+  /**
+   * @generated from field: repeated iogrid.identity.v1.WalletBinding bindings = 1;
+   */
+  bindings: WalletBinding[] = [];
+
+  constructor(data?: PartialMessage<ListBoundWalletsResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "iogrid.identity.v1.ListBoundWalletsResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "bindings", kind: "message", T: WalletBinding, repeated: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListBoundWalletsResponse {
+    return new ListBoundWalletsResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ListBoundWalletsResponse {
+    return new ListBoundWalletsResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ListBoundWalletsResponse {
+    return new ListBoundWalletsResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ListBoundWalletsResponse | PlainMessage<ListBoundWalletsResponse> | undefined, b: ListBoundWalletsResponse | PlainMessage<ListBoundWalletsResponse> | undefined): boolean {
+    return proto3.util.equals(ListBoundWalletsResponse, a, b);
+  }
+}
+
+/**
+ * @generated from message iogrid.identity.v1.UnbindWalletRequest
+ */
+export class UnbindWalletRequest extends Message<UnbindWalletRequest> {
+  /**
+   * @generated from field: iogrid.common.v1.UUID user_id = 1;
+   */
+  userId?: UUID;
+
+  /**
+   * @generated from field: string wallet_address = 2;
+   */
+  walletAddress = "";
+
+  constructor(data?: PartialMessage<UnbindWalletRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "iogrid.identity.v1.UnbindWalletRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "user_id", kind: "message", T: UUID },
+    { no: 2, name: "wallet_address", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): UnbindWalletRequest {
+    return new UnbindWalletRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): UnbindWalletRequest {
+    return new UnbindWalletRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): UnbindWalletRequest {
+    return new UnbindWalletRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: UnbindWalletRequest | PlainMessage<UnbindWalletRequest> | undefined, b: UnbindWalletRequest | PlainMessage<UnbindWalletRequest> | undefined): boolean {
+    return proto3.util.equals(UnbindWalletRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message iogrid.identity.v1.UnbindWalletResponse
+ */
+export class UnbindWalletResponse extends Message<UnbindWalletResponse> {
+  constructor(data?: PartialMessage<UnbindWalletResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "iogrid.identity.v1.UnbindWalletResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): UnbindWalletResponse {
+    return new UnbindWalletResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): UnbindWalletResponse {
+    return new UnbindWalletResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): UnbindWalletResponse {
+    return new UnbindWalletResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: UnbindWalletResponse | PlainMessage<UnbindWalletResponse> | undefined, b: UnbindWalletResponse | PlainMessage<UnbindWalletResponse> | undefined): boolean {
+    return proto3.util.equals(UnbindWalletResponse, a, b);
   }
 }
 

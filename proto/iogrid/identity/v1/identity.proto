@@ -11,12 +11,17 @@ import "iogrid/common/v1/types.proto";
 option go_package = "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/identity/v1;identityv1";
 
 // IdentifierKind enumerates supported auth providers / mechanisms.
+//
+// IDENTIFIER_KIND_SOLANA represents a Sign-In-With-Solana wallet binding
+// where the user proved control of the address by signing a server-issued
+// challenge. The Identifier's subject holds the base58-encoded pubkey.
 enum IdentifierKind {
   IDENTIFIER_KIND_UNSPECIFIED = 0;
   IDENTIFIER_KIND_GOOGLE = 1;
   IDENTIFIER_KIND_MAGIC_LINK = 2;
   IDENTIFIER_KIND_APPLE = 3;
   IDENTIFIER_KIND_GITHUB = 4;
+  IDENTIFIER_KIND_SOLANA = 5;
 }
 
 // UserRole encodes the role(s) a user holds. A single user can be both

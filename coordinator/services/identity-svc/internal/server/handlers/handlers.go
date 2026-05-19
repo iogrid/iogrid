@@ -62,6 +62,19 @@ func (a *API) Mount(r chi.Router) {
 
 			r.Post("/step-up/request", a.requestStepUp)
 			r.Post("/step-up/complete", a.completeStepUp)
+
+			// Sign-In-With-Solana wallet binding. Start is always
+			// public (the caller may have no bearer yet — first-time
+			// Solana sign-in). Complete is also public because the
+			// signature itself authenticates the bind when
+			// create_if_missing=true.
+			r.Post("/siws/start", a.startSiws)
+			r.Post("/siws/complete", a.completeSiws)
+		})
+
+		r.Route("/wallets", func(r chi.Router) {
+			r.Get("/", a.listBoundWallets)
+			r.Delete("/{address}", a.unbindWallet)
 		})
 
 		r.Route("/sessions", func(r chi.Router) {
@@ -454,6 +467,142 @@ func (a *API) updateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, userToJSON(user))
+}
+
+// --- Sign-In-With-Solana ------------------------------------------------
+
+type startSiwsReq struct {
+	// Caller's user UUID. Empty when this is a first-time Solana
+	// sign-in (the user record will be minted by Complete when
+	// create_if_missing is true).
+	UserID string `json:"user_id"`
+	// Base58-encoded Solana public key. Required.
+	WalletAddress string `json:"wallet_address"`
+}
+
+func (a *API) startSiws(w http.ResponseWriter, r *http.Request) {
+	var req startSiwsReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_argument", err.Error())
+		return
+	}
+	var userID uuid.UUID
+	if req.UserID != "" {
+		id, err := uuid.Parse(req.UserID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_argument", "bad user_id")
+			return
+		}
+		// When a bearer token is present, lock user_id to the authed
+		// principal — the caller cannot bind a wallet to someone else.
+		if authed, ok := authedUserID(r); ok && authed != id {
+			writeError(w, http.StatusForbidden, "permission_denied", "user_id does not match bearer")
+			return
+		}
+		userID = id
+	} else if authed, ok := authedUserID(r); ok {
+		userID = authed
+	}
+	res, err := a.Auth.StartSiwsBinding(r.Context(), userID, req.WalletAddress)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_argument", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"challenge":  res.Challenge,
+		"expires_at": res.ExpiresAt.UTC().Format(time.RFC3339Nano),
+	})
+}
+
+type completeSiwsReq struct {
+	UserID          string `json:"user_id"`
+	WalletAddress   string `json:"wallet_address"`
+	Signature       string `json:"signature"`
+	CreateIfMissing bool   `json:"create_if_missing"`
+}
+
+func (a *API) completeSiws(w http.ResponseWriter, r *http.Request) {
+	var req completeSiwsReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_argument", err.Error())
+		return
+	}
+	var userID uuid.UUID
+	if req.UserID != "" {
+		id, err := uuid.Parse(req.UserID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_argument", "bad user_id")
+			return
+		}
+		if authed, ok := authedUserID(r); ok && authed != id {
+			writeError(w, http.StatusForbidden, "permission_denied", "user_id does not match bearer")
+			return
+		}
+		userID = id
+	} else if authed, ok := authedUserID(r); ok {
+		userID = authed
+	}
+	res, err := a.Auth.CompleteSiwsBinding(r.Context(), userID, req.WalletAddress, req.Signature, req.CreateIfMissing, r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", err.Error())
+		return
+	}
+	resp := map[string]any{
+		"binding": map[string]any{
+			"id":           res.IdentifierID.String(),
+			"user_id":      res.UserID.String(),
+			"address":      res.Address,
+			"created_at":   res.BoundAt.UTC().Format(time.RFC3339Nano),
+			"last_used_at": res.BoundAt.UTC().Format(time.RFC3339Nano),
+		},
+		"new_user": res.NewUser,
+	}
+	if res.Bundle != nil {
+		resp["bundle"] = bundleToJSON(res.Bundle)
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (a *API) listBoundWallets(w http.ResponseWriter, r *http.Request) {
+	userID, ok := authedUserID(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "missing bearer token")
+		return
+	}
+	bindings, err := a.Auth.ListBoundWallets(r.Context(), userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	out := make([]map[string]any, 0, len(bindings))
+	for _, b := range bindings {
+		out = append(out, map[string]any{
+			"id":           b.ID.String(),
+			"user_id":      b.UserID.String(),
+			"address":      b.Subject,
+			"created_at":   b.CreatedAt.UTC().Format(time.RFC3339Nano),
+			"last_used_at": b.LastUsedAt.UTC().Format(time.RFC3339Nano),
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"bindings": out})
+}
+
+func (a *API) unbindWallet(w http.ResponseWriter, r *http.Request) {
+	userID, ok := authedUserID(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "missing bearer token")
+		return
+	}
+	address := chi.URLParam(r, "address")
+	if err := a.Auth.UnbindWallet(r.Context(), userID, address); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "not_found", "wallet not bound to caller")
+			return
+		}
+		writeError(w, http.StatusBadRequest, "invalid_argument", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 // --- helpers -----------------------------------------------------------
