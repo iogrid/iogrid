@@ -5,9 +5,9 @@ import { InstallButtons } from "@/components/InstallButtons";
 import { vpnPricing } from "@/content/pricing";
 
 export const metadata: Metadata = {
-  title: "iogrid VPN — free, transparent, mesh-routed",
+  title: "iogrid VPN — the free, transparent, mesh-routed alternative to Hola",
   description:
-    "Free consumer VPN funded by bandwidth swap. You opt in to which categories transit your IP, and block any you don't want. Or pay $2.99 for Plus with zero bandwidth swap.",
+    "Free consumer VPN funded by bandwidth swap (5 GB/month cap, idle-only). See every byte categorized, block any category one-click. $2.99 Plus skips the swap entirely.",
 };
 
 export default function VPNPage() {

@@ -1,41 +1,72 @@
 ---
 title: "Why a mesh, not a data center"
-description: "Residential IPs, GPU diversity, and Mac hardware mean a mesh wins three different markets at once — none of which a data center can serve."
+slug: "why-mesh-not-datacenter"
+description: "Residential IPs, idle Macs, and consumer GPUs win three markets a data center structurally cannot serve. Here is the math, per provider and per workload."
+excerpt: "Residential IPs, idle Macs, and consumer GPUs win three markets a data center structurally cannot serve. Here is the math, per provider and per workload."
 date: "2026-05-18"
-author: "iogrid team"
-tags: ["architecture", "strategy"]
+publishedAt: "2026-05-18"
+author: "iogrid"
+tags: ["architecture", "strategy", "economics"]
 ---
 
-The conventional wisdom is that infrastructure belongs in data centers. AWS, GCP, Azure, the hyperscalers — all bet on consolidating compute behind a small number of very large facilities. For most workloads, that wisdom is correct.
+The default infrastructure pattern of the last decade has been consolidation. AWS, Google Cloud, Azure, and Cloudflare each operate a small number of very large facilities and route the world's compute through them. For most workloads that pattern is correct: scale wins, economies of pooled hardware crush every alternative, and latency at the edge is solved with anycast and PoPs.
 
-It's correct for almost everything **except** the three markets iogrid serves.
+For three of the four workloads iogrid serves, that pattern is structurally wrong. A data center cannot deliver residential IPs. A data center cannot legally rent Apple Silicon at the prices home owners earn from idle hours. A data center cannot match the per-watt cost of a consumer GPU sitting in someone's living room. We did not "choose" a mesh architecture as a stylistic preference. We chose it because the three markets we sell into are defined, at the regulatory and physical layer, by **not being a data center**.
 
-## Residential IPs cannot live in a data center
+This post walks through each of the three markets, shows the unit economics, and ends with the one segment where a mesh has a real structural cost advantage.
 
-Residential proxy demand exists because customers need to reach the public web from an IP that isn't on a known data-center range. The whole product category is defined by **not being a data center**. The moment a residential proxy provider puts capacity in a data center, the major target sites detect the ASN and bounce the requests. Bright Data, Honeygain, Pawns — every player in this market is, by definition, a mesh.
+## Market one: residential proxy
 
-iogrid does the same thing, with a transparency layer that the incumbents structurally can't bolt on.
+The entire residential-proxy category exists because customers need to reach the public web from an IP address that is not on a known data-center ASN. The whole product is defined by **not being inside a hyperscaler**. The moment any provider in this category puts capacity in a data center, the target sites — LinkedIn, Amazon, Walmart, Google — detect the ASN and bounce the requests.
 
-## GPU diversity wins inference, not training
+Bright Data, Honeygain, Pawns, IPRoyal, PacketStream: every player in this market is, by definition, a mesh. They differ in transparency, in payout currency, in provider-acquisition tactics, and in customer pricing. They do not differ on the question of whether a mesh is required. It is required.
 
-Training a frontier model requires hundreds of H100s wired together with InfiniBand. That belongs in a data center.
+The $1.5 billion-a-year residential-proxy market routes ~95 % of its bytes through home connections owned by individuals who installed a passive client. The marginal cost to a network operator of adding one more provider is approximately zero. The marginal cost to a hyperscaler of adding capacity is approximately one server. That delta compounds for fifteen years and produces the present landscape.
 
-Inference is a different beast. A 70B-parameter model running batch jobs doesn't need exotic interconnect — it needs **lots of consumer GPUs with 24+ GB of VRAM**. A 4090 fine-tunes 7B-13B models perfectly well. An M3 Max runs Llama 70B at usable tokens-per-second via MLX. The world has millions of these chips sitting idle 16+ hours a day.
+The wedge iogrid pursues inside this market is not capacity. We will not match Bright Data's 72 million devices in year one or year three. The wedge is **transparency**: providers see every byte categorized in real time and can block any category, customer, or destination with one click. The economics of this transparency layer are detailed in [docs/COMPETITORS.md](https://github.com/iogrid/iogrid/blob/main/docs/COMPETITORS.md), but the short version is that the incumbents structurally cannot retrofit it without exposing customer behavior their enterprise buyers explicitly pay them to hide. Bright Data sells opacity at $10–$20 per gigabyte. We sell daylight at $0.40.
 
-The economics are stark: a data-center H100 costs $2–3 per hour. A 4090 in someone's living room earns its owner $0.20–0.50 per hour, while delivering 80% of the inference throughput for many workloads. Salad, Vast.ai, and io.net have all proven the model works. The question is execution quality — which is where the iogrid mesh wins on the bundling angle (one daemon, four workloads).
+## Market two: GPU inference
 
-## Apple licensing locks iOS builds to Macs
+Training a frontier model requires hundreds of H100s wired together with InfiniBand interconnect at sub-microsecond latency. That belongs in a data center, and the H100 will keep paying its $30,000-a-card capital cost there for the rest of its useful life.
 
-Apple's licensing terms forbid running macOS on non-Apple hardware. AWS works around this with bare-metal Mac instances, but they charge $26 per 24-hour minimum. MacStadium leases dedicated hardware monthly. Bitrise and Codemagic run their own racks of Mac minis.
+Inference is a fundamentally different workload. A 70-billion-parameter model running batch jobs does not need exotic interconnect. It needs **lots of consumer GPUs with 24 or more gigabytes of VRAM**. A 4090 fine-tunes a 7B–13B model just fine. A 5090 runs Mixtral 8x22B at production-acceptable tokens per second. An M3 Max runs Llama 3 70B at usable throughput via MLX. The world has, conservatively, fifty million of these chips installed in homes, almost all of them idle sixteen or more hours per day.
 
-Meanwhile, a home M3 MacBook is idle when its owner sleeps. iogrid's iOS-build workload turns those idle hours into pay-per-minute CI capacity. Provider economics: ~$145/month for 4 hours/day of Xcode CI work. Customer economics: $0.04 per minute, half the GitHub Actions Mac price.
+The arithmetic is stark:
 
-This is the only sub-market where the mesh model has **structural cost advantage** vs the centralized incumbents. We don't pay AWS's margin. We don't pay MacStadium's rent. The provider's electricity is already amortized across their personal Mac use.
+| Hardware | Throughput on 7B Llama | Hourly cost to customer | Owner's earnings |
+|---|---|---|---|
+| H100 in a hyperscaler | ~250 tokens/sec | $2.50 / hr (RunPod spot) | n/a |
+| 4090 in a living room | ~85 tokens/sec | $0.20 / hr (iogrid list) | $0.20 / hr passive |
+| M3 Max in a home office | ~60 tokens/sec | $0.20 / hr | $0.20 / hr passive |
+
+For a customer running batch inference at 100 RPS, the throughput-per-dollar of three consumer 4090s beats one H100 by roughly five-to-one. Salad, Vast, and io.net have proven the consumer-GPU model works at $25 million-plus of revenue each. The question is no longer whether the market exists. The question is execution quality and which network bundles the most workloads to keep providers earning when GPU demand softens.
+
+The iogrid bet is the bundle: a single 3 MB Rust daemon does GPU inference, bandwidth proxy, Docker compute, and iOS builds. A provider whose GPU sits idle on a quiet Tuesday still earns from bandwidth. A provider whose Mac is busy compiling Xcode still earns from idle GPU cycles overnight. The per-provider monthly take goes from Honeygain's $9 to $145 or more for a single-Mac home, which transforms the provider-acquisition economics across every workload we serve.
+
+## Market three: iOS build CI
+
+This is the only one of our three target markets where the mesh model has a **structural cost advantage** over the centralized incumbents — not just a transparency advantage, but a real per-unit cost moat.
+
+Apple's licensing terms forbid running macOS on non-Apple hardware. Every CI vendor either rents Apple Silicon from Apple (GitHub Actions, Microsoft, AWS) or buys Mac minis and racks them in a data center (MacStadium, Bitrise, Codemagic). All of them pay Apple a premium and pass it through.
+
+Meanwhile, an M3 MacBook Pro in someone's home office is idle from 11 PM to 7 AM every night and most of the weekend. The hardware is bought-and-paid-for. The electricity is amortized across the owner's personal use. The Xcode license is already installed. iogrid puts a small Tart-based VM driver on that Mac, spawns a fresh macOS VM per incoming build, runs the build with hypervisor isolation, ships the artifact to S3, and tears the VM down. The provider sees a usage chart in their dashboard. Their personal Xcode environment is untouched.
+
+The provider earns roughly $145 per month for four hours per day of Xcode CI capacity (the math is in [docs/MARKET.md](https://github.com/iogrid/iogrid/blob/main/docs/MARKET.md)). The customer pays $0.04 per Xcode-minute — half of GitHub Actions Mac's $0.08, six times cheaper than Bitrise's typical $0.20, and free of AWS EC2 Mac's twenty-four-hour-lease floor.
+
+We do not pay AWS's margin. We do not pay MacStadium's rent. The provider's electricity is already a sunk cost. The capital intensity of supplying iOS CI capacity collapses, and the customer gets a 50 % discount that nobody else in the market can match without rebuilding their supply chain. The next post in this series is a deep dive on the iOS-build economics specifically: [iOS CI is 50 % cheaper on home Macs](/blog/ios-ci-50-percent-cheaper).
+
+## The fourth market is a kicker
+
+The fourth workload iogrid serves is consumer VPN, and the economic story there is the opposite of the three above. Consumer VPN is a saturated, mature, $50 billion market dominated by datacenter operators (NordVPN, ExpressVPN, Surfshark) that have nothing to do with a mesh. We compete there using the **bandwidth-swap model**: customers of our consumer VPN contribute idle bandwidth back to the mesh in exchange for a free tunnel. That funds the free tier from B2B revenue rather than from upsell pressure.
+
+We do not expect to win consumer VPN on raw user count against incumbents who spend $50 million a year on marketing. We expect to win the slice of the market that already knows Hola's 2015 scandal happened and wants a consensual version of the same architecture. That slice is small but disproportionately product-savvy and disproportionately likely to become providers across the other three workloads.
 
 ## A mesh is just a network with diffuse capital
 
-The capital intensity of running a mesh network is dramatically lower than running a data center. iogrid doesn't lease racks, doesn't sign cross-connects, doesn't pay for cooling. Providers bring their own hardware, electricity, and bandwidth. We provide the routing, the anti-abuse, the billing, and — most importantly — the transparency.
+The capital intensity of running a mesh network is dramatically lower than running a data center. iogrid does not lease racks, sign cross-connects, or pay for cooling. Providers bring their own hardware, electricity, and bandwidth. We bring the routing, the anti-abuse, the billing, and most importantly the transparency layer.
 
-Our marginal cost to add provider capacity is approximately zero. Hyperscalers' marginal cost to add capacity is approximately one server. That difference compounds.
+Our marginal cost to add provider capacity is approximately zero. The hyperscalers' marginal cost to add capacity is approximately one server. Over fifteen years that delta compounded into the present landscape — Bright Data, the Hola-derived ancestor of every residential-proxy network, runs at 80 %-plus gross margins for exactly this reason.
 
-This is the whole architecture of the network. The next post in this series walks through how the audit dashboard works under the hood.
+What we are doing differently is repointing those margins. Instead of paying ourselves a Bright Data spread, we pay providers four times what Honeygain pays (via the workload bundle), we offer free consumer VPN as a payout currency, and we publish quarterly transparency reports with real provider counts and real bandwidth-by-category numbers. The economics fund both a better customer price and a better provider deal at the same time, because the underlying mesh model is so much more capital-efficient than centralized infrastructure that there is room for both.
+
+This is the whole architecture of the network. For the security model that makes the transparency promise verifiable, see [Transparency, not trust](/blog/transparency-not-trust). For the per-workload technical detail, see [the architecture document](https://docs.iogrid.org/architecture). For why we picked Rust on the daemon and Go on the coordinator, see [Why Rust for the edge](/blog/why-rust-for-the-edge).

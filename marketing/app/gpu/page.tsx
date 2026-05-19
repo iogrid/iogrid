@@ -4,9 +4,9 @@ import { Hero } from "@/components/Hero";
 import { FeatureGrid } from "@/components/FeatureGrid";
 
 export const metadata: Metadata = {
-  title: "GPU inference — consumer GPUs at $0.20 / hour",
+  title: "GPU inference — consumer GPUs at $0.20 / GPU-hour",
   description:
-    "NVIDIA 4090, 5090, and Apple Silicon MLX inference on idle home hardware. Cheaper than RunPod, Vast, Salad.",
+    "NVIDIA 4090, 5090, and Apple Silicon MLX inference on idle home GPUs at $0.20/GPU-hour. ~10x cheaper per token than H100 hyperscaler spot. vLLM, TGI, MLX templates.",
 };
 
 export default function GPUPage() {
@@ -18,8 +18,10 @@ export default function GPUPage() {
         subtitle={
           <>
             Batch inference and fine-tuning on idle 4090s, 5090s, and M3 Max
-            Apple Silicon. Hugging Face TGI / vLLM templates included. Bring
-            your model, we route the work.
+            Apple Silicon. <strong>$0.20 / GPU-hour</strong> &mdash; ~10x
+            cheaper per token than H100 spot at typical 7B&ndash;34B workloads.
+            Hugging Face TGI / vLLM / MLX templates included. Bring your
+            model, we route the work.
           </>
         }
         primaryCta={{ href: "/pricing", label: "Start at $0.20 / GPU-hour" }}

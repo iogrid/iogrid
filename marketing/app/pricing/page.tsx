@@ -4,9 +4,9 @@ import { PricingTable } from "@/components/PricingTable";
 import { customerPricing } from "@/content/pricing";
 
 export const metadata: Metadata = {
-  title: "Pricing — bandwidth, compute, GPU, iOS builds",
+  title: "Pricing — bandwidth, compute, GPU, iOS builds at 30–60% under market",
   description:
-    "Customer pricing: $0.40 / GB proxy, $0.018 / vCPU-hour Docker, $0.20 / GPU-hour, $0.04 / minute iOS CI. Pay with USD, USDC, or $GRID.",
+    "Customer pricing: $0.40/GB proxy (vs Bright Data $4–$8), $0.018/vCPU-hour Docker, $0.20/GPU-hour, $0.04/Xcode-minute iOS CI (vs GitHub $0.08). USD, USDC, or $GRID.",
 };
 
 export default function PricingPage() {
