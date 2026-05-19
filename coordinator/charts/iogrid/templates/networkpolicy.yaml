@@ -5,6 +5,9 @@
 # build-gateway, and gateway-bff services additionally accept traffic from
 # the ingress controller namespace. Other services are mesh-only (gRPC
 # calls between coordinator microservices).
+#
+# Kept as L3/L4 defense-in-depth alongside the SPIFFE mutual-auth CNP in
+# ./ciliumnetworkpolicy.yaml (issue #35).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

@@ -1,3 +1,6 @@
+# Kept as L3/L4 defense-in-depth alongside ./ciliumnetworkpolicy.yaml
+# (issue #35 — Cilium SPIFFE-style service mTLS).
+#
 # vpn-gateway — consumer-VPN aggregator.
 # Ingress: UDP :51820 from the internet (via the LoadBalancer service),
 #          HTTP :8080 from gateway-bff (config render, admit), metrics from

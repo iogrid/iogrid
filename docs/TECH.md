@@ -149,7 +149,7 @@ Each microservice is a separate Go module, deployed as separate k8s Deployments.
 
 ### Transport
 
-- Service-to-service: **gRPC over mTLS** via Cilium service-mesh policies. Each service has a SPIFFE-style identity (`spiffe://iogrid/ns/iogrid/sa/billing-svc`).
+- Service-to-service: **gRPC over mTLS** via Cilium service-mesh policies. Each service has a SPIFFE-style identity (`spiffe://iogrid/ns/iogrid/sa/billing-svc`). Identity-aware policy + SPIRE-backed mutual auth is implemented as `CiliumNetworkPolicy` per service with `authentication.mode: required` — see [SECURITY-mTLS](./SECURITY-mTLS.md) (issue #35).
 - Service-to-daemon: **Connect-Go** (gRPC-compatible, HTTP/2 with JSON fallback for easier debugging)
 - Daemon-to-coordinator: persistent bi-directional gRPC stream over mTLS (re-establish on disconnect with exponential backoff, max 60s)
 - Inter-service async: **NATS JetStream** for events (provider-came-online, workload-completed, abuse-flag-raised, payout-eligible)

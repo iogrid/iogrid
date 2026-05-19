@@ -119,3 +119,9 @@ networkPolicy:
   podCIDR: 10.0.0.0/8
   # Allow ingress controller to reach gateway-bff / proxy-gateway / build-gateway.
   ingressNamespace: ingress-nginx
+  # SPIFFE-style mutual auth via Cilium 1.14+ (issue #35).
+  # When enabled, a CiliumNetworkPolicy per service requires SPIRE-backed
+  # mTLS on every intra-mesh ingress. Off by default so the chart still
+  # renders cleanly on clusters without Cilium (kindnet dev overlay).
+  mutualAuth:
+    enabled: false

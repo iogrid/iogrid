@@ -2,6 +2,9 @@
 # antiabuse-svc — pre-flight filters (CSAM, fraud, blocklists, rate limits).
 # Ingress: workloads-svc, proxy-gateway, build-gateway.
 # Egress: Postgres (rule store), Redis (hot blocklists), NATS, external HTTPS (PhishTank/OpenPhish feeds).
+#
+# Kept as L3/L4 defense-in-depth alongside ./ciliumnetworkpolicy.yaml
+# (issue #35 — Cilium SPIFFE-style service mTLS).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

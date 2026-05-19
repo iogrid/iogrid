@@ -15,6 +15,10 @@
 #                    from the Rust daemon via the gateway egress path.
 #   :8888 — otelcol self-metrics, monitoring namespace only.
 #
+# This plain NetworkPolicy is kept as L3/L4 defense-in-depth alongside
+# the identity-aware CiliumNetworkPolicy in ./ciliumnetworkpolicy.yaml
+# (issue #35 — Cilium SPIFFE-style service mTLS).
+#
 # EGRESS
 #   Postgres, Redis, NATS (audit log / hot state / event bus).
 #   monitoring namespace :3100 (Loki), :9095 (Mimir), :4317 (Tempo OTLP),

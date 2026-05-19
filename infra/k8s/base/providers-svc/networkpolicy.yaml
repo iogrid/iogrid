@@ -2,6 +2,9 @@
 # providers-svc — provider registry, daemon long-lived gRPC streams terminate here.
 # Ingress: gateway-bff (queries), proxy-gateway (daemon stream tunneling), workloads-svc (scheduling).
 # Egress: Postgres, Redis (provider state cache), NATS.
+#
+# Kept as L3/L4 defense-in-depth alongside ./ciliumnetworkpolicy.yaml
+# (issue #35 — Cilium SPIFFE-style service mTLS).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

@@ -1,0 +1,45 @@
+{{- if and .Values.networkPolicy.enabled .Values.networkPolicy.mutualAuth.enabled }}
+{{- range $name, $svc := .Values.services }}
+---
+# SPIFFE-style mutual-auth CiliumNetworkPolicy for {{ $name }}.
+#
+# Companion to the plain k8s NetworkPolicy in `networkpolicy.yaml` (which
+# stays for defense-in-depth). This CNP adds Cilium's mutual-auth gate
+# (`authentication.mode: required`) on the :8080 control surface, so any
+# iogrid SPIFFE workload calling this service must complete a SPIRE-backed
+# mTLS handshake before the L7 path opens.
+#
+# Public-facing services (proxy-gateway, build-gateway, gateway-bff) keep
+# an additional un-authed ingress from the ingress controller namespace
+# since end-customer traffic isn't a SPIFFE workload. See issue #35 and
+# `docs/SECURITY-mTLS.md`.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "iogrid.fullname" (dict "Release" $.Release "svcName" $name) }}-mtls
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "iogrid.labels" (dict "Release" $.Release "svcName" $name) | nindent 4 }}
+    iogrid.org/policy-class: spiffe-mtls
+spec:
+  endpointSelector:
+    matchLabels:
+      {{- include "iogrid.selectorLabels" (dict "Release" $.Release "svcName" $name) | nindent 6 }}
+  ingress:
+    # Intra-mesh: any iogrid SPIFFE workload in the same namespace,
+    # gated by Cilium mutual auth.
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/part-of: iogrid
+            k8s:io.kubernetes.pod.namespace: {{ $.Release.Namespace }}
+      authentication:
+        mode: required
+    # Ingress controller may reach the public-facing services — different
+    # trust domain (end-customer), so no SPIFFE auth on this hop.
+    {{- if or (eq $name "gateway-bff") (eq $name "proxy-gateway") (eq $name "build-gateway") }}
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ $.Values.networkPolicy.ingressNamespace }}
+    {{- end }}
+{{- end }}
+{{- end }}

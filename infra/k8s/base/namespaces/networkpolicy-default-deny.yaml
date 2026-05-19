@@ -1,6 +1,8 @@
 ---
 # Default-deny INGRESS for all pods in iogrid namespace.
 # Each service has its own NetworkPolicy with explicit allows on top of this.
+# In addition, every service ships a CiliumNetworkPolicy with SPIFFE-style
+# mutual auth on intra-mesh ingress (issue #35) — see docs/SECURITY-mTLS.md.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
