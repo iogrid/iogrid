@@ -43,23 +43,23 @@ flowchart LR
   classDef blocked  fill:#8250df,stroke:#5e1ed1,color:#fff,stroke-width:2px
 
   %% EPICS as circles
-  E1((E1 Provider daemon)):::flight
-  E2((E2 Coordinator)):::done
-  E3((E3 Web plane)):::flight
-  E4((E4 Identity)):::flight
-  E5((E5 Install UX)):::flight
-  E6((E6 Scheduling)):::done
-  E7((E7 Anti-abuse)):::open
-  E73((E73 Infra k8s)):::done
-  E74((E74 Customer API)):::done
-  E75((E75 Consumer VPN)):::done
-  E76((E76 Observability)):::done
-  E77((E77 Brand site)):::done
-  E78((E78 Legal drafts)):::done
-  E87((E87 GRID token)):::flight
-  E106((E106 iogrid.org)):::flight
-  E115((E115 SDKs published)):::done
-  E167((E167 Sociable Cash)):::flight
+  E1(("E1 Provider daemon")):::flight
+  E2(("E2 Coordinator")):::done
+  E3(("E3 Web plane")):::flight
+  E4(("E4 Identity")):::flight
+  E5(("E5 Install UX")):::flight
+  E6(("E6 Scheduling")):::done
+  E7(("E7 Anti-abuse")):::open
+  E73(("E73 Infra k8s")):::done
+  E74(("E74 Customer API")):::done
+  E75(("E75 Consumer VPN")):::done
+  E76(("E76 Observability")):::done
+  E77(("E77 Brand site")):::done
+  E78(("E78 Legal drafts")):::done
+  E87(("E87 GRID token")):::flight
+  E106(("E106 iogrid.org")):::flight
+  E115(("E115 SDKs published")):::done
+  E167(("E167 Sociable Cash")):::flight
 
   %% EPIC -> EPIC dependencies
   E2 --> E73
@@ -78,25 +78,25 @@ flowchart LR
   E115 --> E74
 
   %% EPIC 1 daemon children
-  I8[8 Cargo workspace + CI]:::done
-  I9[9 daemon core supervisor]:::done
-  I10[10 daemon transport gRPC]:::done
-  I11[11 daemon routing WireGuard]:::done
-  I12[12 daemon workload-docker]:::done
-  I13[13 daemon workload-gpu]:::done
-  I14[14 daemon workload-ios Tart]:::done
-  I15[15 daemon anti-abuse local]:::done
-  I16[16 daemon scheduler]:::done
-  I17[17 daemon ui-bridge]:::done
-  I18[18 platform-mac]:::done
-  I19[19 platform-linux]:::done
-  I20[20 platform-windows]:::done
-  I21[21 Signed installers]:::done
-  I59[59 Daemon auto-update]:::done
-  I60[60 Uninstall command]:::done
-  I61[61 OS idle detection]:::done
-  I79[79 Mac Sonoma to Sequoia]:::blocked
-  I80[80 bun via oven-sh tap]:::open
+  I8["8 Cargo workspace + CI"]:::done
+  I9["9 daemon core supervisor"]:::done
+  I10["10 daemon transport gRPC"]:::done
+  I11["11 daemon routing WireGuard"]:::done
+  I12["12 daemon workload-docker"]:::done
+  I13["13 daemon workload-gpu"]:::done
+  I14["14 daemon workload-ios Tart"]:::done
+  I15["15 daemon anti-abuse local"]:::done
+  I16["16 daemon scheduler"]:::done
+  I17["17 daemon ui-bridge"]:::done
+  I18["18 platform-mac"]:::done
+  I19["19 platform-linux"]:::done
+  I20["20 platform-windows"]:::done
+  I21["21 Signed installers"]:::done
+  I59["59 Daemon auto-update"]:::done
+  I60["60 Uninstall command"]:::done
+  I61["61 OS idle detection"]:::done
+  I79["79 Mac Sonoma to Sequoia"]:::blocked
+  I80["80 bun via oven-sh tap"]:::open
   E1 --> I8
   E1 --> I9
   E1 --> I10
@@ -118,29 +118,29 @@ flowchart LR
   E1 --> I80
 
   %% EPIC 2 coordinator children
-  I22[22 Go workspace + Buf]:::done
-  I23[23 identity-svc bootstrap]:::done
-  I24[24 providers-svc bootstrap]:::done
-  I25[25 workloads-svc bootstrap]:::done
-  I26[26 antiabuse-svc bootstrap]:::done
-  I27[27 billing-svc bootstrap]:::done
-  I28[28 telemetry-svc bootstrap]:::done
-  I29[29 gateway-bff bootstrap]:::done
-  I30[30 proxy-gateway SOCKS5]:::done
-  I31[31 build-gateway iOS-CI]:::done
-  I32[32 Postgres CNPG]:::done
-  I33[33 Redis hot state]:::done
-  I34[34 NATS JetStream]:::done
-  I35[35 Cilium SPIFFE mTLS]:::open
-  I46[46 Identity DB schema]:::done
-  I121[121 API reference docs]:::done
-  I141[141 contract drift fix]:::done
-  I143[143 providers HTTP route]:::done
-  I144[144 ValidateApiKey RPC]:::done
-  I146[146 Workspace API]:::done
-  I147[147 BLOCK_DOMAINS env]:::done
-  I148[148 readOnlyRoot fix]:::done
-  I170[170 Cash webhook receiver]:::done
+  I22["22 Go workspace + Buf"]:::done
+  I23["23 identity-svc bootstrap"]:::done
+  I24["24 providers-svc bootstrap"]:::done
+  I25["25 workloads-svc bootstrap"]:::done
+  I26["26 antiabuse-svc bootstrap"]:::done
+  I27["27 billing-svc bootstrap"]:::done
+  I28["28 telemetry-svc bootstrap"]:::done
+  I29["29 gateway-bff bootstrap"]:::done
+  I30["30 proxy-gateway SOCKS5"]:::done
+  I31["31 build-gateway iOS-CI"]:::done
+  I32["32 Postgres CNPG"]:::done
+  I33["33 Redis hot state"]:::done
+  I34["34 NATS JetStream"]:::done
+  I35["35 Cilium SPIFFE mTLS"]:::open
+  I46["46 Identity DB schema"]:::done
+  I121["121 API reference docs"]:::done
+  I141["141 contract drift fix"]:::done
+  I143["143 providers HTTP route"]:::done
+  I144["144 ValidateApiKey RPC"]:::done
+  I146["146 Workspace API"]:::done
+  I147["147 BLOCK_DOMAINS env"]:::done
+  I148["148 readOnlyRoot fix"]:::done
+  I170["170 Cash webhook receiver"]:::done
   E2 --> I22
   E2 --> I23
   E2 --> I24
@@ -166,22 +166,22 @@ flowchart LR
   E2 --> I170
 
   %% EPIC 3 web children
-  I36[36 Next.js 15 + shadcn]:::done
-  I37[37 /account route]:::done
-  I38[38 /provide route]:::done
-  I39[39 /provide/audit]:::done
-  I40[40 /customer route]:::done
-  I41[41 /vpn route]:::done
-  I42[42 /admin route]:::done
-  I43[43 i18n routing]:::flight
-  I44[44 WCAG 2.2 AA]:::flight
-  I45[45 Playwright E2E]:::flight
-  I58[58 Onboarding flow]:::done
-  I62[62 Schedule editor UI]:::done
-  I63[63 Categories opt-in]:::done
-  I64[64 Destination blocklist]:::done
-  I65[65 Sensible-defaults wizard]:::done
-  I169[169 Off-ramp redirect]:::done
+  I36["36 Next.js 15 + shadcn"]:::done
+  I37["37 /account route"]:::done
+  I38["38 /provide route"]:::done
+  I39["39 /provide/audit"]:::done
+  I40["40 /customer route"]:::done
+  I41["41 /vpn route"]:::done
+  I42["42 /admin route"]:::done
+  I43["43 i18n routing"]:::flight
+  I44["44 WCAG 2.2 AA"]:::flight
+  I45["45 Playwright E2E"]:::flight
+  I58["58 Onboarding flow"]:::done
+  I62["62 Schedule editor UI"]:::done
+  I63["63 Categories opt-in"]:::done
+  I64["64 Destination blocklist"]:::done
+  I65["65 Sensible-defaults wizard"]:::done
+  I169["169 Off-ramp redirect"]:::done
   E3 --> I36
   E3 --> I37
   E3 --> I38
@@ -200,11 +200,11 @@ flowchart LR
   E3 --> I169
 
   %% EPIC 4 auth children
-  I47[47 Google OAuth]:::done
-  I48[48 Magic-link via Stalwart]:::done
-  I49[49 Auto-merge verified]:::done
-  I50[50 Step-up auth]:::done
-  I51[51 Workspace + role B2B]:::done
+  I47["47 Google OAuth"]:::done
+  I48["48 Magic-link via Stalwart"]:::done
+  I49["49 Auto-merge verified"]:::done
+  I50["50 Step-up auth"]:::done
+  I51["51 Workspace + role B2B"]:::done
   E4 --> I47
   E4 --> I48
   E4 --> I49
@@ -212,15 +212,15 @@ flowchart LR
   E4 --> I51
 
   %% EPIC 5 install UX children
-  I52[52 install.sh Mac]:::done
-  I53[53 install.sh Linux]:::done
-  I54[54 install.ps1 Windows]:::done
-  I55[55 .dmg Mac installer]:::done
-  I56[56 .msi Windows installer]:::done
-  I57[57 .deb and .rpm Linux]:::done
-  I81[81 docker CLI PATH]:::open
-  I82[82 autossh launchd Mac]:::flight
-  I142[142 WiX 7 vs 4.0.6 clash]:::open
+  I52["52 install.sh Mac"]:::done
+  I53["53 install.sh Linux"]:::done
+  I54["54 install.ps1 Windows"]:::done
+  I55["55 .dmg Mac installer"]:::done
+  I56["56 .msi Windows installer"]:::done
+  I57["57 .deb and .rpm Linux"]:::done
+  I81["81 docker CLI PATH"]:::open
+  I82["82 autossh launchd Mac"]:::flight
+  I142["142 WiX 7 vs 4.0.6 clash"]:::open
   E5 --> I52
   E5 --> I53
   E5 --> I54
@@ -232,13 +232,13 @@ flowchart LR
   E5 --> I142
 
   %% EPIC 7 anti-abuse children
-  I66[66 NCMEC PhotoDNA]:::done
-  I67[67 PhishTank + GSB]:::done
-  I68[68 Outbound port limits]:::done
-  I69[69 Per-customer rate limits]:::done
-  I70[70 Per-provider rate limits]:::done
-  I71[71 Docker registry validate]:::done
-  I72[72 Audit log + transparency]:::done
+  I66["66 NCMEC PhotoDNA"]:::done
+  I67["67 PhishTank + GSB"]:::done
+  I68["68 Outbound port limits"]:::done
+  I69["69 Per-customer rate limits"]:::done
+  I70["70 Per-provider rate limits"]:::done
+  I71["71 Docker registry validate"]:::done
+  I72["72 Audit log + transparency"]:::done
   E7 --> I66
   E7 --> I67
   E7 --> I68
@@ -248,19 +248,19 @@ flowchart LR
   E7 --> I72
 
   %% EPIC 73 infra children
-  I145[145 k8s base CRD docs]:::done
-  I154[154 GH Actions billing fix]:::done
-  I158[158 kustomize commonLabels]:::open
+  I145["145 k8s base CRD docs"]:::done
+  I154["154 GH Actions billing fix"]:::done
+  I158["158 kustomize commonLabels"]:::open
   E73 --> I145
   E73 --> I154
   E73 --> I158
 
   %% EPIC 74 + 115 SDK children
-  I116[116 OpenAPI 3.1 from buf]:::done
-  I117[117 TypeScript SDK]:::done
-  I118[118 Python SDK]:::done
-  I119[119 Go SDK]:::done
-  I120[120 Java SDK]:::done
+  I116["116 OpenAPI 3.1 from buf"]:::done
+  I117["117 TypeScript SDK"]:::done
+  I118["118 Python SDK"]:::done
+  I119["119 Go SDK"]:::done
+  I120["120 Java SDK"]:::done
   E74 --> I116
   E115 --> I117
   E115 --> I118
@@ -268,16 +268,16 @@ flowchart LR
   E115 --> I120
 
   %% EPIC 76 observability children
-  I111[111 status.iogrid.org]:::done
+  I111["111 status.iogrid.org"]:::done
   E76 --> I111
 
   %% EPIC 77 brand + EPIC 106 marketing children
-  I107[107 Logo + design system]:::done
-  I108[108 Landing page funnel]:::done
-  I109[109 Customer marketing pages]:::done
-  I110[110 Blog technical content]:::done
-  I112[112 docs.iogrid.org]:::done
-  I113[113 SEO baseline]:::done
+  I107["107 Logo + design system"]:::done
+  I108["108 Landing page funnel"]:::done
+  I109["109 Customer marketing pages"]:::done
+  I110["110 Blog technical content"]:::done
+  I112["112 docs.iogrid.org"]:::done
+  I113["113 SEO baseline"]:::done
   E77 --> I107
   E106 --> I108
   E106 --> I109
@@ -286,29 +286,29 @@ flowchart LR
   E106 --> I113
 
   %% EPIC 78 legal children
-  I155[155 Counsel review pkg]:::done
+  I155["155 Counsel review pkg"]:::done
   E78 --> I155
 
   %% EPIC 87 GRID token children
-  I88[88 Anchor scaffold + tooling]:::done
-  I89[89 SPL Token-2022 program]:::done
-  I90[90 Emission halving program]:::done
-  I91[91 Vesting cliff program]:::done
-  I92[92 Staking priority program]:::done
-  I93[93 Burn registry program]:::done
-  I94[94 Raydium CLMM bootstrap]:::done
-  I95[95 Wormhole NTT to Base]:::done
-  I96[96 Squads multisig treasury]:::done
-  I97[97 Smart-contract audit]:::done
-  I98[98 billing-svc Solana wallet]:::done
-  I99[99 SIWS wallet binding]:::done
-  I100[100 web Wallet Adapter]:::done
-  I101[101 MoonPay off-ramp embed]:::done
-  I102[102 Token whitepaper]:::done
-  I103[103 Foundation incorporation]:::done
-  I122[122 Cayman checklist]:::done
-  I104[104 Reg-D + Reg-S raise]:::deferred
-  I105[105 Quarterly transparency]:::open
+  I88["88 Anchor scaffold + tooling"]:::done
+  I89["89 SPL Token-2022 program"]:::done
+  I90["90 Emission halving program"]:::done
+  I91["91 Vesting cliff program"]:::done
+  I92["92 Staking priority program"]:::done
+  I93["93 Burn registry program"]:::done
+  I94["94 Raydium CLMM bootstrap"]:::done
+  I95["95 Wormhole NTT to Base"]:::done
+  I96["96 Squads multisig treasury"]:::done
+  I97["97 Smart-contract audit"]:::done
+  I98["98 billing-svc Solana wallet"]:::done
+  I99["99 SIWS wallet binding"]:::done
+  I100["100 web Wallet Adapter"]:::done
+  I101["101 MoonPay off-ramp embed"]:::done
+  I102["102 Token whitepaper"]:::done
+  I103["103 Foundation incorporation"]:::done
+  I122["122 Cayman checklist"]:::done
+  I104["104 Reg-D + Reg-S raise"]:::deferred
+  I105["105 Quarterly transparency"]:::open
   E87 --> I88
   E87 --> I89
   E87 --> I90
@@ -330,8 +330,8 @@ flowchart LR
   E87 --> I122
 
   %% EPIC 167 Sociable Cash children
-  I168[168 Raydium canonical doc]:::open
-  I172[172 GRID vs CASH positioning]:::open
+  I168["168 Raydium canonical doc"]:::open
+  I172["172 GRID vs CASH positioning"]:::open
   E167 --> I168
   E167 --> I172
 
