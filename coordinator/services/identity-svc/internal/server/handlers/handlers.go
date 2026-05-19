@@ -41,8 +41,19 @@ func New(svc *auth.Service, st *store.Store, logger *slog.Logger) *API {
 }
 
 // Mount attaches all routes onto the supplied chi router under /v1.
+// Kept for the existing tests that pass a bare chi.Router and expect
+// the /v1 prefix to be added here.
 func (a *API) Mount(r chi.Router) {
-	r.Route("/v1", func(r chi.Router) {
+	r.Route("/v1", a.MountV1)
+}
+
+// MountV1 attaches the API's routes directly onto the supplied router
+// WITHOUT adding the /v1 prefix. The caller is expected to already be
+// scoped to /v1 (this lets routes.go combine API + Workspace + Identity
+// handlers under a single shared /v1 Route — chi rejects duplicate
+// Route("/v1") on the same parent).
+func (a *API) MountV1(r chi.Router) {
+	{
 		r.Get("/", a.index)
 
 		r.Route("/auth", func(r chi.Router) {
@@ -86,7 +97,7 @@ func (a *API) Mount(r chi.Router) {
 			r.Get("/{id}", a.getUser)
 			r.Patch("/{id}", a.updateUser)
 		})
-	})
+	}
 }
 
 // --- shared HTTP helpers -------------------------------------------------
