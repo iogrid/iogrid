@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "comment": "Operator-curated incident list rendered when the live /status/posture endpoint is unreachable. The on-call manually edits this file during a static-site outage; merging the change deploys via the marketing-ci workflow. Once status-svc /status/posture is reachable this static list is hidden by the live data.",
+  "active": [],
+  "recent": []
+}

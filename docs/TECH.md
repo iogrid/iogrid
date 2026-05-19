@@ -472,6 +472,46 @@ The management plane's `/provide/schedule` page exposes everything:
 - Anti-abuse hit rate spike → notify abuse team
 - Anomalous provider behavior (sudden bandwidth spike, IP reputation drop) → automatic temp-suspend + human review
 
+Routing is defined in `infra/k8s/base/telemetry-svc/alertmanager-config.yaml`. Three receiver tiers:
+
+- `iogrid-page` — PagerDuty + `#iogrid-incidents` Slack (severity=page, e.g. 14× burn rate, synthetic-probe DOWN)
+- `iogrid-warn` — `#iogrid-warnings` Slack only (severity=warn, e.g. 2× burn rate, capacity warnings)
+- `iogrid-abuse` — `#iogrid-abuse-team` Slack (category=abuse, separate moderation team)
+
+Inhibition rules suppress lower-severity alerts when a page-tier alert is already firing for the same service.
+
+### Public status page
+
+**`status.iogrid.org`** is the customer-facing rollup of the above signals. It's served as a static export from `marketing/app/status/` (Next.js, Tailwind) and consumes three public, world-readable JSON endpoints on `telemetry-svc`:
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /status/posture` | One JSON envelope — `overall: up\|degraded\|down`, per-service grid, active incidents, last-7-days history |
+| `GET /status/uptime?service=<name>&days=90` | Per-service 90-day uptime ledger that feeds the calendar heatmap |
+| `POST /status/subscribe` | Email subscription registry (rate-limited per-IP) |
+
+Operator-curated incidents are managed via admin-token-gated mutations: `POST /status/incidents`, `POST /status/incidents/{id}/updates`. Incidents follow the StatusPage.io lifecycle (`investigating → identified → monitoring → resolved`) with four impact tiers (`none | minor | major | critical`). The runbook lives at [`docs/RUNBOOK_STATUS.md`](RUNBOOK_STATUS.md).
+
+Storage is Postgres-backed (`incidents`, `incident_updates`, `status_subscriptions`, `uptime_samples` tables in the telemetry-svc CNPG database) with an in-memory fallback so the public `/status/*` endpoints stay responsive even when the DB is unavailable — a status page that itself looks broken is the worst possible UX during a real outage.
+
+The page polls `/status/posture` every 60 seconds and degrades gracefully:
+
+- If `/status/posture` is unreachable, the page shows a "stale data" pill and keeps rendering the last good payload.
+- If telemetry-svc has been unreachable since first load, the page falls back to a baseline frame from `marketing/content/status/incidents-static.json` — operators edit that file as a backstop during a status-svc outage.
+
+### Grafana dashboard provisioning
+
+iogrid does NOT run its own Grafana. Dashboards live as JSON under `coordinator/services/telemetry-svc/dashboards/`, are copied into `infra/k8s/base/telemetry-svc/assets/dashboards/` (single source of truth, kustomize load-restrictor workaround), and ship as a single ConfigMap with `grafana_dashboard: "1"` label. The mothership Grafana's `kiwigrid/k8s-sidecar` auto-discovers it and provisions dashboards into the "iogrid" folder. Six dashboards in total:
+
+- `iogrid-overview` — global RPS / error rate / P99
+- `iogrid-services` — per-service SLI rollups
+- `iogrid-customers` — per-customer usage panels
+- `iogrid-providers` — per-provider earnings + workload mix
+- `iogrid-abuse` — anti-abuse spike detector
+- `iogrid-revenue` — GMV, payout queue, $GRID emission
+
+The `infra/k8s/base/grafana/` directory ships the auxiliary "iogrid" Grafana Folder + the tenant-scoped Mimir datasource (`X-Scope-OrgID: iogrid` header) the dashboards reference. Dashboard edits must go through git — UI-side edits are reverted by the next sidecar reconcile.
+
 ---
 
 ## Federated deployment plan

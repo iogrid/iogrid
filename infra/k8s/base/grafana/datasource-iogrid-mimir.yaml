@@ -1,0 +1,40 @@
+# Tenant-scoped Mimir datasource for the iogrid Grafana folder.
+#
+# The mothership Grafana ships a CLUSTER-wide Prometheus / Mimir
+# datasource pointing at the shared multi-tenant Mimir, but every
+# iogrid dashboard query needs the `X-Scope-OrgID: iogrid` header so
+# Mimir returns ONLY iogrid metrics. We provision a dedicated
+# datasource here so the existing dashboard JSONs (which already use
+# `${DS_IOGRID_MIMIR}` as their datasource variable) resolve out of
+# the box.
+#
+# The sidecar (kiwigrid/k8s-sidecar in datasource mode) discovers this
+# ConfigMap via the `grafana_datasource: "1"` label.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasource-iogrid-mimir
+  namespace: iogrid
+  labels:
+    grafana_datasource: "1"
+    app.kubernetes.io/name: telemetry-svc
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: grafana-datasource
+data:
+  iogrid-mimir.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: iogrid-mimir
+        uid: iogrid-mimir
+        type: prometheus
+        access: proxy
+        url: http://mimir-query-frontend.monitoring.svc.cluster.local:8080/prometheus
+        editable: false
+        jsonData:
+          httpHeaderName1: "X-Scope-OrgID"
+          timeInterval: "30s"
+          # Recommended for Mimir-backed dashboards — query stitching
+          # works across the 30-day SLO windows.
+          prometheusType: "Mimir"
+        secureJsonData:
+          httpHeaderValue1: "iogrid"
