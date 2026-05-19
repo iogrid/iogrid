@@ -1,0 +1,126 @@
+---
+title: "Example: vCard LinkedIn enrichment"
+description: "Runnable Phase 0 customer demo — fetch LinkedIn profile pages from a residential IP via iogrid bandwidth proxy, parse name / title / company without a headless browser."
+sidebar:
+  label: vCard enrichment (Phase 0 demo)
+  order: 5
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+This page is the docs-site companion to the
+[`examples/phase0-vcard-customer/`](https://github.com/iogrid/iogrid/tree/main/examples/phase0-vcard-customer)
+demo, the canonical Phase 0 customer integration per
+[`docs/ROADMAP.md`](https://github.com/iogrid/iogrid/blob/main/docs/ROADMAP.md#phase-0--internal-pilot-2-weeks).
+
+## The scenario
+
+[Dynolabs vCard](https://dynolabs.io/vcard) is OpenOva's contacts app. Its
+`/v1/enrich/email` handler used to call Apollo, which returns an empty payload
+without a paid plan — so titles, companies, and photos never reached imported
+contacts. Phase 0 makes vCard route a LinkedIn-profile-page fetch through
+iogrid's bandwidth proxy. The TLS handshake is end-to-end between the customer
+and LinkedIn; the proxy and the provider daemon see encrypted bytes only.
+
+This validates three things at once:
+
+1. **Routing works** end-to-end — API key → proxy-gateway → provider daemon → destination.
+2. **Anti-abuse is sound** — `social-intel` is an opt-in category. Only providers
+   who consented to it receive LinkedIn traffic.
+3. **Latency is acceptable** — p95 ≈ 600 ms, ~half of Proxycurl's.
+
+## Pricing comparison
+
+| Provider | Per-call price | Per-GB equivalent |
+|---|---|---|
+| Proxycurl (LinkedIn-enrichment SaaS) | $0.49 / profile | ~$1900 / GB |
+| ScrapingBee (proxy + JS render) | $0.005 / call | ~$20 / GB |
+| Bright Data (residential proxy line) | n/a per-call | $4–8 / GB |
+| **iogrid (Phase 0)** | n/a per-call | **$0.30 / GB** |
+
+At the volumes a typical B2B sales tool pulls (hundreds of profiles a day),
+iogrid is roughly an order of magnitude cheaper than Proxycurl.
+
+## Quick start
+
+```bash
+git clone https://github.com/iogrid/iogrid.git
+cd iogrid/examples/phase0-vcard-customer
+
+# Sign up via POST /api/v1/onboard/customer first (see below)
+export IOGRID_API_KEY=ig_live_...
+export IOGRID_WORKSPACE=vcard-prod
+
+go run . -vanity satyanadella -timeout 10s
+```
+
+Output:
+
+```json
+{
+  "vanity":           "satyanadella",
+  "name":             "Satya Nadella",
+  "title":            "Chairman and CEO at Microsoft",
+  "company":          "Microsoft",
+  "latency_ms":       542,
+  "proxy_used":       true,
+  "provider_country": "US"
+}
+```
+
+## Customer onboarding
+
+The self-service signup is a single POST. The plaintext API key returned in
+the response appears once — persist it client-side.
+
+```bash
+curl -X POST https://api.iogrid.org/api/v1/onboard/customer \
+  -H "Authorization: Bearer <user-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "handle":                "vcard-prod",
+    "display_name":          "Dynolabs vCard — Production",
+    "billing_email":         "billing@dynolabs.io",
+    "initial_api_key_label": "linkedin-enrich-cronjob"
+  }'
+```
+
+Returns `201` with `workspace_id`, `api_key.plaintext`, and
+`proxy_endpoint: "proxy.iogrid.org:443"`. See the full walkthrough in
+[`docs/PHASE0_FIRST_CUSTOMER.md`](https://github.com/iogrid/iogrid/blob/main/docs/PHASE0_FIRST_CUSTOMER.md).
+
+## Why no headless browser?
+
+- Smaller blast radius — final container ~12 MB vs. ~1 GB for headless Chrome.
+- Faster — no JavaScript engine, no rendering pipeline.
+- Cheaper to operate — fits in a 64 MiB Pod with comfortable headroom.
+- Easier to reason about — ~120 lines of permissive HTML walking with obvious failure modes.
+
+LinkedIn's SSR pass ships the canonical name / title / company in the static
+HTML's `og:title` meta tag, which is the strongest signal the extractor
+relies on.
+
+## LinkedIn ToS / scraping gray area
+
+<Aside type="caution" title="Customer-side ToS compliance">
+iogrid sells **bandwidth**. Customers choose their own destinations. The
+customer is responsible for ToS compliance on the destinations they route
+through. This is the same model Bright Data, Oxylabs, and Smartproxy operate
+under. iogrid enforces anti-abuse (CSAM hashes, PhishTank, port restrictions);
+iogrid does NOT enforce destination ToS.
+</Aside>
+
+The [hiQ Labs v. LinkedIn](https://en.wikipedia.org/wiki/HiQ_Labs_v._LinkedIn)
+case held that scraping publicly-accessible LinkedIn data does not violate the
+CFAA, but does not immunize the scraper from breach-of-contract claims under
+LinkedIn's ToS. For Phase 0 specifically — Dynolabs vCard as the customer, the
+OpenOva founder as the operator, the use case is enriching the founder's own
+contacts on their own product, and the volume is low — this is the same risk
+profile every other LinkedIn-enrichment tool operates under.
+
+## Where next
+
+- [Bandwidth proxy reference](../proxy/) — the canonical reference for the workload type.
+- [Phase 0 first-customer walkthrough](https://github.com/iogrid/iogrid/blob/main/docs/PHASE0_FIRST_CUSTOMER.md) — full operator guide.
+- [Demo source](https://github.com/iogrid/iogrid/tree/main/examples/phase0-vcard-customer) — runnable Go client + Dockerfile + Kustomize overlay.
+- [`docs/ROADMAP.md`](https://github.com/iogrid/iogrid/blob/main/docs/ROADMAP.md) — Phase 0 success criteria.
