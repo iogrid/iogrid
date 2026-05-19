@@ -16,6 +16,10 @@ spec:
       port: 8080
       targetPort: http
       protocol: TCP
+      # Connect-RPC handlers exposed by providers-svc speak HTTP/2 cleartext
+      # to the gateway. Mark the Service port as h2c so Traefik / Cilium
+      # Gateway don't downgrade the forward to HTTP/1.1. See #259.
+      appProtocol: kubernetes.io/h2c
     - name: metrics
       port: 9090
       targetPort: metrics

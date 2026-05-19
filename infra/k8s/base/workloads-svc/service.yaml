@@ -16,6 +16,12 @@ spec:
       port: 8080
       targetPort: http
       protocol: TCP
+      # Connect-RPC bidi streams (WorkloadDispatchService.Dispatch) require
+      # the backend to be reached over HTTP/2 cleartext. Without this hint
+      # Traefik (and the future Cilium Gateway) downgrade to HTTP/1.1 when
+      # forwarding to this Service — the daemon's gRPC stream then 500s at
+      # the edge before workloads-svc ever sees the request. See #259.
+      appProtocol: kubernetes.io/h2c
     - name: metrics
       port: 9090
       targetPort: metrics
