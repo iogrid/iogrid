@@ -182,6 +182,13 @@ func (s *Service) ListFilters(ctx context.Context, req *connect.Request[antiabus
 			LastUpdatedAt: timestamppb.New(now),
 		},
 		&antiabusev1.FilterRule{
+			Id:          "domains.blocked",
+			Slug:        "domains.blocked",
+			Description: "Operator deny-list (BLOCK_DOMAINS env / DB-backed loader)",
+			Version:     "1",
+			LastUpdatedAt: timestamppb.New(now),
+		},
+		&antiabusev1.FilterRule{
 			Id:          "ratelimit.customer",
 			Slug:        "ratelimit.customer",
 			Description: "Per-customer aggregate RPS cap",
@@ -254,6 +261,13 @@ func (s *Service) evaluate(ctx context.Context, in evaluateInput) *antiabusev1.F
 	if s.Domains != nil {
 		class := s.Domains.Classify(in.Host)
 		switch class {
+		case domains.ClassBlocked:
+			verdict = &antiabusev1.FilterVerdict{
+				Decision:    antiabusev1.FilterDecision_FILTER_DECISION_BLOCK,
+				Reason:      "destination_blocked",
+				Explanation: "destination matches operator deny-list (BLOCK_DOMAINS)",
+			}
+			return verdict
 		case domains.ClassGovernment:
 			verdict = &antiabusev1.FilterVerdict{
 				Decision:    antiabusev1.FilterDecision_FILTER_DECISION_BLOCK,

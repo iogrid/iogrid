@@ -149,8 +149,15 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*handle
 		HighValueTargets:      cfg.HighValueTargets,
 	}, rdb)
 
+	domainPolicy := domains.NewDefaultPolicy()
+	if len(cfg.BlockDomains) > 0 {
+		domainPolicy.LoadBlocked(cfg.BlockDomains)
+		logger.Info("loaded operator deny-list from BLOCK_DOMAINS",
+			slog.Int("count", domainPolicy.BlockedCount()))
+	}
+
 	svc := &handler.Service{
-		Domains:    domains.NewDefaultPolicy(),
+		Domains:    domainPolicy,
 		Ports:      ports.NewDefaultPolicy(),
 		Limiter:    limiter,
 		Reputation: orch,

@@ -50,6 +50,21 @@ type Config struct {
 	// Facebook, Twitter, Google, Instagram).
 	HighValueTargets []string
 
+	// BlockDomains is a comma-separated list of glob patterns that the
+	// domain classifier matches in addition to the hardcoded .gov /
+	// .mil / banking / adult lists. Matches return ClassBlocked which
+	// the handler maps to FILTER_DECISION_BLOCK with
+	// reason="destination_blocked".
+	//
+	// Patterns use Go's filepath.Match glob syntax — `*.malware.test`,
+	// `known-bad.test`, `evil-*.example`. Patterns are normalised to
+	// lower-case at load time; matching is case-insensitive.
+	//
+	// Intended for staging / e2e harnesses to pre-seed a known-bad
+	// fixture without standing up the reputation-feed pipeline. In
+	// production the same list lives in Redis / the DB-backed loader.
+	BlockDomains []string
+
 	// DefaultCustomerRPS is the per-customer aggregate cap (default 100).
 	DefaultCustomerRPS int
 	// PremiumCustomerRPS is the per-premium-customer cap (default 1000).
@@ -74,6 +89,7 @@ func Load() Config {
 		NATSURL:              os.Getenv("NATS_URL"),
 		HighValueTargets:     csv(getenv("HIGH_VALUE_TARGETS",
 			"linkedin.com,facebook.com,twitter.com,google.com,instagram.com")),
+		BlockDomains:         csv(os.Getenv("BLOCK_DOMAINS")),
 		DefaultCustomerRPS:   intEnv("DEFAULT_CUSTOMER_RPS", 100),
 		PremiumCustomerRPS:   intEnv("PREMIUM_CUSTOMER_RPS", 1000),
 		HighValueProviderRPS: intEnv("HIGH_VALUE_PROVIDER_RPS", 10),

@@ -12,6 +12,7 @@ package domains
 
 import (
 	"net/url"
+	"path/filepath"
 	"strings"
 
 	"golang.org/x/net/publicsuffix"
@@ -31,6 +32,11 @@ const (
 	// ClassAdult is adult-content. Provider must opt-in via
 	// scheduling-config category=ADULT_CONTENT; otherwise BLOCK.
 	ClassAdult
+	// ClassBlocked is an env-driven static deny-list match. Used by
+	// staging / e2e harnesses to pre-seed known-bad fixtures and by
+	// the upstream-feed loader to inject reputation-feed hits without
+	// the full reputation pipeline. Always BLOCK.
+	ClassBlocked
 )
 
 func (c Class) String() string {
@@ -41,6 +47,8 @@ func (c Class) String() string {
 		return "government"
 	case ClassAdult:
 		return "adult"
+	case ClassBlocked:
+		return "blocked"
 	default:
 		return "normal"
 	}
@@ -48,16 +56,19 @@ func (c Class) String() string {
 
 // Policy resolves a hostname or URL to a Class.
 type Policy struct {
-	banking map[string]struct{}
-	adult   map[string]struct{}
+	banking      map[string]struct{}
+	adult        map[string]struct{}
+	blockedExact map[string]struct{}
+	blockedGlob  []string
 }
 
 // NewDefaultPolicy seeds the banking + adult lists with the most-trafficked
 // entries. Phase 1 will replace this with a DB-backed loader.
 func NewDefaultPolicy() *Policy {
 	p := &Policy{
-		banking: map[string]struct{}{},
-		adult:   map[string]struct{}{},
+		banking:      map[string]struct{}{},
+		adult:        map[string]struct{}{},
+		blockedExact: map[string]struct{}{},
 	}
 	for _, d := range defaultBanking {
 		p.banking[d] = struct{}{}
@@ -66,6 +77,79 @@ func NewDefaultPolicy() *Policy {
 		p.adult[d] = struct{}{}
 	}
 	return p
+}
+
+// AddBlocked appends a domain (or glob pattern) to the env-driven block
+// list. Plain domains (no `*` / `?`) are stored exact-match; anything with
+// glob metacharacters is matched via filepath.Match against the lowercased
+// hostname. Patterns are normalised to lower-case; matching is
+// case-insensitive.
+func (p *Policy) AddBlocked(pattern string) {
+	pat := strings.ToLower(strings.TrimSpace(pattern))
+	if pat == "" {
+		return
+	}
+	if strings.ContainsAny(pat, "*?[") {
+		p.blockedGlob = append(p.blockedGlob, pat)
+		return
+	}
+	p.blockedExact[pat] = struct{}{}
+}
+
+// LoadBlocked appends every pattern in the slice via AddBlocked. Empty
+// strings are skipped silently.
+func (p *Policy) LoadBlocked(patterns []string) {
+	for _, pat := range patterns {
+		p.AddBlocked(pat)
+	}
+}
+
+// BlockedCount reports the size of the deny-list (exact + glob) for
+// ListFilters / metrics.
+func (p *Policy) BlockedCount() int {
+	return len(p.blockedExact) + len(p.blockedGlob)
+}
+
+// matchesBlocked returns true if the lowercased host matches the env
+// deny-list. The host is checked verbatim, against its eTLD+1 form, and
+// against every parent suffix (foo.bar.example.com → bar.example.com →
+// example.com) so exact entries also catch arbitrary subdomains.
+func (p *Policy) matchesBlocked(host string) bool {
+	if host == "" {
+		return false
+	}
+	if _, ok := p.blockedExact[host]; ok {
+		return true
+	}
+	// Walk parent suffixes — `*.malware.test` is preferred but a bare
+	// `malware.test` entry should still catch `sub.malware.test`.
+	parts := strings.Split(host, ".")
+	for i := 1; i < len(parts); i++ {
+		suffix := strings.Join(parts[i:], ".")
+		if _, ok := p.blockedExact[suffix]; ok {
+			return true
+		}
+	}
+	// eTLD+1 fallback for inputs like `https://payments.malware.test/x`.
+	if etld := eTLDPlusOne(host); etld != host {
+		if _, ok := p.blockedExact[etld]; ok {
+			return true
+		}
+	}
+	for _, g := range p.blockedGlob {
+		if ok, _ := filepath.Match(g, host); ok {
+			return true
+		}
+		// Also try the eTLD+1 form so `*.malware.test` matches
+		// `payments.sub.malware.test` (filepath.Match doesn't recurse
+		// through dot segments).
+		if etld := eTLDPlusOne(host); etld != host {
+			if ok, _ := filepath.Match(g, etld); ok {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // AddBanking appends a domain to the banking list (case-insensitive,
@@ -90,6 +174,12 @@ func (p *Policy) Classify(target string) Class {
 		return ClassNormal
 	}
 	lower := strings.ToLower(host)
+
+	// Env-driven deny-list — checked first so operators can pre-empt
+	// reputation-feed lookups for known-bad fixtures.
+	if p.matchesBlocked(lower) {
+		return ClassBlocked
+	}
 
 	// .gov and .mil are TLD-level — match on suffix to catch
 	// "ftc.gov", "navy.mil", "treasury.gov".

@@ -49,6 +49,7 @@ when `NATS_URL` is unset.
 | `REDIS_URL` | _empty_ | Redis connection URL for rate limiting; empty uses in-memory fallback (NOT safe for multi-replica deploys) |
 | `NATS_URL` | _empty_ | NATS JetStream URL for audit emission; empty falls back to slog |
 | `HIGH_VALUE_TARGETS` | `linkedin.com,facebook.com,twitter.com,google.com,instagram.com` | Comma-separated destinations under the 10 RPS-per-provider cap |
+| `BLOCK_DOMAINS` | _empty_ | Comma-separated operator deny-list (glob patterns supported). Matches return `FILTER_DECISION_BLOCK` with `reason=destination_blocked`. Intended for staging / e2e fixtures (`malware.test,known-bad.test,*.evil.example`); in prod the same list lives in the DB-backed loader (issue #72) |
 | `DEFAULT_CUSTOMER_RPS` | `100` | Per-customer aggregate cap |
 | `PREMIUM_CUSTOMER_RPS` | `1000` | Premium-tier per-customer cap |
 | `HIGH_VALUE_PROVIDER_RPS` | `10` | Per-provider per-destination cap for high-value targets |
