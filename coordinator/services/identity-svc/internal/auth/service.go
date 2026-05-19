@@ -215,6 +215,19 @@ func (s *Service) CompleteGoogle(ctx context.Context, code, state string, req *h
 		if err := s.Store.CreateIdentifier(ctx, tx, ident); err != nil {
 			return err
 		}
+		// Auto-mint a personal workspace + owner membership. We do it
+		// inside the same tx so a partial sign-in never leaves a user
+		// without a workspace (which would later 500 every workload
+		// submission). Failure here aborts the sign-in.
+		if _, err := s.Store.EnsurePersonalWorkspace(ctx, tx, u); err != nil {
+			return fmt.Errorf("auth: ensure personal workspace: %w", err)
+		}
+		// Promote any pending invites for this verified email into
+		// real memberships. Non-fatal: a failure here only affects
+		// the workspace list for this user, not their sign-in.
+		if _, err := s.Store.ConsumeInvitesForEmail(ctx, tx, id.Email, u.ID); err != nil {
+			s.Logger.Warn("consume invites failed", slog.String("error", err.Error()))
+		}
 		bundle, err = s.issueBundleTx(ctx, tx, u, req, true, false)
 		return err
 	})
@@ -398,6 +411,14 @@ func (s *Service) CompleteMagicLink(ctx context.Context, rawToken string, req *h
 			}
 			if err := s.Store.CreateIdentifier(ctx, tx, newIdent); err != nil {
 				return err
+			}
+			// Auto-mint a personal workspace + owner membership. See
+			// the Google flow for rationale.
+			if _, err := s.Store.EnsurePersonalWorkspace(ctx, tx, u); err != nil {
+				return fmt.Errorf("auth: ensure personal workspace: %w", err)
+			}
+			if _, err := s.Store.ConsumeInvitesForEmail(ctx, tx, m.Email, u.ID); err != nil {
+				s.Logger.Warn("consume invites failed", slog.String("error", err.Error()))
 			}
 			bundle, err = s.issueBundleTx(ctx, tx, u, req, true, false)
 			return err

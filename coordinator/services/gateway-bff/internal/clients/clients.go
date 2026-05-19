@@ -103,6 +103,22 @@ type BillingClient interface {
 	CreateCheckoutSession(ctx context.Context, req *billingv1.CreateCheckoutSessionRequest) (*billingv1.CreateCheckoutSessionResponse, error)
 }
 
+// WorkspaceClient bundles the WorkspaceService RPCs proxied by
+// /api/v1/workspaces. Defined here so the wiring stays symmetric with
+// the other per-service interfaces; the handler-package mirror
+// (handlers.WorkspaceClient) imports back via interface embedding.
+type WorkspaceClient interface {
+	CreateWorkspace(ctx context.Context, req *identityv1.CreateWorkspaceRequest) (*identityv1.CreateWorkspaceResponse, error)
+	GetWorkspace(ctx context.Context, req *identityv1.GetWorkspaceRequest) (*identityv1.GetWorkspaceResponse, error)
+	ListWorkspaces(ctx context.Context, req *identityv1.ListWorkspacesRequest) (*identityv1.ListWorkspacesResponse, error)
+	UpdateWorkspace(ctx context.Context, req *identityv1.UpdateWorkspaceRequest) (*identityv1.UpdateWorkspaceResponse, error)
+	DeleteWorkspace(ctx context.Context, req *identityv1.DeleteWorkspaceRequest) (*identityv1.DeleteWorkspaceResponse, error)
+	AddMember(ctx context.Context, req *identityv1.AddMemberRequest) (*identityv1.AddMemberResponse, error)
+	RemoveMember(ctx context.Context, req *identityv1.RemoveMemberRequest) (*identityv1.RemoveMemberResponse, error)
+	ListMembers(ctx context.Context, req *identityv1.ListMembersRequest) (*identityv1.ListMembersResponse, error)
+	UpdateMemberRole(ctx context.Context, req *identityv1.UpdateMemberRoleRequest) (*identityv1.UpdateMemberRoleResponse, error)
+}
+
 // --- bundle ---------------------------------------------------------------
 
 // Set bundles every per-service client; one Set per gateway-bff process.
@@ -114,6 +130,7 @@ type Set struct {
 	Workloads           WorkloadsClient
 	Antiabuse           AntiabuseClient
 	Billing             BillingClient
+	Workspaces          WorkspaceClient
 }
 
 // Config bundles the downstream URLs + per-call timeout. Comes from
@@ -139,6 +156,7 @@ func New(cfg Config, httpClient *http.Client) *Set {
 	// For simplicity we wrap retries at the call site (see Retry below).
 	identityRaw := identityv1connect.NewIdentityServiceClient(httpClient, cfg.IdentityURL)
 	authRaw := identityv1connect.NewAuthServiceClient(httpClient, cfg.IdentityURL)
+	workspaceRaw := identityv1connect.NewWorkspaceServiceClient(httpClient, cfg.IdentityURL)
 	dashRaw := providersv1connect.NewDashboardServiceClient(httpClient, cfg.ProvidersURL)
 	schedRaw := providersv1connect.NewSchedulingServiceClient(httpClient, cfg.ProvidersURL)
 	wlRaw := workloadsv1connect.NewWorkloadSubmissionServiceClient(httpClient, cfg.WorkloadsURL)
@@ -153,6 +171,7 @@ func New(cfg Config, httpClient *http.Client) *Set {
 		Workloads:           &workloadsAdapter{c: wlRaw, retries: cfg.Retries},
 		Antiabuse:           &antiabuseAdapter{c: abuseRaw, retries: cfg.Retries},
 		Billing:             &billingAdapter{c: billRaw, retries: cfg.Retries},
+		Workspaces:          &workspaceAdapter{c: workspaceRaw, retries: cfg.Retries},
 	}
 }
 
@@ -444,6 +463,91 @@ func (a *billingAdapter) ListUsage(ctx context.Context, req *billingv1.ListUsage
 
 func (a *billingAdapter) CreateCheckoutSession(ctx context.Context, req *billingv1.CreateCheckoutSessionRequest) (*billingv1.CreateCheckoutSessionResponse, error) {
 	r, err := a.c.CreateCheckoutSession(ctx, connect.NewRequest(req))
+	if err != nil {
+		return nil, err
+	}
+	return r.Msg, nil
+}
+
+// --- workspace adapter ----------------------------------------------------
+
+type workspaceAdapter struct {
+	c       identityv1connect.WorkspaceServiceClient
+	retries int
+}
+
+func (a *workspaceAdapter) CreateWorkspace(ctx context.Context, req *identityv1.CreateWorkspaceRequest) (*identityv1.CreateWorkspaceResponse, error) {
+	r, err := a.c.CreateWorkspace(ctx, connect.NewRequest(req))
+	if err != nil {
+		return nil, err
+	}
+	return r.Msg, nil
+}
+
+func (a *workspaceAdapter) GetWorkspace(ctx context.Context, req *identityv1.GetWorkspaceRequest) (*identityv1.GetWorkspaceResponse, error) {
+	return retry(ctx, a.retries, func(ctx context.Context) (*identityv1.GetWorkspaceResponse, error) {
+		r, err := a.c.GetWorkspace(ctx, connect.NewRequest(req))
+		if err != nil {
+			return nil, err
+		}
+		return r.Msg, nil
+	})
+}
+
+func (a *workspaceAdapter) ListWorkspaces(ctx context.Context, req *identityv1.ListWorkspacesRequest) (*identityv1.ListWorkspacesResponse, error) {
+	return retry(ctx, a.retries, func(ctx context.Context) (*identityv1.ListWorkspacesResponse, error) {
+		r, err := a.c.ListWorkspaces(ctx, connect.NewRequest(req))
+		if err != nil {
+			return nil, err
+		}
+		return r.Msg, nil
+	})
+}
+
+func (a *workspaceAdapter) UpdateWorkspace(ctx context.Context, req *identityv1.UpdateWorkspaceRequest) (*identityv1.UpdateWorkspaceResponse, error) {
+	r, err := a.c.UpdateWorkspace(ctx, connect.NewRequest(req))
+	if err != nil {
+		return nil, err
+	}
+	return r.Msg, nil
+}
+
+func (a *workspaceAdapter) DeleteWorkspace(ctx context.Context, req *identityv1.DeleteWorkspaceRequest) (*identityv1.DeleteWorkspaceResponse, error) {
+	r, err := a.c.DeleteWorkspace(ctx, connect.NewRequest(req))
+	if err != nil {
+		return nil, err
+	}
+	return r.Msg, nil
+}
+
+func (a *workspaceAdapter) AddMember(ctx context.Context, req *identityv1.AddMemberRequest) (*identityv1.AddMemberResponse, error) {
+	r, err := a.c.AddMember(ctx, connect.NewRequest(req))
+	if err != nil {
+		return nil, err
+	}
+	return r.Msg, nil
+}
+
+func (a *workspaceAdapter) RemoveMember(ctx context.Context, req *identityv1.RemoveMemberRequest) (*identityv1.RemoveMemberResponse, error) {
+	r, err := a.c.RemoveMember(ctx, connect.NewRequest(req))
+	if err != nil {
+		return nil, err
+	}
+	return r.Msg, nil
+}
+
+func (a *workspaceAdapter) ListMembers(ctx context.Context, req *identityv1.ListMembersRequest) (*identityv1.ListMembersResponse, error) {
+	return retry(ctx, a.retries, func(ctx context.Context) (*identityv1.ListMembersResponse, error) {
+		r, err := a.c.ListMembers(ctx, connect.NewRequest(req))
+		if err != nil {
+			return nil, err
+		}
+		return r.Msg, nil
+	})
+}
+
+func (a *workspaceAdapter) UpdateMemberRole(ctx context.Context, req *identityv1.UpdateMemberRoleRequest) (*identityv1.UpdateMemberRoleResponse, error) {
+	r, err := a.c.UpdateMemberRole(ctx, connect.NewRequest(req))
 	if err != nil {
 		return nil, err
 	}

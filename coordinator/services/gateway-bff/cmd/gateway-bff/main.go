@@ -106,6 +106,7 @@ func main() {
 		AnonLimiter:   anonLim,
 		Logger:        logger,
 		VPNGateway:    vpnProxy,
+		Workspaces:    clientSet.Workspaces,
 	}
 
 	if err := sharedserver.Run(ctx, sharedserver.Options{
