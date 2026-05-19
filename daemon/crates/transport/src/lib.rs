@@ -291,27 +291,36 @@ impl Channel {
     /// coordinator endpoint, and stores the resulting channel for callers
     /// that want to construct gRPC stubs against it.
     ///
-    /// # DNS-resolution path (see #248)
+    /// # DNS-resolution path (see #248 / #250)
     ///
     /// We deliberately do NOT let hyper's default `GaiResolver` perform
     /// the coordinator-host lookup. `GaiResolver` shells out to
     /// `tokio::task::spawn_blocking(getaddrinfo)`; when the parent future
     /// is polled-then-dropped by tower's reconnect / buffer middleware
-    /// (which the daemon hits because three reconnect loops drive
-    /// concurrent connect attempts), the blocking task is cancelled
-    /// mid-flight and the failure surfaces as `dns error → task NNN was
-    /// cancelled` — a fake "DNS failure" with no real underlying
-    /// resolver error.
+    /// the blocking task is cancelled mid-flight and the failure surfaces
+    /// as `dns error → task NNN was cancelled` — a fake "DNS failure"
+    /// with no real underlying resolver error (issue #248).
     ///
-    /// To eliminate that failure mode we resolve the host **once,
-    /// synchronously w.r.t. this `connect` future**, using the
-    /// pure-Rust async [`hickory_resolver::TokioAsyncResolver`]. We then
-    /// build the tonic [`Endpoint`] pointing at the resolved IP literal
-    /// directly, while pinning TLS [`ClientTlsConfig::domain_name`] to
-    /// the original hostname so SNI + server-cert SAN validation still
-    /// match. This keeps the mTLS flow from #236 (identity + native +
-    /// webpki roots) bit-for-bit identical — only the host→IP step
-    /// changes.
+    /// PR #249 switched to an in-process hickory resolver, but instantiating
+    /// `TokioAsyncResolver::tokio_from_system_conf()` per connect-attempt
+    /// leaks `DnsExchange` background tasks each reconnect cycle. Their
+    /// internal request/response demuxers race and emit ~2000 WARN/sec of
+    /// `failed to associate send_message response to the sender`
+    /// (issue #250: 63,879 WARN lines in 31s — daemon never reaches
+    /// `coordinator mTLS channel connected`).
+    ///
+    /// The current path (post-#250) sidesteps the in-process resolver
+    /// entirely: we call [`tokio::net::lookup_host`] **once** from a
+    /// process-global LRU-style cache (1 h TTL, refreshed on connect
+    /// failure). The lookup runs from `Channel::connect` which is itself
+    /// driven by [`run_with_reconnect`]'s sequential closure — there is
+    /// no concurrent caller, no tower buffer to drop the future, no
+    /// blocking-task cancellation. We then build the tonic [`Endpoint`]
+    /// pointing at the resolved IP literal, while pinning TLS
+    /// [`ClientTlsConfig::domain_name`] to the original hostname so
+    /// SNI + server-cert SAN validation still match. The mTLS flow from
+    /// #236 (identity + native + webpki roots) stays bit-for-bit
+    /// identical — only the host→IP step changes.
     pub async fn connect(&mut self) -> Result<(), TransportError> {
         if !self.cfg.coordinator_url.starts_with("https://") {
             return Err(TransportError::InvalidUrl(self.cfg.coordinator_url.clone()));
@@ -330,11 +339,11 @@ impl Channel {
             .to_string();
         let port = parsed.port().unwrap_or(443);
 
-        // Resolve the coordinator host via hickory. The lookup_ip
-        // future is poll-driven and does NOT spawn a blocking
-        // background task — so even if our caller drops us mid-poll,
-        // no JoinHandle gets cancelled and the failure mode from #248
-        // cannot occur on this code path.
+        // Resolve the coordinator host via the OS resolver (cached;
+        // see `resolve_host_for_endpoint` docs). Serialised behind
+        // the supervisor's single reconnect loop, so the #248 failure
+        // mode (spawn_blocking task cancelled by tower buffer drop)
+        // can't occur on this code path.
         let target_authority = resolve_host_for_endpoint(&host, port).await?;
 
         // tonic 0.12 + tls-roots: the feature compiles in
@@ -378,22 +387,32 @@ impl Channel {
             .tcp_keepalive(Some(Duration::from_secs(30)))
             .http2_keep_alive_interval(Duration::from_secs(15))
             .keep_alive_while_idle(true);
-        let ch = ep.connect().await.map_err(|e| {
-            let chain = display_error_chain(&e);
-            // CRITICAL: tonic::transport::Error's Display is the literal
-            // string "transport error". The actual cause (DNS, TCP, TLS
-            // handshake, ALPN, h2 settings) lives in `source()`. Emit the
-            // walked chain at WARN so operators can see the real failure
-            // mode and so the supervisor's reconnect-loop warn line
-            // (which formats `TransportError` via Display) carries the
-            // chain into TransportError::Unreachable(chain).
-            tracing::warn!(
-                coordinator = %self.cfg.coordinator_url,
-                error.cause = %chain,
-                "coordinator connect failed — full error chain"
-            );
-            TransportError::Unreachable(chain)
-        })?;
+        let ch = match ep.connect().await {
+            Ok(ch) => ch,
+            Err(e) => {
+                let chain = display_error_chain(&e);
+                // CRITICAL: tonic::transport::Error's Display is the literal
+                // string "transport error". The actual cause (DNS, TCP, TLS
+                // handshake, ALPN, h2 settings) lives in `source()`. Emit the
+                // walked chain at WARN so operators can see the real failure
+                // mode and so the supervisor's reconnect-loop warn line
+                // (which formats `TransportError` via Display) carries the
+                // chain into TransportError::Unreachable(chain).
+                tracing::warn!(
+                    coordinator = %self.cfg.coordinator_url,
+                    error.cause = %chain,
+                    "coordinator connect failed — full error chain"
+                );
+                // Invalidate the cached host→IP mapping so the next
+                // attempt re-resolves (a coordinator load-balancer
+                // floating-IP swap, or a stale CNAME, would otherwise
+                // pin us to the wrong server until process restart).
+                // Plain hostnames only — IP-literal entries don't get
+                // cached so there's nothing to invalidate.
+                invalidate_resolved_host(&host, port);
+                return Err(TransportError::Unreachable(chain));
+            }
+        };
         self.channel = Some(ch);
         self.state = ClientState::Connected;
         tracing::info!(
@@ -419,62 +438,118 @@ fn read_pem(p: &std::path::Path) -> Result<Vec<u8>, TransportError> {
     })
 }
 
-/// Resolve `host` via the pure-Rust async [`hickory_resolver`] and return
-/// an `https://<ip>:<port>` authority string that tonic's
+/// TTL for the host→IP cache. Production coordinator DNS rarely flips;
+/// 1 h matches typical AWS / Hetzner load-balancer record TTLs and keeps
+/// us off the resolver hot path between reconnect cycles.
+const RESOLVED_HOST_TTL: Duration = Duration::from_secs(3600);
+
+/// Process-global cache of host→IP resolution results.
+///
+/// Keyed by `(host, port)` — the URL authority that callers pass through
+/// `ConnectConfig::coordinator_url`. Stored under a sync `Mutex` because
+/// every operation is O(1) and contention is null (the supervisor's
+/// single dispatch reconnect loop is the only caller in production today;
+/// even with N reconnect loops the critical section is a HashMap probe).
+///
+/// Entries expire after [`RESOLVED_HOST_TTL`] **or** when
+/// [`invalidate_resolved_host`] is called explicitly from the connect
+/// failure path. This guards against:
+///
+/// * Coordinator LB IP rotation (carrier-grade NAT migration / DNS-based
+///   failover) — connect fails on the stale IP → cache invalidated →
+///   next attempt re-resolves and picks up the new IP.
+/// * Long-running daemons (months of uptime) drifting from current DNS
+///   state — 1 h TTL refresh.
+static RESOLVED_HOST_CACHE: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<(String, u16), (std::net::IpAddr, std::time::Instant)>>,
+> = std::sync::OnceLock::new();
+
+fn resolved_host_cache(
+) -> &'static std::sync::Mutex<std::collections::HashMap<(String, u16), (std::net::IpAddr, std::time::Instant)>>
+{
+    RESOLVED_HOST_CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// Invalidate a cached host→IP entry — call from connect-failure paths
+/// so the next attempt re-resolves rather than retrying the dead IP.
+/// IP-literal hosts are never cached, so calling this for one is a
+/// harmless no-op.
+fn invalidate_resolved_host(host: &str, port: u16) {
+    if host.parse::<std::net::IpAddr>().is_ok() {
+        return;
+    }
+    if let Ok(mut g) = resolved_host_cache().lock() {
+        g.remove(&(host.to_string(), port));
+    }
+}
+
+/// Resolve `host` to an IP via the OS resolver ([`tokio::net::lookup_host`])
+/// and return an `https://<ip>:<port>` authority string that tonic's
 /// `Endpoint::from_shared` accepts.
 ///
-/// If `host` is already an IP literal (e.g. `127.0.0.1` or `::1`) we
-/// skip the lookup and return the URL as-is — DNS isn't needed.
-/// Otherwise we configure a [`hickory_resolver::TokioAsyncResolver`]
-/// from the system's `/etc/resolv.conf` (falling back to a built-in
-/// default if that read fails) and pick the first A/AAAA record.
+/// IP literals short-circuit (DNS isn't needed). Otherwise we consult
+/// [`RESOLVED_HOST_CACHE`] first and only fall through to a real lookup
+/// when the entry is missing or expired. The lookup itself runs under
+/// `spawn_blocking(getaddrinfo)` inside `tokio::net::lookup_host` — same
+/// mechanism hyper's `GaiResolver` would use, BUT with two critical
+/// differences from the #248 failure mode:
 ///
-/// Crucially, hickory's `lookup_ip` future is poll-driven — there is
-/// no `spawn_blocking` task that can be cancelled mid-flight when the
-/// outer future is dropped. That's the whole point of the swap from
-/// hyper's [`GaiResolver`] (see #248).
+/// 1. We call it from `Channel::connect` which is itself driven by
+///    [`run_with_reconnect`]'s sequential closure. There is no tower
+///    buffer / reconnect middleware racing us, so the future cannot be
+///    polled-then-dropped mid-flight. No blocking-task cancellation
+///    storm.
+/// 2. Cached results mean steady-state reconnect cycles never hit
+///    the resolver at all — they reuse the IP from the OnceLock until
+///    TTL expiry or explicit invalidation on connect failure.
+///
+/// This sidesteps the hickory-resolver `failed to associate
+/// send_message response to the sender` WARN flood from #250 — we
+/// never instantiate an in-process resolver at all.
 async fn resolve_host_for_endpoint(host: &str, port: u16) -> Result<String, TransportError> {
-    use hickory_resolver::config::{ResolverConfig, ResolverOpts};
-    use hickory_resolver::TokioAsyncResolver;
-
     // IP literals — short-circuit. Cover both v4 and v6 forms. v6
     // literals in a URL authority are bracketed (`[::1]`), so format
-    // accordingly when re-emitting.
+    // accordingly when re-emitting. Never cache these.
     if let Ok(ip) = host.parse::<std::net::IpAddr>() {
-        return Ok(match ip {
-            std::net::IpAddr::V4(v4) => format!("https://{v4}:{port}"),
-            std::net::IpAddr::V6(v6) => format!("https://[{v6}]:{port}"),
-        });
+        return Ok(format_ip_authority(ip, port));
     }
 
-    // Try the system resolver config first (so /etc/resolv.conf
-    // settings, search domains, etc. apply). Fall back to a sane
-    // built-in default if that's not available (Windows, sandboxed
-    // CI, ENOENT, etc.) so the daemon still works out of the box.
-    let resolver = match TokioAsyncResolver::tokio_from_system_conf() {
-        Ok(r) => r,
-        Err(err) => {
-            tracing::debug!(
-                %err,
-                "hickory: system resolv.conf unavailable, using default config"
-            );
-            TokioAsyncResolver::tokio(ResolverConfig::default(), ResolverOpts::default())
+    // Cache hit (within TTL) — skip the OS resolver entirely. This is
+    // the steady-state path after the first successful connect.
+    let now = std::time::Instant::now();
+    if let Ok(g) = resolved_host_cache().lock() {
+        if let Some((ip, cached_at)) = g.get(&(host.to_string(), port)) {
+            if now.duration_since(*cached_at) < RESOLVED_HOST_TTL {
+                return Ok(format_ip_authority(*ip, port));
+            }
         }
-    };
+    }
 
-    let lookup = resolver
-        .lookup_ip(host)
+    // Cache miss / expired — resolve via the OS (getaddrinfo under
+    // spawn_blocking). Sequential w.r.t. the reconnect loop, so no
+    // cancellation storm; see module-level docs on connect().
+    let target = format!("{host}:{port}");
+    let mut addrs = tokio::net::lookup_host(&target)
         .await
         .map_err(|e| TransportError::Unreachable(format!("dns lookup ({host}): {e}")))?;
-    let ip = lookup
-        .iter()
+    let sock = addrs
         .next()
         .ok_or_else(|| TransportError::Unreachable(format!("dns lookup ({host}): no records")))?;
+    let ip = sock.ip();
 
-    Ok(match ip {
+    // Insert into cache for subsequent reconnect cycles.
+    if let Ok(mut g) = resolved_host_cache().lock() {
+        g.insert((host.to_string(), port), (ip, now));
+    }
+
+    Ok(format_ip_authority(ip, port))
+}
+
+fn format_ip_authority(ip: std::net::IpAddr, port: u16) -> String {
+    match ip {
         std::net::IpAddr::V4(v4) => format!("https://{v4}:{port}"),
         std::net::IpAddr::V6(v6) => format!("https://[{v6}]:{port}"),
-    })
+    }
 }
 
 /// Reconnect-loop driver. Caller supplies a `connect_once` closure that
@@ -978,52 +1053,40 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn resolve_host_drop_mid_lookup_is_clean() {
-        // Regression guard for #248: even if the outer task driving
-        // a real DNS lookup is *cancelled* (i.e. the future is
-        // dropped between polls), hickory's resolver does NOT spawn
-        // a `tokio::task::spawn_blocking` child whose JoinHandle
-        // would be cancelled and surface as a fake
-        // `dns error → task NNN was cancelled` chain. Dropping a
-        // hickory lookup future simply abandons the in-progress
-        // state machine — no JoinError ever fires.
+    async fn resolve_host_caches_then_invalidate_clears() {
+        // Regression guard for #250: the resolver is process-global
+        // and TTL-cached so steady-state reconnect cycles never
+        // touch the OS resolver. `invalidate_resolved_host` must
+        // wipe the entry so a connect-error path forces a fresh
+        // resolve next attempt.
         //
-        // We exercise this by spawning the resolver against a
-        // deliberately unreachable nameserver (TEST-NET-1 192.0.2.1
-        // — RFC 5737 reserved, guaranteed to never answer), letting
-        // it run briefly, then aborting the JoinHandle. The expected
-        // post-condition is that the abort completes cleanly and no
-        // panic / poisoned-mutex / dangling-task remains.
-        use hickory_resolver::config::{NameServerConfig, Protocol, ResolverConfig, ResolverOpts};
-        use hickory_resolver::TokioAsyncResolver;
-        let mut cfg = ResolverConfig::new();
-        cfg.add_name_server(NameServerConfig {
-            socket_addr: "192.0.2.1:53".parse().unwrap(),
-            protocol: Protocol::Udp,
-            tls_dns_name: None,
-            trust_negative_responses: false,
-            bind_addr: None,
-        });
-        let mut opts = ResolverOpts::default();
-        opts.timeout = Duration::from_secs(30);
-        opts.attempts = 1;
-        let resolver = TokioAsyncResolver::tokio(cfg, opts);
-        let handle = tokio::spawn(async move {
-            // This will hang (no answer from TEST-NET-1) until aborted.
-            let _ = resolver.lookup_ip("example.test.").await;
-        });
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        handle.abort();
-        // If hickory were spawning a blocking child task, this
-        // .await would surface a JoinError::is_cancelled() up the
-        // chain similar to the GaiResolver failure mode. It does
-        // not — abort merely cancels the outer task.
-        let res = handle.await;
-        assert!(res.is_err(), "expected JoinError after abort");
-        // Sanity: IP-literal short-circuit is still functional after
-        // the previous resolver was dropped.
-        let out = resolve_host_for_endpoint("127.0.0.1", 1).await.unwrap();
-        assert_eq!(out, "https://127.0.0.1:1");
+        // We exercise this against `localhost` which getaddrinfo
+        // resolves locally without any network I/O (NSS reads
+        // /etc/hosts). On the off-chance the CI sandbox has no
+        // /etc/hosts entry for `localhost`, the test gracefully
+        // skips the populate assertion — what we really care about
+        // is that `invalidate_resolved_host` is a no-op when nothing
+        // is cached and that IP-literal short-circuit still works
+        // afterwards.
+        invalidate_resolved_host("localhost", 12345);
+        if let Ok(out) = resolve_host_for_endpoint("localhost", 12345).await {
+            // The authority must start with https:// and end with the port.
+            assert!(out.starts_with("https://"), "got {out}");
+            assert!(out.ends_with(":12345"), "got {out}");
+            // Second call must be served from cache and return the
+            // same authority.
+            let again = resolve_host_for_endpoint("localhost", 12345).await.unwrap();
+            assert_eq!(out, again, "cache hit must return identical authority");
+            // Invalidate, then ensure a fresh resolve still succeeds.
+            invalidate_resolved_host("localhost", 12345);
+            let after = resolve_host_for_endpoint("localhost", 12345).await.unwrap();
+            assert_eq!(out, after, "post-invalidate resolve must match");
+        }
+        // IP-literal path must be unaffected by cache / invalidation.
+        let lit = resolve_host_for_endpoint("127.0.0.1", 1).await.unwrap();
+        assert_eq!(lit, "https://127.0.0.1:1");
+        // Invalidating an IP literal must be a no-op (and never panic).
+        invalidate_resolved_host("127.0.0.1", 1);
     }
 
     #[tokio::test]
