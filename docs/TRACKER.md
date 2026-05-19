@@ -4,13 +4,14 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-19T08:10:00Z` |
+| Last refreshed | `2026-05-19T08:40:00Z` |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
-| Merged PRs | **58** since project bootstrap |
-| Open PRs | 1 (#199 axe-core + Playwright — iterating on red CI) |
-| Open issues | **8** (4 fresh from this cycle's agents + 3 founder-action-blocked + #201 Phase 0 blocker) |
+| Merged PRs | **62** since project bootstrap |
+| Open PRs | **0** |
+| Open issues | **4** — every remaining ticket needs the founder (see Founder action items below) |
 | EPIC closure | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 17 / 17 closed by audit (**code shipped**; Phase 0 runtime chain BLOCKED — see #201) |
-| Phase 0 chain | <img alt="OPEN" src="https://img.shields.io/badge/-BLOCKED-cf222e?style=flat-square" /> NOT WORKING end-to-end — see [#201](https://github.com/iogrid/iogrid/issues/201) |
+| Phase 0 chain | <img alt="OPEN" src="https://img.shields.io/badge/-BLOCKED-cf222e?style=flat-square" /> NOT WORKING end-to-end — see [#201](https://github.com/iogrid/iogrid/issues/201) — needs mothership Flux wiring (`openova-io/openova-private`) |
+| Autonomous build cycle | **Terminal — agents idle, all code-shippable work merged.** Remaining 4 issues require founder action. |
 
 **Legend:** <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> done · <img alt="IN_FLIGHT" src="https://img.shields.io/badge/-IN__FLIGHT-bf8700?style=flat-square" /> work in progress · <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> open · <img alt="DEFERRED" src="https://img.shields.io/badge/-DEFERRED-6e7781?style=flat-square" /> deferred · <img alt="BLOCKED" src="https://img.shields.io/badge/-BLOCKED-8250df?style=flat-square" /> blocked on founder action
 
