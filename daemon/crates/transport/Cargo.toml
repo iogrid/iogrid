@@ -34,6 +34,8 @@ iogrid-anti-abuse = { workspace = true }
 iogrid-scheduler = { workspace = true }
 futures = { workspace = true }
 parking_lot = { workspace = true }
+hickory-resolver = { workspace = true }
+url = { workspace = true }
 
 [build-dependencies]
 tonic-build = { workspace = true }
