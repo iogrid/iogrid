@@ -346,7 +346,9 @@ mod pairing_tests {
     fn mint_local_pairing_key_emits_real_csr_and_key() {
         let local = mint_local_pairing_key().expect("mint local key");
         assert!(
-            local.csr_pem.starts_with("-----BEGIN CERTIFICATE REQUEST-----"),
+            local
+                .csr_pem
+                .starts_with("-----BEGIN CERTIFICATE REQUEST-----"),
             "CSR PEM header missing: {:?}",
             &local.csr_pem[..local.csr_pem.len().min(80)],
         );
