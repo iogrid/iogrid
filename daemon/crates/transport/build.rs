@@ -26,9 +26,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     println!(
         "cargo:rerun-if-changed={}",
-        proto_root
-            .join("iogrid/common/v1/types.proto")
-            .display()
+        proto_root.join("iogrid/common/v1/types.proto").display()
     );
 
     // Build both client (production) and server (tests use an in-process
