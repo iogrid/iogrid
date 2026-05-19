@@ -1,0 +1,73 @@
+name: web-a11y
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - ".github/workflows/web-a11y.yml"
+  pull_request:
+    paths:
+      - "web/**"
+      - ".github/workflows/web-a11y.yml"
+
+concurrency:
+  group: web-a11y-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  a11y:
+    name: WCAG 2.2 AA — axe-core scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: web
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      AUTH_SECRET: ci-placeholder-auth-secret-do-not-use-in-prod
+      NEXTAUTH_URL: http://localhost:3000
+      EMAIL_SERVER_HOST: localhost
+      EMAIL_SERVER_PORT: "1025"
+      EMAIL_SERVER_USER: test
+      EMAIL_SERVER_PASSWORD: test
+      EMAIL_FROM: noreply@iogrid.test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Install Playwright browsers (chromium only)
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run axe-core WCAG 2.2 AA scan
+        run: pnpm exec playwright test --project=chromium tests/a11y
+
+      - name: Upload Playwright HTML report (a11y)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-a11y
+          path: web/playwright-report
+          retention-days: 30
+
+      - name: Upload Playwright test results (a11y traces/videos)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results-a11y
+          path: web/test-results
+          retention-days: 7
