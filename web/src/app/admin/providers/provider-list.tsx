@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { browserApi } from "@/lib/api";
 
 type Provider = {
   id?: { value: string };
@@ -16,14 +15,15 @@ type Provider = {
 type ListResp = { providers?: Provider[] };
 
 /**
- * /admin/providers list — calls providers-svc.ListProviders via
- * Connect-RPC and renders a row per registered daemon.
+ * /admin/providers list — fetches the registered-daemon roster from
+ * the same-origin BFF proxy `/api/v1/admin/providers/list` (#237).
  *
- * The Phase 0 setup exposes providers-svc directly at
- * `${API_BASE_URL}/iogrid.providers.v1.ProviderRegistrationService/*`
- * via a Traefik IngressRoute. An empty body lists ALL providers (no
- * owner filter) — server-side enforces RequireRole for cross-tenant
- * listing.
+ * The proxy reads the NextAuth session server-side, forwards to
+ * providers-svc.ListProviders (Connect-RPC) with the IOGRID_SERVICE_TOKEN
+ * + X-Iogrid-User-Id shim, and asserts the ADMIN role so the upstream
+ * RequireRole check accepts the materialised Claims. Going same-origin
+ * makes the NextAuth cookie ride the request and dodges the CORS
+ * preflight that the previous cross-origin Connect-RPC call required.
  */
 export function ProviderList() {
   const [providers, setProviders] = React.useState<Provider[] | null>(null);
@@ -33,8 +33,7 @@ export function ProviderList() {
     let cancelled = false;
     (async () => {
       try {
-        const url = `${browserApi().baseUrl}/iogrid.providers.v1.ProviderRegistrationService/ListProviders`;
-        const res = await fetch(url, {
+        const res = await fetch("/api/v1/admin/providers/list", {
           method: "POST",
           credentials: "include",
           headers: { "content-type": "application/json" },
