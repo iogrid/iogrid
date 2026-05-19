@@ -461,12 +461,14 @@ const RESOLVED_HOST_TTL: Duration = Duration::from_secs(3600);
 /// * Long-running daemons (months of uptime) drifting from current DNS
 ///   state — 1 h TTL refresh.
 static RESOLVED_HOST_CACHE: std::sync::OnceLock<
-    std::sync::Mutex<std::collections::HashMap<(String, u16), (std::net::IpAddr, std::time::Instant)>>,
+    std::sync::Mutex<
+        std::collections::HashMap<(String, u16), (std::net::IpAddr, std::time::Instant)>,
+    >,
 > = std::sync::OnceLock::new();
 
-fn resolved_host_cache(
-) -> &'static std::sync::Mutex<std::collections::HashMap<(String, u16), (std::net::IpAddr, std::time::Instant)>>
-{
+fn resolved_host_cache() -> &'static std::sync::Mutex<
+    std::collections::HashMap<(String, u16), (std::net::IpAddr, std::time::Instant)>,
+> {
     RESOLVED_HOST_CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
