@@ -1,0 +1,94 @@
+# iogrid Flux v2 Kustomization.
+#
+# Phase 0 unblock — wires the iogrid GitRepository (source.yaml) to the
+# in-repo Kustomize base under `infra/k8s/base`. Applied by the founder
+# on the mothership cluster (45.151.123.50:6443).
+#
+# Issue: https://github.com/iogrid/iogrid/issues/201 (Layer 2)
+#
+# Behaviour:
+#   - Reconciles every 5m (drift snap-back).
+#   - prune=true: anything Flux applied that's no longer in the source
+#     gets garbage-collected on the next reconcile.
+#   - wait=true with timeout 10m: Flux waits for the listed healthChecks
+#     to report Ready before marking the Kustomization Ready=True.
+#   - targetNamespace=iogrid: forces all namespaced resources into the
+#     iogrid namespace regardless of what their manifest says.
+#   - postBuild.substituteFrom: pulls cluster-side variables out of a
+#     ConfigMap `iogrid-flux-vars` (founder creates this once with
+#     non-secret env values — e.g. PUBLIC_API_BASE, MOTHERSHIP_REGION).
+#     Anything in `${VAR}` form inside the manifests gets substituted.
+#
+# Health checks
+# -------------
+# These are the 7 Deployments the iogrid base expects to exist after a
+# successful reconcile (mirrors `infra/k8s/base/kustomization.yaml`'s
+# resource list — minus pure infra like grafana/web/proxy-gateway/
+# vpn-gateway/build-gateway/gateway which have their own ready signals).
+#
+# If ANY of these are not Ready after 10m, Flux marks the Kustomization
+# `Ready=False reason=HealthCheckFailed` and the founder gets a clear
+# pointer to which Deployment failed (see `flux get kustomization iogrid
+# -n flux-system` output).
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: iogrid
+  namespace: flux-system
+  labels:
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/managed-by: flux
+spec:
+  interval: 5m
+  path: ./infra/k8s/base
+  prune: true
+  wait: true
+  timeout: 10m
+  sourceRef:
+    kind: GitRepository
+    name: iogrid
+    namespace: flux-system
+  targetNamespace: iogrid
+  # Cluster-side variable substitution. The founder pre-creates the
+  # ConfigMap `iogrid-flux-vars` in `flux-system` with at minimum:
+  #   - PUBLIC_API_BASE=https://api.iogrid.org
+  #   - PUBLIC_PROXY_BASE=https://proxy.iogrid.org
+  #   - PUBLIC_APP_BASE=https://app.iogrid.org
+  #   - MOTHERSHIP_REGION=hz-fsn1
+  # Optional: include additional non-secret env this Kustomization
+  # should propagate into the manifests via `${VAR}` references.
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: iogrid-flux-vars
+        optional: false
+  healthChecks:
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: identity-svc
+      namespace: iogrid
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: providers-svc
+      namespace: iogrid
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: workloads-svc
+      namespace: iogrid
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: antiabuse-svc
+      namespace: iogrid
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: billing-svc
+      namespace: iogrid
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: telemetry-svc
+      namespace: iogrid
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: gateway-bff
+      namespace: iogrid
