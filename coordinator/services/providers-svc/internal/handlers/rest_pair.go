@@ -17,13 +17,12 @@
 package handlers
 
 import (
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"connectrpc.com/connect"
@@ -34,16 +33,20 @@ import (
 // pairingRESTRequest mirrors the daemon's PairingRequest serde shape.
 type pairingRESTRequest struct {
 	PairingToken string `json:"pairing_token"`
-	// CSRPem is the daemon-generated PKCS#10 PEM. The current Connect
-	// handler does not yet consume CSRs (the daemon-public-key path is
-	// used instead) — we accept the field so future daemon builds that
-	// switch to CSR flow remain wire-compatible.
+	// CSRPem is the daemon-generated PKCS#10 PEM. As of #235 this
+	// field is REQUIRED: the daemon now mints its own ECDSA-P256
+	// keypair locally via rcgen and ships only the CSR over the wire.
+	// providers-svc parses the CSR, verifies its self-signature, and
+	// signs the embedded public key — it never generates a keypair on
+	// behalf of the daemon (doing so would force the daemon to trust a
+	// server-side private key it never sees, the original #235 bug).
 	CSRPem string `json:"csr_pem"`
 	// Optional richer fields the daemon may start populating later.
 	DisplayName string `json:"display_name,omitempty"`
-	// DaemonPublicKey is base64-std-encoded SPKI DER. When the daemon
-	// supplies a CSR-only request, this field is empty and the shim
-	// supplies a placeholder so the CA can still issue a cert.
+	// DaemonPublicKeyB64 is base64-std-encoded SPKI DER. RETAINED for
+	// back-compat with older test harnesses + the Connect-RPC path —
+	// when the JSON shim receives a CSR, the SPKI is extracted from it
+	// and this field is ignored.
 	DaemonPublicKeyB64 string `json:"daemon_public_key_b64,omitempty"`
 }
 
@@ -75,33 +78,43 @@ func (h *RegistrationHandler) PairDaemonREST(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// daemon_public_key_b64 is optional in the REST shape (the
-	// daemon's current build does not generate keys locally). When
-	// absent we synthesise a placeholder DER blob so the in-memory CA
-	// can still issue a cert — the resulting bundle is *not* a real
-	// mTLS identity, but it lets the smoke harness exercise the full
-	// path without forcing every daemon build to upgrade today.
-	pubKey, err := base64.StdEncoding.DecodeString(in.DaemonPublicKeyB64)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, "daemon_public_key_b64 must be base64")
+	// #235: the daemon now generates its own keypair locally and ships
+	// the CSR. Extract the embedded public key + verify the CSR's
+	// self-signature so the issued cert binds to a key the daemon
+	// actually holds.
+	//
+	// The legacy daemon_public_key_b64 fallback path is preserved only
+	// when csr_pem is absent so that older test fixtures (and the
+	// Connect-RPC handler tests) keep working — production builds of
+	// the daemon always send csr_pem.
+	var pubKey []byte
+	switch {
+	case in.CSRPem != "":
+		spki, err := publicKeyFromCSRPEM(in.CSRPem)
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, "csr_pem: "+err.Error())
+			return
+		}
+		pubKey = spki
+	case in.DaemonPublicKeyB64 != "":
+		var err error
+		pubKey, err = base64.StdEncoding.DecodeString(in.DaemonPublicKeyB64)
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, "daemon_public_key_b64 must be base64")
+			return
+		}
+		if len(pubKey) == 0 {
+			writeJSONError(w, http.StatusBadRequest, "daemon_public_key_b64 was empty")
+			return
+		}
+	default:
+		// Hard error: silently fabricating a keypair server-side is
+		// exactly the #235 bug. Require the daemon to supply one path
+		// or the other.
+		writeJSONError(w, http.StatusBadRequest,
+			"csr_pem required (daemon must generate its own keypair); "+
+				"daemon_public_key_b64 accepted as legacy fallback")
 		return
-	}
-	if len(pubKey) == 0 {
-		// The daemon's current build doesn't yet generate keys
-		// locally — synthesise an ephemeral ECDSA P-256 SPKI so the
-		// CA can issue a usable cert. Once the daemon adopts rcgen
-		// this branch becomes a back-compat fallback.
-		priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, "ephemeral key: "+err.Error())
-			return
-		}
-		der, err := x509.MarshalPKIXPublicKey(&priv.PublicKey)
-		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, "marshal spki: "+err.Error())
-			return
-		}
-		pubKey = der
 	}
 
 	req := &providersv1.PairDaemonRequest{
@@ -129,6 +142,34 @@ func (h *RegistrationHandler) PairDaemonREST(w http.ResponseWriter, r *http.Requ
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(out)
+}
+
+// publicKeyFromCSRPEM parses a PEM-encoded PKCS#10 CSR, verifies the
+// embedded self-signature, and returns the DER-encoded SubjectPublicKey
+// (SPKI) ready to hand to ca.IssueDaemonCert. Returns a descriptive
+// error on any malformed input so the daemon-side log makes the cause
+// obvious; the bytes are NEVER consumed unverified — a CSR whose
+// signature does not match its public key is rejected.
+func publicKeyFromCSRPEM(pemText string) ([]byte, error) {
+	block, _ := pem.Decode([]byte(pemText))
+	if block == nil {
+		return nil, errors.New("not a PEM block")
+	}
+	if block.Type != "CERTIFICATE REQUEST" && block.Type != "NEW CERTIFICATE REQUEST" {
+		return nil, fmt.Errorf("unexpected PEM type %q; want CERTIFICATE REQUEST", block.Type)
+	}
+	csr, err := x509.ParseCertificateRequest(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("parse: %w", err)
+	}
+	if err := csr.CheckSignature(); err != nil {
+		return nil, fmt.Errorf("verify self-signature: %w", err)
+	}
+	spki, err := x509.MarshalPKIXPublicKey(csr.PublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("marshal SPKI: %w", err)
+	}
+	return spki, nil
 }
 
 func writeJSONError(w http.ResponseWriter, status int, msg string) {
