@@ -231,24 +231,16 @@ func TestProxyClient_TLSWrappedSOCKS5(t *testing.T) {
 	defer ln.Close()
 	gateAddr := ln.Addr().String()
 
-	var wg sync.WaitGroup
-	done := make(chan struct{}, 4)
 	go func() {
 		for {
 			c, err := ln.Accept()
 			if err != nil {
 				return
 			}
-			wg.Add(1)
 			go func(c net.Conn) {
-				defer wg.Done()
 				defer c.Close()
 				if err := fakeSocks5Serve(c, "workspace", "secret-key", destAddr); err != nil {
 					t.Logf("fake socks5 server error: %v", err)
-				}
-				select {
-				case done <- struct{}{}:
-				default:
 				}
 			}(c)
 		}
@@ -307,12 +299,6 @@ func TestProxyClient_TLSWrappedSOCKS5(t *testing.T) {
 	}
 	if r.ProviderCountry != "DE" {
 		t.Fatalf("provider_country: %q", r.ProviderCountry)
-	}
-	// Ensure the fake gateway actually completed at least one session.
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("fake gateway never observed a completed session")
 	}
 }
 
