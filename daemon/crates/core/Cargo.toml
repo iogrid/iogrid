@@ -47,6 +47,13 @@ ureq = { version = "2.10", default-features = false, features = ["tls"] }
 # to avoid the "Could not automatically determine the process-level
 # CryptoProvider from Rustls crate features" panic.
 rustls = { workspace = true }
+# rcgen — generates the daemon's local ECDSA-P256 keypair + the PKCS#10
+# CSR that travels in the PairingRequest. Before #235 the daemon wrote
+# a placeholder string to ~/.iogrid/key.pem, which made every
+# subsequent `Identity::from_pem` call return garbage and aborted tonic
+# TLS handshakes at <1ms with "tls configuration failed: transport
+# error" — the Phase 0 vCard E2E blocker.
+rcgen = { version = "0.13", default-features = false, features = ["pem", "ring"] }
 
 iogrid-transport = { workspace = true }
 iogrid-routing = { workspace = true }

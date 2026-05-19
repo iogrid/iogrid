@@ -121,6 +121,42 @@ async fn run_daemon(state_dir: &std::path::Path) -> Result<()> {
     supervisor.run().await
 }
 
+/// CSR + keypair generated locally by the daemon at pairing time.
+///
+/// The PEM-encoded private key stays on disk (`~/.iogrid/key.pem`); only
+/// the CSR PEM travels over the wire to providers-svc. Without this the
+/// daemon used to ship a placeholder string as the private key — see
+/// #235.
+struct LocalPairingKey {
+    csr_pem: String,
+    key_pem: String,
+}
+
+/// Generate a fresh ECDSA-P256 keypair + matching PKCS#10 CSR.
+///
+/// The CSR's subject CommonName is intentionally a placeholder
+/// ("daemon-pair-pending"): providers-svc rewrites the issued
+/// certificate's CN to the real provider id (it does not echo the CSR's
+/// subject back). Extracted so the round-trip test below can run without
+/// touching the network.
+fn mint_local_pairing_key() -> Result<LocalPairingKey> {
+    let key_pair = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256)
+        .context("rcgen: generate ECDSA P-256 keypair")?;
+    let mut params = rcgen::CertificateParams::new(Vec::<String>::new())
+        .context("rcgen: create CertificateParams")?;
+    params.distinguished_name = rcgen::DistinguishedName::new();
+    params
+        .distinguished_name
+        .push(rcgen::DnType::CommonName, "daemon-pair-pending");
+    let csr = params
+        .serialize_request(&key_pair)
+        .context("rcgen: serialize CSR")?;
+    Ok(LocalPairingKey {
+        csr_pem: csr.pem().context("rcgen: encode CSR PEM")?,
+        key_pem: key_pair.serialize_pem(),
+    })
+}
+
 async fn run_pair(
     state_dir: &std::path::Path,
     token: &str,
@@ -132,22 +168,26 @@ async fn run_pair(
     }
     // Persist so the supervisor picks up the URL on its next launch.
     cfg.save()?;
+
+    // Mint a local ECDSA-P256 keypair + CSR BEFORE the network call so
+    // that a server-side failure leaves nothing half-written on disk.
+    let local = mint_local_pairing_key().context("generate local keypair")?;
+
     let url = format!("{}/api/v1/providers/pair", cfg.coordinator_url);
     let client = iogrid_transport::identity::PairingClient { pair_endpoint: url };
     let req = iogrid_transport::identity::PairingRequest {
         pairing_token: token.to_string(),
-        csr_pem: String::new(),
+        csr_pem: local.csr_pem.clone(),
     };
     match client.pair(req, state_dir).await {
         Ok(resp) => {
             cfg.provider_id = resp.provider_id.clone();
             cfg.save()?;
-            // Persist the cert (the key is supplied by the user-side
-            // pairing tool — follow-up PR generates it locally via rcgen).
+            // Persist the signed cert + the LOCAL private key. The key
+            // PEM never travels over the wire — only the CSR does.
             let bundle = iogrid_transport::identity::IdentityBundle {
                 cert_pem: resp.cert_pem.into_bytes(),
-                key_pem: b"# key.pem placeholder - generate locally via rcgen in follow-up PR\n"
-                    .to_vec(),
+                key_pem: local.key_pem.into_bytes(),
             };
             bundle.save(state_dir).context("persist identity bundle")?;
             println!("paired: provider_id={}", resp.provider_id);
@@ -290,4 +330,60 @@ async fn run_uninstall(state_dir: &std::path::Path) -> Result<()> {
     let _ = std::fs::remove_dir_all(state_dir);
     println!("uninstalled — state dir removed");
     Ok(())
+}
+
+#[cfg(test)]
+mod pairing_tests {
+    use super::*;
+    use iogrid_transport::identity::IdentityBundle;
+
+    /// CSR carries the daemon's public key + a self-signature; key.pem
+    /// is a real PEM-encoded private key (not the old placeholder
+    /// comment string). Round-trip through `IdentityBundle::save/load`
+    /// must succeed so that downstream `Identity::from_pem(cert, key)`
+    /// in tonic does not abort with "tls configuration failed".
+    #[test]
+    fn mint_local_pairing_key_emits_real_csr_and_key() {
+        let local = mint_local_pairing_key().expect("mint local key");
+        assert!(
+            local
+                .csr_pem
+                .starts_with("-----BEGIN CERTIFICATE REQUEST-----"),
+            "CSR PEM header missing: {:?}",
+            &local.csr_pem[..local.csr_pem.len().min(80)],
+        );
+        assert!(
+            local.csr_pem.contains("-----END CERTIFICATE REQUEST-----"),
+            "CSR PEM trailer missing",
+        );
+        // rcgen 0.13 emits PKCS#8 or SEC1 EC PRIVATE KEY blocks depending
+        // on the keypair flavour. Accept either as long as it's a real
+        // PEM block — what we explicitly reject is the pre-#235
+        // "# key.pem placeholder ..." comment string.
+        assert!(
+            local.key_pem.starts_with("-----BEGIN"),
+            "key.pem must start with a PEM block, got {:?}",
+            &local.key_pem[..local.key_pem.len().min(80)],
+        );
+        assert!(
+            !local.key_pem.contains("placeholder"),
+            "key.pem must NOT be the legacy placeholder string",
+        );
+
+        // The CSR is parseable as PKCS#10 by rustls-pemfile + a minimal
+        // ASN.1 sanity check via openssl-free path: we only assert PEM
+        // boundaries here; full RFC-2986 validation lives on the
+        // providers-svc side (see rest_pair.go CSR parsing).
+
+        // Atomic save + reload round-trip — the exact path the
+        // post-pair daemon will exercise on every restart.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let bundle = IdentityBundle {
+            cert_pem: b"-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n".to_vec(),
+            key_pem: local.key_pem.into_bytes(),
+        };
+        bundle.save(dir.path()).expect("save bundle");
+        let reloaded = IdentityBundle::load(dir.path()).expect("load bundle");
+        assert_eq!(reloaded.key_pem, bundle.key_pem);
+    }
 }
