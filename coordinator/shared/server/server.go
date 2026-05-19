@@ -20,6 +20,8 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 
 	"github.com/iogrid/iogrid/coordinator/shared/health"
 )
@@ -88,9 +90,21 @@ func Run(ctx context.Context, opts Options) error {
 		otelhttp.WithMessageEvents(otelhttp.ReadEvents, otelhttp.WriteEvents),
 	)
 
+	// Connect-RPC bidirectional streams (e.g. WorkloadDispatchService.Dispatch)
+	// require HTTP/2. Traefik forwards as h2c (cleartext HTTP/2) to the
+	// Service port — see appProtocol: kubernetes.io/h2c in the corresponding
+	// Service manifest — so the backend MUST speak h2c too. Without this
+	// wrapper, Go's http.Server only speaks HTTP/1.1 over cleartext and the
+	// gateway gives up with 502/500 before the request reaches the chi
+	// router. Wrap with h2c.NewHandler so the same listener serves HTTP/1.1
+	// unary calls AND h2c streaming calls (the wrapper inspects the request's
+	// :method/:upgrade headers and the connection preface). See issue #259.
+	h2s := &http2.Server{
+		IdleTimeout: 120 * time.Second,
+	}
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           handler,
+		Handler:           h2c.NewHandler(handler, h2s),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
