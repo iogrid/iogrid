@@ -52,11 +52,15 @@ GOOGLE_CLIENT_ID=...                       # required for Google flow
 GOOGLE_CLIENT_SECRET=...                   # required for Google flow
 GOOGLE_REDIRECT_URL=https://.../v1/auth/google/callback
 
-JWT_PRIVATE_KEY_PATH=/etc/iogrid/jwt/private.pem
-JWT_PUBLIC_KEY_PATH=/etc/iogrid/jwt/public.pem
+JWT_PRIVATE_KEY_PATH=/etc/identity/jwt/private.pem   # prod: SealedSecret mount
+JWT_PUBLIC_KEY_PATH=/etc/identity/jwt/public.pem
 JWT_KEY_ID=primary                         # for kid rotation
 JWT_ISSUER=https://api.iogrid.org/identity
 JWT_AUDIENCE=gateway-bff,proxy-gateway     # comma-separated
+
+# Dev / e2e only — autogen ephemeral keypair at boot (NEVER in prod).
+JWT_KEYPAIR_AUTOGEN=false                  # set to true to enable
+JWT_AUTOGEN_DIR=/tmp/jwt-keys              # writeable mount (emptyDir in k8s)
 
 ACCESS_TOKEN_TTL=15m
 REFRESH_TOKEN_TTL=720h                     # 30 days
@@ -78,23 +82,79 @@ ALLOWED_RETURN_HOSTS=iogrid.org,app.iogrid.org   # open-redirect allowlist
 
 ## Local development
 
-```bash
-# 1. Bring up Postgres + Redis (compose file in coordinator/ deploys)
-docker compose -f ../../deploys/dev.yml up -d postgres redis
+Three ways to satisfy the RS256 JWT keypair requirement — pick whichever
+matches your environment.
 
-# 2. Generate a test RSA keypair (NEVER use in prod):
+### Option 1 — committed dev fixture (preferred for unit / integration tests)
+
+A static RSA-2048 keypair lives at
+`internal/auth/fixtures/{jwt_test.key,jwt_test.pub}`. **Public, committed
+to git, NEVER for prod.** See [`internal/auth/fixtures/README.md`](internal/auth/fixtures/README.md).
+
+```bash
+export JWT_PRIVATE_KEY_PATH=$(pwd)/internal/auth/fixtures/jwt_test.key
+export JWT_PUBLIC_KEY_PATH=$(pwd)/internal/auth/fixtures/jwt_test.pub
+go run ./cmd/identity-svc
+```
+
+### Option 2 — autogen ephemeral keypair (k8s e2e + transient dev)
+
+Set `JWT_KEYPAIR_AUTOGEN=1` and the binary mints a fresh RSA-2048
+keypair at boot, writes both PEM files under `$JWT_AUTOGEN_DIR` (default
+`/tmp/jwt-keys`), logs a loud warning, and uses them for the lifetime of
+the process. Tokens are **invalidated on pod restart**; downstream
+verifiers that cached the previous public key will reject them.
+
+```bash
+export JWT_KEYPAIR_AUTOGEN=1
+# (optional) export JWT_AUTOGEN_DIR=/tmp/jwt-keys
+go run ./cmd/identity-svc
+```
+
+**`readOnlyRootFilesystem: true` trap.** The prod manifest at
+`infra/k8s/base/identity-svc/deployment.yaml` ships
+`readOnlyRootFilesystem: true`, so the autogen path cannot write to `/`,
+`/etc`, or any other rootfs directory. The deployment defines an
+`emptyDir { medium: Memory }` mount at `/tmp/jwt-keys` precisely so
+autogen works under that security context. **If you swap mount paths,
+keep the writeable emptyDir aligned with `JWT_AUTOGEN_DIR`.**
+
+### Option 3 — production SealedSecret mount
+
+In prod (`infra/k8s/base/identity-svc/deployment.yaml`) a SealedSecret
+named `identity-svc-jwt` is mounted read-only at `/etc/identity/jwt`:
+
+```yaml
+volumes:
+  - name: jwt
+    secret:
+      secretName: identity-svc-jwt
+      optional: true        # `optional: true` lets dev pods boot without it,
+                            # combined with JWT_KEYPAIR_AUTOGEN=1
+```
+
+The Secret carries two keys: `private.pem` + `public.pem` (PEM-encoded
+RS256). Rotation playbook lives in `docs/RUNBOOKS.md` (see "JWT
+key rotation"). For local docker-compose dev, manually generate the
+keypair:
+
+```bash
 mkdir -p /tmp/iogrid-jwt
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 \
   -out /tmp/iogrid-jwt/private.pem
 openssl rsa -pubout -in /tmp/iogrid-jwt/private.pem \
   -out /tmp/iogrid-jwt/public.pem
+export JWT_PRIVATE_KEY_PATH=/tmp/iogrid-jwt/private.pem
+export JWT_PUBLIC_KEY_PATH=/tmp/iogrid-jwt/public.pem
+```
 
-# 3. Run
+### Bringing up Postgres + Redis
+
+```bash
+docker compose -f ../../deploys/dev.yml up -d postgres redis
 export DATABASE_URL=postgres://postgres:secret@localhost:5432/identity?sslmode=disable
 export GOOGLE_CLIENT_ID=...
 export GOOGLE_CLIENT_SECRET=...
-export JWT_PRIVATE_KEY_PATH=/tmp/iogrid-jwt/private.pem
-export JWT_PUBLIC_KEY_PATH=/tmp/iogrid-jwt/public.pem
 go run ./cmd/identity-svc
 ```
 

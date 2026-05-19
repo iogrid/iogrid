@@ -102,9 +102,29 @@ func main() {
 	}
 
 	// --- JWT signer --------------------------------------------------
+	// JWT_KEYPAIR_AUTOGEN=1 mints an ephemeral RSA-2048 keypair, writes
+	// it under JWTAutogenDir, and overrides the configured paths. This
+	// is for dev / e2e ONLY — tokens do not survive pod restart and
+	// downstream verifiers that cached the previous public key will
+	// reject them. The deployment manifest provides an emptyDir mount
+	// at /tmp/jwt-keys so this works under readOnlyRootFilesystem=true.
+	jwtPrivPath := cfg.JWTPrivateKeyPath
+	jwtPubPath := cfg.JWTPublicKeyPath
+	if cfg.JWTKeypairAutogen {
+		p, pub, err := tokens.EnsureAutogenKeypair(cfg.JWTAutogenDir)
+		if err != nil {
+			logger.Error("jwt autogen failed", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+		jwtPrivPath, jwtPubPath = p, pub
+		logger.Warn("JWT_KEYPAIR_AUTOGEN=1 — generated EPHEMERAL keypair",
+			slog.String("dir", cfg.JWTAutogenDir),
+			slog.String("impact", "tokens are invalidated on pod restart; NEVER set in prod"),
+		)
+	}
 	signer, err := tokens.NewSigner(tokens.SignerConfig{
-		PrivateKeyPath: cfg.JWTPrivateKeyPath,
-		PublicKeyPath:  cfg.JWTPublicKeyPath,
+		PrivateKeyPath: jwtPrivPath,
+		PublicKeyPath:  jwtPubPath,
 		KeyID:          cfg.JWTKeyID,
 		Issuer:         cfg.JWTIssuer,
 		Audience:       cfg.JWTAudience,

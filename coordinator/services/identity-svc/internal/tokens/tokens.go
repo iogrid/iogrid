@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -107,6 +108,47 @@ func NewSigner(cfg SignerConfig) (*Signer, error) {
 		audience:  cfg.Audience,
 		ttlAccess: cfg.AccessTokenTTL,
 	}, nil
+}
+
+// EnsureAutogenKeypair mints a fresh RSA-2048 keypair and writes both
+// PEM files (PKCS#8 private + PKIX public) under dir. Returns the
+// concrete file paths. Intended for dev / e2e boot where mounting a
+// real Secret is unwanted; callers should log a loud warning and
+// document that tokens do not survive pod restart.
+//
+// dir is created with 0700 if missing. The PEM files are written with
+// 0600 / 0644 respectively. If dir lives on a tmpfs (e.g. an emptyDir
+// medium=Memory mount) the keys never touch persistent storage.
+func EnsureAutogenKeypair(dir string) (privPath, pubPath string, err error) {
+	if dir == "" {
+		dir = "/tmp/jwt-keys"
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", "", fmt.Errorf("create %s: %w", dir, err)
+	}
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return "", "", fmt.Errorf("rsa.GenerateKey: %w", err)
+	}
+	privDER, err := x509.MarshalPKCS8PrivateKey(priv)
+	if err != nil {
+		return "", "", fmt.Errorf("marshal pkcs8 private: %w", err)
+	}
+	pubDER, err := x509.MarshalPKIXPublicKey(&priv.PublicKey)
+	if err != nil {
+		return "", "", fmt.Errorf("marshal pkix public: %w", err)
+	}
+	privPath = filepath.Join(dir, "jwt_autogen.key")
+	pubPath = filepath.Join(dir, "jwt_autogen.pub")
+	privPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privDER})
+	pubPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER})
+	if err := os.WriteFile(privPath, privPEM, 0o600); err != nil {
+		return "", "", fmt.Errorf("write %s: %w", privPath, err)
+	}
+	if err := os.WriteFile(pubPath, pubPEM, 0o644); err != nil {
+		return "", "", fmt.Errorf("write %s: %w", pubPath, err)
+	}
+	return privPath, pubPath, nil
 }
 
 // NewSignerFromKeys is the test-friendly constructor that accepts an

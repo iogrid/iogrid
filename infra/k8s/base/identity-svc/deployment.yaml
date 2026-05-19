@@ -62,6 +62,17 @@ spec:
               value: info
             - name: SERVICE_NAME
               value: identity-svc
+            # JWT keys — prod mounts the SealedSecret `identity-svc-jwt`
+            # at /etc/identity/jwt (read-only). For dev / e2e the same
+            # mount can be left empty and JWT_KEYPAIR_AUTOGEN=1 set,
+            # in which case the binary writes an ephemeral keypair to
+            # the /tmp/jwt-keys emptyDir below.
+            - name: JWT_PRIVATE_KEY_PATH
+              value: /etc/identity/jwt/private.pem
+            - name: JWT_PUBLIC_KEY_PATH
+              value: /etc/identity/jwt/public.pem
+            - name: JWT_AUTOGEN_DIR
+              value: /tmp/jwt-keys
           envFrom:
             - configMapRef:
                 name: identity-svc-config
@@ -101,9 +112,27 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            # JWT keypair — SealedSecret in prod, optional in dev.
+            # `optional: true` on the projected secret lets the Pod
+            # start when the Secret is absent (dev / e2e); operators
+            # set JWT_KEYPAIR_AUTOGEN=1 in that path and the binary
+            # writes an ephemeral keypair to the jwt-keys emptyDir.
+            - name: jwt
+              mountPath: /etc/identity/jwt
+              readOnly: true
+            - name: jwt-keys
+              mountPath: /tmp/jwt-keys
       volumes:
         - name: tmp
           emptyDir: {}
+        - name: jwt
+          secret:
+            secretName: identity-svc-jwt
+            optional: true
+        - name: jwt-keys
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname
