@@ -465,6 +465,107 @@ export class Provider extends Message<Provider> {
 }
 
 /**
+ * IssuePairingTokenRequest mints a fresh, single-use pairing token bound
+ * to a specific owner. The RPC is intended to be called by gateway-bff
+ * on behalf of an authenticated user — the caller MUST equal the owner.
+ *
+ * @generated from message iogrid.providers.v1.IssuePairingTokenRequest
+ */
+export class IssuePairingTokenRequest extends Message<IssuePairingTokenRequest> {
+  /**
+   * The user who will own the paired daemon. gateway-bff enforces that
+   * this matches the authenticated principal before forwarding.
+   *
+   * @generated from field: iogrid.common.v1.UUID owner_user_id = 1;
+   */
+  ownerUserId?: UUID;
+
+  /**
+   * Time-to-live in seconds. 0 == server default (10 minutes). Capped
+   * server-side to one hour.
+   *
+   * @generated from field: uint32 ttl_seconds = 2;
+   */
+  ttlSeconds = 0;
+
+  constructor(data?: PartialMessage<IssuePairingTokenRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "iogrid.providers.v1.IssuePairingTokenRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "owner_user_id", kind: "message", T: UUID },
+    { no: 2, name: "ttl_seconds", kind: "scalar", T: 13 /* ScalarType.UINT32 */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): IssuePairingTokenRequest {
+    return new IssuePairingTokenRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): IssuePairingTokenRequest {
+    return new IssuePairingTokenRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): IssuePairingTokenRequest {
+    return new IssuePairingTokenRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: IssuePairingTokenRequest | PlainMessage<IssuePairingTokenRequest> | undefined, b: IssuePairingTokenRequest | PlainMessage<IssuePairingTokenRequest> | undefined): boolean {
+    return proto3.util.equals(IssuePairingTokenRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message iogrid.providers.v1.IssuePairingTokenResponse
+ */
+export class IssuePairingTokenResponse extends Message<IssuePairingTokenResponse> {
+  /**
+   * Opaque token displayed in the install.sh output / Pair-Device card.
+   * Daemon redeems via PairDaemon.
+   *
+   * @generated from field: string pairing_token = 1;
+   */
+  pairingToken = "";
+
+  /**
+   * When the token expires (UTC, server clock).
+   *
+   * @generated from field: google.protobuf.Timestamp expires_at = 2;
+   */
+  expiresAt?: Timestamp;
+
+  constructor(data?: PartialMessage<IssuePairingTokenResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "iogrid.providers.v1.IssuePairingTokenResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "pairing_token", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "expires_at", kind: "message", T: Timestamp },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): IssuePairingTokenResponse {
+    return new IssuePairingTokenResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): IssuePairingTokenResponse {
+    return new IssuePairingTokenResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): IssuePairingTokenResponse {
+    return new IssuePairingTokenResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: IssuePairingTokenResponse | PlainMessage<IssuePairingTokenResponse> | undefined, b: IssuePairingTokenResponse | PlainMessage<IssuePairingTokenResponse> | undefined): boolean {
+    return proto3.util.equals(IssuePairingTokenResponse, a, b);
+  }
+}
+
+/**
  * @generated from message iogrid.providers.v1.PairDaemonRequest
  */
 export class PairDaemonRequest extends Message<PairDaemonRequest> {

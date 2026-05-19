@@ -7,18 +7,27 @@
 /* eslint-disable */
 // @ts-nocheck
 
-import { DeactivateProviderRequest, DeactivateProviderResponse, GetProviderRequest, GetProviderResponse, ListProvidersRequest, ListProvidersResponse, PairDaemonRequest, PairDaemonResponse, UpdateCapabilityInventoryRequest, UpdateCapabilityInventoryResponse, UpdateHostInfoRequest, UpdateHostInfoResponse } from "./registration_pbjs";
+import { DeactivateProviderRequest, DeactivateProviderResponse, GetProviderRequest, GetProviderResponse, IssuePairingTokenRequest, IssuePairingTokenResponse, ListProvidersRequest, ListProvidersResponse, PairDaemonRequest, PairDaemonResponse, UpdateCapabilityInventoryRequest, UpdateCapabilityInventoryResponse, UpdateHostInfoRequest, UpdateHostInfoResponse } from "./registration_pbjs";
 import { MethodKind } from "@bufbuild/protobuf";
 
 /**
  * ProviderRegistrationService is called by the Rust daemon (pair, update)
- * and by the management plane (read, deactivate).
+ * and by the management plane (token issuance, read, deactivate).
  *
  * @generated from service iogrid.providers.v1.ProviderRegistrationService
  */
 export const ProviderRegistrationService = {
   typeName: "iogrid.providers.v1.ProviderRegistrationService",
   methods: {
+    /**
+     * @generated from rpc iogrid.providers.v1.ProviderRegistrationService.IssuePairingToken
+     */
+    issuePairingToken: {
+      name: "IssuePairingToken",
+      I: IssuePairingTokenRequest,
+      O: IssuePairingTokenResponse,
+      kind: MethodKind.Unary,
+    },
     /**
      * @generated from rpc iogrid.providers.v1.ProviderRegistrationService.PairDaemon
      */
