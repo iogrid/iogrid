@@ -24,6 +24,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     "/legal/tos",
     "/legal/privacy",
     "/legal/aup",
+    "/transparency",
   ].map((path) => ({
     url: `${SITE_URL}${path}`,
     lastModified: now,

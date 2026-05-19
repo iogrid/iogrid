@@ -42,6 +42,15 @@ type Deps struct {
 	// VPNGateway is optional; when present the BFF surfaces
 	// /api/v1/vpn/config-for-platform proxying to the vpn-gateway pod.
 	VPNGateway *handlers.VPNGatewayProxy
+	// Transparency is optional; when present the BFF accepts the
+	// antiabuse-svc CronJob's POST at /api/v1/transparency/publish
+	// and serves the cached snapshots at /status/transparency/*.
+	Transparency handlers.TransparencyStore
+	// TransparencyPublishToken, when set, is required as a Bearer
+	// token on POST /api/v1/transparency/publish (the CronJob is
+	// configured with the same secret). When empty the endpoint
+	// relies on NetworkPolicy + in-cluster trust.
+	TransparencyPublishToken string
 }
 
 // Mount builds the routes from the supplied Deps. Pass the returned
@@ -52,12 +61,26 @@ func Mount(deps Deps) func(chi.Router) {
 	}
 	api := handlers.New(deps.Clients, deps.APIKeyStore, deps.Logger)
 	api.VPNGateway = deps.VPNGateway
+	api.Transparency = deps.Transparency
+	if api.Transparency == nil {
+		// Default in-memory store so the CronJob POST never 503s in
+		// the dev-mode boot path. Production main.go can override
+		// with a Redis/DB-backed implementation.
+		api.Transparency = handlers.NewMemoryTransparencyStore()
+	}
 
 	return func(r chi.Router) {
 		// Index lives under /v1 for symmetry with the other services
 		// (it predates the BFF's customer-facing /api/v1/* tree).
 		r.Route("/v1", func(r chi.Router) {
 			r.Get("/", indexHandler)
+		})
+
+		// Public transparency endpoints — unauthenticated by design
+		// (the docs/LEGAL.md commitment is to publish these).
+		r.Route("/status/transparency", func(r chi.Router) {
+			r.Get("/", api.ListTransparencyReports)
+			r.Get("/{year}/{quarter}", api.GetTransparencyReport)
 		})
 
 		r.Route("/api/v1", func(r chi.Router) {
@@ -124,6 +147,26 @@ func Mount(deps Deps) func(chi.Router) {
 				r.Use(auth.RequireRole("ADMIN"))
 				r.Get("/abuse-queue", api.ListAbuseQueue)
 				r.Post("/abuse/{id}/resolve", api.ResolveAbuseEvent)
+			})
+
+			// /transparency ----------------------------------------------
+			// POST is the antiabuse-svc CronJob ingest hook. Optional
+			// bearer-token guard via TransparencyPublishToken; absent
+			// guard relies on cluster NetworkPolicy.
+			r.Route("/transparency", func(r chi.Router) {
+				if deps.TransparencyPublishToken != "" {
+					tok := deps.TransparencyPublishToken
+					r.Use(func(next http.Handler) http.Handler {
+						return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+							if req.Header.Get("Authorization") != "Bearer "+tok {
+								http.Error(w, `{"code":"unauthorized","message":"bad publish token"}`, http.StatusUnauthorized)
+								return
+							}
+							next.ServeHTTP(w, req)
+						})
+					})
+				}
+				r.Post("/publish", api.PublishTransparencyReport)
 			})
 
 			// /vpn --------------------------------------------------------

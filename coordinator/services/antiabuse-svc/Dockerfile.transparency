@@ -1,0 +1,32 @@
+# syntax=docker/dockerfile:1.7
+
+# Dockerfile for the antiabuse-svc-transparency-report binary, the
+# Kubernetes CronJob that emits a quarterly transparency report and
+# publishes it to S3 + gateway-bff. Built separately from the main
+# antiabuse-svc image because the CronJob has a different
+# entrypoint + lifecycle (no HTTP server, runs-to-completion).
+FROM --platform=$BUILDPLATFORM golang:1.23-bookworm AS builder
+
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+
+WORKDIR /src
+
+COPY coordinator/shared /src/coordinator/shared
+COPY coordinator/internal /src/coordinator/internal
+COPY coordinator/services/antiabuse-svc /src/coordinator/services/antiabuse-svc
+
+WORKDIR /src/coordinator/services/antiabuse-svc
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+    go build -trimpath -ldflags='-s -w' \
+        -o /out/antiabuse-svc-transparency-report ./cmd/transparency-report
+
+# ---- runtime ----------------------------------------------------------------
+FROM gcr.io/distroless/static-debian12:nonroot
+
+COPY --from=builder /out/antiabuse-svc-transparency-report /usr/local/bin/antiabuse-svc-transparency-report
+
+USER nonroot:nonroot
+ENTRYPOINT ["/usr/local/bin/antiabuse-svc-transparency-report"]

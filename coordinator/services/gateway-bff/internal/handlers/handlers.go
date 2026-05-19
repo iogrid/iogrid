@@ -39,6 +39,12 @@ type API struct {
 	// Optional — when nil the /api/v1/vpn/config-for-platform endpoint
 	// responds 503 vpn_gateway_unavailable.
 	VPNGateway *VPNGatewayProxy
+	// Transparency backs the quarterly transparency-report endpoints.
+	// Optional — when nil the /status/transparency endpoints respond
+	// 503 transparency_store_unavailable. The default wiring in main.go
+	// installs a MemoryTransparencyStore so the BFF can accept the
+	// CronJob POST without extra configuration.
+	Transparency TransparencyStore
 }
 
 // New constructs an API. logger defaults to slog.Default(). store
