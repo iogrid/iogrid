@@ -254,3 +254,32 @@ export interface ListFiltersResponse {
   rules: AbuseFilterRule[];
   rulesetHash?: string;
 }
+
+// ---- auto-update (#59) ----------------------------------------------------
+
+export type UpdateChannel = "stable" | "beta" | "canary";
+
+export interface UpdatePreferences {
+  channel: UpdateChannel;
+  autoUpdate: boolean;
+}
+
+export type UpdateOutcome =
+  | { status: "up_to_date"; current: string }
+  | { status: "skipped"; reason: string }
+  | { status: "staged"; from: string; to: string; path: string }
+  | { status: "failed"; error: string };
+
+export interface UpdateHistoryEntry {
+  at: string;
+  channel: string;
+  fromVersion: string;
+  outcome: UpdateOutcome;
+}
+
+export interface UpdateState {
+  enabled: boolean;
+  lastOutcome?: UpdateOutcome;
+  pendingVersion?: string;
+  history: UpdateHistoryEntry[];
+}

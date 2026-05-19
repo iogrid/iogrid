@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
@@ -47,6 +48,11 @@ type API struct {
 	// Workspaces is the proxy to identity-svc's WorkspaceService.
 	// Optional — when nil the /api/v1/workspaces tree returns 503.
 	Workspaces WorkspaceClient
+	// updates is the in-memory backing store for the auto-update
+	// preferences + state surfaced at /api/v1/account/updates*. Lazy-
+	// initialised on first request via ensureUpdatesStore. Issue #59.
+	updates     *updatesStore
+	updatesOnce sync.Once
 }
 
 // New constructs an API. logger defaults to slog.Default(). store

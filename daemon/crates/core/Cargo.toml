@@ -34,6 +34,15 @@ parking_lot = { workspace = true }
 # tokens. Added directly here (not workspace-pinned) because no other
 # crate needs randomness yet.
 rand = "0.8"
+# Auto-update — Ed25519 manifest signature + per-binary signature, plus
+# SHA-256 integrity, base64 wire encoding, semver-aware version pick,
+# ureq for sync HTTP (the worker runs fetches inside spawn_blocking).
+# Pinned to security-supported releases as of 2026-05-19.
+ed25519-dalek = { version = "2.1", default-features = false, features = ["std"] }
+sha2 = "0.10"
+base64 = "0.22"
+semver = { version = "1", features = ["serde"] }
+ureq = { version = "2.10", default-features = false, features = ["tls"] }
 
 iogrid-transport = { workspace = true }
 iogrid-routing = { workspace = true }
