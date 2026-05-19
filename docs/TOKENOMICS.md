@@ -134,6 +134,13 @@ Tier-1 CEX listings (Binance Spot, Coinbase, Kraken) are tracked as aspirational
 | **Burn rate target** | ≥2% of monthly revenue → market-buy → burn | Continuously reduces circulating supply as network scales |
 | **Treasury custody** | Multisig (3-of-5 Squads Protocol) | Programmatic governance with founder + key contributors |
 
+> **Transparency.** Treasury balance, emission progress, burns, staking
+> participation, LP health, and foundation activity are published quarterly
+> in [`docs/transparency/`](./transparency/README.md). See the
+> [report template](./transparency/TEMPLATE.md) for the canonical shape and
+> [`2026-Q2.md`](./transparency/2026-Q2.md) for the first scheduled
+> publication.
+
 ---
 
 ## Token allocation
