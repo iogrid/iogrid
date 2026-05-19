@@ -109,6 +109,25 @@ message Provider {
 
 // --- RPCs -----------------------------------------------------------------
 
+// IssuePairingTokenRequest mints a fresh, single-use pairing token bound
+// to a specific owner. The RPC is intended to be called by gateway-bff
+// on behalf of an authenticated user — the caller MUST equal the owner.
+message IssuePairingTokenRequest {
+  // The user who will own the paired daemon. gateway-bff enforces that
+  // this matches the authenticated principal before forwarding.
+  iogrid.common.v1.UUID owner_user_id = 1;
+  // Time-to-live in seconds. 0 == server default (10 minutes). Capped
+  // server-side to one hour.
+  uint32 ttl_seconds = 2;
+}
+message IssuePairingTokenResponse {
+  // Opaque token displayed in the install.sh output / Pair-Device card.
+  // Daemon redeems via PairDaemon.
+  string pairing_token = 1;
+  // When the token expires (UTC, server clock).
+  google.protobuf.Timestamp expires_at = 2;
+}
+
 message PairDaemonRequest {
   // One-time pairing token displayed in the browser onboarding flow.
   string pairing_token = 1;
@@ -171,8 +190,9 @@ message DeactivateProviderRequest {
 message DeactivateProviderResponse {}
 
 // ProviderRegistrationService is called by the Rust daemon (pair, update)
-// and by the management plane (read, deactivate).
+// and by the management plane (token issuance, read, deactivate).
 service ProviderRegistrationService {
+  rpc IssuePairingToken(IssuePairingTokenRequest) returns (IssuePairingTokenResponse);
   rpc PairDaemon(PairDaemonRequest) returns (PairDaemonResponse);
   rpc UpdateHostInfo(UpdateHostInfoRequest) returns (UpdateHostInfoResponse);
   rpc UpdateCapabilityInventory(UpdateCapabilityInventoryRequest) returns (UpdateCapabilityInventoryResponse);

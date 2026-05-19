@@ -20,6 +20,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/billing/v1/billingv1connect"
 	"github.com/iogrid/iogrid/coordinator/services/billing-svc/internal/solana"
 	"github.com/iogrid/iogrid/coordinator/services/billing-svc/internal/store"
 	"github.com/iogrid/iogrid/coordinator/services/billing-svc/internal/stripeapi"
@@ -73,6 +74,13 @@ func Mount(d Deps) func(chi.Router) {
 			// Tax reports
 			r.Post("/tax/{userID}/generate", h.taxGenerate)
 		})
+
+		// Connect-RPC: ApiKeyService — proxy-gateway + build-gateway
+		// call ValidateApiKey on the hot path; gateway-bff calls
+		// Create/List/Revoke on behalf of authenticated users.
+		apiKeys := NewApiKeyHandler(d.Store)
+		path, hh := billingv1connect.NewApiKeyServiceHandler(apiKeys)
+		r.Mount(path, hh)
 	}
 }
 

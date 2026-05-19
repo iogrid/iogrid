@@ -38,6 +38,9 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
+	// ProviderRegistrationServiceIssuePairingTokenProcedure is the fully-qualified name of the
+	// ProviderRegistrationService's IssuePairingToken RPC.
+	ProviderRegistrationServiceIssuePairingTokenProcedure = "/iogrid.providers.v1.ProviderRegistrationService/IssuePairingToken"
 	// ProviderRegistrationServicePairDaemonProcedure is the fully-qualified name of the
 	// ProviderRegistrationService's PairDaemon RPC.
 	ProviderRegistrationServicePairDaemonProcedure = "/iogrid.providers.v1.ProviderRegistrationService/PairDaemon"
@@ -61,6 +64,7 @@ const (
 // These variables are the protoreflect.Descriptor objects for the RPCs defined in this package.
 var (
 	providerRegistrationServiceServiceDescriptor                         = v1.File_iogrid_providers_v1_registration_proto.Services().ByName("ProviderRegistrationService")
+	providerRegistrationServiceIssuePairingTokenMethodDescriptor         = providerRegistrationServiceServiceDescriptor.Methods().ByName("IssuePairingToken")
 	providerRegistrationServicePairDaemonMethodDescriptor                = providerRegistrationServiceServiceDescriptor.Methods().ByName("PairDaemon")
 	providerRegistrationServiceUpdateHostInfoMethodDescriptor            = providerRegistrationServiceServiceDescriptor.Methods().ByName("UpdateHostInfo")
 	providerRegistrationServiceUpdateCapabilityInventoryMethodDescriptor = providerRegistrationServiceServiceDescriptor.Methods().ByName("UpdateCapabilityInventory")
@@ -72,6 +76,7 @@ var (
 // ProviderRegistrationServiceClient is a client for the
 // iogrid.providers.v1.ProviderRegistrationService service.
 type ProviderRegistrationServiceClient interface {
+	IssuePairingToken(context.Context, *connect.Request[v1.IssuePairingTokenRequest]) (*connect.Response[v1.IssuePairingTokenResponse], error)
 	PairDaemon(context.Context, *connect.Request[v1.PairDaemonRequest]) (*connect.Response[v1.PairDaemonResponse], error)
 	UpdateHostInfo(context.Context, *connect.Request[v1.UpdateHostInfoRequest]) (*connect.Response[v1.UpdateHostInfoResponse], error)
 	UpdateCapabilityInventory(context.Context, *connect.Request[v1.UpdateCapabilityInventoryRequest]) (*connect.Response[v1.UpdateCapabilityInventoryResponse], error)
@@ -91,6 +96,12 @@ type ProviderRegistrationServiceClient interface {
 func NewProviderRegistrationServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) ProviderRegistrationServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &providerRegistrationServiceClient{
+		issuePairingToken: connect.NewClient[v1.IssuePairingTokenRequest, v1.IssuePairingTokenResponse](
+			httpClient,
+			baseURL+ProviderRegistrationServiceIssuePairingTokenProcedure,
+			connect.WithSchema(providerRegistrationServiceIssuePairingTokenMethodDescriptor),
+			connect.WithClientOptions(opts...),
+		),
 		pairDaemon: connect.NewClient[v1.PairDaemonRequest, v1.PairDaemonResponse](
 			httpClient,
 			baseURL+ProviderRegistrationServicePairDaemonProcedure,
@@ -132,12 +143,18 @@ func NewProviderRegistrationServiceClient(httpClient connect.HTTPClient, baseURL
 
 // providerRegistrationServiceClient implements ProviderRegistrationServiceClient.
 type providerRegistrationServiceClient struct {
+	issuePairingToken         *connect.Client[v1.IssuePairingTokenRequest, v1.IssuePairingTokenResponse]
 	pairDaemon                *connect.Client[v1.PairDaemonRequest, v1.PairDaemonResponse]
 	updateHostInfo            *connect.Client[v1.UpdateHostInfoRequest, v1.UpdateHostInfoResponse]
 	updateCapabilityInventory *connect.Client[v1.UpdateCapabilityInventoryRequest, v1.UpdateCapabilityInventoryResponse]
 	getProvider               *connect.Client[v1.GetProviderRequest, v1.GetProviderResponse]
 	listProviders             *connect.Client[v1.ListProvidersRequest, v1.ListProvidersResponse]
 	deactivateProvider        *connect.Client[v1.DeactivateProviderRequest, v1.DeactivateProviderResponse]
+}
+
+// IssuePairingToken calls iogrid.providers.v1.ProviderRegistrationService.IssuePairingToken.
+func (c *providerRegistrationServiceClient) IssuePairingToken(ctx context.Context, req *connect.Request[v1.IssuePairingTokenRequest]) (*connect.Response[v1.IssuePairingTokenResponse], error) {
+	return c.issuePairingToken.CallUnary(ctx, req)
 }
 
 // PairDaemon calls iogrid.providers.v1.ProviderRegistrationService.PairDaemon.
@@ -174,6 +191,7 @@ func (c *providerRegistrationServiceClient) DeactivateProvider(ctx context.Conte
 // ProviderRegistrationServiceHandler is an implementation of the
 // iogrid.providers.v1.ProviderRegistrationService service.
 type ProviderRegistrationServiceHandler interface {
+	IssuePairingToken(context.Context, *connect.Request[v1.IssuePairingTokenRequest]) (*connect.Response[v1.IssuePairingTokenResponse], error)
 	PairDaemon(context.Context, *connect.Request[v1.PairDaemonRequest]) (*connect.Response[v1.PairDaemonResponse], error)
 	UpdateHostInfo(context.Context, *connect.Request[v1.UpdateHostInfoRequest]) (*connect.Response[v1.UpdateHostInfoResponse], error)
 	UpdateCapabilityInventory(context.Context, *connect.Request[v1.UpdateCapabilityInventoryRequest]) (*connect.Response[v1.UpdateCapabilityInventoryResponse], error)
@@ -188,6 +206,12 @@ type ProviderRegistrationServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewProviderRegistrationServiceHandler(svc ProviderRegistrationServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	providerRegistrationServiceIssuePairingTokenHandler := connect.NewUnaryHandler(
+		ProviderRegistrationServiceIssuePairingTokenProcedure,
+		svc.IssuePairingToken,
+		connect.WithSchema(providerRegistrationServiceIssuePairingTokenMethodDescriptor),
+		connect.WithHandlerOptions(opts...),
+	)
 	providerRegistrationServicePairDaemonHandler := connect.NewUnaryHandler(
 		ProviderRegistrationServicePairDaemonProcedure,
 		svc.PairDaemon,
@@ -226,6 +250,8 @@ func NewProviderRegistrationServiceHandler(svc ProviderRegistrationServiceHandle
 	)
 	return "/iogrid.providers.v1.ProviderRegistrationService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case ProviderRegistrationServiceIssuePairingTokenProcedure:
+			providerRegistrationServiceIssuePairingTokenHandler.ServeHTTP(w, r)
 		case ProviderRegistrationServicePairDaemonProcedure:
 			providerRegistrationServicePairDaemonHandler.ServeHTTP(w, r)
 		case ProviderRegistrationServiceUpdateHostInfoProcedure:
@@ -246,6 +272,10 @@ func NewProviderRegistrationServiceHandler(svc ProviderRegistrationServiceHandle
 
 // UnimplementedProviderRegistrationServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedProviderRegistrationServiceHandler struct{}
+
+func (UnimplementedProviderRegistrationServiceHandler) IssuePairingToken(context.Context, *connect.Request[v1.IssuePairingTokenRequest]) (*connect.Response[v1.IssuePairingTokenResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iogrid.providers.v1.ProviderRegistrationService.IssuePairingToken is not implemented"))
+}
 
 func (UnimplementedProviderRegistrationServiceHandler) PairDaemon(context.Context, *connect.Request[v1.PairDaemonRequest]) (*connect.Response[v1.PairDaemonResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iogrid.providers.v1.ProviderRegistrationService.PairDaemon is not implemented"))

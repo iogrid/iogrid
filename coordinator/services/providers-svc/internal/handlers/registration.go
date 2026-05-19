@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	commonv1 "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/common/v1"
 	providersv1 "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/providers/v1"
@@ -30,6 +31,49 @@ func NewRegistrationHandler(s store.Store, c *ca.CA, log *slog.Logger) *Registra
 		log = slog.Default()
 	}
 	return &RegistrationHandler{Store: s, CA: c, Log: log}
+}
+
+// defaultPairingTTL is the issuance TTL applied when the caller passes
+// ttl_seconds=0. Matches the value documented on the proto field.
+const defaultPairingTTL = 10 * time.Minute
+
+// maxPairingTTL caps how long any single token may live, regardless of
+// what the caller requested. One hour is enough for slow human-driven
+// install flows but short enough that a leaked token is bounded.
+const maxPairingTTL = time.Hour
+
+// IssuePairingToken mints a fresh, single-use pairing secret bound to a
+// specific owner. The caller is expected to be gateway-bff, which has
+// already verified that the authenticated principal equals owner_user_id
+// before forwarding the request — providers-svc trusts that gate.
+func (h *RegistrationHandler) IssuePairingToken(
+	ctx context.Context,
+	req *connect.Request[providersv1.IssuePairingTokenRequest],
+) (*connect.Response[providersv1.IssuePairingTokenResponse], error) {
+	owner := uuidString(req.Msg.GetOwnerUserId())
+	if owner == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("owner_user_id required"))
+	}
+	ttl := time.Duration(req.Msg.GetTtlSeconds()) * time.Second
+	if ttl <= 0 {
+		ttl = defaultPairingTTL
+	}
+	if ttl > maxPairingTTL {
+		ttl = maxPairingTTL
+	}
+	tok, err := h.Store.IssuePairingToken(ctx, owner, ttl)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	h.Log.Info("pairing token issued",
+		slog.String("owner_user_id", owner),
+		slog.Duration("ttl", ttl),
+	)
+	expiresAt := time.Now().UTC().Add(ttl)
+	return connect.NewResponse(&providersv1.IssuePairingTokenResponse{
+		PairingToken: tok,
+		ExpiresAt:    timestamppb.New(expiresAt),
+	}), nil
 }
 
 // PairDaemon consumes a one-time pairing token, persists a fresh Provider
