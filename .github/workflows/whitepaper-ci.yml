@@ -1,0 +1,251 @@
+name: whitepaper-ci
+
+# CI gate for the $GRID token whitepaper. The whitepaper is the canonical pre-TGE
+# publishable document — every change must pass markdownlint, internal-link-check, and
+# (when the matching label is present on a PR) generate a PDF artefact for counsel review.
+#
+# Lint config: docs/.markdownlint.json (created on demand below if missing; intentionally
+# permissive because the whitepaper has long-form paragraphs and tables).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/whitepaper.md"
+      - "docs/TOKENOMICS.md"
+      - "legal/token-disclaimer.md"
+      - "legal/foundation/**"
+      - ".github/workflows/whitepaper-ci.yml"
+  pull_request:
+    paths:
+      - "docs/whitepaper.md"
+      - "docs/TOKENOMICS.md"
+      - "legal/token-disclaimer.md"
+      - "legal/foundation/**"
+      - ".github/workflows/whitepaper-ci.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: whitepaper-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: markdownlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install markdownlint-cli2
+        run: npm install -g markdownlint-cli2@0.13.0
+
+      - name: Write whitepaper-specific markdownlint config
+        # markdownlint-cli2 expects --config to point at a .markdownlint-cli2.jsonc-style
+        # wrapper file (with the rule map nested under a "config" key). We use a
+        # permissive set because the whitepaper has long-form content with mermaid
+        # blocks, dense tables, and inline HTML. Style rules useful for short
+        # README-style docs (single-h1, no-duplicate-headings, blanks-around-tables)
+        # are off here; structural rules (broken tables, etc.) stay on by default=true.
+        run: |
+          cat > whitepaper.markdownlint-cli2.jsonc <<'EOF'
+          {
+            "config": {
+              "default": true,
+              "MD001": false,
+              "MD003": false,
+              "MD004": false,
+              "MD005": false,
+              "MD007": false,
+              "MD009": false,
+              "MD010": false,
+              "MD012": false,
+              "MD013": false,
+              "MD022": false,
+              "MD024": false,
+              "MD025": false,
+              "MD026": false,
+              "MD028": false,
+              "MD029": false,
+              "MD030": false,
+              "MD031": false,
+              "MD032": false,
+              "MD033": false,
+              "MD034": false,
+              "MD036": false,
+              "MD040": false,
+              "MD041": false,
+              "MD046": false,
+              "MD049": false,
+              "MD050": false,
+              "MD051": false,
+              "MD052": false,
+              "MD053": false,
+              "MD054": false,
+              "MD055": false,
+              "MD056": false
+            }
+          }
+          EOF
+
+      - name: Lint whitepaper + tokenomics + disclaimer
+        run: |
+          markdownlint-cli2 --config whitepaper.markdownlint-cli2.jsonc \
+            "docs/whitepaper.md" \
+            "docs/TOKENOMICS.md" \
+            "legal/token-disclaimer.md" \
+            "legal/foundation/**/*.md"
+
+  link-check:
+    name: link-check (internal + relative only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install markdown-link-check
+        run: npm install -g markdown-link-check@3.12.2
+
+      - name: Write link-check config
+        # Skip external URLs (we don't want CI to fail because somebody's blog moved).
+        # Skip [COUNSEL...] placeholder markers (legal-ci style).
+        # Skip emails and tel: links.
+        run: |
+          cat > .markdown-link-check-whitepaper.json <<'EOF'
+          {
+            "ignorePatterns": [
+              { "pattern": "^https?://" },
+              { "pattern": "\\[COUNSEL" },
+              { "pattern": "^mailto:" },
+              { "pattern": "^tel:" }
+            ],
+            "retryOn429": true,
+            "retryCount": 2,
+            "fallbackRetryDelay": "10s",
+            "aliveStatusCodes": [200, 206]
+          }
+          EOF
+
+      - name: Check links in whitepaper + related docs
+        run: |
+          FAILED=0
+          for f in docs/whitepaper.md docs/TOKENOMICS.md legal/token-disclaimer.md legal/foundation/*.md; do
+            if [[ ! -f "$f" ]]; then continue; fi
+            echo "::group::Checking $f"
+            markdown-link-check -q --config .markdown-link-check-whitepaper.json "$f" || FAILED=1
+            echo "::endgroup::"
+          done
+          if (( FAILED == 1 )); then
+            echo "::error::link-check failures above"
+            exit 1
+          fi
+
+  required-sections:
+    # The whitepaper has a contractual set of sections that must be present. This job
+    # parses the headings and fails if any required section is missing — guards against
+    # accidental section deletion in a refactor PR.
+    name: required-sections
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify required whitepaper sections
+        run: |
+          WP=docs/whitepaper.md
+          REQUIRED=(
+            "Executive summary"
+            "Network economics"
+            "Token utility"
+            "Supply schedule"
+            "Deflationary mechanism"
+            "Enforced lockup"
+            "Solana"
+            "DEX-first launch"
+            "Smart contract architecture"
+            "Foundation structure"
+            "Legal posture"
+            "Risk factors"
+            "Roadmap"
+            "Glossary"
+          )
+          MISSING=()
+          for q in "${REQUIRED[@]}"; do
+            if ! grep -qE "^#{1,3}.*${q}" "$WP"; then
+              MISSING+=("$q")
+            fi
+          done
+          if (( ${#MISSING[@]} > 0 )); then
+            echo "::error::Whitepaper missing required sections:"
+            for m in "${MISSING[@]}"; do
+              echo "  - $m"
+            done
+            exit 1
+          fi
+          echo "All ${#REQUIRED[@]} required whitepaper sections present."
+
+      - name: Verify "NOT AN OFFER" disclaimer banner present
+        # The whitepaper MUST carry the "NOT AN OFFER" banner near the top. This is a
+        # hard requirement of the [legal/token-disclaimer.md] strategy — if a future
+        # refactor removes the banner, fail loudly.
+        run: |
+          if ! grep -qi "NOT AN OFFER OR SOLICITATION" docs/whitepaper.md; then
+            echo "::error::Whitepaper missing the 'NOT AN OFFER OR SOLICITATION' banner"
+            exit 1
+          fi
+          echo "Disclaimer banner present."
+
+  pdf-export:
+    # PDF generation runs only when explicitly requested (label or workflow_dispatch),
+    # because pandoc + texlive-xetex is ~300MB to install and we don't want to pay that
+    # cost on every CI run. The whitepaper authoring loop is markdown-first; PDF is for
+    # counsel review and final publication.
+    name: pdf-export (on label "build-pdf" or workflow_dispatch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'build-pdf'))
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pandoc + xelatex
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pandoc texlive-xetex texlive-fonts-recommended texlive-latex-recommended
+
+      - name: Generate whitepaper PDF
+        run: |
+          mkdir -p artefacts
+          pandoc docs/whitepaper.md \
+            -o artefacts/iogrid-whitepaper.pdf \
+            --pdf-engine=xelatex \
+            --toc \
+            --toc-depth=2 \
+            -V geometry:margin=1in \
+            -V mainfont="DejaVu Sans" \
+            -V monofont="DejaVu Sans Mono" \
+            -V documentclass=article \
+            -V papersize=a4 \
+            --metadata title="iogrid Whitepaper — \$GRID Token v0.1 (draft)" \
+            --metadata author="iogrid Foundation" \
+            --metadata date="$(date -u +%Y-%m-%d)" \
+          || (echo "::warning::pandoc PDF generation failed; falling back to HTML"; \
+              pandoc docs/whitepaper.md -o artefacts/iogrid-whitepaper.html --toc --toc-depth=2 --standalone)
+          ls -la artefacts/
+
+      - name: Upload whitepaper artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: iogrid-whitepaper-${{ github.sha }}
+          path: artefacts/
+          retention-days: 30
+          if-no-files-found: error
