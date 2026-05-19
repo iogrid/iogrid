@@ -444,6 +444,15 @@ SELECT provider_id, SUM(cost_cents)::bigint
 // ── Solana payout + burn rows ───────────────────────────────────────
 
 // SolanaPayout records a $GRID distribution to a provider wallet.
+//
+// Lifecycle (see internal/solana/solana.go):
+//
+//	PENDING        — row written; quote computed, no on-chain action yet.
+//	SUBMITTED      — sendTransaction returned a signature; awaiting slot finality.
+//	CONFIRMED      — getSignatureStatuses → confirmed/finalized.
+//	FAILED         — submit or confirm failed; ErrorMessage holds reason.
+//	SKIPPED        — stub-mode placeholder.
+//	MISSING_WALLET — provider has no bound Solana address.
 type SolanaPayout struct {
 	ID             uuid.UUID
 	UserID         uuid.UUID
@@ -451,11 +460,16 @@ type SolanaPayout struct {
 	AmountLamports int64
 	USDValueCents  int64
 	TxSignature    *string
+	SwapSignature  *string
 	Status         string
 	PeriodStart    time.Time
 	PeriodEnd      time.Time
 	CreatedAt      time.Time
 	SettledAt      *time.Time
+	SubmittedAt    *time.Time
+	ConfirmedAt    *time.Time
+	RealisedOut    *int64
+	ErrorMessage   *string
 }
 
 // InsertSolanaPayout writes a $GRID payout row.
@@ -463,8 +477,9 @@ func (s *Store) InsertSolanaPayout(ctx context.Context, p SolanaPayout) error {
 	const q = `
 INSERT INTO solana_payout (
     id, user_id, wallet_address, amount_lamports, usd_value_cents,
-    tx_signature, status, period_start, period_end, created_at, settled_at
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`
+    tx_signature, swap_signature, status, period_start, period_end,
+    created_at, settled_at, submitted_at, confirmed_at, realised_out, error_message
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`
 	if p.ID == uuid.Nil {
 		p.ID = uuid.New()
 	}
@@ -473,12 +488,65 @@ INSERT INTO solana_payout (
 	}
 	_, err := s.pool.Exec(ctx, q,
 		p.ID, p.UserID, p.WalletAddress, p.AmountLamports, p.USDValueCents,
-		p.TxSignature, p.Status, p.PeriodStart, p.PeriodEnd, p.CreatedAt, p.SettledAt,
+		p.TxSignature, p.SwapSignature, p.Status, p.PeriodStart, p.PeriodEnd,
+		p.CreatedAt, p.SettledAt, p.SubmittedAt, p.ConfirmedAt, p.RealisedOut, p.ErrorMessage,
 	)
 	return err
 }
 
-// SolanaBurn records a daily 2% buyback-and-burn.
+// UpdateSolanaPayoutStatus moves a payout row through the lifecycle. All
+// non-key fields are passed via the value struct; columns we leave nil are
+// untouched (the SQL is UPDATE …SET col=COALESCE($N, col)).
+func (s *Store) UpdateSolanaPayoutStatus(ctx context.Context, id uuid.UUID, status string, txSig, swapSig, errMsg *string, realisedOut *int64) error {
+	const q = `
+UPDATE solana_payout
+   SET status         = $2,
+       tx_signature   = COALESCE($3, tx_signature),
+       swap_signature = COALESCE($4, swap_signature),
+       error_message  = COALESCE($5, error_message),
+       realised_out   = COALESCE($6, realised_out),
+       submitted_at   = CASE WHEN $2 = 'SUBMITTED' AND submitted_at IS NULL THEN now() ELSE submitted_at END,
+       confirmed_at   = CASE WHEN $2 = 'CONFIRMED' AND confirmed_at IS NULL THEN now() ELSE confirmed_at END,
+       settled_at     = CASE WHEN $2 IN ('CONFIRMED','FAILED') AND settled_at IS NULL THEN now() ELSE settled_at END
+ WHERE id = $1`
+	_, err := s.pool.Exec(ctx, q, id, status, txSig, swapSig, errMsg, realisedOut)
+	return err
+}
+
+// ListPendingSolanaPayouts returns rows with status='PENDING' ordered
+// oldest-first. Used by the daily cron retry/recovery loop.
+func (s *Store) ListPendingSolanaPayouts(ctx context.Context, limit int) ([]SolanaPayout, error) {
+	const q = `
+SELECT id, user_id, wallet_address, amount_lamports, usd_value_cents,
+       tx_signature, swap_signature, status, period_start, period_end,
+       created_at, settled_at, submitted_at, confirmed_at, realised_out, error_message
+  FROM solana_payout
+ WHERE status = 'PENDING'
+ ORDER BY created_at ASC
+ LIMIT $1`
+	rows, err := s.pool.Query(ctx, q, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SolanaPayout
+	for rows.Next() {
+		var p SolanaPayout
+		if err := rows.Scan(
+			&p.ID, &p.UserID, &p.WalletAddress, &p.AmountLamports, &p.USDValueCents,
+			&p.TxSignature, &p.SwapSignature, &p.Status, &p.PeriodStart, &p.PeriodEnd,
+			&p.CreatedAt, &p.SettledAt, &p.SubmittedAt, &p.ConfirmedAt, &p.RealisedOut, &p.ErrorMessage,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// SolanaBurn records a daily 2% buyback-and-burn. Lifecycle mirrors
+// SolanaPayout: PENDING → SUBMITTED → CONFIRMED, with FAILED / SKIPPED
+// alternates.
 type SolanaBurn struct {
 	ID             uuid.UUID
 	PeriodStart    time.Time
@@ -486,8 +554,13 @@ type SolanaBurn struct {
 	USDValueCents  int64
 	AmountLamports int64
 	TxSignature    *string
+	SwapSignature  *string
 	Status         string
 	CreatedAt      time.Time
+	SubmittedAt    *time.Time
+	ConfirmedAt    *time.Time
+	RealisedOut    *int64
+	ErrorMessage   *string
 }
 
 // InsertSolanaBurn writes a burn record.
@@ -495,8 +568,9 @@ func (s *Store) InsertSolanaBurn(ctx context.Context, b SolanaBurn) error {
 	const q = `
 INSERT INTO solana_burn (
     id, period_start, period_end, usd_value_cents, amount_lamports,
-    tx_signature, status, created_at
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`
+    tx_signature, swap_signature, status, created_at,
+    submitted_at, confirmed_at, realised_out, error_message
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`
 	if b.ID == uuid.Nil {
 		b.ID = uuid.New()
 	}
@@ -505,9 +579,39 @@ INSERT INTO solana_burn (
 	}
 	_, err := s.pool.Exec(ctx, q,
 		b.ID, b.PeriodStart, b.PeriodEnd, b.USDValueCents, b.AmountLamports,
-		b.TxSignature, b.Status, b.CreatedAt,
+		b.TxSignature, b.SwapSignature, b.Status, b.CreatedAt,
+		b.SubmittedAt, b.ConfirmedAt, b.RealisedOut, b.ErrorMessage,
 	)
 	return err
+}
+
+// UpdateSolanaBurnStatus mirrors UpdateSolanaPayoutStatus for burns.
+func (s *Store) UpdateSolanaBurnStatus(ctx context.Context, id uuid.UUID, status string, txSig, swapSig, errMsg *string, realisedOut *int64) error {
+	const q = `
+UPDATE solana_burn
+   SET status         = $2,
+       tx_signature   = COALESCE($3, tx_signature),
+       swap_signature = COALESCE($4, swap_signature),
+       error_message  = COALESCE($5, error_message),
+       realised_out   = COALESCE($6, realised_out),
+       submitted_at   = CASE WHEN $2 = 'SUBMITTED' AND submitted_at IS NULL THEN now() ELSE submitted_at END,
+       confirmed_at   = CASE WHEN $2 = 'CONFIRMED' AND confirmed_at IS NULL THEN now() ELSE confirmed_at END
+ WHERE id = $1`
+	_, err := s.pool.Exec(ctx, q, id, status, txSig, swapSig, errMsg, realisedOut)
+	return err
+}
+
+// HasConfirmedBurnForPeriod returns true if a CONFIRMED burn already exists
+// for the given UTC day. Used by the cron to avoid double-burning.
+func (s *Store) HasConfirmedBurnForPeriod(ctx context.Context, periodStart, periodEnd time.Time) (bool, error) {
+	const q = `
+SELECT EXISTS (
+    SELECT 1 FROM solana_burn
+     WHERE period_start = $1 AND period_end = $2 AND status = 'CONFIRMED'
+)`
+	var ok bool
+	err := s.pool.QueryRow(ctx, q, periodStart, periodEnd).Scan(&ok)
+	return ok, err
 }
 
 // ── Tax report rows ─────────────────────────────────────────────────

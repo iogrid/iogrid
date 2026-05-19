@@ -45,12 +45,29 @@ type Config struct {
 	SolanaRPCURL        string
 	SolanaHotWalletPath string
 	GRIDTokenMint       string
-	JupiterAPIURL       string
-	BurnPercentage      float64
-	IncineratorAddress  string
+	// GRIDTokenProgram is one of "token-2022" (default), "token" (legacy SPL).
+	// $GRID is minted under Token-2022 in production; the legacy program is
+	// supported for dev / devnet fixtures.
+	GRIDTokenProgram   string
+	JupiterAPIURL      string
+	BurnPercentage     float64
+	IncineratorAddress string
+	// BurnViaIncinerator — when true, the daily burn is implemented as a
+	// transfer-to-incinerator instead of a real SPL BurnChecked. Default
+	// false (real burn). Useful when the hot wallet is not the mint's
+	// burn authority (legacy SPL Token mints without burn delegation).
+	BurnViaIncinerator bool
+
+	// SquadsMultisigPubkey — when set, billing-svc routes writes through a
+	// Squads Protocol vault rather than single-sig (Phase 2). Empty in
+	// Phase 0/1.
+	SquadsMultisigPubkey string
 
 	// Cron schedule for the daily payout loop. Defaults to 00:05 UTC.
 	DailyPayoutCron string
+	// DailyPayoutEnabled — when true, the in-process daily cron is started
+	// (rather than relying on an external k8s CronJob). Default false.
+	DailyPayoutEnabled bool
 }
 
 // Defaults applied when env vars are empty.
@@ -78,10 +95,14 @@ func Load() (*Config, error) {
 		SolanaRPCURL:          getenv("SOLANA_RPC_URL", defaultSolanaRPCURL),
 		SolanaHotWalletPath:   os.Getenv("SOLANA_HOT_WALLET_KEYPAIR_PATH"),
 		GRIDTokenMint:         os.Getenv("GRID_TOKEN_MINT_ADDRESS"),
+		GRIDTokenProgram:      getenv("GRID_TOKEN_PROGRAM", "token-2022"),
 		JupiterAPIURL:         getenv("JUPITER_API_URL", defaultJupiterAPIURL),
 		BurnPercentage:        getenvFloat("BURN_PERCENTAGE", defaultBurnPercentage),
 		IncineratorAddress:    getenv("INCINERATOR_ADDRESS", defaultIncineratorAddress),
+		BurnViaIncinerator:    getenvBool("BURN_VIA_INCINERATOR", false),
+		SquadsMultisigPubkey:  os.Getenv("SQUADS_MULTISIG_PUBKEY"),
 		DailyPayoutCron:       getenv("DAILY_PAYOUT_CRON", defaultDailyPayoutCron),
+		DailyPayoutEnabled:    getenvBool("DAILY_PAYOUT_ENABLED", false),
 	}
 
 	// Required for any real Stripe operation. Skipped silently if the
@@ -129,6 +150,21 @@ func getenvFloat(key string, def float64) float64 {
 		return def
 	}
 	return f
+}
+
+// getenvBool parses a permissive "1|true|yes" → true.
+func getenvBool(key string, def bool) bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+	if v == "" {
+		return def
+	}
+	switch v {
+	case "1", "true", "yes", "y", "on":
+		return true
+	case "0", "false", "no", "n", "off":
+		return false
+	}
+	return def
 }
 
 // loadPriceIDs reads STRIPE_PRICE_PAYG / STRIPE_PRICE_STARTER /
