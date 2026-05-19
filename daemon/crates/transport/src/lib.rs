@@ -265,7 +265,17 @@ impl Channel {
         let cert = read_pem(&self.cfg.cert_pem)?;
         let key = read_pem(&self.cfg.key_pem)?;
         let identity = Identity::from_pem(cert, key);
-        let mut tls = ClientTlsConfig::new().identity(identity);
+        // tonic 0.12 + tls-roots: the feature compiles in
+        // rustls-native-certs but does NOT auto-populate the
+        // ClientTlsConfig trust store. Without an explicit roots call
+        // (with_native_roots / with_webpki_roots / ca_certificate) the
+        // store is empty, every server cert is rejected, and the
+        // builder returns "tls configuration failed: transport error"
+        // at <1 ms — no network attempted.
+        let mut tls = ClientTlsConfig::new()
+            .identity(identity)
+            .with_native_roots()
+            .with_webpki_roots();
         if let Some(ca_path) = &self.cfg.ca_pem {
             let ca = read_pem(ca_path)?;
             tls = tls.ca_certificate(tonic::transport::Certificate::from_pem(ca));
