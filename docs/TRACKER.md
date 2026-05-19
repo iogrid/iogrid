@@ -30,85 +30,124 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 ---
 
-## 2. Open-issue work breakdown (clickable WBS)
+## 2. EPIC + sub-issue work breakdown (clickable WBS)
 
-22 open issues grouped by lane. Each node is a clickable link. Titles spell out the gap.
+All 26 EPICs shown — done + in-flight + open. Sub-issues hang off each EPIC. Every node is clickable (opens GitHub).
 
 ```mermaid
 flowchart LR
-  classDef open       fill:#cf222e,stroke:#a40e26,color:#fff,stroke-width:2px
-  classDef flight     fill:#bf8700,stroke:#9a6700,color:#fff,stroke-width:2px
-  classDef done       fill:#2ea043,stroke:#1a7f37,color:#fff,stroke-width:2px
-  classDef deferred   fill:#6e7781,stroke:#4f555c,color:#fff,stroke-width:2px
-  classDef blocked    fill:#8250df,stroke:#5e1ed1,color:#fff,stroke-width:2px
+  classDef open     fill:#cf222e,stroke:#a40e26,color:#fff,stroke-width:2px
+  classDef flight   fill:#bf8700,stroke:#9a6700,color:#fff,stroke-width:2px
+  classDef done     fill:#2ea043,stroke:#1a7f37,color:#fff,stroke-width:2px
+  classDef deferred fill:#6e7781,stroke:#4f555c,color:#fff,stroke-width:2px
+  classDef blocked  fill:#8250df,stroke:#5e1ed1,color:#fff,stroke-width:2px
 
-  %% LANE A — $GRID TGE prerequisites
-  E87["EPIC #87 — $GRID Token Generation Event"]:::open
-  I104["#104 Reg-D/Reg-S pre-TGE raise (optional)"]:::deferred
-  I105["#105 Quarterly token-holder transparency report"]:::open
-  I168["#168 Document Raydium CLMM as canonical $GRID venue"]:::open
-  I172["#172 TOKENOMICS section — $GRID vs $CASH positioning"]:::open
+  %% ============= CORE PLATFORM EPICS =============
+  E1["EPIC 1 Rust provider daemon"]:::flight
+  E2["EPIC 2 Go coordinator microservices"]:::done
+  E3["EPIC 3 Next.js 15 web plane"]:::flight
+  E4["EPIC 4 Identity Google+magic-link"]:::flight
+  E5["EPIC 5 Grandma-proof install"]:::flight
+  E6["EPIC 6 Scheduling caps+calendar+idle"]:::done
+  E7["EPIC 7 Anti-abuse pre-flight"]:::open
+  E73["EPIC 73 Infra k8s+Flux GitOps"]:::done
+
+  %% ============= PRODUCT EPICS =============
+  E74["EPIC 74 Customer API + OpenAPI + SDKs"]:::done
+  E75["EPIC 75 Consumer VPN gateway"]:::done
+  E76["EPIC 76 Observability + SLOs"]:::done
+
+  %% ============= TOKEN + BRAND EPICS =============
+  E77["EPIC 77 Brand identity + marketing"]:::flight
+  E78["EPIC 78 Legal scaffolding drafts"]:::done
+  E87["EPIC 87 \$GRID Solana token + 5 programs"]:::flight
+  E106["EPIC 106 Public iogrid.org marketing site"]:::flight
+  E115["EPIC 115 Customer SDKs published"]:::done
+  E150["EPIC 150 E2E kind smoke harness"]:::done
+  E167["EPIC 167 Sociable Cash off-ramp partner"]:::flight
+
+  %% ============= EPIC DEPENDENCIES =============
+  E2 --> E73
+  E2 --> E74
+  E3 --> E4
+  E4 --> E78
+  E5 --> E73
+  E6 --> E1
+  E7 --> E1
+  E87 --> E78
+  E87 --> E167
+  E106 --> E77
+  E115 --> E74
+  E167 --> E87
+  E150 --> E2
+  E150 --> E1
+
+  %% ============= STILL-OPEN SUB-ISSUES =============
+  %% Lane A — \$GRID TGE prerequisites
+  I104["104 Reg-D/Reg-S pre-TGE raise optional"]:::deferred
+  I105["105 Quarterly token-holder transparency report"]:::open
+  I168["168 Raydium CLMM canonical \$GRID venue doc"]:::open
+  I172["172 TOKENOMICS \$GRID vs \$CASH positioning"]:::open
   E87 --> I168
   E87 --> I172
   E87 --> I105
   E87 --> I104
 
-  %% LANE B — Sociable Cash off-ramp partnership
-  E167["EPIC #167 — Sociable Cash multi-tenant off-ramp"]:::flight
-  E167 --> I168
+  %% Lane B — Coordinator gap
+  I35["35 Cilium SPIFFE mTLS not just NetworkPolicy"]:::open
+  E2 --> I35
 
-  %% LANE C — Anti-abuse (mostly shipped, EPIC still open)
-  E7["EPIC #7 — Anti-abuse + audit log"]:::open
+  %% Lane C — Web app real impl gaps
+  I3a["3 EPIC body — 5 stubs: identifier remove, account delete, i18n, WCAG, Playwright"]:::flight
+  E3 --> I3a
 
-  %% LANE D — Provider daemon (mostly shipped, EPIC still open)
-  E1["EPIC #1 — Rust provider daemon"]:::open
+  %% Lane D — Infra hygiene chores
+  I158["158 kustomize commonLabels deprecated"]:::open
+  I142["142 installer windows WiX 7 vs 4.0.6 clash"]:::open
+  E73 --> I158
+  E5 --> I142
 
-  %% LANE E — Coordinator (mostly shipped)
-  I35["#35 Cilium SPIFFE-style service mTLS (real impl, not just k8s NetworkPolicy)"]:::open
+  %% Lane E — Mac dev environment Phase 0
+  I82["82 autossh launchd LaunchAgent on Mac"]:::flight
+  I81["81 Mac docker CLI not on PATH"]:::open
+  I80["80 bun install via oven-sh tap"]:::open
+  I79["79 Mac upgrade Sonoma to Sequoia for Tart"]:::blocked
+  E5 --> I82
+  E5 --> I81
+  E5 --> I80
+  E1 --> I79
 
-  %% LANE F — Web management plane gaps
-  E3["EPIC #3 — Next.js 15 web plane"]:::flight
-  E3 --> I3a["#3 (EPIC body) — gaps below"]:::flight
-
-  %% LANE G — Identity + auth EPIC
-  E4["EPIC #4 — Identity + auth (Google + magic-link)"]:::flight
-
-  %% LANE H — Install UX (mostly shipped, EPIC still open)
-  E5["EPIC #5 — Grandma-proof install"]:::flight
-
-  %% LANE I — Marketing site EPIC
-  E106["EPIC #106 — Brand identity + iogrid.org marketing site"]:::flight
-
-  %% LANE J — Infra hygiene (small chores)
-  I158["#158 kustomize: 'commonLabels' deprecated"]:::open
-  I142["#142 installer/windows: WiX 7 vs 4.0.6 toolset clash"]:::open
-
-  %% LANE K — Mac developer environment (Phase 0 dogfood)
-  I82["#82 Phase 0 tunnel resilience — autossh launchd"]:::flight
-  I81["#81 Mac: Docker.app exists but docker CLI not on PATH"]:::open
-  I80["#80 Daemon dev env: install bun via oven-sh tap"]:::open
-  I79["#79 Mac upgrade Sonoma 14.6 → Sequoia 15 (Tart prereq)"]:::blocked
-
-  click E87  "https://github.com/iogrid/iogrid/issues/87"  _blank
-  click I104 "https://github.com/iogrid/iogrid/issues/104" _blank
-  click I105 "https://github.com/iogrid/iogrid/issues/105" _blank
-  click I168 "https://github.com/iogrid/iogrid/issues/168" _blank
-  click I172 "https://github.com/iogrid/iogrid/issues/172" _blank
-  click E167 "https://github.com/iogrid/iogrid/issues/167" _blank
-  click E7   "https://github.com/iogrid/iogrid/issues/7"   _blank
-  click E1   "https://github.com/iogrid/iogrid/issues/1"   _blank
-  click I35  "https://github.com/iogrid/iogrid/issues/35"  _blank
-  click E3   "https://github.com/iogrid/iogrid/issues/3"   _blank
-  click I3a  "https://github.com/iogrid/iogrid/issues/3"   _blank
-  click E4   "https://github.com/iogrid/iogrid/issues/4"   _blank
-  click E5   "https://github.com/iogrid/iogrid/issues/5"   _blank
-  click E106 "https://github.com/iogrid/iogrid/issues/106" _blank
-  click I158 "https://github.com/iogrid/iogrid/issues/158" _blank
-  click I142 "https://github.com/iogrid/iogrid/issues/142" _blank
-  click I82  "https://github.com/iogrid/iogrid/issues/82"  _blank
-  click I81  "https://github.com/iogrid/iogrid/issues/81"  _blank
-  click I80  "https://github.com/iogrid/iogrid/issues/80"  _blank
-  click I79  "https://github.com/iogrid/iogrid/issues/79"  _blank
+  %% ============= CLICK MAPPINGS =============
+  click E1   "https://github.com/iogrid/iogrid/issues/1"
+  click E2   "https://github.com/iogrid/iogrid/issues/2"
+  click E3   "https://github.com/iogrid/iogrid/issues/3"
+  click E4   "https://github.com/iogrid/iogrid/issues/4"
+  click E5   "https://github.com/iogrid/iogrid/issues/5"
+  click E6   "https://github.com/iogrid/iogrid/issues/6"
+  click E7   "https://github.com/iogrid/iogrid/issues/7"
+  click E73  "https://github.com/iogrid/iogrid/issues/73"
+  click E74  "https://github.com/iogrid/iogrid/issues/74"
+  click E75  "https://github.com/iogrid/iogrid/issues/75"
+  click E76  "https://github.com/iogrid/iogrid/issues/76"
+  click E77  "https://github.com/iogrid/iogrid/issues/77"
+  click E78  "https://github.com/iogrid/iogrid/issues/78"
+  click E87  "https://github.com/iogrid/iogrid/issues/87"
+  click E106 "https://github.com/iogrid/iogrid/issues/106"
+  click E115 "https://github.com/iogrid/iogrid/issues/115"
+  click E150 "https://github.com/iogrid/iogrid/issues/150"
+  click E167 "https://github.com/iogrid/iogrid/issues/167"
+  click I35  "https://github.com/iogrid/iogrid/issues/35"
+  click I79  "https://github.com/iogrid/iogrid/issues/79"
+  click I80  "https://github.com/iogrid/iogrid/issues/80"
+  click I81  "https://github.com/iogrid/iogrid/issues/81"
+  click I82  "https://github.com/iogrid/iogrid/issues/82"
+  click I104 "https://github.com/iogrid/iogrid/issues/104"
+  click I105 "https://github.com/iogrid/iogrid/issues/105"
+  click I142 "https://github.com/iogrid/iogrid/issues/142"
+  click I158 "https://github.com/iogrid/iogrid/issues/158"
+  click I168 "https://github.com/iogrid/iogrid/issues/168"
+  click I172 "https://github.com/iogrid/iogrid/issues/172"
+  click I3a  "https://github.com/iogrid/iogrid/issues/3"
 ```
 
 ### Concrete gaps inside the still-open EPICs (audit findings, 2026-05-19)
