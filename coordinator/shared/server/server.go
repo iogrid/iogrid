@@ -20,6 +20,8 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 
 	"github.com/iogrid/iogrid/coordinator/shared/health"
 )
@@ -88,9 +90,18 @@ func Run(ctx context.Context, opts Options) error {
 		otelhttp.WithMessageEvents(otelhttp.ReadEvents, otelhttp.WriteEvents),
 	)
 
+	// Wrap with h2c so the plain-TCP listener accepts HTTP/2 cleartext
+	// prefaces forwarded by Traefik (Service appProtocol=kubernetes.io/h2c)
+	// in addition to legacy HTTP/1.1 unary traffic. This is the standard
+	// Connect-RPC bidi setup — without it, Traefik's h2c upstream is
+	// rejected at the SETTINGS frame and the gateway returns 502, so
+	// daemon→coordinator Dispatch streams never reach the handler.
+	// See issue #259.
+	h2cHandler := h2c.NewHandler(handler, &http2.Server{})
+
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           handler,
+		Handler:           h2cHandler,
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
