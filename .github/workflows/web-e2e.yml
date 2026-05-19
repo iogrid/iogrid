@@ -1,0 +1,77 @@
+name: web-e2e
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - ".github/workflows/web-e2e.yml"
+  pull_request:
+    paths:
+      - "web/**"
+      - ".github/workflows/web-e2e.yml"
+
+concurrency:
+  group: web-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: Playwright E2E flows
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: web
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      # NextAuth boot-time env. The dev server will start; specific
+      # sign-in flows are stubbed (they only render the form, never
+      # contact real Google / SMTP).
+      AUTH_SECRET: ci-placeholder-auth-secret-do-not-use-in-prod
+      NEXTAUTH_URL: http://localhost:3000
+      EMAIL_SERVER: smtp://localhost:1025
+      EMAIL_FROM: noreply@iogrid.test
+      # Restrict to the chromium project on CI — Firefox/WebKit fan-out
+      # triples runtime for marginal coverage gain; we keep them for
+      # local `pnpm test:e2e` runs.
+      PLAYWRIGHT_PROJECTS: chromium
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Install Playwright browsers (chromium only)
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run real E2E flows
+        run: pnpm exec playwright test --project=chromium tests/e2e
+
+      - name: Upload Playwright HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-e2e
+          path: web/playwright-report
+          retention-days: 14
+
+      - name: Upload Playwright test results (traces/videos)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results-e2e
+          path: web/test-results
+          retention-days: 7

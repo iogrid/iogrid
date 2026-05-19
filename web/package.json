@@ -12,6 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:e2e:flows": "playwright test --project=chromium tests/e2e",
+    "test:a11y": "playwright test --project=chromium tests/a11y",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build"
   },
@@ -41,6 +43,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.10.1",
     "@playwright/test": "^1.49.0",
     "@storybook/nextjs": "^8.4.4",
     "@testing-library/jest-dom": "^6.6.3",
