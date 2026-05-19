@@ -128,6 +128,45 @@ message DeleteUserRequest {
 }
 message DeleteUserResponse {}
 
+// RemoveIdentifierRequest unbinds a single non-Solana identifier (Google,
+// magic-link email, future Apple/GitHub) from the user. Solana wallets are
+// removed via AuthService.UnbindWallet so the SIWS-specific audit trail is
+// preserved. The server refuses to remove the user's last verified
+// identifier — the account would become unrecoverable.
+message RemoveIdentifierRequest {
+  iogrid.common.v1.UUID user_id = 1;
+  iogrid.common.v1.UUID identifier_id = 2;
+}
+message RemoveIdentifierResponse {
+  // Identifiers still bound to the user after removal — clients can
+  // refresh their list view without a second round-trip.
+  repeated Identifier remaining = 1;
+}
+
+// DeleteAccountRequest triggers the soft-delete cascade for the caller's
+// own account. The server:
+//   1. Flips users.deleted_at = now() (rows stay for audit references).
+//   2. Revokes every active session (refresh tokens become unusable).
+//   3. Hands a workspace-cascade notice to workloads-svc / providers-svc
+//      via the outbound events bus so downstream owners can purge.
+// The caller MUST present a valid bearer token AND a fresh step-up token
+// minted within the last five minutes via AuthService.RequestStepUp(
+// reason=STEP_UP_REASON_ACCOUNT_DELETE).
+message DeleteAccountRequest {
+  // Must equal the caller's user id; rejecting a mismatch keeps the
+  // delete blast-radius scoped to the authed principal.
+  iogrid.common.v1.UUID user_id = 1;
+  string step_up_token = 2;
+  // Free-form reason captured into the audit log. Optional.
+  string reason = 3;
+}
+message DeleteAccountResponse {
+  // Echo of the soft-delete timestamp written to users.deleted_at.
+  google.protobuf.Timestamp deleted_at = 1;
+  // Number of active sessions revoked as part of the cascade.
+  uint32 sessions_revoked = 2;
+}
+
 message MergeIdentitiesRequest {
   iogrid.common.v1.UUID target_user_id = 1;
   iogrid.common.v1.UUID source_user_id = 2;
@@ -148,4 +187,13 @@ service IdentityService {
   rpc UpdateUser(UpdateUserRequest) returns (UpdateUserResponse);
   rpc DeleteUser(DeleteUserRequest) returns (DeleteUserResponse);
   rpc MergeIdentities(MergeIdentitiesRequest) returns (MergeIdentitiesResponse);
+
+  // RemoveIdentifier unbinds a single identifier from the caller's
+  // account; the server enforces "at least one verified identifier
+  // remains" so the account stays recoverable.
+  rpc RemoveIdentifier(RemoveIdentifierRequest) returns (RemoveIdentifierResponse);
+
+  // DeleteAccount soft-deletes the caller's user record + revokes every
+  // session + emits the workspace-cascade notice. Requires step-up auth.
+  rpc DeleteAccount(DeleteAccountRequest) returns (DeleteAccountResponse);
 }

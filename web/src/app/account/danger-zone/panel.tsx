@@ -4,12 +4,21 @@ import * as React from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ApiError, browserApi } from "@/lib/api";
 
 const CONFIRMATION = "delete my iogrid account";
+
+interface DeleteAccountResponse {
+  deletedAt?: string;
+  deleted_at?: string;
+  sessionsRevoked?: number;
+  sessions_revoked?: number;
+}
 
 export function DangerZonePanel() {
   const [phrase, setPhrase] = React.useState("");
   const [submitting, setSubmitting] = React.useState(false);
+  const [reason, setReason] = React.useState("");
 
   const ok = phrase.trim().toLowerCase() === CONFIRMATION;
 
@@ -17,15 +26,40 @@ export function DangerZonePanel() {
     if (!ok) return;
     setSubmitting(true);
     try {
-      // The deletion RPC lives behind identity-svc; until the BFF
-      // surfaces it we surface a clear "not yet" toast so the surface
-      // is shippable.
-      await new Promise((r) => setTimeout(r, 400));
-      toast.info(
-        "Deletion request queued — operator review required before purge (per docs/SECURITY.md). You'll receive an email confirmation within 48 hours.",
+      const resp = await browserApi().delWithBody<DeleteAccountResponse>(
+        "/api/v1/me",
+        { reason },
       );
+      const revoked = resp?.sessionsRevoked ?? resp?.sessions_revoked ?? 0;
+      toast.success(
+        `Account scheduled for deletion. ${revoked} active session${
+          revoked === 1 ? "" : "s"
+        } revoked. You'll be signed out shortly.`,
+      );
+      // Identity-svc revoked every session — the next request will 401.
+      // Bounce to the marketing root so the user lands somewhere sane
+      // instead of an auth-protected page mid-redirect.
+      window.setTimeout(() => {
+        window.location.href = "/";
+      }, 1500);
     } catch (e) {
-      toast.error((e as Error).message);
+      if (e instanceof ApiError && e.code === "step_up_required") {
+        toast.error(
+          "Re-authentication required. We'll email you a step-up link before deleting your account.",
+        );
+        // Kick off the step-up magic-link in the background so the user
+        // can complete it without a manual nav step.
+        try {
+          await browserApi().post("/api/v1/account/step-up/request", {
+            reason: "STEP_UP_REASON_ACCOUNT_DELETE",
+          });
+          toast.info("Check your email for the step-up link, then retry.");
+        } catch {
+          // Step-up endpoint not wired yet — the toast above is enough.
+        }
+      } else {
+        toast.error((e as Error).message);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -57,6 +91,16 @@ export function DangerZonePanel() {
             onChange={(e) => setPhrase(e.target.value)}
             aria-invalid={!ok && phrase.length > 0}
             className="font-mono"
+          />
+          <label htmlFor="del-reason" className="block text-xs font-medium">
+            Optional: tell us why you&apos;re leaving (audit log only)
+          </label>
+          <Input
+            id="del-reason"
+            type="text"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="e.g. switching providers, no longer needed"
           />
           <Button
             onClick={onDelete}

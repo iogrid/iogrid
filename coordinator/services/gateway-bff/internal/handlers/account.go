@@ -3,6 +3,8 @@ package handlers
 import (
 	"net/http"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/iogrid/iogrid/coordinator/services/gateway-bff/internal/auth"
 
 	commonv1 "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/common/v1"
@@ -168,6 +170,74 @@ func (a *API) ListSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp, err := a.Clients.Auth.ListSessions(r.Context(), &identityv1.ListSessionsRequest{})
+	if err != nil {
+		writeUpstreamError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// RemoveMyIdentifier unbinds a single identifier from the caller's own
+// account. The identifier id is the path parameter; the user id comes
+// from the bearer token so a caller cannot scrub another user's
+// identifiers by guessing UUIDs.
+//
+//	DELETE /api/v1/me/identifiers/{id}  ->  200 {remaining:[...]}
+//	                                       401 unauthenticated
+//	                                       404 not_found (not bound to caller)
+//	                                       409 last_identifier (would orphan)
+func (a *API) RemoveMyIdentifier(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.FromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "valid Bearer token required")
+		return
+	}
+	identifierID := chi.URLParam(r, "id")
+	if identifierID == "" {
+		writeError(w, http.StatusBadRequest, "bad_request", "identifier id required")
+		return
+	}
+	resp, err := a.Clients.Identity.RemoveIdentifier(r.Context(), &identityv1.RemoveIdentifierRequest{
+		UserId:       &commonv1.UUID{Value: claims.UserID().String()},
+		IdentifierId: &commonv1.UUID{Value: identifierID},
+	})
+	if err != nil {
+		writeUpstreamError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// DeleteMyAccount soft-deletes the caller's user record + revokes every
+// session. Requires the body to carry a step_up_token minted within the
+// last 5 minutes via /api/v1/account/step-up/*; the dummy "confirmation
+// phrase" the panel collects exists only to defend against accidental
+// clicks — the cryptographic guard is the step-up token.
+//
+//	DELETE /api/v1/me  { step_up_token, reason? }
+//	-> 200 {deleted_at, sessions_revoked}
+//	   401 unauthenticated
+//	   403 step_up_required (no/expired step_up_token)
+func (a *API) DeleteMyAccount(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.FromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "valid Bearer token required")
+		return
+	}
+	var body struct {
+		StepUpToken string `json:"step_up_token"`
+		Reason      string `json:"reason"`
+	}
+	// Body is optional — we still call identity-svc which will reject
+	// the request when step_up_token is missing. Keeping the decode
+	// best-effort means the surface still returns the upstream's
+	// canonical error envelope.
+	_ = decodeJSON(r, &body)
+	resp, err := a.Clients.Identity.DeleteAccount(r.Context(), &identityv1.DeleteAccountRequest{
+		UserId:      &commonv1.UUID{Value: claims.UserID().String()},
+		StepUpToken: body.StepUpToken,
+		Reason:      body.Reason,
+	})
 	if err != nil {
 		writeUpstreamError(w, err)
 		return

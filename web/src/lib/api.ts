@@ -83,6 +83,19 @@ export class ApiClient {
     return this.request<T>("DELETE", path, undefined, init);
   }
 
+  /**
+   * DELETE with a JSON body. The HTTP spec permits a body on DELETE and
+   * the iogrid identity-svc DeleteAccount RPC uses it to carry the
+   * optional `reason` + `step_up_token` fields.
+   */
+  async delWithBody<T>(
+    path: string,
+    body: unknown,
+    init?: RequestInit,
+  ): Promise<T> {
+    return this.request<T>("DELETE", path, body, init);
+  }
+
   private async request<T>(
     method: string,
     path: string,

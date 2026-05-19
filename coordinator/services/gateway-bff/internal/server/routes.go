@@ -111,6 +111,11 @@ func Mount(deps Deps) func(chi.Router) {
 
 			// /me ---------------------------------------------------------
 			r.Get("/me", api.GetMe)
+			// DELETE /me triggers identity-svc soft-delete + cascade
+			// (closes #197). DELETE /me/identifiers/{id} unbinds one
+			// identifier without orphaning the account (closes #196).
+			r.Delete("/me", api.DeleteMyAccount)
+			r.Delete("/me/identifiers/{id}", api.RemoveMyIdentifier)
 
 			// /account ----------------------------------------------------
 			r.Route("/account", func(r chi.Router) {

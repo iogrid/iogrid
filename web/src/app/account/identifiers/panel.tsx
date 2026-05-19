@@ -3,20 +3,25 @@
 import * as React from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { browserApi } from "@/lib/api";
+import { ApiError, browserApi } from "@/lib/api";
 import type { MeResponse, Identifier } from "@/lib/types";
 
 export function IdentifiersPanel() {
   const [me, setMe] = React.useState<MeResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
 
-  React.useEffect(() => {
+  const refresh = React.useCallback(() => {
+    setLoading(true);
     browserApi()
       .get<MeResponse>("/api/v1/me")
       .then(setMe)
       .catch((e) => toast.error((e as Error).message))
       .finally(() => setLoading(false));
   }, []);
+
+  React.useEffect(() => {
+    refresh();
+  }, [refresh]);
 
   if (loading) {
     return (
@@ -33,11 +38,31 @@ export function IdentifiersPanel() {
     );
   }
 
+  // Optimistic-ish: drop the row from local state on success; on failure
+  // toast and refetch the canonical list so we never show a stale view.
+  const onRemoved = (identifierID: string) => {
+    setMe((prev) =>
+      prev
+        ? {
+            ...prev,
+            identifiers: (prev.identifiers ?? []).filter(
+              (i) => (i.id?.value ?? "") !== identifierID,
+            ),
+          }
+        : prev,
+    );
+  };
+
   return (
     <div className="space-y-4">
       <ul className="divide-y divide-zinc-200 rounded-md border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
         {(me.identifiers ?? []).map((id) => (
-          <IdentifierRow key={id.id?.value ?? id.value} id={id} />
+          <IdentifierRow
+            key={id.id?.value ?? id.value}
+            id={id}
+            onRemoved={onRemoved}
+            onError={refresh}
+          />
         ))}
         {(me.identifiers ?? []).length === 0 ? (
           <li className="p-4 text-sm text-zinc-500">
@@ -53,7 +78,44 @@ export function IdentifiersPanel() {
   );
 }
 
-function IdentifierRow({ id }: { id: Identifier }) {
+function IdentifierRow({
+  id,
+  onRemoved,
+  onError,
+}: {
+  id: Identifier;
+  onRemoved: (identifierID: string) => void;
+  onError: () => void;
+}) {
+  const [pending, setPending] = React.useState(false);
+
+  const onRemove = async () => {
+    const identifierID = id.id?.value;
+    if (!identifierID) {
+      toast.error("Missing identifier id — refresh and try again.");
+      return;
+    }
+    setPending(true);
+    try {
+      await browserApi().del(`/api/v1/me/identifiers/${identifierID}`);
+      onRemoved(identifierID);
+      toast.success("Identifier removed.");
+    } catch (e) {
+      if (e instanceof ApiError && e.code === "last_identifier") {
+        toast.error(
+          "This is your last verified identifier — add another before removing it.",
+        );
+      } else {
+        toast.error((e as Error).message);
+      }
+      // Re-sync from server so we don't end up out of step on a partial
+      // failure (network drop, transaction rollback).
+      onError();
+    } finally {
+      setPending(false);
+    }
+  };
+
   return (
     <li className="flex items-center justify-between p-3 text-sm">
       <div className="min-w-0 flex-1">
@@ -74,13 +136,11 @@ function IdentifierRow({ id }: { id: Identifier }) {
       <Button
         size="sm"
         variant="outline"
-        onClick={() =>
-          toast.info(
-            "Identifier removal isn't wired yet — the identity-svc RPC lands in #37.",
-          )
-        }
+        onClick={onRemove}
+        disabled={pending}
+        data-testid="remove-identifier"
       >
-        Remove
+        {pending ? "Removing…" : "Remove"}
       </Button>
     </li>
   );

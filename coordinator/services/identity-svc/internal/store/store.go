@@ -247,6 +247,35 @@ func (s *Store) TouchIdentifier(ctx context.Context, q Querier, id uuid.UUID) er
 	return err
 }
 
+// GetIdentifierForUser returns one identifier row by primary key and
+// asserts it belongs to userID. Used by the account-identifiers Remove
+// flow (RemoveIdentifier RPC) so a caller cannot scrub another user's
+// identifiers by guessing UUIDs. Returns ErrNotFound when the row is
+// missing OR is bound to a different user (same surface either way to
+// keep the response leak-free).
+func (s *Store) GetIdentifierForUser(ctx context.Context, q Querier, id, userID uuid.UUID) (*Identifier, error) {
+	if q == nil {
+		q = s.Pool
+	}
+	i := &Identifier{}
+	var email *string
+	err := q.QueryRow(ctx, `
+		SELECT id, user_id, kind, subject, email, verified, hosted_domain, created_at, last_used_at
+		  FROM identifiers
+		 WHERE id = $1 AND user_id = $2`, id, userID).
+		Scan(&i.ID, &i.UserID, &i.Kind, &i.Subject, &email, &i.Verified, &i.HostedDomain, &i.CreatedAt, &i.LastUsedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if email != nil {
+		i.Email = *email
+	}
+	return i, nil
+}
+
 // FindIdentifierBySubjectAndUser is FindIdentifierBySubject scoped to a
 // specific user. Used by SIWS unbind so we can confirm the wallet belongs
 // to the caller before deletion. Returns ErrNotFound when no row matches.

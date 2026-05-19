@@ -7,7 +7,7 @@
 /* eslint-disable */
 // @ts-nocheck
 
-import { DeleteUserRequest, DeleteUserResponse, GetUserRequest, GetUserResponse, ListUsersRequest, ListUsersResponse, MergeIdentitiesRequest, MergeIdentitiesResponse, UpdateUserRequest, UpdateUserResponse } from "./identity_pbjs";
+import { DeleteAccountRequest, DeleteAccountResponse, DeleteUserRequest, DeleteUserResponse, GetUserRequest, GetUserResponse, ListUsersRequest, ListUsersResponse, MergeIdentitiesRequest, MergeIdentitiesResponse, RemoveIdentifierRequest, RemoveIdentifierResponse, UpdateUserRequest, UpdateUserResponse } from "./identity_pbjs";
 import { MethodKind } from "@bufbuild/protobuf";
 
 /**
@@ -63,6 +63,31 @@ export const IdentityService = {
       name: "MergeIdentities",
       I: MergeIdentitiesRequest,
       O: MergeIdentitiesResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * RemoveIdentifier unbinds a single identifier from the caller's
+     * account; the server enforces "at least one verified identifier
+     * remains" so the account stays recoverable.
+     *
+     * @generated from rpc iogrid.identity.v1.IdentityService.RemoveIdentifier
+     */
+    removeIdentifier: {
+      name: "RemoveIdentifier",
+      I: RemoveIdentifierRequest,
+      O: RemoveIdentifierResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * DeleteAccount soft-deletes the caller's user record + revokes every
+     * session + emits the workspace-cascade notice. Requires step-up auth.
+     *
+     * @generated from rpc iogrid.identity.v1.IdentityService.DeleteAccount
+     */
+    deleteAccount: {
+      name: "DeleteAccount",
+      I: DeleteAccountRequest,
+      O: DeleteAccountResponse,
       kind: MethodKind.Unary,
     },
   }
