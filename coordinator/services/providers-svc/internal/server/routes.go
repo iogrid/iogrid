@@ -42,6 +42,16 @@ func Mount(deps Deps) func(chi.Router) {
 		sched := handlers.NewSchedulingHandler(deps.Store, deps.Log)
 		dash := handlers.NewDashboardHandler(deps.Store, deps.Log)
 
+		// REST shim — the Rust daemon's iogrid-transport identity flow
+		// POSTs to /api/v1/providers/pair with the lean
+		// PairingRequest JSON shape. The shim translates that to the
+		// canonical Connect PairDaemon RPC in-process so we keep a
+		// single source of truth (the RegistrationHandler) for both
+		// surfaces. See handlers/rest_pair.go for the wire shapes.
+		r.Route("/api/v1/providers", func(r chi.Router) {
+			r.Post("/pair", reg.PairDaemonREST)
+		})
+
 		// Connect-Go handlers return (path, http.Handler) — the path is the
 		// "/iogrid.providers.v1.<Service>/" prefix.
 		for _, mount := range []func() (string, http.Handler){
