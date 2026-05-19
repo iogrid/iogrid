@@ -1,0 +1,47 @@
+---
+title: Changelog
+description: Notable changes to the iogrid API, SDKs, and platform.
+sidebar:
+  label: Changelog
+  order: 1
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+This page tracks notable changes to the iogrid public API surface, the
+official SDKs, and the documentation site itself. We follow
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) conventions and
+semantic-versioning where applicable.
+
+<Aside type="note" title="Auto-generated">
+  This page is rebuilt on every push to `main`. The latest entries near the
+  top are populated from Git tags via the `docs-ci` workflow. Older entries
+  are curated by hand.
+</Aside>
+
+## Unreleased
+
+- Docs site at `docs.iogrid.org` — initial scaffold with full content tree
+- Provider quickstart guide
+- Customer quickstart guide
+- OpenAPI auto-render pipeline (renders `proto/gen/openapi/iogrid.yaml`)
+- $GRID tokenomics page
+- Anti-abuse policy page
+- All four SDK skeletons (TypeScript / Python / Go / Java)
+
+## 0.1.0 — _planned, Phase 0 closed alpha_
+
+- First customer-facing API surface
+- Proxy session creation
+- Docker workload submission (sandbox only)
+- Provider daemon installer (`install.iogrid.org`)
+- Account dashboard (`dashboard.iogrid.org`)
+
+## Where to look for more detail
+
+- **Repo:** [github.com/iogrid/iogrid/releases](https://github.com/iogrid/iogrid/releases)
+- **Status page:** [status.iogrid.org](https://status.iogrid.org) (operational
+  metrics + incident history)
+- **Postmortems:** [iogrid.org/postmortems](https://iogrid.org/postmortems)
+- **OpenAPI diff:** `https://docs.iogrid.org/openapi-diff/` (per-release
+  spec-level diff)

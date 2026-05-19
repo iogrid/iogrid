@@ -1,0 +1,139 @@
+---
+title: Providers — the supply side
+description: Provider economics, payout tiers, scheduling fairness, and the daemon lifecycle.
+sidebar:
+  label: Providers
+  order: 3
+---
+
+import { CardGrid, Card, Aside } from '@astrojs/starlight/components';
+
+iogrid is a two-sided market. This page is for people considering becoming a
+provider, and for people who want to understand how the supply side works.
+
+## The four payout tiers
+
+When a provider installs iogrid, they pick how they want to be paid. They can
+switch tiers any time. Tier choice affects future earnings only — never
+retroactive.
+
+### Tier 1 — Cash
+
+- **$0.30 per GB of bandwidth shared** (industry standard $0.30–0.60).
+- Typical home device sharing 30 GB/month = **~$9 per month**.
+- Stripe Connect payout, $10 minimum threshold.
+- 1099 issued at year-end for >$600 (US tax compliance).
+- **Audience:** people who actively google "passive income at home".
+- **Our cost: $9/month per provider. Margin: 0%.**
+
+### Tier 2 — Free VPN (the mesh-swap advantage)
+
+- Bandwidth share pays for **unlimited iogrid VPN** on all the provider's
+  devices (iOS, Android, Mac, Windows, Linux).
+- Marginal cost to iogrid: ~$0.20/month per provider.
+- Perceived value: equivalent to NordVPN's $5/month plan.
+- **Audience:** tech-savvy users already paying $60–130/yr for a VPN.
+- **Our cost: $0.20/month. Margin: ~98%.**
+
+This is the tier no proxy incumbent can match. Honeygain has no VPN product.
+Bright Data has Hola, which is the thing iogrid is the anti-version of.
+
+### Tier 3 — $GRID token
+
+- Solana SPL token, **deflationary**, paid weekly.
+- Auto-locked the moment it's distributed — see
+  [tokenomics](/concepts/tokenomics/) for the full vesting and burn mechanics.
+- Optional opt-in lockup tiers: Loyalty (1.25×), Conviction (1.5×), Maximum
+  (2.0×) earnings multipliers in exchange for longer cliffs.
+- **Audience:** long-term believers who want exposure to network growth.
+
+### Tier 4 — Charity / mission
+
+- Cash equivalent donated to a chosen cause: EFF, Tor Project, Wikipedia,
+  Doctors Without Borders, etc.
+- Provider receives a tax receipt from the recipient.
+- **Audience:** ideologically motivated providers. Small but PR-strong.
+- **Our cost: $9/month per provider (donated). Margin: 0%, brand value high.**
+
+## Realistic monthly earnings
+
+Conservative numbers assuming a provider opts into **all enabled workloads**:
+
+| Device profile | Bandwidth | Docker | GPU | iOS-build | Total/mo |
+|---|---|---|---|---|---|
+| Home desktop, Linux, no GPU | $9 | $16 | — | — | **$25** |
+| Home desktop, Linux, RTX 4070 | $9 | $16 | $55 | — | **$80** |
+| Apple Silicon Mac Mini, idle 4h/day | $9 | $8 | $4 | $145 | **$166** |
+| Idle 24/7 datacenter server | $30 | $80 | $90 | — | **$200** |
+
+The Mac Mini is the breakout: at $0.04/Xcode-minute, four hours of CI-quality
+build time per day at half-capacity utilization yields ~$145/month with the
+host computer 99% idle the rest of the time.
+
+## Scheduling fairness
+
+The scheduler optimizes for: customer SLA · provider equity · cost.
+
+- **Round-robin within capability/geo buckets.** Two providers with identical
+  capabilities in the same country see ~50/50 long-run distribution.
+- **Quality score nudges.** Uptime, p95 latency, success rate, and customer
+  ratings produce a multiplier between 0.5× and 1.5×. Bad providers get less
+  load until they recover; great providers get more.
+- **No "pay to play".** Providers cannot bid for more work. The only knob is
+  capability + caps + opt-in categories.
+
+## Provider opt-ins (categorical consent)
+
+A core piece of iogrid's anti-Hola posture: providers don't just agree to
+"share bandwidth", they consent to **categories** of traffic. Default opt-in
+set:
+
+- ✅ E-commerce monitoring
+- ✅ SEO / SERP scraping
+- ✅ Ad verification
+- ✅ Travel aggregation
+- ✅ Lead-gen scraping
+- ✅ AI training data
+- 🟡 Social media intelligence — opt-in required
+- 🟡 Adult content destinations — opt-in required
+- ❌ Banking domains — opt-in required AND customer KYC
+- ❌ Government / military (.gov, .mil) — blocked unconditionally
+- ❌ CSAM hash matches — blocked unconditionally
+- ❌ SMTP / IRC / Tor exit ports — blocked at the protocol level
+
+Providers can also blocklist individual destinations (regex) and revoke
+category opt-ins instantly.
+
+## Daemon lifecycle
+
+<CardGrid>
+  <Card title="Install" icon="rocket">
+    One-line `curl | bash`. Daemon installs as a system service (`launchd`,
+    `systemd`, or Windows service). Open source installer.
+  </Card>
+  <Card title="Link" icon="approve-check-circle">
+    Local control UI shows a six-digit code. Paste it at
+    [link.iogrid.org](https://link.iogrid.org). mTLS keys provisioned via
+    Coordinator's CA.
+  </Card>
+  <Card title="Heartbeat" icon="seti:lock">
+    15-second heartbeats. Long-lived gRPC stream. Daemon dials out — never
+    accepts inbound public connections.
+  </Card>
+  <Card title="Drain" icon="seti:powershell">
+    Provider clicks **Drain** or runs `iogridctl drain`. Coordinator stops
+    routing new workloads; in-flight workloads finish.
+  </Card>
+  <Card title="Uninstall" icon="error">
+    `iogridctl uninstall`. Cleans up all installed files, certificates,
+    cgroups, WireGuard interfaces. Audit log preserved on coordinator for
+    90 days.
+  </Card>
+</CardGrid>
+
+## Where next
+
+- [Provider quickstart](/getting-started/provider-quickstart/)
+- [Transparency dashboard](/concepts/transparency/)
+- [Billing: payouts](/billing/payouts/)
+- [Security: anti-abuse](/security/anti-abuse/)

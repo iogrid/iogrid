@@ -1,0 +1,140 @@
+---
+title: Workload types
+description: The four execution modules — proxy, Docker, GPU, iOS-build — and how each is scheduled.
+sidebar:
+  label: Workload types
+  order: 2
+---
+
+import { CardGrid, Card, LinkCard, Aside } from '@astrojs/starlight/components';
+
+iogrid currently runs four workload types. Each shares the same coordinator,
+scheduler, and provider transport, but executes through a workload-specific
+module on the provider.
+
+## Comparison at a glance
+
+| Workload | Customer price | Provider payout (cash tier) | Provider hardware | Latency-sensitive? |
+|---|---|---|---|---|
+| Bandwidth proxy | $0.30–0.60 / GB | $0.30 / GB | Any | Yes (live HTTP) |
+| Docker compute | $0.02–0.10 / CPU-hr | ~half of revenue | Any with CPU/RAM headroom | No (batch / job) |
+| GPU inference | $0.20–2.00 / GPU-hr | ~half of revenue | NVIDIA Linux OR Apple Silicon | Mixed |
+| iOS build CI | **$0.04 / Xcode-minute** | ~half of revenue | Mac with Xcode | No (single-shot build) |
+
+## Bandwidth proxy
+
+<Card title="The classic residential-proxy workload, done transparently." icon="seti:rss">
+
+How a request flows:
+
+1. Customer opens HTTP CONNECT or SOCKS5 connection to `proxy.iogrid.org:443`
+   (TLS-encapsulated).
+2. Customer specifies geo (country) and session ID.
+3. Scheduler picks an eligible provider matching geo + opt-in + load.
+4. Coordinator establishes a 3-hop route: customer → coordinator → WireGuard
+   tunnel → provider → destination.
+5. Anti-abuse pre-flight: destination domain checked against CSAM hash, fraud
+   blocklist, customer's allowed-categories.
+6. Bandwidth metered at coordinator (out + in), attributed to customer (for
+   billing) and provider (for payout).
+7. Session sticky to same provider for up to 30 minutes (configurable).
+
+See [bandwidth proxy guide](/workloads/proxy/) for API details and code.
+
+</Card>
+
+## Docker compute
+
+<Card title="Run a container on idle home compute." icon="seti:docker">
+
+- Customer submits container image reference (must come from approved
+  registry: ghcr.io, docker.io official-images, or a custom registry the
+  provider has pre-pulled from).
+- Container spec includes resource caps (CPU, RAM, time limit) and a category
+  tag (`ml-inference`, `batch`, `build`, etc.).
+- Scheduler picks a provider with capacity and opt-in for the category.
+- Coordinator pushes container ref + run spec to provider daemon.
+- Provider's local Docker runs the container with cgroup limits, read-only
+  filesystem, no host network access (only via routed iogrid tunnel).
+- Logs streamed back to coordinator, then to customer via signed URL.
+
+See [docker workload guide](/workloads/compute/).
+
+</Card>
+
+## GPU / AI inference
+
+<Card title="Same as Docker, but the scheduler matches on GPU class + VRAM." icon="seti:cuda">
+
+- NVIDIA (Linux): `--gpus all` + NVIDIA Container Toolkit.
+- Apple Silicon (Mac): MLX-based runtime, custom GPU-shaped container
+  (Apple's Virtualization framework + MLX bindings).
+- Customer specifies VRAM requirement; scheduler matches to providers with at
+  least that much GPU memory.
+- Provider's gaming-mode detector pauses the workload if the host starts
+  gaming / heavy GPU usage; the workload is rescheduled.
+
+See [GPU workload guide](/workloads/gpu/).
+
+</Card>
+
+## iOS build CI
+
+<Card title="The wedge. Real Macs, ephemeral Tart VMs, $0.04 / Xcode-minute." icon="seti:apple">
+
+- Customer pushes source repo + Xcode build command to coordinator's
+  S3-compatible bucket (or supplies a Git URL).
+- Scheduler picks a Mac provider with Tart + a suitable Xcode version
+  installed.
+- Provider daemon spawns ephemeral macOS VM via Tart
+  ([Cirrus Labs](https://github.com/cirruslabs/tart), open source). The VM has
+  Xcode + build tools, no host filesystem access.
+- VM clones source, runs `xcodebuild`, archives artifacts, uploads to
+  coordinator's S3.
+- VM destroyed at end of build.
+- Build time metered, billed per Xcode-minute.
+
+This is the workload no other mesh runs today. Salad has gamer GPUs but zero
+Mac CI. Apple's licensing locks builds to Mac hardware → real supply
+constraint we can exploit.
+
+See [iOS build guide](/workloads/ios-build/).
+
+</Card>
+
+## Failure modes
+
+<Aside type="caution" title="Provider goes offline mid-workload">
+  - **Bandwidth:** scheduler re-routes to another provider, customer experiences
+    a brief reset (~1 s).
+  - **Docker:** scheduler retries on another provider, job restarts.
+    Idempotency is the customer's responsibility.
+  - **GPU:** same as Docker.
+  - **iOS build:** retried on another Mac provider, partial work lost (build
+    restarts from clean VM).
+</Aside>
+
+## Where next
+
+<CardGrid>
+  <LinkCard
+    title="Bandwidth proxy API"
+    href="/workloads/proxy/"
+    description="Session creation, sticky routes, geo targeting, code samples."
+  />
+  <LinkCard
+    title="Docker workload guide"
+    href="/workloads/compute/"
+    description="Submission schema, approved registries, log streaming."
+  />
+  <LinkCard
+    title="GPU / AI inference"
+    href="/workloads/gpu/"
+    description="GPU classes, VRAM matching, gaming-mode preemption."
+  />
+  <LinkCard
+    title="iOS build CI"
+    href="/workloads/ios-build/"
+    description="The wedge. Most detailed guide. Tart, Xcode versions, artifacts."
+  />
+</CardGrid>

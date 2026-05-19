@@ -1,0 +1,123 @@
+---
+title: Provider payouts
+description: Cash, free VPN, $GRID token, or charity — switch any time.
+sidebar:
+  label: Payouts
+  order: 2
+---
+
+import { Card, CardGrid, Aside } from '@astrojs/starlight/components';
+
+Providers choose one of four payout currencies. All four can be changed any
+time; tier choice affects future earnings only — never retroactive.
+
+## The four tiers
+
+<CardGrid>
+  <Card title="Tier 1 — Cash" icon="approve-check-circle">
+    Stripe Connect, $10 minimum withdrawal, 1099 issued for US providers
+    >$600/year. Industry-standard $0.30/GB bandwidth + per-CPU-hour /
+    per-Xcode-minute rates.
+  </Card>
+  <Card title="Tier 2 — Free VPN" icon="seti:lock">
+    Bandwidth share pays for unlimited iogrid VPN on all your devices.
+    Equivalent to NordVPN's $5/month plan, at zero cash cost to you.
+  </Card>
+  <Card title="Tier 3 — $GRID token" icon="rocket">
+    SPL token, paid weekly, auto-locked 30/90-day vest. Optional 1.25× /
+    1.5× / 2.0× lockup tiers. Utility-first — see
+    [tokenomics](/concepts/tokenomics/).
+  </Card>
+  <Card title="Tier 4 — Charity" icon="heart">
+    Cash equivalent donated to your chosen cause: EFF, Tor Project,
+    Wikipedia, Doctors Without Borders, others. Tax receipt issued by the
+    recipient.
+  </Card>
+</CardGrid>
+
+## Setting and switching tiers
+
+In the daemon UI at `localhost:7777` → **Payouts**, or in the hosted
+dashboard at `dashboard.iogrid.org/provide/payouts`. The tier you select now
+applies to all future earnings until you change it again.
+
+## Tier 1 — Cash mechanics
+
+1. Provider links a Stripe Connect Express account (US, EU, UK, Canada, AU
+   supported at launch; more countries quarterly).
+2. Earnings accumulate in your iogrid balance after a 7-day clearing period
+   (matches Stripe's default settlement).
+3. Once balance ≥ $10, you can trigger payout from the dashboard. Auto-payout
+   on a monthly schedule is the default.
+4. **1099-NEC** filed at year-end for US providers earning over $600.
+5. **VAT** handling: EU providers with valid VAT numbers can mark their
+   account VAT-registered; iogrid issues VAT-compliant payout statements.
+
+## Tier 2 — Free VPN mechanics
+
+1. Provider enables Tier 2 in the dashboard.
+2. The iogrid VPN apps for iOS / Android / Mac / Windows / Linux become
+   unlimited for that account. Up to 5 devices per provider account.
+3. Cash earnings are diverted to the VPN-credit pool (1:1 conversion: $0.20
+   of bandwidth-share buys $0.20 of VPN compute, paying for a full month).
+4. **If a provider earns more than $0.20/month**, the surplus rolls over as
+   a VPN credit for future months. After 12 months of accumulated credit,
+   the surplus can convert back to cash (Tier 1) on request.
+
+## Tier 3 — $GRID mechanics
+
+1. Provider enables Tier 3 and provides a Solana wallet address (we
+   recommend Phantom or Solflare).
+2. Bandwidth + workload earnings convert to $GRID at the daily TWAP rate.
+3. $GRID is **auto-locked** for the elected lockup tier:
+   - Standard (default): 30-day cliff + 60-day linear vest, 1.0× multiplier
+   - Loyalty: 90-day cliff + 180-day vest, 1.25× multiplier
+   - Conviction: 180-day cliff + 365-day vest, 1.5× multiplier
+   - Maximum: 365-day cliff + 730-day vest, 2.0× multiplier
+4. Once unlocked, $GRID transfers to the provider's wallet on a weekly
+   schedule. Provider can then HODL, transfer, sell on Raydium / Jupiter, etc.
+5. **Early-unlock** is available with a 50% penalty (burned). One per
+   12 months per provider.
+6. **Tax treatment** varies by jurisdiction; consult a qualified advisor.
+   iogrid issues a year-end statement of $GRID earnings denominated in USD at
+   the time-of-earn TWAP.
+
+<Aside type="caution" title="Crypto-asset risks">
+  $GRID's value is market-determined and may go down. Providers electing
+  Tier 3 are betting on iogrid's growth thesis. Read the
+  [tokenomics page](/concepts/tokenomics/) before opting in.
+</Aside>
+
+## Tier 4 — Charity mechanics
+
+1. Provider selects a charity from the iogrid charity registry.
+2. Bandwidth + workload earnings accumulate as in Tier 1.
+3. iogrid issues a quarterly bulk donation to the charity, attributing each
+   provider's share. Charity issues a tax receipt directly to the provider.
+4. iogrid takes 0% admin fee on charity payouts.
+
+Current charity registry:
+
+- **Electronic Frontier Foundation** (defending digital rights, since 1990)
+- **Tor Project** (free, open-source anonymity software)
+- **Wikipedia / Wikimedia Foundation** (free knowledge)
+- **Doctors Without Borders / MSF** (medical aid in crisis zones)
+- **Internet Archive** (preserving the web for posterity)
+- **Khan Academy** (free education globally)
+
+Want a charity added? Email
+[charities@iogrid.org](mailto:charities@iogrid.org); we vet for legitimacy
+(IRS 501c3 / EU equivalent) and add quarterly.
+
+## Switching between tiers
+
+- Switching is **instant**. The new tier applies to the next earnings tick.
+- Already-locked $GRID stays locked (Tier 3 commitments don't unwind).
+- Already-accrued cash balance can be paid out or converted on request.
+- Charity donations already accrued are forwarded on the next quarterly tick.
+
+## Where next
+
+- [Concepts: providers](/concepts/providers/)
+- [Concepts: tokenomics](/concepts/tokenomics/)
+- [Provider quickstart](/getting-started/provider-quickstart/)

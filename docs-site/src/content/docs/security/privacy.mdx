@@ -1,0 +1,123 @@
+---
+title: Privacy posture
+description: What iogrid sees, what it doesn't, and how customer traffic is protected.
+sidebar:
+  label: Privacy
+  order: 1
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+iogrid sits between customers and the public internet. This page explains
+exactly what we can and cannot see — and what we deliberately refuse to see.
+
+## TL;DR — what iogrid does not see
+
+- **Customer HTTPS payloads.** Bandwidth workloads tunnel encrypted TLS bytes
+  end-to-end. We don't terminate customer TLS; the provider sees encrypted
+  bytes, and we route them blindly.
+- **Customer code or model weights** in Docker / GPU workloads, beyond what
+  you put in the container image. Containers run on isolated cgroups with
+  no host inspection.
+- **Source code** in iOS builds — except as the build pulls it into the Tart
+  VM. The VM is destroyed after the build; iogrid retains build artifacts you
+  designate, nothing else.
+- **Provider-side raw network traffic.** The transparency dashboard shows
+  destination + category + bytes; never the request body or response body.
+
+## What iogrid does see
+
+- **Connection metadata** — source IP, destination domain, byte counts,
+  timestamps. We retain this for 90 days for anti-abuse and law-enforcement
+  cooperation.
+- **API request bodies** when they are non-encrypted iogrid API calls
+  (workload submissions, dashboard queries). Retained for 90 days.
+- **Container images and run specs** — Docker / GPU workloads ship the image
+  reference, command, and environment variables through us. Secrets are
+  encrypted at rest using a per-customer KMS key.
+- **iOS build commands, Git URLs, artifact lists** — same retention as above.
+
+## What providers see
+
+Providers see destination + category + byte counts via the audit dashboard.
+They do **not** see:
+
+- Customer identity beyond a `cus_*` ID
+- Customer HTTPS payloads (TLS is end-to-end customer↔destination)
+- Other providers' traffic
+- Customer billing or contact info
+
+See [transparency](/concepts/transparency/) for the full picture.
+
+## Data we retain
+
+| Data | Retention | Purpose |
+|---|---|---|
+| Connection metadata (provider audit log) | 90 days | Anti-abuse, LE cooperation |
+| API request logs | 90 days | Support + audit |
+| Workload images & run specs | 30 days post-completion | Re-run support |
+| Workload secrets (KMS-encrypted) | until customer deletion | Encrypted at rest |
+| Container output / artifacts | 7 days (default), configurable | Customer download |
+| Provider device telemetry (CPU/RAM utilization) | 90 days | Quality scoring |
+| Payment / billing data | 7 years | Regulatory / tax |
+
+## Encryption
+
+- **In transit:** TLS 1.3 minimum on all customer-facing endpoints. mTLS
+  between coordinator and provider daemons.
+- **At rest:** AES-256-GCM at the database layer (Postgres TDE);
+  per-customer KMS keys for workload secrets.
+- **Customer HTTPS traffic** through the bandwidth router: never decrypted by
+  iogrid; the provider sees encrypted bytes only.
+
+## Subprocessors
+
+We use a small number of third parties:
+
+| Subprocessor | Purpose | Data shared |
+|---|---|---|
+| Stripe | Payment processing, payouts | Billing, payout addresses |
+| Cloudflare | DDoS protection, CDN | Public traffic metadata |
+| Hetzner / Contabo | Coordinator infrastructure (EU/UK) | Encrypted workloads |
+| Google Cloud KMS | Customer secret encryption keys | Wrapped key material |
+| AWS (S3-compatible) | Workload artifact storage | Artifacts, encrypted at rest |
+
+Subprocessor list updated quarterly at
+[iogrid.org/legal/subprocessors](https://iogrid.org/legal/subprocessors). DPA
+available on request.
+
+## GDPR / CCPA
+
+iogrid is a **data processor** for customer-submitted data (workload images,
+artifacts) and a **data controller** for account / billing data.
+
+- Data subjects can request access, correction, and deletion at
+  [privacy@iogrid.org](mailto:privacy@iogrid.org).
+- We process EU personal data under SCCs with EU-based subprocessors.
+- CCPA "Do Not Sell" preference honored; we don't sell personal data in any
+  case.
+
+## Open-source posture
+
+The provider daemon is **AGPL-3.0** open source. The coordinator is currently
+closed-source but the protobuf schema is public. We aim to publish a Phase 2+
+audit of the daemon's source and signed binary chain.
+
+## Coordinated disclosure
+
+Security issues should be reported to
+[security@iogrid.org](mailto:security@iogrid.org) — PGP key at
+[iogrid.org/.well-known/security.txt](https://iogrid.org/.well-known/security.txt).
+We aim to acknowledge within 24 h and resolve in-scope issues within 14 days.
+
+<Aside type="tip" title="Bug bounty">
+  We run a paid bug bounty program for verified vulnerabilities. Severity 1
+  (RCE, data exfiltration): $5,000–$15,000. Severity 2 (auth bypass): $1,000–
+  $5,000. Severity 3 (information disclosure): $250–$1,000.
+</Aside>
+
+## Where next
+
+- [Anti-abuse policy](/security/anti-abuse/)
+- [Concepts: transparency](/concepts/transparency/)
+- [Legal: Privacy Policy](/legal/privacy/)

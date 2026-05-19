@@ -1,0 +1,156 @@
+---
+title: Docker compute workload
+description: Run containers on idle home CPUs at $0.02–$0.10 per CPU-hour.
+sidebar:
+  label: Docker compute
+  order: 2
+---
+
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+The Docker workload schedules containers to providers with idle CPU + RAM
+capacity. Use it for batch jobs, ML inference (CPU-only), background workers,
+and anything where home-grade hardware is sufficient.
+
+## Pricing
+
+| Plan | Per CPU-hour | Per RAM-GB-hour | Min job duration |
+|---|---|---|---|
+| Free | $0.10 | $0.005 | 1 minute |
+| Pro | $0.06 | $0.003 | 1 minute |
+| Business | $0.03 | $0.002 | 1 minute |
+| Enterprise | $0.02 | $0.001 | 1 minute |
+
+Compare: AWS Fargate `0.25 vCPU + 0.5 GB` runs ~$0.012/hr per vCPU, but
+provisioning latency is 30–60 s. iogrid jobs start in ~5 s on idle providers.
+
+## What runs
+
+- Any Linux x86_64 container from an **approved registry**:
+  - `ghcr.io/*` (any namespace)
+  - `docker.io/library/*` (official images)
+  - `docker.io/<dockerhub-verified-publisher>/*`
+  - A custom registry you ask us to allow-list (24-hour review)
+- ARM64 images for ARM provider scheduling (limited image availability today)
+- Container can `exec` arbitrary commands; cgroup-isolated CPU + RAM caps;
+  read-only rootfs by default
+- No host filesystem access, no host network — outbound only via iogrid
+  bandwidth router (anti-abuse filters apply)
+
+## What does **not** run
+
+- Privileged containers (`--privileged`)
+- Containers requesting `--cap-add=NET_ADMIN` (we manage networking)
+- Containers needing host-network mode
+- Long-running services that expect inbound public connections
+- GPU workloads — use [GPU workload](/workloads/gpu/) instead
+
+## Submit a job
+
+```bash
+curl -X POST https://api.iogrid.org/v1/workloads \
+  -H "Authorization: Bearer sk_live_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "docker",
+    "image": "ghcr.io/myorg/etl:v1.4.2",
+    "command": ["python", "-m", "etl", "--batch", "2026-05"],
+    "env": {
+      "BATCH_SIZE": "10000",
+      "API_KEY": "${secrets.batch_api_key}"
+    },
+    "resources": {
+      "cpu": 4,
+      "memory_gb": 8,
+      "time_limit_seconds": 1800
+    },
+    "category": "batch"
+  }'
+```
+
+Response:
+
+```json
+{
+  "id": "wkl_01HXY...",
+  "type": "docker",
+  "status": "scheduling",
+  "created_at": "2026-05-19T11:20:14Z",
+  "logs_url": "https://api.iogrid.org/v1/workloads/wkl_01HXY.../logs",
+  "result_url": "https://api.iogrid.org/v1/workloads/wkl_01HXY..."
+}
+```
+
+## Status lifecycle
+
+```
+scheduling → queued → starting → running → succeeded
+                                         ↘ failed
+                                         ↘ timeout
+                                         ↘ cancelled
+```
+
+Poll `GET /v1/workloads/{id}` or use the SDK's `wait()` helper which
+long-polls (~30-second timeout per call).
+
+## Streaming logs
+
+```bash
+curl -N https://api.iogrid.org/v1/workloads/wkl_01HXY.../logs \
+  -H "Authorization: Bearer sk_live_..." \
+  -H "Accept: text/event-stream"
+```
+
+Server-Sent Events delivers stdout + stderr lines as they're produced. Each
+event payload is JSON: `{"stream":"stdout","ts":"...","text":"..."}`.
+
+## Secrets
+
+Pass secrets via the `env` field with the `${secrets.<name>}` interpolation
+syntax. Secrets are stored at
+[dashboard.iogrid.org/settings/secrets](https://dashboard.iogrid.org/settings/secrets);
+they're encrypted at rest and injected into the container at runtime, never
+logged or surfaced in the audit trail.
+
+## Idempotency
+
+Pass `Idempotency-Key: <UUID>` on the submission. A retry within 24 hours with
+the same key returns the **original** workload reference (idempotent), so
+network-level retries are safe.
+
+## Limits
+
+- Max single-job CPU: 16
+- Max single-job RAM: 64 GB
+- Max single-job duration: 4 hours (raise via support)
+- Concurrent jobs per account: plan-dependent
+- Total image size: 5 GB compressed
+- Container output volume: 10 GB per job
+
+## Cost example
+
+A 30-minute ETL job using 4 CPU + 8 GB RAM on the Pro plan:
+
+```
+4 CPU-hours × 0.5 hours × $0.06/CPU-hour =   $0.12
+8 GB-hours × 0.5 hours × $0.003/GB-hour =    $0.012
+                                            ─────────
+                                       Total $0.132
+```
+
+For comparison, the same job on AWS Fargate Spot: ~$0.075. On AWS Fargate
+On-Demand: ~$0.21. iogrid sits between Spot and On-Demand on price, with
+~5-second start latency (Fargate is 30-60 s).
+
+<Aside type="note" title="When NOT to use iogrid Docker">
+  iogrid is best for **stateless, batch-style** workloads. If you need
+  persistent volumes, inbound traffic, or 99.99% per-job availability,
+  use a hyperscaler. iogrid's strength is throughput + price, not isolation
+  per-job SLA.
+</Aside>
+
+## Where next
+
+- [Concepts: workloads](/concepts/workloads/)
+- [GPU workload](/workloads/gpu/)
+- [Security: anti-abuse](/security/anti-abuse/)

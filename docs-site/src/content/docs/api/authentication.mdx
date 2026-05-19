@@ -1,0 +1,126 @@
+---
+title: Authentication
+description: API keys, key types, rotation, scopes, and key-management endpoints.
+sidebar:
+  label: Authentication
+  order: 2
+---
+
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+iogrid authenticates API requests with **bearer tokens** passed as the
+`Authorization` header.
+
+## Key types
+
+| Prefix | Environment | Scope | Browser-safe? |
+|---|---|---|---|
+| `sk_live_` | Production | full | ❌ never expose client-side |
+| `sk_sandbox_` | Sandbox | full | ❌ never expose client-side |
+| `pk_live_` | Production | read-only (your own usage / billing) | ✅ |
+| `pk_sandbox_` | Sandbox | read-only | ✅ |
+
+Secret keys (`sk_*`) can submit workloads, modify settings, and access full
+billing data. Publishable keys (`pk_*`) are read-only and safe to embed in
+browser JavaScript or mobile apps.
+
+## Issuing keys
+
+Go to [dashboard.iogrid.org/settings/api-keys](https://dashboard.iogrid.org/settings/api-keys).
+Each key has:
+
+- **Label** — human-readable
+- **Scope** — full | read-only
+- **Expiry** — optional, default no expiry
+- **IP allowlist** — optional, CIDR-style
+
+The key value is shown **once at creation time**. Store it in your secret
+manager immediately; iogrid does not retain the plaintext.
+
+## Using a key
+
+<Tabs>
+  <TabItem label="curl">
+
+```bash
+curl https://api.iogrid.org/v1/me \
+  -H "Authorization: Bearer sk_live_..."
+```
+
+  </TabItem>
+  <TabItem label="TypeScript SDK">
+
+```ts
+import { IogridClient } from "@iogrid/sdk";
+
+const client = new IogridClient({
+  apiKey: process.env.IOGRID_API_KEY!,
+});
+
+const me = await client.me.get();
+```
+
+  </TabItem>
+  <TabItem label="Python SDK">
+
+```python
+import os
+from iogrid import IogridClient
+
+client = IogridClient(api_key=os.environ["IOGRID_API_KEY"])
+me = client.me.get()
+```
+
+  </TabItem>
+  <TabItem label="Go SDK">
+
+```go
+import "github.com/iogrid/iogrid-go"
+
+client, _ := iogrid.NewClient(os.Getenv("IOGRID_API_KEY"))
+me, err := client.Me.Get(ctx)
+```
+
+  </TabItem>
+</Tabs>
+
+## Rotation
+
+Best practice: rotate `sk_live_*` keys at least every 90 days.
+
+1. Issue a new key in the dashboard.
+2. Deploy the new key to your production environment.
+3. Watch the dashboard's per-key request graph to confirm traffic migrated.
+4. Revoke the old key.
+
+There is no soft-deprecation window — revocation is immediate. Plan accordingly.
+
+## Compromise response
+
+If a key may have leaked, **revoke first, investigate second**.
+
+`POST /v1/api-keys/{id}/revoke` immediately rejects all in-flight and future
+requests with `INVALID_AUTH`. Audit log entries for the key remain visible at
+[dashboard.iogrid.org/settings/audit](https://dashboard.iogrid.org/settings/audit).
+
+<Aside type="caution" title="Don't roll your own auth layer">
+  Don't put your `sk_*` key in front-end code, public repos, mobile bundles,
+  or unencrypted CI logs. iogrid scans known public-secret marketplaces and
+  GitHub on a continuous basis; if we detect a leaked key it is auto-revoked
+  and we email the account owner. This is courtesy, not a guarantee — own
+  your secret hygiene.
+</Aside>
+
+## Magic links and Google OAuth (web only)
+
+For interactive flows (dashboard sign-in, the provider linking flow), iogrid
+supports magic-link email and Google OAuth. These produce short-lived session
+cookies; they do not produce API keys. See
+[`docs/AUTH.md`](https://github.com/iogrid/iogrid/blob/main/docs/ARCHITECTURE.md#section-auth)
+for the full auth-state machine.
+
+## Where next
+
+- [Rate limits](/api/rate-limits/)
+- [Errors](/api/errors/)
+- [Customer quickstart](/getting-started/quickstart/)
