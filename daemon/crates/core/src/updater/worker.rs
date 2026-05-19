@@ -215,19 +215,22 @@ pub fn spawn_update_poll(ctx: PollCtx) -> UpdateHandle {
 /// Apply ±10% jitter using nanosecond-precision system time as a seed.
 /// We deliberately don't pull in `rand` for this; the jitter only needs
 /// to break thundering herds, not be cryptographically random.
+///
+/// Result is always `|jitter| ≤ interval / 10`.
 fn jitter_for(interval: Duration) -> Duration {
     use std::time::{SystemTime, UNIX_EPOCH};
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.subsec_nanos())
         .unwrap_or(0) as u64;
-    // ±10% range expressed as 0..=20% then subtracting 10% means we
-    // can simply scale by `nanos % 2001` ÷ 10000.
+    // scale ∈ 0..=2000, mapped to 0..=0.2 of `interval` via /10_000,
+    // then we subtract `interval / 10` to centre on zero. Final range:
+    // ±interval/10 (i.e. ±10%), saturating to 0 for sub-second intervals.
     let scale = nanos % 2001; // 0..=2000
-    let micros = interval.as_secs() * 1_000_000;
-    let delta = micros * scale / 10_000;
-    let signed = delta as i64 - (micros as i64 / 5);
-    let abs = signed.unsigned_abs();
+    let micros = interval.as_micros() as u64;
+    let twenty_pct = micros.saturating_mul(scale) / 10_000; // 0..=micros/5
+    let ten_pct = micros / 10;
+    let abs = (twenty_pct as i64 - ten_pct as i64).unsigned_abs();
     Duration::from_micros(abs)
 }
 
