@@ -1,19 +1,24 @@
-//! Auto-update — Sparkle-style polling updater.
+//! Data types shared across the updater submodules.
 //!
-//! Phase 0: spec + stubs. The real verifier (Ed25519 manifest +
-//! cosign blob) ships behind the `auto-update` cargo feature in #59.
-//! Default daemons do NOT auto-update yet.
-//!
-//! See `installer/auto-update/README.md` for the full spec.
+//! Keep this file dependency-light — no I/O, no async, no crypto. The
+//! manifest / signature verification / worker / atomic-replace logic
+//! lives in sibling modules.
 
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-/// How often we poll the manifest. 24h ± 10% jitter is applied at the
-/// caller (the supervisor task), not here, so this constant stays a
-/// pure scalar.
-pub const POLL_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
+/// How often we poll the manifest. 6 hours per the activation spec
+/// (PR #139's docs read "24h ± 10% jitter"; the spec was tightened to
+/// 6h after dogfooding so providers pick up security fixes within a
+/// business day). Caller applies ±10% jitter so a CDN flap doesn't
+/// thunder-herd.
+pub const POLL_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
+
+/// Wall-clock health-check window after exec'ing the staged binary.
+/// If the new binary panics / exits within this window, the wrapper
+/// shim rolls back to `iogridd.old`.
+pub const HEALTH_CHECK_WINDOW: Duration = Duration::from_secs(30);
 
 /// Default channel. Production daemons ship on `stable`; the founder's
 /// dogfood machine + CI runners flip to `beta` via config.
@@ -27,7 +32,8 @@ pub enum Channel {
     Stable,
     /// Pre-release candidates. Beta-opt-in users.
     Beta,
-    /// Bleeding edge. Internal only.
+    /// Bleeding edge. Internal only. Also accepted as `canary` for
+    /// human-readability; both serialise as `edge` on the wire.
     Edge,
 }
 
@@ -40,6 +46,17 @@ impl Channel {
             Channel::Edge => "edge",
         }
     }
+
+    /// Parse from the wire / UI string. Accepts the canonical name plus
+    /// the `canary` alias for `edge`.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "stable" => Some(Channel::Stable),
+            "beta" => Some(Channel::Beta),
+            "edge" | "canary" => Some(Channel::Edge),
+            _ => None,
+        }
+    }
 }
 
 /// Configuration knobs for the updater. Loaded from the daemon's
@@ -50,8 +67,17 @@ pub struct UpdateConfig {
     pub manifest_url: String,
     /// Channel to follow.
     pub channel: Channel,
-    /// Disable auto-update entirely.
+    /// Disable auto-update entirely. Provider opts in via config or web UI.
+    #[serde(default = "default_disabled")]
     pub disabled: bool,
+    /// Override poll cadence (seconds). Useful in CI integration tests
+    /// where 6h is impractical. Falls back to [`POLL_INTERVAL`] when None.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub poll_interval_secs: Option<u64>,
+}
+
+fn default_disabled() -> bool {
+    true
 }
 
 impl Default for UpdateConfig {
@@ -59,10 +85,19 @@ impl Default for UpdateConfig {
         Self {
             manifest_url: "https://updates.iogrid.org/manifest.json".to_string(),
             channel: Channel::Stable,
-            // Phase 0: disabled by default. Flipped to `false` in the
-            // PR that lands the actual verifier + atomic-replace.
+            // Off by default. Provider opts in via config or web UI.
             disabled: true,
+            poll_interval_secs: None,
         }
+    }
+}
+
+impl UpdateConfig {
+    /// Effective poll interval (config override or [`POLL_INTERVAL`]).
+    pub fn effective_poll_interval(&self) -> Duration {
+        self.poll_interval_secs
+            .map(Duration::from_secs)
+            .unwrap_or(POLL_INTERVAL)
     }
 }
 
@@ -77,6 +112,11 @@ pub struct ReleaseArtifact {
     pub sha256: String,
     /// Total bytes (used as a free integrity check + progress UI).
     pub size_bytes: u64,
+    /// Per-binary Ed25519 signature over the hex SHA-256 (base64).
+    /// Verified with the same embedded pubkey set as the manifest;
+    /// preferred over the optional cosign blob.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
     /// Optional cosign blob signature, base64-encoded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cosign_signature: Option<String>,
@@ -126,6 +166,40 @@ pub struct ManifestSignature {
     pub value: String,
 }
 
+/// Outcome of a single update poll. Useful in both the worker loop and
+/// the manual `iogridd update --check` CLI path.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum UpdateOutcome {
+    /// Manifest says current is latest.
+    UpToDate { current: String },
+    /// Daemon refused to apply (disabled by config, no compatible
+    /// artifact, etc.). `reason` is human-readable.
+    Skipped { reason: String },
+    /// A pending update has been staged at `<install>/iogridd.new`.
+    /// The wrapper / supervisor will replace + restart on next stop.
+    Staged {
+        from: String,
+        to: String,
+        path: String,
+    },
+    /// Manifest fetch / verify failed. `error` is the underlying string.
+    Failed { error: String },
+}
+
+/// One row in the update-history ledger surfaced to the web UI.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateHistoryEntry {
+    /// ISO-8601 timestamp of the event.
+    pub at: String,
+    /// Channel that was checked.
+    pub channel: String,
+    /// Daemon version at the time of the check.
+    pub from_version: String,
+    /// Outcome of the check.
+    pub outcome: UpdateOutcome,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -138,11 +212,31 @@ mod tests {
     }
 
     #[test]
+    fn channel_parse_accepts_canary_alias() {
+        assert_eq!(Channel::parse("canary"), Some(Channel::Edge));
+        assert_eq!(Channel::parse("EDGE"), Some(Channel::Edge));
+        assert_eq!(Channel::parse("Stable"), Some(Channel::Stable));
+        assert_eq!(Channel::parse(""), None);
+        assert_eq!(Channel::parse("nightly"), None);
+    }
+
+    #[test]
     fn default_config_is_safe() {
-        // Phase 0: auto-update is off by default. Re-enable carefully.
+        // Auto-update remains off by default — provider opts in via the
+        // web UI or config.toml.
         let c = UpdateConfig::default();
         assert!(c.disabled);
         assert_eq!(c.channel, Channel::Stable);
+        assert_eq!(c.effective_poll_interval(), POLL_INTERVAL);
+    }
+
+    #[test]
+    fn effective_poll_interval_honours_override() {
+        let c = UpdateConfig {
+            poll_interval_secs: Some(60),
+            ..UpdateConfig::default()
+        };
+        assert_eq!(c.effective_poll_interval(), Duration::from_secs(60));
     }
 
     #[test]
@@ -160,6 +254,7 @@ mod tests {
                     url: "https://releases.iogrid.org/0.1.0/iogridd-darwin-amd64".into(),
                     sha256: "0".repeat(64),
                     size_bytes: 5_242_880,
+                    signature: None,
                     cosign_signature: None,
                 }],
             }],
@@ -175,7 +270,25 @@ mod tests {
     }
 
     #[test]
-    fn poll_interval_is_one_day() {
-        assert_eq!(POLL_INTERVAL.as_secs(), 86_400);
+    fn poll_interval_is_six_hours() {
+        assert_eq!(POLL_INTERVAL.as_secs(), 6 * 60 * 60);
+    }
+
+    #[test]
+    fn health_check_window_is_thirty_seconds() {
+        assert_eq!(HEALTH_CHECK_WINDOW.as_secs(), 30);
+    }
+
+    #[test]
+    fn update_outcome_roundtrips() {
+        let o = UpdateOutcome::Staged {
+            from: "0.1.0".into(),
+            to: "0.1.1".into(),
+            path: "/usr/local/iogrid/iogridd.new".into(),
+        };
+        let j = serde_json::to_string(&o).unwrap();
+        assert!(j.contains("\"status\":\"staged\""));
+        let back: UpdateOutcome = serde_json::from_str(&j).unwrap();
+        assert_eq!(back, o);
     }
 }

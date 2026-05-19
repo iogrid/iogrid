@@ -73,6 +73,73 @@ jobs:
           rm -f "$rendered"
           echo "nfpm config OK; built /tmp/test.deb $(stat -c %s /tmp/test.deb || stat -f %z /tmp/test.deb) bytes"
 
+      - name: JSON Schema lint (manifest.schema.json)
+        run: |
+          # Validates the example manifest against its schema. Smokes the
+          # schema file itself by confirming it loads, and confirms
+          # docs/CI never ship a malformed example.
+          python3 -m pip install --quiet jsonschema==4.23.0
+          python3 - <<'PY'
+          import json, sys
+          from jsonschema import Draft202012Validator
+          with open('installer/auto-update/manifest.schema.json') as f:
+              schema = json.load(f)
+          Draft202012Validator.check_schema(schema)
+          with open('installer/auto-update/manifest.example.json') as f:
+              example = json.load(f)
+          errors = sorted(Draft202012Validator(schema).iter_errors(example), key=lambda e: e.path)
+          if errors:
+              for e in errors:
+                  print('SCHEMA ERROR:', list(e.path), e.message, file=sys.stderr)
+              sys.exit(1)
+          print('manifest.example.json validates against manifest.schema.json')
+          PY
+
+  # ---------------------------------------------------------------------
+  # Manifest server — a tiny Go HTTP server used by the integration
+  # test below to drive the daemon's polling loop end-to-end.
+  # ---------------------------------------------------------------------
+  auto-update-server:
+    name: auto-update manifest server (Go)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: installer/auto-update/server
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache-dependency-path: installer/auto-update/server/go.sum
+      - name: go vet
+        run: go vet ./...
+      - name: go test
+        run: go test ./...
+      - name: go build
+        run: go build -o /tmp/manifestd ./...
+      - name: smoke (boot + curl)
+        run: |
+          mkdir -p /tmp/manifest-root/0.1.0
+          cp installer/auto-update/manifest.example.json /tmp/manifest-root/manifest.json || \
+            cp ../manifest.example.json /tmp/manifest-root/manifest.json
+          echo -n fakebin > /tmp/manifest-root/0.1.0/iogridd-linux-amd64
+          IOGRID_MANIFEST_PATH=/tmp/manifest-root/manifest.json \
+          IOGRID_BINARY_DIR=/tmp/manifest-root \
+          IOGRID_LISTEN=127.0.0.1:18088 \
+          /tmp/manifestd &
+          PID=$!
+          # Poll for readiness instead of fixed sleep.
+          for _ in 1 2 3 4 5 6 7 8 9 10; do
+            if curl -fsS http://127.0.0.1:18088/healthz >/dev/null; then break; fi
+            sleep 0.5
+          done
+          curl -fsS http://127.0.0.1:18088/manifest.json | head -c 64
+          curl -fsS http://127.0.0.1:18088/0.1.0/iogridd-linux-amd64 -o /tmp/dl
+          test -s /tmp/dl
+          kill $PID || true
+
   # ---------------------------------------------------------------------
   # macOS: build the daemon + .pkg. Unsigned in CI (Apple Developer ID
   # secret only available on the release runner).

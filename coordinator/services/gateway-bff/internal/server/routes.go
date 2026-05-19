@@ -93,6 +93,16 @@ func Mount(deps Deps) func(chi.Router) {
 				r.Post("/sign-in/magic/complete", api.CompleteMagicLink)
 				r.Post("/sign-out", api.SignOut)
 				r.Get("/sessions", api.ListSessions)
+
+				// Auto-update operator surface (#59).
+				r.Route("/updates", func(r chi.Router) {
+					r.Use(auth.RequireAuth)
+					r.Get("/", api.GetUpdates)
+					r.Post("/preferences", api.SaveUpdatePreferences)
+					r.Post("/check", api.TriggerUpdateCheck)
+					r.Post("/apply", api.ApplyPendingUpdate)
+					r.Post("/rollback", api.RollbackUpdate)
+				})
 			})
 
 			// /onboard ----------------------------------------------------
