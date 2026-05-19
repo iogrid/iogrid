@@ -1,0 +1,79 @@
+# iogrid Flux v2 GitRepository source.
+#
+# Phase 0 unblock — applied by the founder on the mothership cluster
+# (45.151.123.50:6443) to wire the iogrid repo into the cluster's Flux
+# reconciliation loop. Pairs with iogrid-kustomization.yaml in this
+# directory.
+#
+# Issue: https://github.com/iogrid/iogrid/issues/201 (Layer 2)
+#
+# How Flux uses this:
+#   - Pulls https://github.com/iogrid/iogrid every 1m.
+#   - Only files NOT matched by `ignore` count as source revisions, so
+#     pushes that only touch docs/marketing/sdks won't trigger a churn.
+#   - The companion Kustomization (iogrid-kustomization.yaml) references
+#     this GitRepository by name (`iogrid`) in the same namespace
+#     (`flux-system`).
+#
+# Authoritative copy of this file historically lived in
+# iogrid/iogrid-ops; for Phase 0 we keep BOTH copies (this one is the
+# canonical, in-repo, version-controlled definition; iogrid-ops can
+# remain as the cluster-bootstrap pointer).
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: iogrid
+  namespace: flux-system
+  labels:
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/managed-by: flux
+spec:
+  interval: 1m
+  url: https://github.com/iogrid/iogrid
+  ref:
+    branch: main
+  # Path-level ignore: skip everything irrelevant to in-cluster reconciliation.
+  # Anything NOT listed here will be part of the artifact Flux ships to the
+  # Kustomize controller.
+  #
+  # The `!/infra/k8s` pattern guarantees the k8s manifests are always pulled
+  # even if a parent directory is excluded.
+  ignore: |
+    # SCM + lockfiles
+    /.git
+    /.github
+    /.gitignore
+    /.npmrc
+    /pnpm-lock.yaml
+    /pnpm-workspace.yaml
+    /package.json
+    /Makefile
+
+    # Docs / marketing / SDKs / examples — no cluster impact
+    /*.md
+    /docs
+    /docs-site
+    /marketing
+    /brand
+    /legal
+    /sdks
+    /examples
+    /web/tests
+
+    # Source code that's built upstream of the cluster (binaries land via
+    # OCI images, not via the source artifact).
+    /daemon
+    /coordinator
+    /contracts
+    /proto
+    /scripts
+    /installer
+    /e2e
+
+    # Other infra subtrees not yet ready to reconcile
+    /infra/dynadot
+
+    # Force-include the bits Flux MUST see
+    !/infra/k8s
+    !/gitops/flux

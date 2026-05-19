@@ -1,0 +1,21 @@
+# Kustomize index for the Phase 0 Flux bootstrap.
+#
+# Apply with:
+#   kubectl apply -k gitops/flux/
+#
+# This will (in order):
+#   1. Create the `iogrid` namespace with PSS=restricted + Cilium scope.
+#   2. Create the `iogrid` GitRepository (Flux starts pulling immediately).
+#   3. Create the `iogrid` Kustomization (Flux reconciles infra/k8s/base
+#      into the iogrid namespace once the source is ready).
+#
+# The skeleton secrets file (iogrid-secrets-skeleton.yaml) is deliberately
+# NOT included — it's a TEMPLATE, not an apply-as-is manifest. The
+# founder fills in real values then applies it manually. See
+# gitops/README.md.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - iogrid-namespace.yaml
+  - iogrid-source.yaml
+  - iogrid-kustomization.yaml

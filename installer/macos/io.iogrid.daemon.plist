@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  iogrid provider daemon LaunchAgent template (Phase 0).
+
+  Installed by `installer/macos/install-iogridd.sh` at:
+      ~/Library/LaunchAgents/io.iogrid.daemon.plist
+
+  Differs from `installer/macos/templates/org.iogrid.daemon.plist.tmpl`
+  (the .pkg-installer template) in that this version:
+    * passes the config path via ProgramArguments directly (the .pkg
+      template uses an env var indirection that's not needed outside
+      the .pkg installer flow).
+    * lives under the user's home (`~/.iogrid/`) for config and logs,
+      matching the curl-pipe-sh install path used by install-iogridd.sh.
+    * uses label `io.iogrid.daemon` (the canonical user-facing label;
+      matches issue #201 "register io.iogrid.daemon LaunchAgent").
+
+  Placeholders below are substituted by install-iogridd.sh via sed:
+    __USER_HOME__   = $HOME
+    __USER_NAME__   = id -un
+    __INSTALL_PATH__= /opt/homebrew/bin/iogridd or /usr/local/bin/iogridd
+    __CONFIG_FILE__ = ~/.iogrid/config.toml
+    __LOG_DIR__     = ~/.iogrid/logs
+
+  Hardening notes:
+    - RunAtLoad=true: starts at user login.
+    - KeepAlive=true: launchd respawns the daemon if it ever exits non-zero.
+    - ProcessType=Background: tells launchd this is a long-running service,
+      not a UI app — affects QoS / power management on battery.
+    - StandardOut/Error pinned to ~/.iogrid/logs so logs survive even if
+      the binary location changes.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>io.iogrid.daemon</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__INSTALL_PATH__</string>
+    <string>run</string>
+    <string>--config</string><string>__CONFIG_FILE__</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>15</integer>
+  <key>ProcessType</key><string>Background</string>
+  <key>WorkingDirectory</key><string>__USER_HOME__</string>
+  <key>StandardOutPath</key><string>__LOG_DIR__/iogridd.out.log</string>
+  <key>StandardErrorPath</key><string>__LOG_DIR__/iogridd.err.log</string>
+  <key>UserName</key><string>__USER_NAME__</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>RUST_LOG</key><string>info</string>
+    <key>HOME</key><string>__USER_HOME__</string>
+    <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+</dict>
+</plist>

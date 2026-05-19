@@ -1,0 +1,40 @@
+# iogrid namespace (pre-apply manifest).
+#
+# Phase 0 unblock — applied by the founder BEFORE Flux first reconciles
+# (so the targetNamespace exists, the cluster-mesh label is in place,
+# and the in-repo `infra/k8s/base/namespaces/namespace.yaml` SSA-merges
+# cleanly without conflict).
+#
+# Issue: https://github.com/iogrid/iogrid/issues/201 (Layer 2)
+#
+# Why this is a separate file from infra/k8s/base/namespaces/namespace.yaml:
+#   - That base manifest is the source-of-truth for the namespace AS
+#     RECONCILED by Flux. This file is the pre-apply seed that exists
+#     BEFORE the GitRepository is created, so the operator can do:
+#       kubectl apply -k gitops/flux/
+#     and have a working namespace before Flux's first run.
+#   - Flux will then SSA-merge any label/annotation drift on top.
+#
+# Cilium label notes:
+#   - `io.cilium.k8s.policy.cluster: mothership` — required by #200's
+#     CiliumNetworkPolicy mTLS rules to scope SPIFFE identities to this
+#     cluster. Must match the Cilium config's `cluster.name`.
+#   - `name: iogrid` — used by NetworkPolicy podSelectors / namespace
+#     selectors throughout `infra/k8s/base`.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: iogrid
+  labels:
+    name: iogrid
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/managed-by: flux
+    # Cilium cluster-mesh identity scope (matches #200 mTLS CNPs)
+    io.cilium.k8s.policy.cluster: mothership
+    # Pod Security Standards — restricted (matches base namespaces/namespace.yaml)
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+    # Marker for the cluster's network-policy controller
+    networking.iogrid.org/policy-enforcement: strict
