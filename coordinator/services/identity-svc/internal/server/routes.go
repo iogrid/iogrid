@@ -41,19 +41,21 @@ func MountFunc(cfg MountConfig) func(r chi.Router) {
 		// Scope the bearer middleware to a Group sub-router instead.
 		r.Group(func(r chi.Router) {
 			r.Use(authmw.VerifyBearer(cfg.Signer))
-			cfg.API.Mount(r)
-			// chi only allows Route("/v1", ...) once — handlers that
-			// share the /v1 prefix must register inside a single Route.
-			if cfg.Workspace != nil || cfg.Identity != nil {
-				r.Route("/v1", func(r chi.Router) {
-					if cfg.Workspace != nil {
-						cfg.Workspace.MountWorkspaceJSON(r)
-					}
-					if cfg.Identity != nil {
-						cfg.Identity.MountIdentityJSON(r)
-					}
-				})
-			}
+			// All three handler trees (API, Workspace, Identity) share
+			// the /v1 prefix. chi.Mux allows Route("/v1", ...) only
+			// once per parent — so own the /v1 here and mount each
+			// handler's sub-paths inside via MountV1 / MountXxxJSON.
+			r.Route("/v1", func(r chi.Router) {
+				cfg.API.MountV1(r)
+				if cfg.Workspace != nil {
+					cfg.Workspace.MountWorkspaceJSON(r)
+				}
+				if cfg.Identity != nil {
+					cfg.Identity.MountIdentityJSON(r)
+				}
+			})
+			// Connect-RPC handlers own their own absolute paths derived
+			// from the proto package — outside /v1.
 			if cfg.Workspace != nil {
 				path, hh := identityv1connect.NewWorkspaceServiceHandler(cfg.Workspace)
 				r.Mount(path, hh)
