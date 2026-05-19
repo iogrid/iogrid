@@ -86,17 +86,23 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service:
-          - identity-svc
-          - providers-svc
-          - workloads-svc
-          - antiabuse-svc
-          - billing-svc
-          - telemetry-svc
-          - gateway-bff
-          - proxy-gateway
-          - build-gateway
-          - vpn-gateway
+        include:
+          - service: identity-svc
+          - service: providers-svc
+          - service: workloads-svc
+          - service: antiabuse-svc
+          # antiabuse-svc-transparency-report ships as a separate
+          # container (CronJob entrypoint, no HTTP server). It is
+          # built from the same module via the Dockerfile.transparency
+          # in coordinator/services/antiabuse-svc/.
+          - service: antiabuse-svc-transparency-report
+            dockerfile: coordinator/services/antiabuse-svc/Dockerfile.transparency
+          - service: billing-svc
+          - service: telemetry-svc
+          - service: gateway-bff
+          - service: proxy-gateway
+          - service: build-gateway
+          - service: vpn-gateway
     steps:
       - uses: actions/checkout@v4
 
@@ -129,7 +135,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: coordinator/services/${{ matrix.service }}/Dockerfile
+          file: ${{ matrix.dockerfile || format('coordinator/services/{0}/Dockerfile', matrix.service) }}
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name == 'push' }}
           tags: ${{ steps.meta.outputs.tags }}

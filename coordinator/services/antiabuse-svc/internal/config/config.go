@@ -45,6 +45,24 @@ type Config struct {
 	// emission. Empty falls back to slog-only audit emission.
 	NATSURL string
 
+	// AuditPostgresDSN, when set, enables the relational audit mirror
+	// that the retention pruner enforces. The pgx stdlib driver is
+	// linked when this is non-empty. Empty disables the mirror
+	// (JetStream-only — retention is enforced by stream MaxAge).
+	AuditPostgresDSN string
+
+	// AuditRetentionDays overrides the docs/LEGAL.md-mandated 90 days
+	// for self-hosted deployments that need a different value
+	// (regulator-imposed, customer contract, etc). Min 30 enforced at
+	// startup; values below 30 are clamped to 90.
+	AuditRetentionDays int
+
+	// PhotoDNABloomRefresh controls the cadence at which the
+	// in-memory NCMEC hash-bloom is rebuilt from the published
+	// hash list (default 168h = 7 days). Test deployments override
+	// this to validate the refresh path without waiting a week.
+	PhotoDNABloomRefresh time.Duration
+
 	// HighValueTargets is the comma-separated list of destinations that
 	// get tighter per-provider rate limits (default: LinkedIn,
 	// Facebook, Twitter, Google, Instagram).
@@ -87,6 +105,9 @@ func Load() Config {
 		PhotoDNAAPIKey:       os.Getenv("PHOTODNA_API_KEY"),
 		RedisURL:             os.Getenv("REDIS_URL"),
 		NATSURL:              os.Getenv("NATS_URL"),
+		AuditPostgresDSN:     os.Getenv("AUDIT_POSTGRES_DSN"),
+		AuditRetentionDays:   clampRetention(intEnv("AUDIT_RETENTION_DAYS", 90)),
+		PhotoDNABloomRefresh: durationEnv("PHOTODNA_BLOOM_REFRESH", 7*24*time.Hour),
 		HighValueTargets:     csv(getenv("HIGH_VALUE_TARGETS",
 			"linkedin.com,facebook.com,twitter.com,google.com,instagram.com")),
 		BlockDomains:         csv(os.Getenv("BLOCK_DOMAINS")),
@@ -119,6 +140,17 @@ func durationEnv(key string, fallback time.Duration) time.Duration {
 		}
 	}
 	return fallback
+}
+
+// clampRetention enforces the docs/LEGAL.md floor (90 days). Self-hosted
+// deployments that need a longer retention can specify any value above
+// the floor; values below it are clamped up so the legal-shield argument
+// in docs/LEGAL.md never silently breaks.
+func clampRetention(n int) int {
+	if n < 90 {
+		return 90
+	}
+	return n
 }
 
 func csv(s string) []string {

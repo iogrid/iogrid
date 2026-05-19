@@ -1,0 +1,98 @@
+# Quarterly transparency-report CronJob.
+#
+# Fires at 03:00 UTC on the 1st of January, April, July, and October —
+# the calendar quarter immediately after each window closes. The
+# antiabuse-svc-transparency-report binary detects the previous-quarter
+# pair from the wall-clock at run time, so cron timing drift inside
+# the same calendar day is harmless.
+#
+# Per docs/LEGAL.md ("publish quarterly Phase 2 onward"), the job:
+#   1. Aggregates audit metrics from the in-cluster NATS / Postgres mirror
+#   2. Writes JSON + Markdown to S3 (s3://iogrid-transparency/{yr}/Q{q}.{json,md})
+#   3. POSTs the JSON to gateway-bff so the public endpoint at
+#      https://api.iogrid.org/status/transparency/{yr}/{q} serves the
+#      latest snapshot without an S3 round-trip per request.
+#
+# Backoff: 2 retries (k8s default activeDeadline is ample for this
+# size of workload), then the job lands in a Failed state and our
+# alerting picks it up.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: antiabuse-svc-transparency-report
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: antiabuse-svc
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: cronjob
+spec:
+  # Quarterly: 03:00 UTC on the 1st of Jan, Apr, Jul, Oct.
+  schedule: "0 3 1 1,4,7,10 *"
+  timeZone: "Etc/UTC"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 3600
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 1800
+      ttlSecondsAfterFinished: 604800 # 7 days
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: antiabuse-svc
+            app.kubernetes.io/part-of: iogrid
+            app.kubernetes.io/component: cronjob
+        spec:
+          restartPolicy: Never
+          serviceAccountName: antiabuse-svc
+          automountServiceAccountToken: true
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            fsGroup: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: transparency-report
+              image: ghcr.io/iogrid/antiabuse-svc-transparency-report:scaffold
+              imagePullPolicy: IfNotPresent
+              args:
+                - "-bucket"
+                - "iogrid-transparency"
+                - "-bff-url"
+                - "http://gateway-bff.iogrid.svc.cluster.local:8080"
+              env:
+                - name: GATEWAY_BFF_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: antiabuse-svc-secrets
+                      key: transparency_publish_token
+                      optional: true
+                - name: AWS_REGION
+                  value: us-east-1
+              envFrom:
+                - secretRef:
+                    name: antiabuse-svc-secrets
+                    optional: true
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: tmp
+              emptyDir: {}
