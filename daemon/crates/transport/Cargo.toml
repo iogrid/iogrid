@@ -14,7 +14,7 @@ path = "src/lib.rs"
 
 [dependencies]
 tokio = { workspace = true }
-tokio-stream = { workspace = true }
+tokio-stream = { workspace = true, features = ["sync", "net"] }
 async-trait = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
@@ -34,6 +34,9 @@ iogrid-anti-abuse = { workspace = true }
 iogrid-scheduler = { workspace = true }
 futures = { workspace = true }
 parking_lot = { workspace = true }
+
+[build-dependencies]
+tonic-build = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"

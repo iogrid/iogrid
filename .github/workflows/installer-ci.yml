@@ -159,6 +159,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "27.x"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Cache cargo registry only (target/ is per-arch and small)
         uses: actions/cache@v4
         with:
@@ -220,6 +226,12 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "27.x"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -307,6 +319,12 @@ jobs:
             cross: true
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "27.x"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Cache cargo
         uses: actions/cache@v4

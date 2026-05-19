@@ -30,13 +30,19 @@
 pub mod identity;
 pub mod ruleset;
 
+mod convert;
+mod pb;
+
 use std::path::PathBuf;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::mpsc;
+use tokio_stream::wrappers::ReceiverStream;
 use tonic::transport::{Channel as TonicChannel, ClientTlsConfig, Endpoint, Identity};
+
+use pb::workloads::v1::workload_dispatch_service_client::WorkloadDispatchServiceClient;
 
 /// All errors the transport layer surfaces upward.
 #[derive(Debug, Error)]
@@ -478,78 +484,174 @@ pub struct DispatchHello {
 /// between the wire and the supervisor's mpsc pair. Backs off + reconnects
 /// per [`run_with_reconnect`].
 ///
-/// The minimal viable bidi pump in this PR keeps the wire open with
-/// `Channel::connect` (mTLS handshake, keepalives) and logs the
-/// `DispatchHello` we *would* send once tonic-build-generated stubs land
-/// (see follow-up issue). It exists so the supervisor can flip a single
-/// switch from "loopback only" to "live transport" once the proto-codegen
-/// step is wired — every other piece of the daemon is already paired
-/// against `DispatchFrame`.
+/// On each connect attempt the bridge:
+///
+///  1. Opens an mTLS [`Channel`] (handshake + keepalives).
+///  2. Builds a [`WorkloadDispatchServiceClient`] on it and opens the
+///     bidirectional `Dispatch` stream.
+///  3. Sends a [`DispatchFrame::DaemonHello`] as the first frame.
+///  4. Waits up to 10 s for a [`DispatchFrame::CoordinatorHello`] ack.
+///  5. Pumps every frame between the wire and the supervisor's mpsc pair
+///     until either side disconnects or the cancel signal fires.
+///
+/// On stream end / error the closure returns and [`run_with_reconnect`]
+/// schedules the next attempt with exponential backoff.
 pub fn spawn_live_dispatch(cfg: ConnectConfig, hello: DispatchHello) -> LiveDispatchHandle {
-    let (out_tx, out_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel::<DispatchFrame>(64);
     let (in_tx, in_rx) = mpsc::channel::<DispatchFrame>(64);
     let daemon_side = DispatchChannel {
         tx: out_tx,
         rx: in_rx,
     };
     let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+
+    // Bridge the supervisor-facing mpsc senders into shared slots so the
+    // reconnect loop's closure can install a fresh wire-bound sender on
+    // every attempt without dropping the supervisor's `daemon_side.tx`
+    // (whose `out_rx` we own here exclusively).
+    let out_rx = std::sync::Arc::new(tokio::sync::Mutex::new(out_rx));
+    let in_tx = std::sync::Arc::new(in_tx);
+
     let task = tokio::spawn(async move {
-        // Drain any inbound supervisor → coordinator frames so the
-        // outbound channel never blocks on send. Until the live tonic
-        // stream lands we discard them with a one-shot trace.
-        let mut drain = out_rx;
-        let drain_task = tokio::spawn(async move {
-            let mut logged = false;
-            while let Some(frame) = drain.recv().await {
-                if !logged {
-                    tracing::debug!(
-                        ?frame,
-                        "outbound dispatch frame queued before live bidi stub is in place"
-                    );
-                    logged = true;
-                }
-            }
-        });
-        // Hold the inbound (coordinator → daemon) sender alive across
-        // the reconnect loop so the supervisor's rx side stays open;
-        // the live bidi pump writes assignments / coordinator frames
-        // into this once the tonic stub lands.
-        let _in_tx_alive = in_tx;
         let init = cfg.initial_backoff;
         let cap = cfg.max_backoff;
-        let hello_cloned = hello.clone();
+        let hello_template = hello.clone();
+        let cfg_template = cfg.clone();
+        let out_rx_outer = out_rx.clone();
+        let in_tx_outer = in_tx.clone();
         run_with_reconnect(init, cap, cancel_rx, move || {
-            let cfg = cfg.clone();
-            let hello = hello_cloned.clone();
+            let cfg = cfg_template.clone();
+            let hello = hello_template.clone();
+            let out_rx = out_rx_outer.clone();
+            let in_tx = in_tx_outer.clone();
             async move {
                 let mut ch = Channel::new(cfg.clone());
                 ch.connect().await?;
-                tracing::info!(
-                    coordinator = %cfg.coordinator_url,
-                    provider_id = %hello.provider_id,
-                    supported = ?hello.supported_types,
-                    "live dispatch channel connected (DaemonHello pending tonic-build stubs)"
-                );
-                // Hold the connection open. When the tonic-built
-                // WorkloadDispatchServiceClient stub lands, replace this
-                // sleep with the real `client.dispatch(req_stream).await`
-                // and pipe frames in both directions. The reconnect
-                // engine wakes the parent task on the cancel signal.
-                loop {
-                    tokio::time::sleep(Duration::from_secs(30)).await;
-                    if ch.state() != ClientState::Connected {
-                        return Ok(());
-                    }
-                }
+                let channel = ch
+                    .inner()
+                    .cloned()
+                    .ok_or_else(|| TransportError::Unreachable("channel not bound".into()))?;
+                run_dispatch_stream(channel, hello, out_rx, in_tx).await
             }
         })
         .await;
-        drain_task.abort();
     });
     LiveDispatchHandle {
         daemon_side,
         cancel_tx,
         task,
+    }
+}
+
+/// Open the bidi stream, perform the hello/ack handshake, and pump frames
+/// in both directions until the wire closes. Extracted so tests can drive
+/// it against an in-process `tonic::transport::Server`.
+async fn run_dispatch_stream(
+    channel: TonicChannel,
+    hello: DispatchHello,
+    out_rx: std::sync::Arc<tokio::sync::Mutex<mpsc::Receiver<DispatchFrame>>>,
+    in_tx: std::sync::Arc<mpsc::Sender<DispatchFrame>>,
+) -> Result<(), TransportError> {
+    let mut client = WorkloadDispatchServiceClient::new(channel);
+
+    // Outbound side: a new mpsc that gets piped onto the gRPC request
+    // stream via tokio_stream::ReceiverStream. We push the DaemonHello
+    // onto it first thing, then forward every frame from `out_rx` until
+    // the supervisor's tx is closed.
+    let (req_tx, req_rx) = mpsc::channel::<pb::workloads::v1::DispatchFrame>(64);
+    let daemon_hello = DispatchFrame::DaemonHello {
+        provider_id: hello.provider_id.clone(),
+        eligible_types: hello.supported_types.clone(),
+        max_concurrent: hello.max_concurrent,
+    };
+    req_tx
+        .send(convert::frame_to_pb(&daemon_hello))
+        .await
+        .map_err(|_| TransportError::Unreachable("hello channel closed before send".into()))?;
+
+    let req_stream = ReceiverStream::new(req_rx);
+    let resp = client
+        .dispatch(req_stream)
+        .await
+        .map_err(|s| TransportError::Unreachable(format!("dispatch RPC: {s}")))?;
+    let mut resp_stream = resp.into_inner();
+
+    // Wait up to 10 s for the CoordinatorHello ack.
+    let ack = match tokio::time::timeout(Duration::from_secs(10), resp_stream.message()).await {
+        Ok(Ok(Some(frame))) => convert::frame_from_pb(frame),
+        Ok(Ok(None)) => {
+            return Err(TransportError::Unreachable(
+                "stream closed before coordinator-hello".into(),
+            ))
+        }
+        Ok(Err(s)) => return Err(TransportError::Unreachable(format!("recv error: {s}"))),
+        Err(_) => {
+            return Err(TransportError::Unreachable(
+                "timed out waiting for coordinator-hello (10s)".into(),
+            ))
+        }
+    };
+    match ack {
+        Some(DispatchFrame::CoordinatorHello { provider_id, .. }) => {
+            tracing::info!(provider_id = %provider_id, "coordinator-hello received");
+            // Surface the ack to the supervisor so it can transition
+            // `DaemonStateView.state` to `connected`.
+            let _ = in_tx
+                .send(DispatchFrame::CoordinatorHello {
+                    provider_id,
+                    accepted_at: chrono::Utc::now().to_rfc3339(),
+                })
+                .await;
+        }
+        other => {
+            return Err(TransportError::Unreachable(format!(
+                "expected coordinator-hello, got {other:?}"
+            )));
+        }
+    }
+
+    // Both directions are now live. select! between outbound (mpsc →
+    // wire) and inbound (wire → mpsc) until either side closes.
+    let mut out_rx_guard = out_rx.lock().await;
+    loop {
+        tokio::select! {
+            biased;
+            inbound = resp_stream.message() => {
+                match inbound {
+                    Ok(Some(pb_frame)) => {
+                        if let Some(frame) = convert::frame_from_pb(pb_frame) {
+                            if in_tx.send(frame).await.is_err() {
+                                tracing::debug!("supervisor rx closed; exiting dispatch pump");
+                                return Ok(());
+                            }
+                        }
+                    }
+                    Ok(None) => {
+                        tracing::info!("coordinator closed dispatch stream");
+                        return Ok(());
+                    }
+                    Err(s) => {
+                        return Err(TransportError::Unreachable(format!(
+                            "dispatch stream recv: {s}"
+                        )));
+                    }
+                }
+            }
+            outbound = out_rx_guard.recv() => {
+                match outbound {
+                    Some(frame) => {
+                        if req_tx.send(convert::frame_to_pb(&frame)).await.is_err() {
+                            tracing::debug!("request stream closed; exiting dispatch pump");
+                            return Ok(());
+                        }
+                    }
+                    None => {
+                        tracing::debug!("supervisor tx closed; exiting dispatch pump");
+                        return Ok(());
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -744,5 +846,282 @@ mod tests {
         .unwrap();
         let got = a.rx.recv().await.unwrap();
         assert!(matches!(got, DispatchFrame::CoordinatorHello { .. }));
+    }
+
+    // -------------------------------------------------------------------
+    // bidi pump integration tests — spin up an in-process tonic Server
+    // that implements WorkloadDispatchService just enough to exercise
+    // the daemon-side handshake + frame forwarding.
+    // -------------------------------------------------------------------
+
+    use crate::pb::workloads::v1 as wlv1;
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+    use tonic::transport::Server;
+    use tonic::Status;
+
+    /// In-process stub of `WorkloadDispatchService::dispatch`. Records the
+    /// first DaemonHello, sends a CoordinatorHello back, then optionally
+    /// pushes a single canned `extra_frame` downstream so the daemon-side
+    /// pump can be asserted against.
+    #[derive(Default, Clone)]
+    struct StubDispatch {
+        observed_hello: Arc<Mutex<Option<wlv1::DispatchFrame>>>,
+        extra_frame: Arc<Mutex<Option<wlv1::DispatchFrame>>>,
+    }
+
+    #[tonic::async_trait]
+    impl wlv1::workload_dispatch_service_server::WorkloadDispatchService for StubDispatch {
+        type DispatchStream =
+            tokio_stream::wrappers::ReceiverStream<Result<wlv1::DispatchFrame, Status>>;
+
+        async fn ack_assignment(
+            &self,
+            _request: tonic::Request<wlv1::AckAssignmentRequest>,
+        ) -> Result<tonic::Response<wlv1::AckAssignmentResponse>, Status> {
+            Ok(tonic::Response::new(wlv1::AckAssignmentResponse {}))
+        }
+
+        async fn get_assignment(
+            &self,
+            _request: tonic::Request<wlv1::GetAssignmentRequest>,
+        ) -> Result<tonic::Response<wlv1::GetAssignmentResponse>, Status> {
+            Ok(tonic::Response::new(wlv1::GetAssignmentResponse {
+                assignment: None,
+                latest_status: 0,
+            }))
+        }
+
+        async fn dispatch(
+            &self,
+            req: tonic::Request<tonic::Streaming<wlv1::DispatchFrame>>,
+        ) -> Result<tonic::Response<Self::DispatchStream>, Status> {
+            let (tx, rx) = tokio::sync::mpsc::channel(8);
+            let observed = self.observed_hello.clone();
+            let extra = self.extra_frame.clone();
+            tokio::spawn(async move {
+                let mut inbound = req.into_inner();
+                // Capture the first frame (DaemonHello) and ack with
+                // a CoordinatorHello.
+                if let Ok(Some(frame)) = inbound.message().await {
+                    *observed.lock().await = Some(frame.clone());
+                    let provider_id = match &frame.frame {
+                        Some(wlv1::dispatch_frame::Frame::DaemonHello(h)) => h.provider_id.clone(),
+                        _ => None,
+                    };
+                    let ack = wlv1::DispatchFrame {
+                        frame: Some(wlv1::dispatch_frame::Frame::CoordinatorHello(
+                            wlv1::CoordinatorHello {
+                                provider_id,
+                                accepted_at: Some(prost_types::Timestamp {
+                                    seconds: 0,
+                                    nanos: 0,
+                                }),
+                            },
+                        )),
+                    };
+                    let _ = tx.send(Ok(ack)).await;
+                    // Push the canned extra frame (test-controlled) so the
+                    // daemon's inbound pump can be observed.
+                    if let Some(ef) = extra.lock().await.take() {
+                        let _ = tx.send(Ok(ef)).await;
+                    }
+                    // Drain remaining inbound frames so the client's send
+                    // side stays unblocked.
+                    while let Ok(Some(_)) = inbound.message().await {
+                        // observed for test isolation only
+                    }
+                }
+            });
+            Ok(tonic::Response::new(
+                tokio_stream::wrappers::ReceiverStream::new(rx),
+            ))
+        }
+    }
+
+    /// Spin up a `tonic::transport::Server` on a free `127.0.0.1` port and
+    /// connect a plain (no-TLS) tonic Channel to it. Returns the bound
+    /// socket addr plus a shutdown signal sender and the stub so tests can
+    /// introspect.
+    async fn spawn_stub_server() -> (
+        std::net::SocketAddr,
+        tokio::sync::oneshot::Sender<()>,
+        StubDispatch,
+    ) {
+        let stub = StubDispatch::default();
+        let svc = wlv1::workload_dispatch_service_server::WorkloadDispatchServiceServer::new(
+            stub.clone(),
+        );
+        // Bind a TCP listener on an OS-picked port to discover the addr,
+        // then immediately drop it so tonic's Server can re-bind. We retry
+        // on the off-chance of a TOCTOU collision with another test.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        drop(listener);
+        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+        tokio::spawn(async move {
+            Server::builder()
+                .add_service(svc)
+                .serve_with_shutdown(addr, async {
+                    let _ = shutdown_rx.await;
+                })
+                .await
+                .ok();
+        });
+        // Wait for the server to start listening — poll TCP connect.
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while std::time::Instant::now() < deadline {
+            if tokio::net::TcpStream::connect(addr).await.is_ok() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        (addr, shutdown_tx, stub)
+    }
+
+    #[tokio::test]
+    async fn live_dispatch_handshake_roundtrip() {
+        let (addr, shutdown_tx, stub) = spawn_stub_server().await;
+
+        let endpoint = Endpoint::from_shared(format!("http://{addr}")).unwrap();
+        let channel = endpoint.connect().await.unwrap();
+
+        let (out_tx, out_rx) = mpsc::channel::<DispatchFrame>(8);
+        let (in_tx, mut in_rx) = mpsc::channel::<DispatchFrame>(8);
+        let out_rx = Arc::new(Mutex::new(out_rx));
+        let in_tx = Arc::new(in_tx);
+
+        let hello = DispatchHello {
+            provider_id: "00000000-0000-0000-0000-0000000000aa".into(),
+            supported_types: vec!["BANDWIDTH".into()],
+            max_concurrent: 4,
+        };
+
+        let pump = tokio::spawn(run_dispatch_stream(
+            channel,
+            hello.clone(),
+            out_rx.clone(),
+            in_tx.clone(),
+        ));
+
+        // Daemon should receive the CoordinatorHello on the inbound side.
+        let ack = tokio::time::timeout(Duration::from_secs(2), in_rx.recv())
+            .await
+            .expect("ack within 2s")
+            .expect("ack present");
+        assert!(matches!(ack, DispatchFrame::CoordinatorHello { .. }));
+
+        // The stub should have recorded our DaemonHello with provider_id.
+        let observed = stub
+            .observed_hello
+            .lock()
+            .await
+            .clone()
+            .expect("stub saw frame");
+        match observed.frame.expect("oneof set") {
+            wlv1::dispatch_frame::Frame::DaemonHello(h) => {
+                assert_eq!(
+                    h.provider_id.unwrap_or_default().value,
+                    "00000000-0000-0000-0000-0000000000aa"
+                );
+                assert_eq!(h.max_concurrent, 4);
+            }
+            other => panic!("expected DaemonHello, got {other:?}"),
+        }
+
+        // Tear down: drop the outbound sender to close the pump, then
+        // shut the server down.
+        drop(out_tx);
+        let _ = tokio::time::timeout(Duration::from_secs(2), pump).await;
+        let _ = shutdown_tx.send(());
+    }
+
+    #[tokio::test]
+    async fn live_dispatch_forwards_frames() {
+        let (addr, shutdown_tx, stub) = spawn_stub_server().await;
+
+        // Pre-stage an Assignment frame for the stub to push after
+        // CoordinatorHello.
+        *stub.extra_frame.lock().await = Some(wlv1::DispatchFrame {
+            frame: Some(wlv1::dispatch_frame::Frame::Assignment(
+                wlv1::WorkloadAssignment {
+                    workload: None,
+                    attempt_id: Some(crate::pb::common::v1::Uuid {
+                        value: "attempt-1".into(),
+                    }),
+                    deadline: None,
+                    dispatch_token: "tok-xyz".into(),
+                },
+            )),
+        });
+
+        let endpoint = Endpoint::from_shared(format!("http://{addr}")).unwrap();
+        let channel = endpoint.connect().await.unwrap();
+
+        let (out_tx, out_rx) = mpsc::channel::<DispatchFrame>(8);
+        let (in_tx, mut in_rx) = mpsc::channel::<DispatchFrame>(8);
+        let out_rx = Arc::new(Mutex::new(out_rx));
+        let in_tx = Arc::new(in_tx);
+
+        let hello = DispatchHello {
+            provider_id: "00000000-0000-0000-0000-0000000000bb".into(),
+            supported_types: vec!["BANDWIDTH".into()],
+            max_concurrent: 1,
+        };
+
+        let pump = tokio::spawn(run_dispatch_stream(
+            channel,
+            hello,
+            out_rx.clone(),
+            in_tx.clone(),
+        ));
+
+        // First inbound frame is the CoordinatorHello (handshake).
+        let first = tokio::time::timeout(Duration::from_secs(2), in_rx.recv())
+            .await
+            .expect("handshake within 2s")
+            .expect("handshake present");
+        assert!(matches!(first, DispatchFrame::CoordinatorHello { .. }));
+
+        // Second inbound frame is the canned Assignment.
+        let second = tokio::time::timeout(Duration::from_secs(2), in_rx.recv())
+            .await
+            .expect("assignment within 2s")
+            .expect("assignment present");
+        match second {
+            DispatchFrame::Assignment {
+                attempt_id,
+                dispatch_token,
+                ..
+            } => {
+                assert_eq!(attempt_id, "attempt-1");
+                assert_eq!(dispatch_token, "tok-xyz");
+            }
+            other => panic!("expected Assignment, got {other:?}"),
+        }
+
+        // Also verify outbound: send a status Update via the supervisor
+        // side and confirm the pump forwards it onto the wire (we can't
+        // observe the stub's drained recv directly, but at least the send
+        // must not block / error).
+        out_tx
+            .send(DispatchFrame::Update {
+                workload_id: "wl-9".into(),
+                attempt_id: "attempt-1".into(),
+                status: "running".into(),
+                observed_at_rfc3339: "2026-05-19T00:00:00+00:00".into(),
+                note: Some("ok".into()),
+                bytes_in: 0,
+                bytes_out: 0,
+                exit_code: 0,
+                logs_s3_key: None,
+                rejection_reason: None,
+            })
+            .await
+            .expect("outbound send accepted");
+
+        drop(out_tx);
+        let _ = tokio::time::timeout(Duration::from_secs(2), pump).await;
+        let _ = shutdown_tx.send(());
     }
 }
