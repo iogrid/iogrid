@@ -9,18 +9,90 @@ import type { ListUsageResponse } from "@/lib/types";
 
 /**
  * Customer overview pulls aggregate usage from the BFF and renders the
- * spend headline + bytes-by-workload chart. The workspace id is read
- * from localStorage — it's set by the workspace switcher (which lands
- * in a follow-up PR).
+ * spend headline + bytes-by-workload chart.
+ *
+ * Workspace bootstrap (#232): on first render after sign-in we read
+ * `iogrid_workspace_id` from localStorage; if missing, we call the BFF
+ * `/api/customer/workspaces/init` proxy which returns the user's first
+ * workspace (creating one on the fly if they have none). The resolved
+ * id is then persisted so subsequent loads skip the round-trip. The
+ * legacy "paste a UUID" form remains as a collapsed escape hatch the
+ * user can expand if auto-init is unavailable (e.g. identity-svc not
+ * yet reachable in a brand-new cluster).
  */
+const WORKSPACE_STORAGE_KEY = "iogrid_workspace_id";
+
 export function CustomerOverview() {
   const [wsId, setWsId] = React.useState<string | null>(null);
+  const [bootstrapState, setBootstrapState] = React.useState<
+    "loading" | "done" | "fallback"
+  >("loading");
+  const [bootstrapErr, setBootstrapErr] = React.useState<string | null>(null);
   const [usage, setUsage] = React.useState<ListUsageResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [err, setErr] = React.useState<string | null>(null);
 
+  // First-render bootstrap: read cache → auto-init → fallback.
   React.useEffect(() => {
-    setWsId(localStorage.getItem("iogrid_workspace_id"));
+    let cancelled = false;
+    const cached =
+      typeof window !== "undefined"
+        ? window.localStorage.getItem(WORKSPACE_STORAGE_KEY)
+        : null;
+    if (cached) {
+      setWsId(cached);
+      setBootstrapState("done");
+      return;
+    }
+    setBootstrapState("loading");
+    void (async () => {
+      try {
+        const res = await fetch("/api/customer/workspaces/init", {
+          method: "POST",
+          credentials: "include",
+        });
+        if (!res.ok) {
+          // 503 = auto-init not wired (Phase 0 stop-gap). Fall back to
+          // the manual paste form so the user is not blocked.
+          if (cancelled) return;
+          setBootstrapState("fallback");
+          if (res.status !== 503) {
+            try {
+              const body = (await res.json()) as { message?: string };
+              setBootstrapErr(body?.message ?? `HTTP ${res.status}`);
+            } catch {
+              setBootstrapErr(`HTTP ${res.status}`);
+            }
+          }
+          return;
+        }
+        const body = (await res.json()) as { workspace_id?: string };
+        if (!body?.workspace_id) {
+          if (cancelled) return;
+          setBootstrapState("fallback");
+          setBootstrapErr("init proxy returned no workspace_id");
+          return;
+        }
+        try {
+          window.localStorage.setItem(
+            WORKSPACE_STORAGE_KEY,
+            body.workspace_id,
+          );
+        } catch {
+          // Quota / privacy mode — non-fatal; in-memory id still works.
+        }
+        if (cancelled) return;
+        setWsId(body.workspace_id);
+        setBootstrapState("done");
+      } catch (e) {
+        if (cancelled) return;
+        setBootstrapState("fallback");
+        setBootstrapErr((e as Error).message);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   React.useEffect(() => {
@@ -42,8 +114,34 @@ export function CustomerOverview() {
       .finally(() => setLoading(false));
   }, [wsId]);
 
+  if (bootstrapState === "loading" && !wsId) {
+    return (
+      <div
+        className="rounded-md border border-zinc-200 p-8 text-center text-sm text-zinc-500 dark:border-zinc-800"
+        data-testid="workspace-bootstrap-loading"
+      >
+        Setting up your workspace…
+      </div>
+    );
+  }
+
   if (!wsId) {
-    return <WorkspaceSetupPanel onSave={(v) => setWsId(v)} />;
+    // Auto-init declined (503) or errored — let the user paste a UUID
+    // as a fallback so they're never fully blocked.
+    return (
+      <WorkspaceSetupPanel
+        message={bootstrapErr}
+        onSave={(v) => {
+          try {
+            window.localStorage.setItem(WORKSPACE_STORAGE_KEY, v);
+          } catch {
+            /* non-fatal */
+          }
+          setWsId(v);
+          setBootstrapState("done");
+        }}
+      />
+    );
   }
   if (loading) {
     return (
@@ -68,7 +166,7 @@ export function CustomerOverview() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-testid="customer-dashboard">
       {err ? (
         <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
           Couldn&apos;t load usage: {err}
@@ -172,42 +270,66 @@ function workloadLabel(k: string): string {
   }
 }
 
-function WorkspaceSetupPanel({ onSave }: { onSave: (id: string) => void }) {
+/**
+ * Fallback panel shown when auto-init declines (identity-svc not wired)
+ * or errors. The paste-UUID form is hidden inside a collapsed `<details>`
+ * so it never appears as the primary surface in the happy path; the
+ * outer panel explains what's happening so the user is not confused.
+ */
+function WorkspaceSetupPanel({
+  onSave,
+  message,
+}: {
+  onSave: (id: string) => void;
+  message?: string | null;
+}) {
   const [val, setVal] = React.useState("");
   return (
-    <div className="rounded-md border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
-      <h2 className="text-lg font-semibold">Pick a workspace</h2>
+    <div
+      className="rounded-md border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900"
+      data-testid="workspace-setup-fallback"
+    >
+      <h2 className="text-lg font-semibold">Workspace setup</h2>
       <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-        Your customer workspace is identified by a UUID. Paste it below to
-        bind this browser session — we&apos;ll persist it in localStorage so you
-        only do this once.
+        We tried to auto-create a workspace for you but the identity service
+        was not reachable. You can either retry the page, or paste an
+        existing workspace UUID below as a one-time fallback.
       </p>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (!val) return;
-          localStorage.setItem("iogrid_workspace_id", val);
-          onSave(val);
-        }}
-        className="mt-4 flex gap-2"
-      >
-        <input
-          type="text"
-          required
-          value={val}
-          onChange={(e) => setVal(e.target.value)}
-          placeholder="00000000-0000-0000-0000-000000000000"
-          aria-label="Workspace ID"
-          pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
-          className="flex-1 rounded-md border border-zinc-300 bg-transparent px-3 py-2 text-sm font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 dark:border-zinc-700"
-        />
-        <button
-          type="submit"
-          className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900"
+      {message ? (
+        <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-500">
+          Detail: {message}
+        </p>
+      ) : null}
+      <details className="mt-4 group">
+        <summary className="cursor-pointer text-sm font-medium text-zinc-700 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-100">
+          Paste a workspace UUID instead
+        </summary>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!val) return;
+            onSave(val);
+          }}
+          className="mt-3 flex gap-2"
         >
-          Bind workspace
-        </button>
-      </form>
+          <input
+            type="text"
+            required
+            value={val}
+            onChange={(e) => setVal(e.target.value)}
+            placeholder="00000000-0000-0000-0000-000000000000"
+            aria-label="Workspace ID"
+            pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+            className="flex-1 rounded-md border border-zinc-300 bg-transparent px-3 py-2 text-sm font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 dark:border-zinc-700"
+          />
+          <button
+            type="submit"
+            className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900"
+          >
+            Bind workspace
+          </button>
+        </form>
+      </details>
     </div>
   );
 }
