@@ -352,7 +352,63 @@ impl Supervisor {
         // dropped intentionally so test code that needs to drive the other
         // end calls `dispatch_loopback()` directly.
         let mut daemon_side = match live_transport_config(&self.config) {
-            Some(connect_cfg) => {
+            Some(mut connect_cfg) => {
+                // #253: pre-resolve the coordinator's IP HERE — on the
+                // supervisor task, BEFORE any reconnect loop spawns. The
+                // resulting `Arc<RwLock<SocketAddr>>` is stashed on
+                // `ConnectConfig` so every per-attempt `Channel::connect`
+                // reads the cached IP instead of running `lookup_host`
+                // inside the per-attempt future tonic / tower can drop.
+                //
+                // If pre-resolve fails (no network at boot, captive
+                // portal, DNS daemon not yet up), we *still* spawn the
+                // live bridge — `Channel::connect` falls back to the
+                // legacy in-loop resolver path (PR #251) and the
+                // reconnect loop's backoff covers the transient.
+                // The supervisor isn't a viable place to block boot on
+                // DNS: the operator may have brought up iogridd before
+                // their VPN / wifi.
+                match iogrid_transport::pre_resolve_addr(&connect_cfg.coordinator_url).await {
+                    Ok(arc) => {
+                        connect_cfg.resolved_addr = Some(arc.clone());
+                        // Hourly refresh — picks up coordinator LB IP
+                        // rotations even when the daemon stays healthy.
+                        // The cancel watch is wired into the JoinSet's
+                        // shutdown path via the Drop on the sender.
+                        let (refresh_cancel_tx, refresh_cancel_rx) =
+                            tokio::sync::watch::channel(false);
+                        let refresh_handle = iogrid_transport::spawn_addr_refresh(
+                            connect_cfg.coordinator_url.clone(),
+                            arc,
+                            Duration::from_secs(3600),
+                            refresh_cancel_rx,
+                        );
+                        // Keep the sender alive until shutdown by
+                        // moving it into the joinset task; when the
+                        // joinset is shutdown(), the task drops the
+                        // sender and the refresh loop exits.
+                        tasks.spawn(async move {
+                            let _keep = refresh_cancel_tx;
+                            refresh_handle.await.map_err(anyhow::Error::from)?;
+                            Ok(())
+                        });
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            coordinator = %connect_cfg.coordinator_url,
+                            error = %e,
+                            "supervisor pre-resolve failed; falling back to per-attempt resolver (PR #251)"
+                        );
+                    }
+                }
+                // #253: single-permit semaphore. Phase 0 only the
+                // dispatch loop dials, so it's a no-op today; once
+                // heartbeat + ruleset become real gRPC streams the
+                // permit prevents three parallel connect attempts
+                // racing through the same blocking-getaddrinfo pool.
+                connect_cfg.connect_semaphore =
+                    Some(Arc::new(tokio::sync::Semaphore::new(1)));
+
                 let hello = iogrid_transport::DispatchHello {
                     provider_id: self.config.provider_id.clone(),
                     // Phase 0: every paired daemon advertises BANDWIDTH so
@@ -498,6 +554,12 @@ pub fn live_transport_config(cfg: &DaemonConfig) -> Option<TransportConfig> {
         ca_pem: None,
         max_backoff: Duration::from_secs(60),
         initial_backoff: Duration::from_secs(1),
+        // `Supervisor::run` populates both of these after this builder
+        // returns — see the live-dispatch branch above. They stay None
+        // here so tests and other callers that take this struct on the
+        // first-boot path see the same shape as PR #251.
+        resolved_addr: None,
+        connect_semaphore: None,
     })
 }
 
