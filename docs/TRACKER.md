@@ -4,9 +4,9 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-19T07:30:00Z` |
+| Last refreshed | `2026-05-19T08:00:00Z` |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
-| Merged PRs | **47** since project bootstrap |
+| Merged PRs | **50** since project bootstrap |
 | Open PRs | 0 |
 | Open issues | **19** (5 EPICs + 17 sub-issues / chores) |
 | EPIC closure | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 19 / 26 closed = **73%** |
