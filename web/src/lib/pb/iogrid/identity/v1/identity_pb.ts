@@ -645,6 +645,206 @@ export class DeleteUserResponse extends Message<DeleteUserResponse> {
 }
 
 /**
+ * RemoveIdentifierRequest unbinds a single non-Solana identifier (Google,
+ * magic-link email, future Apple/GitHub) from the user. Solana wallets are
+ * removed via AuthService.UnbindWallet so the SIWS-specific audit trail is
+ * preserved. The server refuses to remove the user's last verified
+ * identifier — the account would become unrecoverable.
+ *
+ * @generated from message iogrid.identity.v1.RemoveIdentifierRequest
+ */
+export class RemoveIdentifierRequest extends Message<RemoveIdentifierRequest> {
+  /**
+   * @generated from field: iogrid.common.v1.UUID user_id = 1;
+   */
+  userId?: UUID;
+
+  /**
+   * @generated from field: iogrid.common.v1.UUID identifier_id = 2;
+   */
+  identifierId?: UUID;
+
+  constructor(data?: PartialMessage<RemoveIdentifierRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "iogrid.identity.v1.RemoveIdentifierRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "user_id", kind: "message", T: UUID },
+    { no: 2, name: "identifier_id", kind: "message", T: UUID },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RemoveIdentifierRequest {
+    return new RemoveIdentifierRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RemoveIdentifierRequest {
+    return new RemoveIdentifierRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RemoveIdentifierRequest {
+    return new RemoveIdentifierRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: RemoveIdentifierRequest | PlainMessage<RemoveIdentifierRequest> | undefined, b: RemoveIdentifierRequest | PlainMessage<RemoveIdentifierRequest> | undefined): boolean {
+    return proto3.util.equals(RemoveIdentifierRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message iogrid.identity.v1.RemoveIdentifierResponse
+ */
+export class RemoveIdentifierResponse extends Message<RemoveIdentifierResponse> {
+  /**
+   * Identifiers still bound to the user after removal — clients can
+   * refresh their list view without a second round-trip.
+   *
+   * @generated from field: repeated iogrid.identity.v1.Identifier remaining = 1;
+   */
+  remaining: Identifier[] = [];
+
+  constructor(data?: PartialMessage<RemoveIdentifierResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "iogrid.identity.v1.RemoveIdentifierResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "remaining", kind: "message", T: Identifier, repeated: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RemoveIdentifierResponse {
+    return new RemoveIdentifierResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RemoveIdentifierResponse {
+    return new RemoveIdentifierResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RemoveIdentifierResponse {
+    return new RemoveIdentifierResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: RemoveIdentifierResponse | PlainMessage<RemoveIdentifierResponse> | undefined, b: RemoveIdentifierResponse | PlainMessage<RemoveIdentifierResponse> | undefined): boolean {
+    return proto3.util.equals(RemoveIdentifierResponse, a, b);
+  }
+}
+
+/**
+ * DeleteAccountRequest triggers the soft-delete cascade for the caller's
+ * own account. The server:
+ *   1. Flips users.deleted_at = now() (rows stay for audit references).
+ *   2. Revokes every active session (refresh tokens become unusable).
+ *   3. Hands a workspace-cascade notice to workloads-svc / providers-svc
+ *      via the outbound events bus so downstream owners can purge.
+ * The caller MUST present a valid bearer token AND a fresh step-up token
+ * minted within the last five minutes via AuthService.RequestStepUp(
+ * reason=STEP_UP_REASON_ACCOUNT_DELETE).
+ *
+ * @generated from message iogrid.identity.v1.DeleteAccountRequest
+ */
+export class DeleteAccountRequest extends Message<DeleteAccountRequest> {
+  /**
+   * Must equal the caller's user id; rejecting a mismatch keeps the
+   * delete blast-radius scoped to the authed principal.
+   *
+   * @generated from field: iogrid.common.v1.UUID user_id = 1;
+   */
+  userId?: UUID;
+
+  /**
+   * @generated from field: string step_up_token = 2;
+   */
+  stepUpToken = "";
+
+  /**
+   * Free-form reason captured into the audit log. Optional.
+   *
+   * @generated from field: string reason = 3;
+   */
+  reason = "";
+
+  constructor(data?: PartialMessage<DeleteAccountRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "iogrid.identity.v1.DeleteAccountRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "user_id", kind: "message", T: UUID },
+    { no: 2, name: "step_up_token", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "reason", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DeleteAccountRequest {
+    return new DeleteAccountRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): DeleteAccountRequest {
+    return new DeleteAccountRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): DeleteAccountRequest {
+    return new DeleteAccountRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: DeleteAccountRequest | PlainMessage<DeleteAccountRequest> | undefined, b: DeleteAccountRequest | PlainMessage<DeleteAccountRequest> | undefined): boolean {
+    return proto3.util.equals(DeleteAccountRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message iogrid.identity.v1.DeleteAccountResponse
+ */
+export class DeleteAccountResponse extends Message<DeleteAccountResponse> {
+  /**
+   * Echo of the soft-delete timestamp written to users.deleted_at.
+   *
+   * @generated from field: google.protobuf.Timestamp deleted_at = 1;
+   */
+  deletedAt?: Timestamp;
+
+  /**
+   * Number of active sessions revoked as part of the cascade.
+   *
+   * @generated from field: uint32 sessions_revoked = 2;
+   */
+  sessionsRevoked = 0;
+
+  constructor(data?: PartialMessage<DeleteAccountResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "iogrid.identity.v1.DeleteAccountResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "deleted_at", kind: "message", T: Timestamp },
+    { no: 2, name: "sessions_revoked", kind: "scalar", T: 13 /* ScalarType.UINT32 */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DeleteAccountResponse {
+    return new DeleteAccountResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): DeleteAccountResponse {
+    return new DeleteAccountResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): DeleteAccountResponse {
+    return new DeleteAccountResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: DeleteAccountResponse | PlainMessage<DeleteAccountResponse> | undefined, b: DeleteAccountResponse | PlainMessage<DeleteAccountResponse> | undefined): boolean {
+    return proto3.util.equals(DeleteAccountResponse, a, b);
+  }
+}
+
+/**
  * @generated from message iogrid.identity.v1.MergeIdentitiesRequest
  */
 export class MergeIdentitiesRequest extends Message<MergeIdentitiesRequest> {

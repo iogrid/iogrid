@@ -197,6 +197,9 @@ func main() {
 
 	api := handlers.New(authSvc, st, logger)
 	wsHandler := handlers.NewWorkspaceHandler(st)
+	// idHandler ships the RemoveIdentifier + DeleteAccount RPCs that
+	// back /account/identifiers + /account/danger-zone in the web plane.
+	idHandler := handlers.NewIdentityHandler(st)
 
 	// --- background: session cleanup ---------------------------------
 	cleanupCtx, cancelCleanup := context.WithCancel(ctx)
@@ -210,7 +213,12 @@ func main() {
 		Logger:      logger,
 		Health:      hr,
 		ListenAddr:  cfg.ListenAddr,
-		Mount:       server.MountFunc(server.MountConfig{API: api, Workspace: wsHandler, Signer: signer}),
+		Mount: server.MountFunc(server.MountConfig{
+			API:       api,
+			Workspace: wsHandler,
+			Identity:  idHandler,
+			Signer:    signer,
+		}),
 	}); err != nil {
 		logger.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)

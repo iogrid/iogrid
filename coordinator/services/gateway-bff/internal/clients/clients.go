@@ -38,6 +38,8 @@ import (
 type IdentityClient interface {
 	GetUser(ctx context.Context, req *identityv1.GetUserRequest) (*identityv1.GetUserResponse, error)
 	UpdateUser(ctx context.Context, req *identityv1.UpdateUserRequest) (*identityv1.UpdateUserResponse, error)
+	RemoveIdentifier(ctx context.Context, req *identityv1.RemoveIdentifierRequest) (*identityv1.RemoveIdentifierResponse, error)
+	DeleteAccount(ctx context.Context, req *identityv1.DeleteAccountRequest) (*identityv1.DeleteAccountResponse, error)
 }
 
 // AuthClient wraps the sign-in / session lifecycle calls.
@@ -199,6 +201,26 @@ func (a *identityAdapter) GetUser(ctx context.Context, req *identityv1.GetUserRe
 func (a *identityAdapter) UpdateUser(ctx context.Context, req *identityv1.UpdateUserRequest) (*identityv1.UpdateUserResponse, error) {
 	return retry(ctx, a.retries, func(ctx context.Context) (*identityv1.UpdateUserResponse, error) {
 		r, err := a.c.UpdateUser(ctx, connect.NewRequest(req))
+		if err != nil {
+			return nil, err
+		}
+		return r.Msg, nil
+	})
+}
+
+func (a *identityAdapter) RemoveIdentifier(ctx context.Context, req *identityv1.RemoveIdentifierRequest) (*identityv1.RemoveIdentifierResponse, error) {
+	return retry(ctx, a.retries, func(ctx context.Context) (*identityv1.RemoveIdentifierResponse, error) {
+		r, err := a.c.RemoveIdentifier(ctx, connect.NewRequest(req))
+		if err != nil {
+			return nil, err
+		}
+		return r.Msg, nil
+	})
+}
+
+func (a *identityAdapter) DeleteAccount(ctx context.Context, req *identityv1.DeleteAccountRequest) (*identityv1.DeleteAccountResponse, error) {
+	return retry(ctx, a.retries, func(ctx context.Context) (*identityv1.DeleteAccountResponse, error) {
+		r, err := a.c.DeleteAccount(ctx, connect.NewRequest(req))
 		if err != nil {
 			return nil, err
 		}

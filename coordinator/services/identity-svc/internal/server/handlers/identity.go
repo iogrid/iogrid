@@ -1,0 +1,382 @@
+// identity.go: post-auth account-management RPCs that the JSON tree in
+// handlers.go does not yet cover — specifically the Remove-Identifier
+// and Delete-Account flows used by /account/identifiers and
+// /account/danger-zone in the web management plane.
+//
+// Mirrors the WorkspaceHandler pattern: one struct, two surfaces.
+//
+//  1. Connect-Go handler that satisfies identityv1connect.IdentityServiceHandler
+//     so gateway-bff (and any future cross-service caller) can invoke
+//     the RPCs via the generated stubs.
+//  2. Parallel chi JSON tree mounted under /v1 (same envelope shape
+//     handlers.go already emits) for e2e tests and direct curl callers.
+//
+// Authorization model:
+//   - Both RPCs require a valid bearer token (caller is the user-of-record).
+//   - RemoveIdentifier refuses to remove the last *verified* identifier;
+//     the user would be locked out otherwise.
+//   - DeleteAccount requires the bearer's JWT to carry step_up=true. We
+//     also accept a `step_up_token` field on the request body for
+//     forward-compat with the proto contract, but the cryptographic
+//     check is on the JWT (which is what gateway-bff actually presents
+//     after a step-up flow rotates the access token).
+package handlers
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"time"
+
+	"connectrpc.com/connect"
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
+	commonv1 "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/common/v1"
+	identityv1 "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/identity/v1"
+	"github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/identity/v1/identityv1connect"
+	authmw "github.com/iogrid/iogrid/coordinator/services/identity-svc/internal/server/middleware"
+	"github.com/iogrid/iogrid/coordinator/services/identity-svc/internal/store"
+)
+
+// IdentityHandler implements identityv1connect.IdentityServiceHandler.
+// Today it ships the two RPCs needed to retire the web-side stubs;
+// the remaining methods (GetUser, ListUsers, UpdateUser, DeleteUser,
+// MergeIdentities) stay on UnimplementedIdentityServiceHandler so the
+// service compiles + responds with CodeUnimplemented until each is
+// wired through to the same store.
+type IdentityHandler struct {
+	identityv1connect.UnimplementedIdentityServiceHandler
+	Store *store.Store
+}
+
+// NewIdentityHandler wires the dependency.
+func NewIdentityHandler(s *store.Store) *IdentityHandler {
+	return &IdentityHandler{Store: s}
+}
+
+// --- Connect-Go entry points --------------------------------------------
+
+// RemoveIdentifier deletes a single identifier owned by the caller. The
+// handler enforces "at least one verified identifier remains" inside a
+// serializable transaction; we surface that as Connect's
+// CodeFailedPrecondition (HTTP 409 on the JSON twin).
+func (h *IdentityHandler) RemoveIdentifier(
+	ctx context.Context,
+	req *connect.Request[identityv1.RemoveIdentifierRequest],
+) (*connect.Response[identityv1.RemoveIdentifierResponse], error) {
+	authedID, ok := authmw.AuthedUser(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing bearer token"))
+	}
+	userID, err := parseProtoUUID(req.Msg.GetUserId())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if userID != authedID {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("user_id does not match caller"))
+	}
+	identifierID, err := parseProtoUUID(req.Msg.GetIdentifierId())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	remaining, err := h.removeIdentifierTx(ctx, userID, identifierID)
+	if err != nil {
+		return nil, mapStoreError(err)
+	}
+	return connect.NewResponse(&identityv1.RemoveIdentifierResponse{
+		Remaining: identifiersToProto(remaining),
+	}), nil
+}
+
+// DeleteAccount soft-deletes the caller's user row + revokes every live
+// session. Downstream purge (workspace cascade, billing wind-down) is
+// expected to land via the outbound-events bus emitted by future
+// migrations of this transaction; this PR ships the identity-svc-local
+// half of the cascade.
+func (h *IdentityHandler) DeleteAccount(
+	ctx context.Context,
+	req *connect.Request[identityv1.DeleteAccountRequest],
+) (*connect.Response[identityv1.DeleteAccountResponse], error) {
+	authedID, ok := authmw.AuthedUser(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing bearer token"))
+	}
+	userID, err := parseProtoUUID(req.Msg.GetUserId())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if userID != authedID {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("user_id does not match caller"))
+	}
+	if !h.hasStepUp(ctx, req.Msg.GetStepUpToken()) {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("step_up_required"))
+	}
+	deletedAt, revoked, err := h.deleteAccountTx(ctx, userID)
+	if err != nil {
+		return nil, mapStoreError(err)
+	}
+	return connect.NewResponse(&identityv1.DeleteAccountResponse{
+		DeletedAt:       timestamppb.New(deletedAt),
+		SessionsRevoked: uint32(revoked),
+	}), nil
+}
+
+// --- chi JSON surface ---------------------------------------------------
+
+// MountIdentityJSON wires DELETE /v1/users/{userID}/identifiers/{identifierID}
+// and DELETE /v1/users/{userID} onto the supplied router. The routes
+// mirror the Connect contracts above; the JSON envelopes are identical
+// to what handlers.go emits elsewhere so the e2e suite can rely on a
+// single shape.
+func (h *IdentityHandler) MountIdentityJSON(r chi.Router) {
+	r.Route("/users/{userID}", func(r chi.Router) {
+		r.Delete("/identifiers/{identifierID}", h.jsonRemoveIdentifier)
+		r.Delete("/", h.jsonDeleteAccount)
+	})
+}
+
+func (h *IdentityHandler) jsonRemoveIdentifier(w http.ResponseWriter, r *http.Request) {
+	authedID, ok := authmw.AuthedUser(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "missing bearer token")
+		return
+	}
+	userID, err := uuid.Parse(chi.URLParam(r, "userID"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_argument", "bad user id")
+		return
+	}
+	if userID != authedID {
+		writeError(w, http.StatusForbidden, "permission_denied", "user_id does not match caller")
+		return
+	}
+	identifierID, err := uuid.Parse(chi.URLParam(r, "identifierID"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_argument", "bad identifier id")
+		return
+	}
+	remaining, err := h.removeIdentifierTx(r.Context(), userID, identifierID)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"remaining": identifiersToJSON(remaining),
+	})
+}
+
+type deleteAccountBody struct {
+	StepUpToken string `json:"step_up_token"`
+	Reason      string `json:"reason"`
+}
+
+func (h *IdentityHandler) jsonDeleteAccount(w http.ResponseWriter, r *http.Request) {
+	authedID, ok := authmw.AuthedUser(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "missing bearer token")
+		return
+	}
+	userID, err := uuid.Parse(chi.URLParam(r, "userID"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_argument", "bad user id")
+		return
+	}
+	if userID != authedID {
+		writeError(w, http.StatusForbidden, "permission_denied", "user_id does not match caller")
+		return
+	}
+	var body deleteAccountBody
+	if r.Body != http.NoBody {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+	}
+	if !h.hasStepUp(r.Context(), body.StepUpToken) {
+		writeError(w, http.StatusForbidden, "step_up_required", "step-up auth required")
+		return
+	}
+	deletedAt, revoked, err := h.deleteAccountTx(r.Context(), userID)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"deleted_at":       deletedAt.UTC().Format(time.RFC3339Nano),
+		"sessions_revoked": revoked,
+	})
+}
+
+// --- shared logic -------------------------------------------------------
+
+// removeIdentifierTx executes the lookup + survivor-check + delete +
+// re-list inside one serializable transaction so a concurrent remove
+// cannot race the survivor count.
+func (h *IdentityHandler) removeIdentifierTx(ctx context.Context, userID, identifierID uuid.UUID) ([]store.Identifier, error) {
+	if h.Store == nil {
+		return nil, errors.New("identity-svc: store not configured")
+	}
+	var out []store.Identifier
+	txErr := h.Store.WithTx(ctx, func(tx pgx.Tx) error {
+		current, qerr := h.Store.GetIdentifierForUser(ctx, tx, identifierID, userID)
+		if qerr != nil {
+			return qerr
+		}
+		all, qerr := h.Store.ListIdentifiersForUser(ctx, tx, userID)
+		if qerr != nil {
+			return qerr
+		}
+		verified := 0
+		for _, i := range all {
+			if i.Verified {
+				verified++
+			}
+		}
+		if current.Verified && verified <= 1 {
+			return errLastIdentifier
+		}
+		if qerr := h.Store.DeleteIdentifier(ctx, tx, identifierID); qerr != nil {
+			return qerr
+		}
+		remaining, qerr := h.Store.ListIdentifiersForUser(ctx, tx, userID)
+		if qerr != nil {
+			return qerr
+		}
+		out = remaining
+		return nil
+	})
+	return out, txErr
+}
+
+// deleteAccountTx flips users.deleted_at + revokes every active session
+// in one serializable transaction.
+func (h *IdentityHandler) deleteAccountTx(ctx context.Context, userID uuid.UUID) (time.Time, int, error) {
+	if h.Store == nil {
+		return time.Time{}, 0, errors.New("identity-svc: store not configured")
+	}
+	var deletedAt time.Time
+	var revoked int
+	txErr := h.Store.WithTx(ctx, func(tx pgx.Tx) error {
+		sessions, qerr := h.Store.ListSessionsForUser(ctx, tx, userID)
+		if qerr != nil {
+			return qerr
+		}
+		for _, s := range sessions {
+			if qerr := h.Store.RevokeSession(ctx, tx, s.ID); qerr != nil {
+				return qerr
+			}
+		}
+		revoked = len(sessions)
+		if qerr := h.Store.SoftDeleteUser(ctx, tx, userID); qerr != nil {
+			return qerr
+		}
+		u, qerr := h.Store.GetUser(ctx, tx, userID)
+		if qerr != nil {
+			return qerr
+		}
+		if u.DeletedAt != nil {
+			deletedAt = *u.DeletedAt
+		}
+		return nil
+	})
+	return deletedAt, revoked, txErr
+}
+
+// hasStepUp returns true when the caller's JWT carries step_up=true.
+// The proto-defined step_up_token field is accepted for forward-compat
+// — a future flow that mints opaque step-up tokens can validate them
+// here without changing call sites — but today we trust the JWT.
+func (h *IdentityHandler) hasStepUp(ctx context.Context, _ string) bool {
+	claims, ok := authmw.AuthedClaims(ctx)
+	if !ok || claims == nil {
+		return false
+	}
+	return claims.StepUp
+}
+
+// --- conversion helpers -------------------------------------------------
+
+func parseProtoUUID(u *commonv1.UUID) (uuid.UUID, error) {
+	if u == nil || u.GetValue() == "" {
+		return uuid.Nil, errors.New("uuid required")
+	}
+	return uuid.Parse(u.GetValue())
+}
+
+func identifiersToProto(in []store.Identifier) []*identityv1.Identifier {
+	out := make([]*identityv1.Identifier, 0, len(in))
+	for _, i := range in {
+		out = append(out, &identityv1.Identifier{
+			Id:            &commonv1.UUID{Value: i.ID.String()},
+			UserId:        &commonv1.UUID{Value: i.UserID.String()},
+			Kind:          identifierKindToProto(i.Kind),
+			Subject:       i.Subject,
+			VerifiedEmail: i.Email,
+			HostedDomain:  i.HostedDomain,
+			CreatedAt:     timestamppb.New(i.CreatedAt),
+			LastUsedAt:    timestamppb.New(i.LastUsedAt),
+		})
+	}
+	return out
+}
+
+func identifiersToJSON(in []store.Identifier) []map[string]any {
+	out := make([]map[string]any, 0, len(in))
+	for _, i := range in {
+		out = append(out, map[string]any{
+			"id":            i.ID.String(),
+			"kind":          string(i.Kind),
+			"subject":       i.Subject,
+			"email":         i.Email,
+			"verified":      i.Verified,
+			"hosted_domain": i.HostedDomain,
+			"created_at":    i.CreatedAt.UTC().Format(time.RFC3339Nano),
+			"last_used_at":  i.LastUsedAt.UTC().Format(time.RFC3339Nano),
+		})
+	}
+	return out
+}
+
+func identifierKindToProto(k store.IdentifierKind) identityv1.IdentifierKind {
+	switch k {
+	case store.KindGoogle:
+		return identityv1.IdentifierKind_IDENTIFIER_KIND_GOOGLE
+	case store.KindMagicLink:
+		return identityv1.IdentifierKind_IDENTIFIER_KIND_MAGIC_LINK
+	case store.KindApple:
+		return identityv1.IdentifierKind_IDENTIFIER_KIND_APPLE
+	case store.KindGitHub:
+		return identityv1.IdentifierKind_IDENTIFIER_KIND_GITHUB
+	case store.KindSolana:
+		return identityv1.IdentifierKind_IDENTIFIER_KIND_SOLANA
+	default:
+		return identityv1.IdentifierKind_IDENTIFIER_KIND_UNSPECIFIED
+	}
+}
+
+// --- error mapping ------------------------------------------------------
+
+var errLastIdentifier = errors.New("identity-svc: cannot remove the last verified identifier")
+
+func mapStoreError(err error) error {
+	if errors.Is(err, store.ErrNotFound) {
+		return connect.NewError(connect.CodeNotFound, err)
+	}
+	if errors.Is(err, errLastIdentifier) {
+		return connect.NewError(connect.CodeFailedPrecondition, err)
+	}
+	return connect.NewError(connect.CodeInternal, err)
+}
+
+func writeStoreError(w http.ResponseWriter, err error) {
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "not_found", err.Error())
+		return
+	}
+	if errors.Is(err, errLastIdentifier) {
+		writeError(w, http.StatusConflict, "last_identifier", err.Error())
+		return
+	}
+	writeError(w, http.StatusInternalServerError, "internal", err.Error())
+}

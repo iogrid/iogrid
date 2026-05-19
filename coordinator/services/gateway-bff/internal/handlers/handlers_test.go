@@ -28,8 +28,10 @@ import (
 // --- shared mocks --------------------------------------------------------
 
 type mockIdentity struct {
-	getUser    func(context.Context, *identityv1.GetUserRequest) (*identityv1.GetUserResponse, error)
-	updateUser func(context.Context, *identityv1.UpdateUserRequest) (*identityv1.UpdateUserResponse, error)
+	getUser          func(context.Context, *identityv1.GetUserRequest) (*identityv1.GetUserResponse, error)
+	updateUser       func(context.Context, *identityv1.UpdateUserRequest) (*identityv1.UpdateUserResponse, error)
+	removeIdentifier func(context.Context, *identityv1.RemoveIdentifierRequest) (*identityv1.RemoveIdentifierResponse, error)
+	deleteAccount    func(context.Context, *identityv1.DeleteAccountRequest) (*identityv1.DeleteAccountResponse, error)
 }
 
 func (m *mockIdentity) GetUser(ctx context.Context, req *identityv1.GetUserRequest) (*identityv1.GetUserResponse, error) {
@@ -37,6 +39,18 @@ func (m *mockIdentity) GetUser(ctx context.Context, req *identityv1.GetUserReque
 }
 func (m *mockIdentity) UpdateUser(ctx context.Context, req *identityv1.UpdateUserRequest) (*identityv1.UpdateUserResponse, error) {
 	return m.updateUser(ctx, req)
+}
+func (m *mockIdentity) RemoveIdentifier(ctx context.Context, req *identityv1.RemoveIdentifierRequest) (*identityv1.RemoveIdentifierResponse, error) {
+	if m.removeIdentifier == nil {
+		return &identityv1.RemoveIdentifierResponse{}, nil
+	}
+	return m.removeIdentifier(ctx, req)
+}
+func (m *mockIdentity) DeleteAccount(ctx context.Context, req *identityv1.DeleteAccountRequest) (*identityv1.DeleteAccountResponse, error) {
+	if m.deleteAccount == nil {
+		return &identityv1.DeleteAccountResponse{}, nil
+	}
+	return m.deleteAccount(ctx, req)
 }
 
 type mockAuth struct {
@@ -239,6 +253,108 @@ func TestGetMe_ForwardsToIdentity(t *testing.T) {
 	mustReadJSON(t, w.Body, &resp)
 	if resp.User == nil || resp.User.PrimaryEmail != "test@iogrid.org" {
 		t.Fatalf("unexpected response %#v", &resp)
+	}
+}
+
+// --- DELETE /me/identifiers/{id} -----------------------------------------
+
+func TestRemoveMyIdentifier_RequiresAuth(t *testing.T) {
+	api := newAPI(t, &clients.Set{})
+	r := httptest.NewRequest(http.MethodDelete, "/api/v1/me/identifiers/abc", nil)
+	w := httptest.NewRecorder()
+	api.RemoveMyIdentifier(w, r)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("want 401, got %d", w.Code)
+	}
+}
+
+func TestRemoveMyIdentifier_ForwardsToIdentity(t *testing.T) {
+	called := false
+	identifierID := "99999999-aaaa-bbbb-cccc-dddddddddddd"
+	set := &clients.Set{
+		Identity: &mockIdentity{
+			getUser: func(_ context.Context, _ *identityv1.GetUserRequest) (*identityv1.GetUserResponse, error) {
+				return &identityv1.GetUserResponse{}, nil
+			},
+			updateUser: func(_ context.Context, _ *identityv1.UpdateUserRequest) (*identityv1.UpdateUserResponse, error) {
+				return &identityv1.UpdateUserResponse{}, nil
+			},
+			removeIdentifier: func(_ context.Context, req *identityv1.RemoveIdentifierRequest) (*identityv1.RemoveIdentifierResponse, error) {
+				called = true
+				if req.UserId == nil || req.UserId.Value != fakeUserID {
+					t.Fatalf("unexpected user_id %#v", req.UserId)
+				}
+				if req.IdentifierId == nil || req.IdentifierId.Value != identifierID {
+					t.Fatalf("unexpected identifier_id %#v", req.IdentifierId)
+				}
+				return &identityv1.RemoveIdentifierResponse{}, nil
+			},
+		},
+	}
+	api := newAPI(t, set)
+	// Route through chi so the {id} URL param resolves the same way the
+	// production router does.
+	router := chi.NewRouter()
+	router.Delete("/api/v1/me/identifiers/{id}", api.RemoveMyIdentifier)
+	r := withAuth(httptest.NewRequest(http.MethodDelete, "/api/v1/me/identifiers/"+identifierID, nil))
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, r)
+	if !called {
+		t.Fatal("identity.RemoveIdentifier not called")
+	}
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+// --- DELETE /me ----------------------------------------------------------
+
+func TestDeleteMyAccount_RequiresAuth(t *testing.T) {
+	api := newAPI(t, &clients.Set{})
+	r := httptest.NewRequest(http.MethodDelete, "/api/v1/me", nil)
+	w := httptest.NewRecorder()
+	api.DeleteMyAccount(w, r)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("want 401, got %d", w.Code)
+	}
+}
+
+func TestDeleteMyAccount_ForwardsToIdentity(t *testing.T) {
+	called := false
+	set := &clients.Set{
+		Identity: &mockIdentity{
+			getUser: func(_ context.Context, _ *identityv1.GetUserRequest) (*identityv1.GetUserResponse, error) {
+				return &identityv1.GetUserResponse{}, nil
+			},
+			updateUser: func(_ context.Context, _ *identityv1.UpdateUserRequest) (*identityv1.UpdateUserResponse, error) {
+				return &identityv1.UpdateUserResponse{}, nil
+			},
+			deleteAccount: func(_ context.Context, req *identityv1.DeleteAccountRequest) (*identityv1.DeleteAccountResponse, error) {
+				called = true
+				if req.UserId == nil || req.UserId.Value != fakeUserID {
+					t.Fatalf("unexpected user_id %#v", req.UserId)
+				}
+				if req.Reason != "switching to other provider" {
+					t.Fatalf("unexpected reason %q", req.Reason)
+				}
+				return &identityv1.DeleteAccountResponse{SessionsRevoked: 2}, nil
+			},
+		},
+	}
+	api := newAPI(t, set)
+	body, _ := json.Marshal(map[string]string{"reason": "switching to other provider"})
+	r := withAuth(httptest.NewRequest(http.MethodDelete, "/api/v1/me", bytes.NewReader(body)))
+	w := httptest.NewRecorder()
+	api.DeleteMyAccount(w, r)
+	if !called {
+		t.Fatal("identity.DeleteAccount not called")
+	}
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"sessions_revoked":2`) &&
+		!strings.Contains(w.Body.String(), `"sessionsRevoked":2`) {
+		t.Fatalf("missing sessions_revoked in body: %s", w.Body.String())
 	}
 }
 

@@ -51,16 +51,24 @@ const (
 	// IdentityServiceMergeIdentitiesProcedure is the fully-qualified name of the IdentityService's
 	// MergeIdentities RPC.
 	IdentityServiceMergeIdentitiesProcedure = "/iogrid.identity.v1.IdentityService/MergeIdentities"
+	// IdentityServiceRemoveIdentifierProcedure is the fully-qualified name of the IdentityService's
+	// RemoveIdentifier RPC.
+	IdentityServiceRemoveIdentifierProcedure = "/iogrid.identity.v1.IdentityService/RemoveIdentifier"
+	// IdentityServiceDeleteAccountProcedure is the fully-qualified name of the IdentityService's
+	// DeleteAccount RPC.
+	IdentityServiceDeleteAccountProcedure = "/iogrid.identity.v1.IdentityService/DeleteAccount"
 )
 
 // These variables are the protoreflect.Descriptor objects for the RPCs defined in this package.
 var (
-	identityServiceServiceDescriptor               = v1.File_iogrid_identity_v1_identity_proto.Services().ByName("IdentityService")
-	identityServiceGetUserMethodDescriptor         = identityServiceServiceDescriptor.Methods().ByName("GetUser")
-	identityServiceListUsersMethodDescriptor       = identityServiceServiceDescriptor.Methods().ByName("ListUsers")
-	identityServiceUpdateUserMethodDescriptor      = identityServiceServiceDescriptor.Methods().ByName("UpdateUser")
-	identityServiceDeleteUserMethodDescriptor      = identityServiceServiceDescriptor.Methods().ByName("DeleteUser")
-	identityServiceMergeIdentitiesMethodDescriptor = identityServiceServiceDescriptor.Methods().ByName("MergeIdentities")
+	identityServiceServiceDescriptor                = v1.File_iogrid_identity_v1_identity_proto.Services().ByName("IdentityService")
+	identityServiceGetUserMethodDescriptor          = identityServiceServiceDescriptor.Methods().ByName("GetUser")
+	identityServiceListUsersMethodDescriptor        = identityServiceServiceDescriptor.Methods().ByName("ListUsers")
+	identityServiceUpdateUserMethodDescriptor       = identityServiceServiceDescriptor.Methods().ByName("UpdateUser")
+	identityServiceDeleteUserMethodDescriptor       = identityServiceServiceDescriptor.Methods().ByName("DeleteUser")
+	identityServiceMergeIdentitiesMethodDescriptor  = identityServiceServiceDescriptor.Methods().ByName("MergeIdentities")
+	identityServiceRemoveIdentifierMethodDescriptor = identityServiceServiceDescriptor.Methods().ByName("RemoveIdentifier")
+	identityServiceDeleteAccountMethodDescriptor    = identityServiceServiceDescriptor.Methods().ByName("DeleteAccount")
 )
 
 // IdentityServiceClient is a client for the iogrid.identity.v1.IdentityService service.
@@ -70,6 +78,13 @@ type IdentityServiceClient interface {
 	UpdateUser(context.Context, *connect.Request[v1.UpdateUserRequest]) (*connect.Response[v1.UpdateUserResponse], error)
 	DeleteUser(context.Context, *connect.Request[v1.DeleteUserRequest]) (*connect.Response[v1.DeleteUserResponse], error)
 	MergeIdentities(context.Context, *connect.Request[v1.MergeIdentitiesRequest]) (*connect.Response[v1.MergeIdentitiesResponse], error)
+	// RemoveIdentifier unbinds a single identifier from the caller's
+	// account; the server enforces "at least one verified identifier
+	// remains" so the account stays recoverable.
+	RemoveIdentifier(context.Context, *connect.Request[v1.RemoveIdentifierRequest]) (*connect.Response[v1.RemoveIdentifierResponse], error)
+	// DeleteAccount soft-deletes the caller's user record + revokes every
+	// session + emits the workspace-cascade notice. Requires step-up auth.
+	DeleteAccount(context.Context, *connect.Request[v1.DeleteAccountRequest]) (*connect.Response[v1.DeleteAccountResponse], error)
 }
 
 // NewIdentityServiceClient constructs a client for the iogrid.identity.v1.IdentityService service.
@@ -112,16 +127,30 @@ func NewIdentityServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(identityServiceMergeIdentitiesMethodDescriptor),
 			connect.WithClientOptions(opts...),
 		),
+		removeIdentifier: connect.NewClient[v1.RemoveIdentifierRequest, v1.RemoveIdentifierResponse](
+			httpClient,
+			baseURL+IdentityServiceRemoveIdentifierProcedure,
+			connect.WithSchema(identityServiceRemoveIdentifierMethodDescriptor),
+			connect.WithClientOptions(opts...),
+		),
+		deleteAccount: connect.NewClient[v1.DeleteAccountRequest, v1.DeleteAccountResponse](
+			httpClient,
+			baseURL+IdentityServiceDeleteAccountProcedure,
+			connect.WithSchema(identityServiceDeleteAccountMethodDescriptor),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // identityServiceClient implements IdentityServiceClient.
 type identityServiceClient struct {
-	getUser         *connect.Client[v1.GetUserRequest, v1.GetUserResponse]
-	listUsers       *connect.Client[v1.ListUsersRequest, v1.ListUsersResponse]
-	updateUser      *connect.Client[v1.UpdateUserRequest, v1.UpdateUserResponse]
-	deleteUser      *connect.Client[v1.DeleteUserRequest, v1.DeleteUserResponse]
-	mergeIdentities *connect.Client[v1.MergeIdentitiesRequest, v1.MergeIdentitiesResponse]
+	getUser          *connect.Client[v1.GetUserRequest, v1.GetUserResponse]
+	listUsers        *connect.Client[v1.ListUsersRequest, v1.ListUsersResponse]
+	updateUser       *connect.Client[v1.UpdateUserRequest, v1.UpdateUserResponse]
+	deleteUser       *connect.Client[v1.DeleteUserRequest, v1.DeleteUserResponse]
+	mergeIdentities  *connect.Client[v1.MergeIdentitiesRequest, v1.MergeIdentitiesResponse]
+	removeIdentifier *connect.Client[v1.RemoveIdentifierRequest, v1.RemoveIdentifierResponse]
+	deleteAccount    *connect.Client[v1.DeleteAccountRequest, v1.DeleteAccountResponse]
 }
 
 // GetUser calls iogrid.identity.v1.IdentityService.GetUser.
@@ -149,6 +178,16 @@ func (c *identityServiceClient) MergeIdentities(ctx context.Context, req *connec
 	return c.mergeIdentities.CallUnary(ctx, req)
 }
 
+// RemoveIdentifier calls iogrid.identity.v1.IdentityService.RemoveIdentifier.
+func (c *identityServiceClient) RemoveIdentifier(ctx context.Context, req *connect.Request[v1.RemoveIdentifierRequest]) (*connect.Response[v1.RemoveIdentifierResponse], error) {
+	return c.removeIdentifier.CallUnary(ctx, req)
+}
+
+// DeleteAccount calls iogrid.identity.v1.IdentityService.DeleteAccount.
+func (c *identityServiceClient) DeleteAccount(ctx context.Context, req *connect.Request[v1.DeleteAccountRequest]) (*connect.Response[v1.DeleteAccountResponse], error) {
+	return c.deleteAccount.CallUnary(ctx, req)
+}
+
 // IdentityServiceHandler is an implementation of the iogrid.identity.v1.IdentityService service.
 type IdentityServiceHandler interface {
 	GetUser(context.Context, *connect.Request[v1.GetUserRequest]) (*connect.Response[v1.GetUserResponse], error)
@@ -156,6 +195,13 @@ type IdentityServiceHandler interface {
 	UpdateUser(context.Context, *connect.Request[v1.UpdateUserRequest]) (*connect.Response[v1.UpdateUserResponse], error)
 	DeleteUser(context.Context, *connect.Request[v1.DeleteUserRequest]) (*connect.Response[v1.DeleteUserResponse], error)
 	MergeIdentities(context.Context, *connect.Request[v1.MergeIdentitiesRequest]) (*connect.Response[v1.MergeIdentitiesResponse], error)
+	// RemoveIdentifier unbinds a single identifier from the caller's
+	// account; the server enforces "at least one verified identifier
+	// remains" so the account stays recoverable.
+	RemoveIdentifier(context.Context, *connect.Request[v1.RemoveIdentifierRequest]) (*connect.Response[v1.RemoveIdentifierResponse], error)
+	// DeleteAccount soft-deletes the caller's user record + revokes every
+	// session + emits the workspace-cascade notice. Requires step-up auth.
+	DeleteAccount(context.Context, *connect.Request[v1.DeleteAccountRequest]) (*connect.Response[v1.DeleteAccountResponse], error)
 }
 
 // NewIdentityServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -194,6 +240,18 @@ func NewIdentityServiceHandler(svc IdentityServiceHandler, opts ...connect.Handl
 		connect.WithSchema(identityServiceMergeIdentitiesMethodDescriptor),
 		connect.WithHandlerOptions(opts...),
 	)
+	identityServiceRemoveIdentifierHandler := connect.NewUnaryHandler(
+		IdentityServiceRemoveIdentifierProcedure,
+		svc.RemoveIdentifier,
+		connect.WithSchema(identityServiceRemoveIdentifierMethodDescriptor),
+		connect.WithHandlerOptions(opts...),
+	)
+	identityServiceDeleteAccountHandler := connect.NewUnaryHandler(
+		IdentityServiceDeleteAccountProcedure,
+		svc.DeleteAccount,
+		connect.WithSchema(identityServiceDeleteAccountMethodDescriptor),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/iogrid.identity.v1.IdentityService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case IdentityServiceGetUserProcedure:
@@ -206,6 +264,10 @@ func NewIdentityServiceHandler(svc IdentityServiceHandler, opts ...connect.Handl
 			identityServiceDeleteUserHandler.ServeHTTP(w, r)
 		case IdentityServiceMergeIdentitiesProcedure:
 			identityServiceMergeIdentitiesHandler.ServeHTTP(w, r)
+		case IdentityServiceRemoveIdentifierProcedure:
+			identityServiceRemoveIdentifierHandler.ServeHTTP(w, r)
+		case IdentityServiceDeleteAccountProcedure:
+			identityServiceDeleteAccountHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -233,4 +295,12 @@ func (UnimplementedIdentityServiceHandler) DeleteUser(context.Context, *connect.
 
 func (UnimplementedIdentityServiceHandler) MergeIdentities(context.Context, *connect.Request[v1.MergeIdentitiesRequest]) (*connect.Response[v1.MergeIdentitiesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iogrid.identity.v1.IdentityService.MergeIdentities is not implemented"))
+}
+
+func (UnimplementedIdentityServiceHandler) RemoveIdentifier(context.Context, *connect.Request[v1.RemoveIdentifierRequest]) (*connect.Response[v1.RemoveIdentifierResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iogrid.identity.v1.IdentityService.RemoveIdentifier is not implemented"))
+}
+
+func (UnimplementedIdentityServiceHandler) DeleteAccount(context.Context, *connect.Request[v1.DeleteAccountRequest]) (*connect.Response[v1.DeleteAccountResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iogrid.identity.v1.IdentityService.DeleteAccount is not implemented"))
 }

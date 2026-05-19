@@ -22,7 +22,12 @@ import (
 type MountConfig struct {
 	API       *handlers.API
 	Workspace *handlers.WorkspaceHandler
-	Signer    *tokens.Signer
+	// Identity hosts the RemoveIdentifier + DeleteAccount RPCs the
+	// /account/identifiers + /account/danger-zone surfaces depend on.
+	// Optional so existing test wiring that constructs MountConfig
+	// without it keeps compiling.
+	Identity *handlers.IdentityHandler
+	Signer   *tokens.Signer
 }
 
 // MountFunc returns the function the shared bootstrap will hand to its
@@ -41,6 +46,20 @@ func MountFunc(cfg MountConfig) func(r chi.Router) {
 			// Connect-RPC handler — gateway-bff + billing-svc call
 			// here with the generated stubs.
 			path, hh := identityv1connect.NewWorkspaceServiceHandler(cfg.Workspace)
+			r.Mount(path, hh)
+		}
+		if cfg.Identity != nil {
+			// JSON twin under /v1/users/{userID}/(identifiers/{id}|"")
+			// so curl callers + e2e suites can exercise the same logic
+			// without the Connect envelope.
+			r.Route("/v1", func(r chi.Router) {
+				cfg.Identity.MountIdentityJSON(r)
+			})
+			// Connect-RPC handler — gateway-bff calls
+			// IdentityService.{RemoveIdentifier,DeleteAccount} here.
+			// Unimplemented stubs still answer the un-wired RPCs with
+			// CodeUnimplemented (deliberate; tracked in EPIC #3).
+			path, hh := identityv1connect.NewIdentityServiceHandler(cfg.Identity)
 			r.Mount(path, hh)
 		}
 	}
