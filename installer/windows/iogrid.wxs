@@ -6,7 +6,7 @@
     - Lays down iogridd.exe under "Program Files\iogrid\"
     - Registers a Windows service "iogridd" with auto-start
     - Adds a Start Menu shortcut to the onboarding URL
-    - Runs the daemon's pair --request as a custom action and opens
+    - Runs the daemon's `pair` subcommand as a custom action and opens
       the browser to the onboarding URL on first install
 
   ProductCode is a NEW GUID every build; UpgradeCode is FIXED so
@@ -112,9 +112,9 @@
         </Feature>
 
         <!-- Custom action: open onboarding URL after install completes.
-             The pair --request is deferred to first run by the service
-             itself; the launched browser will display a "waiting for
-             pairing" page until the daemon registers its code. -->
+             The pair (request) subcommand is deferred to first run by the
+             service itself; the launched browser will display a "waiting
+             for pairing" page until the daemon registers its code. -->
         <Property Id="ONBOARD_URL" Value="https://app.iogrid.org/onboard"/>
         <CustomAction Id="OpenOnboardBrowser"
                       ExeCommand='[SystemFolder]cmd.exe /c start "" "[ONBOARD_URL]"'
