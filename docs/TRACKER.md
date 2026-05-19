@@ -1,61 +1,38 @@
 # iogrid — Status Tracker
 
-Every `#NNNN` is a clickable GitHub link. Regenerate via the *Refresh* note at the bottom; auto-refresh cron is a follow-up (see `bin/refresh-tracker.sh`).
+Every node in the WBS below is **clickable** — open it to land on the related GitHub issue or PR. Titles are descriptive (read the WBS without clicking).
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-19T06:30:00Z` |
+| Last refreshed | `2026-05-19T07:00:00Z` |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
-| Merged PRs | **43** since project bootstrap |
-| Open PRs | 1 |
-| Open issues | **64** (13 EPICs + 51 sub-issues) |
-| EPIC completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 11 / 24 = **46%** (closed/total) |
+| Merged PRs | **45** since project bootstrap |
+| Open PRs | 0 |
+| Open issues | **22** (5 EPICs + 17 sub-issues / chores) |
+| EPIC closure | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 18 / 26 closed = **69%** |
 
-**Legend:** <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> done · <img alt="IN_FLIGHT" src="https://img.shields.io/badge/-IN__FLIGHT-bf8700?style=flat-square" /> work in progress · <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> open · <img alt="DEFERRED" src="https://img.shields.io/badge/-DEFERRED-6e7781?style=flat-square" /> deferred · <img alt="BLOCKED" src="https://img.shields.io/badge/-BLOCKED-8250df?style=flat-square" /> blocked on external action
+**Legend:** <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> done · <img alt="IN_FLIGHT" src="https://img.shields.io/badge/-IN__FLIGHT-bf8700?style=flat-square" /> work in progress · <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> open · <img alt="DEFERRED" src="https://img.shields.io/badge/-DEFERRED-6e7781?style=flat-square" /> deferred · <img alt="BLOCKED" src="https://img.shields.io/badge/-BLOCKED-8250df?style=flat-square" /> blocked on founder action
 
 ---
 
 ## 1. Phase 0 success criterion — vCard LinkedIn enrichment unblocked
 
-The single demonstrable Phase 0 milestone per [`docs/ROADMAP.md`](./ROADMAP.md): customer (Dynolabs vCard) routes LinkedIn fetches through iogrid bandwidth proxy, replaces Proxycurl dependency at zero per-lookup cost.
-
-| # | Step | Status | Blocking issue |
+| # | Step | Status | Link |
 |---|---|---|---|
-| 1 | Customer signup + workspace + API key | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | — (PR [#164](https://github.com/iogrid/iogrid/pull/164) + [#165](https://github.com/iogrid/iogrid/pull/165)) |
-| 2 | Provider daemon installed on founder's Mac | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | — (PR [#135](https://github.com/iogrid/iogrid/pull/135) + [#139](https://github.com/iogrid/iogrid/pull/139)) |
-| 3 | SOCKS5 entry on `proxy.iogrid.org:443` live | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | — (PR [#132](https://github.com/iogrid/iogrid/pull/132)) |
-| 4 | DNS + TLS for iogrid.org domains | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | — (PR [#114](https://github.com/iogrid/iogrid/pull/114)) |
-| 5 | Anti-abuse pre-flight (PhishTank + OpenPhish + GSB) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | — (PR [#127](https://github.com/iogrid/iogrid/pull/127) + [#171](https://github.com/iogrid/iogrid/pull/171)) |
-| 6 | End-to-end test in kind smoke suite | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | — (PR [#150](https://github.com/iogrid/iogrid/pull/150) + [#165](https://github.com/iogrid/iogrid/pull/165)) |
-| 7 | Live deployment to mothership k8s | <img alt="IN_FLIGHT" src="https://img.shields.io/badge/-IN__FLIGHT-bf8700?style=flat-square" /> | Flux GitOps reconciles automatically; verifier walkthrough pending |
-| 8 | First real LinkedIn fetch via iogrid proxy | <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> | Founder runs `examples/phase0-vcard-customer/client.go --vanity emrahbaysal` to validate |
+| 1 | Customer signup + workspace + API key | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | [PR #164](https://github.com/iogrid/iogrid/pull/164), [#165](https://github.com/iogrid/iogrid/pull/165) |
+| 2 | Rust daemon installed on founder's Mac | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | [PR #135](https://github.com/iogrid/iogrid/pull/135) |
+| 3 | SOCKS5 entry on `proxy.iogrid.org:443` | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | [PR #132](https://github.com/iogrid/iogrid/pull/132) |
+| 4 | DNS + TLS for `iogrid.org` zone | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | [PR #114](https://github.com/iogrid/iogrid/pull/114) |
+| 5 | Anti-abuse pre-flight (PhotoDNA + PhishTank + GSB) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | [PR #171](https://github.com/iogrid/iogrid/pull/171) |
+| 6 | E2E kind smoke suite | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | [PR #150](https://github.com/iogrid/iogrid/pull/150) |
+| 7 | Live deploy to mothership k8s | <img alt="IN_FLIGHT" src="https://img.shields.io/badge/-IN__FLIGHT-bf8700?style=flat-square" /> | Flux reconciles automatically; verifier walkthrough pending |
+| 8 | First real LinkedIn fetch via iogrid proxy | <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> | Founder runs `examples/phase0-vcard-customer/client.go` to validate |
 
 ---
 
-## 2. EPIC dashboard (24 total)
+## 2. Open-issue work breakdown (clickable WBS)
 
-| # | EPIC | Status | Notes |
-|---|---|---|---|
-| [#1](https://github.com/iogrid/iogrid/issues/1) | Provider daemon — Rust workspace + cross-platform binary | <img alt="IN_FLIGHT" src="https://img.shields.io/badge/-IN__FLIGHT-bf8700?style=flat-square" /> | Scaffold + transport + routing + workloads merged; 15 sub-issues remain |
-| [#2](https://github.com/iogrid/iogrid/issues/2) | Coordinator — Go microservices on k8s | <img alt="IN_FLIGHT" src="https://img.shields.io/badge/-IN__FLIGHT-bf8700?style=flat-square" /> | All 9 microservices shipped; 12 sub-issues for ongoing iteration |
-| [#3](https://github.com/iogrid/iogrid/issues/3) | Web management plane — Next.js 15 + shadcn/ui | <img alt="IN_FLIGHT" src="https://img.shields.io/badge/-IN__FLIGHT-bf8700?style=flat-square" /> | 23 routes live; 12 sub-issues for polish |
-| [#4](https://github.com/iogrid/iogrid/issues/4) | Auth + identity — Google OAuth + magic-link + auto-merge | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | Identity-svc, SIWS, Workspace all shipped |
-| [#5](https://github.com/iogrid/iogrid/issues/5) | Install UX — grandma-proof single-command setup | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | install.sh + .pkg + .msi + .deb + onboarding all live (PR [#139](https://github.com/iogrid/iogrid/pull/139)) |
-| [#6](https://github.com/iogrid/iogrid/issues/6) | Scheduling — caps + calendar + idle-detection | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | All three signals AND-combined per docs/TECH.md |
-| [#7](https://github.com/iogrid/iogrid/issues/7) | Anti-abuse — pre-flight filters + audit log | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | PhotoDNA + PhishTank + OpenPhish + GSB + retention (PR [#171](https://github.com/iogrid/iogrid/pull/171)) |
-| [#74](https://github.com/iogrid/iogrid/issues/74) | Customer-facing API + OpenAPI spec | <img alt="IN_FLIGHT" src="https://img.shields.io/badge/-IN__FLIGHT-bf8700?style=flat-square" /> | TS+Python+Go+Java SDKs shipped (PR [#137](https://github.com/iogrid/iogrid/pull/137) + [#176](https://github.com/iogrid/iogrid/pull/176)) |
-| [#75](https://github.com/iogrid/iogrid/issues/75) | Consumer VPN gateway | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | WireGuard server + Plus/Pro tiers + ad-block (PR [#134](https://github.com/iogrid/iogrid/pull/134) + [#136](https://github.com/iogrid/iogrid/pull/136)) |
-| [#76](https://github.com/iogrid/iogrid/issues/76) | Observability + SLOs | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | OTel + 4 SLOs + 6 Grafana dashboards + status page (PR [#133](https://github.com/iogrid/iogrid/pull/133) + [#159](https://github.com/iogrid/iogrid/pull/159)) |
-| [#77](https://github.com/iogrid/iogrid/issues/77) / [#106](https://github.com/iogrid/iogrid/issues/106) | Brand identity + marketing site | <img alt="IN_FLIGHT" src="https://img.shields.io/badge/-IN__FLIGHT-bf8700?style=flat-square" /> | Logo + product pages + status page + transparency page (PR [#125](https://github.com/iogrid/iogrid/pull/125)) |
-| [#78](https://github.com/iogrid/iogrid/issues/78) | Legal scaffolding | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | 8 lawyer-ready drafts + counsel RFP + Foundation comparison (PR [#156](https://github.com/iogrid/iogrid/pull/156) + [#174](https://github.com/iogrid/iogrid/pull/174)) |
-| [#87](https://github.com/iogrid/iogrid/issues/87) | $GRID — Solana SPL token + emission + vesting + staking + burn | <img alt="IN_FLIGHT" src="https://img.shields.io/badge/-IN__FLIGHT-bf8700?style=flat-square" /> | 5 Anchor programs shipped; whitepaper done; audit + Foundation pending |
-| [#167](https://github.com/iogrid/iogrid/issues/167) | Off-ramp partnership with Sociable Cash | <img alt="IN_FLIGHT" src="https://img.shields.io/badge/-IN__FLIGHT-bf8700?style=flat-square" /> | Adapter abstraction in PR [#177](https://github.com/iogrid/iogrid/pull/177); multi-tenant matrix doc'd ([MULTI_TENANT_MATRIX.md](./MULTI_TENANT_MATRIX.md)) |
-
----
-
-## 3. Open-issue blocking graph
-
-51 non-EPIC open issues grouped by lane:
+22 open issues grouped by lane. Each node is a clickable link. Titles spell out the gap.
 
 ```mermaid
 flowchart LR
@@ -65,140 +42,144 @@ flowchart LR
   classDef deferred   fill:#6e7781,stroke:#4f555c,color:#fff,stroke-width:2px
   classDef blocked    fill:#8250df,stroke:#5e1ed1,color:#fff,stroke-width:2px
 
-  %% Lane 1 — Phase 0 demo
-  PH0["Phase 0 — vCard demo"]:::flight --> I165["Phase 0 walkthrough (post-merge verify)"]:::open
+  %% LANE A — $GRID TGE prerequisites
+  E87["EPIC #87 — $GRID Token Generation Event"]:::open
+  I104["#104 Reg-D/Reg-S pre-TGE raise (optional)"]:::deferred
+  I105["#105 Quarterly token-holder transparency report"]:::open
+  I168["#168 Document Raydium CLMM as canonical $GRID venue"]:::open
+  I172["#172 TOKENOMICS section — $GRID vs $CASH positioning"]:::open
+  E87 --> I168
+  E87 --> I172
+  E87 --> I105
+  E87 --> I104
 
-  %% Lane 2 — TGE prerequisites
-  TGE["$GRID TGE prerequisites"]:::open --> I97["#97 smart-contract audit (OtterSec)"]:::blocked
-  TGE --> I122["#122 Cayman Foundation incorp"]:::blocked
-  TGE --> I88["#88 Anchor dev tooling polish"]:::flight
-  TGE --> I98["#98 billing-svc Solana real impl"]:::flight
-  TGE --> I99["#99 SIWS wallet binding"]:::flight
-  TGE --> I100["#100 web wallet adapter + staking UI"]:::done
-  TGE --> I101["#101 MoonPay off-ramp embed"]:::flight
-  TGE --> I102["#102 token whitepaper"]:::done
-  TGE --> I103["#103 Foundation jurisdiction"]:::blocked
-  TGE --> I104["#104 Reg-D pre-TGE raise (optional)"]:::deferred
-  TGE --> I105["#105 quarterly transparency reports"]:::flight
+  %% LANE B — Sociable Cash off-ramp partnership
+  E167["EPIC #167 — Sociable Cash multi-tenant off-ramp"]:::flight
+  E167 --> I168
 
-  %% Lane 3 — Anti-abuse partnerships
-  ABS["Anti-abuse partnerships"]:::blocked --> I66["#66 NCMEC PhotoDNA (partnership-gated)"]:::blocked
-  ABS --> I67["#67 PhishTank+OpenPhish+GSB cache"]:::done
-  ABS --> I68["#68 outbound port restrictions"]:::done
-  ABS --> I69["#69 per-customer rate limits"]:::done
-  ABS --> I70["#70 per-provider per-dest rate"]:::done
-  ABS --> I71["#71 Docker image registry validation"]:::done
-  ABS --> I72["#72 audit log retention + transparency"]:::done
+  %% LANE C — Anti-abuse (mostly shipped, EPIC still open)
+  E7["EPIC #7 — Anti-abuse + audit log"]:::open
 
-  %% Lane 4 — Sociable Cash partnership
-  CASH["Sociable Cash off-ramp"]:::flight --> I168["#168 Raydium CLMM canonical venue"]:::flight
-  CASH --> I169["#169 web off-ramp redirect"]:::flight
-  CASH --> I170["#170 gateway-bff Cash webhook"]:::flight
-  CASH --> I172["#172 $GRID vs $CASH positioning"]:::flight
+  %% LANE D — Provider daemon (mostly shipped, EPIC still open)
+  E1["EPIC #1 — Rust provider daemon"]:::open
 
-  %% Lane 5 — Counsel review
-  COUNSEL["Counsel review (pre-Phase 1)"]:::blocked --> I155["#155 legal/* counsel review"]:::blocked
+  %% LANE E — Coordinator (mostly shipped)
+  I35["#35 Cilium SPIFFE-style service mTLS (real impl, not just k8s NetworkPolicy)"]:::open
 
-  %% Lane 6 — Infra polish
-  INFRA["Infra hardening"]:::flight --> I142["#142 WiX 7 vs 4.0.6 toolchain"]:::open
-  INFRA --> I158["#158 commonLabels deprecation"]:::open
-  INFRA --> I80["#80 bun install via oven-sh tap"]:::open
-  INFRA --> I81["#81 Docker.app PATH symlinks"]:::open
-  INFRA --> I82["#82 autossh launchd"]:::done
-  INFRA --> I79["#79 macOS 15 upgrade for Tart"]:::blocked
+  %% LANE F — Web management plane gaps
+  E3["EPIC #3 — Next.js 15 web plane"]:::flight
+  E3 --> I3a["#3 (EPIC body) — gaps below"]:::flight
 
-  %% Lane 7 — Daemon follow-ups
-  DAEMON["Daemon follow-ups"]:::flight --> I12["#12 workload-docker real (bollard)"]:::done
-  DAEMON --> I13["#13 workload-gpu (CUDA+MLX)"]:::flight
-  DAEMON --> I14["#14 workload-ios Tart driver"]:::done
-  DAEMON --> I59["#59 daemon auto-update"]:::done
+  %% LANE G — Identity + auth EPIC
+  E4["EPIC #4 — Identity + auth (Google + magic-link)"]:::flight
 
-  %% Lane 8 — Customer SDK polish
-  SDK["Customer SDKs (publish-ready)"]:::flight --> I116["#116 OpenAPI auto-gen"]:::done
-  SDK --> I117["#117 TypeScript SDK"]:::done
-  SDK --> I118["#118 Python SDK"]:::done
-  SDK --> I119["#119 Go SDK"]:::done
-  SDK --> I120["#120 Java SDK"]:::done
-  SDK --> I121["#121 API reference auto-publish"]:::done
+  %% LANE H — Install UX (mostly shipped, EPIC still open)
+  E5["EPIC #5 — Grandma-proof install"]:::flight
 
-  %% Lane 9 — Marketing polish
-  MKT["Marketing site polish"]:::flight --> I107["#107 logo finalization"]:::done
-  MKT --> I108["#108 landing copy"]:::done
-  MKT --> I109["#109 product pages"]:::done
-  MKT --> I110["#110 blog content"]:::deferred
-  MKT --> I113["#113 SEO baseline"]:::done
+  %% LANE I — Marketing site EPIC
+  E106["EPIC #106 — Brand identity + iogrid.org marketing site"]:::flight
 
-  %% Lane 10 — Founder action items (BLOCKED until external action)
-  FOUNDER["Founder action items"]:::blocked --> F1["Apollo.io API key (vCard)"]:::blocked
-  FOUNDER --> F2["NCMEC PhotoDNA partnership"]:::blocked
-  FOUNDER --> F3["Cayman Foundation incorp"]:::blocked
-  FOUNDER --> F4["OtterSec/Halborn audit"]:::blocked
-  FOUNDER --> F5["Counsel engagement"]:::blocked
-  FOUNDER --> F6["npm / PyPI / Sonatype publisher reg"]:::blocked
+  %% LANE J — Infra hygiene (small chores)
+  I158["#158 kustomize: 'commonLabels' deprecated"]:::open
+  I142["#142 installer/windows: WiX 7 vs 4.0.6 toolset clash"]:::open
+
+  %% LANE K — Mac developer environment (Phase 0 dogfood)
+  I82["#82 Phase 0 tunnel resilience — autossh launchd"]:::flight
+  I81["#81 Mac: Docker.app exists but docker CLI not on PATH"]:::open
+  I80["#80 Daemon dev env: install bun via oven-sh tap"]:::open
+  I79["#79 Mac upgrade Sonoma 14.6 → Sequoia 15 (Tart prereq)"]:::blocked
+
+  click E87  "https://github.com/iogrid/iogrid/issues/87"  _blank
+  click I104 "https://github.com/iogrid/iogrid/issues/104" _blank
+  click I105 "https://github.com/iogrid/iogrid/issues/105" _blank
+  click I168 "https://github.com/iogrid/iogrid/issues/168" _blank
+  click I172 "https://github.com/iogrid/iogrid/issues/172" _blank
+  click E167 "https://github.com/iogrid/iogrid/issues/167" _blank
+  click E7   "https://github.com/iogrid/iogrid/issues/7"   _blank
+  click E1   "https://github.com/iogrid/iogrid/issues/1"   _blank
+  click I35  "https://github.com/iogrid/iogrid/issues/35"  _blank
+  click E3   "https://github.com/iogrid/iogrid/issues/3"   _blank
+  click I3a  "https://github.com/iogrid/iogrid/issues/3"   _blank
+  click E4   "https://github.com/iogrid/iogrid/issues/4"   _blank
+  click E5   "https://github.com/iogrid/iogrid/issues/5"   _blank
+  click E106 "https://github.com/iogrid/iogrid/issues/106" _blank
+  click I158 "https://github.com/iogrid/iogrid/issues/158" _blank
+  click I142 "https://github.com/iogrid/iogrid/issues/142" _blank
+  click I82  "https://github.com/iogrid/iogrid/issues/82"  _blank
+  click I81  "https://github.com/iogrid/iogrid/issues/81"  _blank
+  click I80  "https://github.com/iogrid/iogrid/issues/80"  _blank
+  click I79  "https://github.com/iogrid/iogrid/issues/79"  _blank
 ```
+
+### Concrete gaps inside the still-open EPICs (audit findings, 2026-05-19)
+
+These are the REAL pieces of work hiding inside the still-open EPIC bodies (per area-audit by sub-agents earlier today):
+
+| Gap | Where | Status |
+|---|---|---|
+| `/account/identifiers` Remove RPC | [`web/src/app/account/identifiers/panel.tsx:79`](https://github.com/iogrid/iogrid/blob/main/web/src/app/account/identifiers/panel.tsx#L79) — toast stub | OPEN (EPIC #3 / #4) |
+| `/account/danger-zone` account deletion | [`web/src/app/account/danger-zone/panel.tsx:23`](https://github.com/iogrid/iogrid/blob/main/web/src/app/account/danger-zone/panel.tsx#L23) — setTimeout stub | OPEN (EPIC #3 / #4) |
+| i18n routing real impl | [`web/src/i18n/config.ts`](https://github.com/iogrid/iogrid/blob/main/web/src/i18n/config.ts) lists 7 locale codes; no `[locale]` segment, no message catalogs | OPEN (EPIC #3) |
+| WCAG 2.2 AA verified | No `axe-core` CI step, no keyboard-nav audit log | OPEN (EPIC #3) |
+| Playwright E2E real flows | [`web/tests/example.spec.ts`](https://github.com/iogrid/iogrid/blob/main/web/tests/example.spec.ts) is 3 string asserts, no dev-server boot | OPEN (EPIC #3) |
+| Cilium SPIFFE mTLS | [PR #84](https://github.com/iogrid/iogrid/pull/84) shipped k8s `NetworkPolicy`; real CiliumNetworkPolicy + SPIFFE/SPIRE identities not yet | OPEN ([#35](https://github.com/iogrid/iogrid/issues/35)) |
 
 ---
 
-## 4. Recently merged PRs (last 36h)
+## 3. Recently merged PRs (last 36h, 15 of 45)
 
 | Merged (UTC) | PR | Issues closed | Title |
 |---|---|---|---|
 | 2026-05-19T06:21 | [#176](https://github.com/iogrid/iogrid/pull/176) | #116 #117 #118 #119 #120 | feat(sdks): activate publish workflows — npm + PyPI + Maven Central via OIDC |
 | 2026-05-19T06:19 | [#171](https://github.com/iogrid/iogrid/pull/171) | #66 #72 | feat(antiabuse): PhotoDNA + 90-day retention + quarterly transparency |
 | 2026-05-19T06:09 | [#175](https://github.com/iogrid/iogrid/pull/175) | #59 | feat(daemon): auto-update worker — Sparkle-style with Ed25519 |
+| 2026-05-19T06:19 | [#177](https://github.com/iogrid/iogrid/pull/177) | #169 #170 | feat(offramp): adapter abstraction — MoonPay default + Sociable Cash contract stub |
 | 2026-05-19T05:44 | [#174](https://github.com/iogrid/iogrid/pull/174) | #155 #103 #122 | feat(counsel): RFP + checklist + jurisdiction comparison + incident playbook |
 | 2026-05-19T05:40 | [#173](https://github.com/iogrid/iogrid/pull/173) | (refs #167) | docs: Sociable Cash multi-tenant capability matrix |
+| 2026-05-19T06:30 | [#178](https://github.com/iogrid/iogrid/pull/178) | — | docs(tracker): TRACKER.md mirroring OpenOva format |
 | 2026-05-19T05:16 | [#166](https://github.com/iogrid/iogrid/pull/166) | — | fix(ci): main-branch regressions — web typecheck + billing-svc Docker |
-| 2026-05-19T05:16 | [#164](https://github.com/iogrid/iogrid/pull/164) | #146 | feat(workspace): identity-svc Workspace + Membership |
+| 2026-05-19T05:16 | [#164](https://github.com/iogrid/iogrid/pull/164) | #146 #51 | feat(workspace): identity-svc Workspace + Membership |
 | 2026-05-19T04:47 | [#165](https://github.com/iogrid/iogrid/pull/165) | (Phase 0 demo) | feat(phase0): vCard LinkedIn-enrichment customer demo |
 | 2026-05-19T04:28 | [#163](https://github.com/iogrid/iogrid/pull/163) | #88 #97 #102 | feat(token): whitepaper + Anchor tooling + audit prep + Cayman checklist |
 | 2026-05-19T04:19 | [#161](https://github.com/iogrid/iogrid/pull/161) | #98 | feat(billing-svc): real Solana SPL transfers + Jupiter swaps + burn loop |
 | 2026-05-19T04:15 | [#160](https://github.com/iogrid/iogrid/pull/160) | #100 | feat(web): Solana Wallet Adapter + balance + staking UI + burn dashboard |
-| 2026-05-19T04:14 | [#162](https://github.com/iogrid/iogrid/pull/162) | #99 | feat(siws): Sign-In-With-Solana wallet binding in identity-svc |
-| 2026-05-19T03:33 | [#159](https://github.com/iogrid/iogrid/pull/159) | #111 | feat(status): public status page + incident management + Grafana provisioning |
-| 2026-05-19T03:33 | [#157](https://github.com/iogrid/iogrid/pull/157) | #145 #147 #148 | fix(e2e): remaining bugs — kind overlay + BLOCK_DOMAINS + JWT fixture |
-| 2026-05-19T03:33 | [#156](https://github.com/iogrid/iogrid/pull/156) | #78 | feat(legal): provider+customer ToS, AUP, DPA, privacy, token disclaimer drafts |
+| 2026-05-19T04:14 | [#162](https://github.com/iogrid/iogrid/pull/162) | #99 | feat(siws): Sign-In-With-Solana wallet binding |
+| 2026-05-19T03:33 | [#159](https://github.com/iogrid/iogrid/pull/159) | #111 | feat(status): public status page + Grafana provisioning |
 
-(For full history of all 43 merged PRs: [merged-PR list](https://github.com/iogrid/iogrid/pulls?q=is%3Apr+is%3Amerged))
+Full history: [all merged PRs](https://github.com/iogrid/iogrid/pulls?q=is%3Apr+is%3Amerged).
 
 ---
 
-## 5. Open PRs (1)
-
-| PR | State | CI | Notes |
-|---|---|---|---|
-| [#177](https://github.com/iogrid/iogrid/pull/177) | <img alt="IN_FLIGHT" src="https://img.shields.io/badge/-IN__FLIGHT-bf8700?style=flat-square" /> | 26/27 green (Windows .msi unrelated) | feat(offramp): adapter abstraction — MoonPay default + Sociable Cash contract stub. Rebase agent active. |
-
----
-
-## 6. Founder action items (external, unblocking)
+## 4. Founder action items (external, unblocking)
 
 | # | Action | What it unblocks | Cost / time |
 |---|---|---|---|
-| 1 | Engage Cayman counsel (Walkers / Maples) — see [legal/foundation/cayman-setup.md](../legal/foundation/cayman-setup.md) | Foundation incorporation → $GRID TGE | $30–80K, 8–12 weeks |
-| 2 | Engage OtterSec or Halborn for smart-contract audit — see [contracts/audit/README.md](../contracts/audit/README.md) | Mainnet program deploy → TGE | $40–80K, 4–8 weeks |
-| 3 | Engage crypto-tech counsel (Cooley / Fenwick / Davis Polk / Latham) — see [legal/counsel/rfp.md](../legal/counsel/rfp.md) | Phase 1 ToS + AUP + DPA finalization | $5–15K Phase 1, $80–200K Phase 2 |
-| 4 | Apply for NCMEC PhotoDNA partnership — see [coordinator/services/antiabuse-svc/README.md](../coordinator/services/antiabuse-svc/README.md) | Real CSAM filter activation | Free + vetting; ~6–10 weeks |
-| 5 | Reserve npm / PyPI / Sonatype publisher accounts | SDK publish workflows fire | Free + one-time |
-| 6 | Apollo.io API key + paste into k8s secret `dynolabs-apollo` (Dynolabs vCard project) | Phase 0 vCard LinkedIn enrichment (already-built fallback exists via Clearbit Logo API) | $39/mo Apollo Basic |
-| 7 | Decide on Reg-D / Reg-S pre-TGE strategic raise — see [docs/TOKENOMICS.md](./TOKENOMICS.md) | Optional $2M @ $200M FDV | Founder strategic choice |
+| 1 | Engage Cayman counsel ([Walkers](https://www.walkersglobal.com/) / [Maples](https://maples.com/)) per [`legal/foundation/cayman-setup.md`](../legal/foundation/cayman-setup.md) | $GRID Foundation incorporation → TGE | $30–80K, 8–12 weeks |
+| 2 | Engage smart-contract auditor ([OtterSec](https://osec.io/) or [Halborn](https://halborn.com/)) per [`contracts/audit/README.md`](../contracts/audit/README.md) | Mainnet program deploy → TGE | $40–80K, 4–8 weeks |
+| 3 | Engage crypto-tech counsel (Cooley / Fenwick / Davis Polk / Latham) per [`legal/counsel/rfp.md`](../legal/counsel/rfp.md) | Phase 1 ToS + AUP + DPA finalization | $5–15K Phase 1 |
+| 4 | Apply for [NCMEC PhotoDNA partnership](https://www.missingkids.org/theissues/csam) per [antiabuse-svc README](../coordinator/services/antiabuse-svc/README.md) | Real CSAM filter activation | Free + ~6–10 weeks vetting |
+| 5 | Reserve [npm `@iogrid` org](https://www.npmjs.com/) / [PyPI](https://pypi.org/) / [Sonatype Central](https://central.sonatype.org/) publisher accounts | SDK publish workflows fire on tag-push | Free + one-time |
+| 6 | Apollo.io API key into k8s secret `dynolabs-apollo` (vCard project, orthogonal) | Phase 0 vCard LinkedIn title+company auto-fill | $39/mo Basic |
+| 7 | Decide on Reg-D / Reg-S pre-TGE strategic raise (optional) per [`docs/TOKENOMICS.md`](./TOKENOMICS.md) | $2M @ $200M FDV strategic round | Founder strategic choice |
+| 8 | Upgrade founder Mac mini from Sonoma 14.6 → Sequoia 15 | iOS-build workload via Tart (issue [#79](https://github.com/iogrid/iogrid/issues/79)) | ~30 min + restart |
 
 ---
 
-## 7. Theater-incident log
+## 5. Theater-incident log
 
 Caught "fix shipped but actually broken" events:
 
-| When (UTC) | Broken PR | Caught by | Resolving PR | Principle codified |
+| When (UTC) | Broken | Caught by | Resolving | Principle |
 |---|---|---|---|---|
-| 2026-05-19T01:32 | [#137](https://github.com/iogrid/iogrid/pull/137) SDK CI Python hatch + Java spotless | Founder noticed lockfile drift | [#137 follow-up](https://github.com/iogrid/iogrid/pull/137) | **#1** Verify pnpm overrides exist at workspace root, not sub-package |
-| 2026-05-19T01:00 | [#161](https://github.com/iogrid/iogrid/pull/161) billing-svc go.mod missing `connectrpc.com/connect` | follow-up CI iteration | merge fix in same PR | **#2** Dockerfile must mirror repo's relative-path layout for go.mod replaces |
-| 2026-05-19T05:13 | [#139](https://github.com/iogrid/iogrid/pull/139) rebased w/ crude `--ours/--theirs` resolution, dropped fields | Founder noticed CI red across 14 checks | [agent fix on same branch](https://github.com/iogrid/iogrid/commit/a26a627) | **#3** Never auto-resolve struct-merge conflicts blindly — combine fields |
-| 2026-05-18 | Org-billing block hit all PRs | Founder noticed CI runner-startup errors | Repo flipped public (free unlimited CI) | **#4** Public-repo GitHub Actions is free; never run builds on bastion |
+| 2026-05-19T01:32 | [#137](https://github.com/iogrid/iogrid/pull/137) SDK CI — Python hatch + Java spotless | First CI run | Auto-fix `28306a8` | **#1** pnpm overrides at workspace root only |
+| 2026-05-19T01:00 | [#161](https://github.com/iogrid/iogrid/pull/161) billing-svc go.mod missing connectrpc | follow-up CI iteration | Same PR | **#2** Dockerfile mirrors repo's relative-path layout |
+| 2026-05-19T05:13 | [#139](https://github.com/iogrid/iogrid/pull/139) crude `--ours/--theirs` resolution dropped fields | Founder noticed 14 red checks | Agent fix `a26a627` | **#3** Never auto-resolve struct-merge blindly |
+| 2026-05-18 | Org-billing block all PRs | Founder noticed CI runner-startup errors | Repo flipped public | **#4** Public-repo GitHub Actions is free; never run builds on bastion |
+| 2026-05-19T06:30 | Tracker WBS nodes were unclickable | Founder flag | This commit | **#5** Every WBS node must be `click` to its issue/PR |
 
 ---
 
-## 8. Project shape
+## 6. Project shape
 
 ```
 iogrid/iogrid (monorepo, PUBLIC)
@@ -222,7 +203,25 @@ Companion repo: [iogrid/iogrid-ops](https://github.com/iogrid/iogrid-ops) — Fl
 
 ---
 
-## 9. Resources
+## 7. How to refresh this tracker
+
+```bash
+# Manual refresh (every time issues open/close or a PR merges):
+cd /home/openova/repos/iogrid
+bash bin/refresh-tracker.sh   # (script TBD — for now, edit this file by hand)
+git add docs/TRACKER.md
+git -c user.name=hatiyildiz -c user.email=269457768+hatiyildiz@users.noreply.github.com \
+  commit -m "docs(tracker): refresh"
+git push
+gh pr create --base main --title "docs(tracker): refresh" --body ""
+gh pr merge --admin --squash --delete-branch
+```
+
+Automation follow-up: [bin/refresh-tracker.sh](https://github.com/iogrid/iogrid/tree/main/bin) cron job (every 15 min) that snapshots `gh issue list` + `gh pr list` and rewrites this file. Tracked as a follow-up; not yet shipped.
+
+---
+
+## 8. Resources
 
 - [README](../README.md) — project overview
 - [docs/TECH.md](./TECH.md) — full technical architecture
@@ -236,4 +235,4 @@ Companion repo: [iogrid/iogrid-ops](https://github.com/iogrid/iogrid-ops) — Fl
 
 ---
 
-*Generated `2026-05-19T06:30:00Z`. Manual refresh: edit this file + push. Auto-refresh cron pending (`bin/refresh-tracker.sh` follow-up).*
+*Generated `2026-05-19T07:00:00Z`. Refresh manually or via TBD `bin/refresh-tracker.sh`.*
