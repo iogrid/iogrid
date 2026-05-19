@@ -124,6 +124,33 @@ iogrid.NewClient(iogrid.Options{
 })
 ```
 
+## Versioning
+
+The Go SDK lives in the iogrid monorepo at `sdks/go/` but is published
+under the module path `github.com/iogrid/go-sdk`. We follow semver.
+
+### Tag convention
+
+Releases are cut by pushing a git tag of the form `sdks/go/vX.Y.Z` on
+the `iogrid/iogrid` repo. The matching workflow
+(`.github/workflows/sdk-go-publish.yml`) validates the tag, runs
+`go test -race`, and warms the `proxy.golang.org` cache so the new
+version is queryable immediately:
+
+```bash
+go get github.com/iogrid/go-sdk@v0.1.0
+```
+
+Use the release Makefile rather than tagging by hand — it runs the
+pre-flight gates (working tree clean, tests green, version not yet
+published):
+
+```bash
+make -C sdks release-go VERSION=0.1.0
+```
+
+See [`../RELEASING.md`](../RELEASING.md) for the full release procedure.
+
 ## License
 
 Apache-2.0

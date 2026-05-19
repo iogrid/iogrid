@@ -107,9 +107,33 @@ publishing {
             }
         }
     }
+
+    // Sonatype OSSRH (Maven Central) repository.
+    // Credentials come from CI env vars (ORG_GRADLE_PROJECT_ossrhUsername /
+    // ORG_GRADLE_PROJECT_ossrhPassword) so the build script stays clean.
+    repositories {
+        maven {
+            name = "OSSRH"
+            // s01 is the new Sonatype OSSRH host (all com.iogrid namespaces
+            // registered after Feb 2021 live here).
+            val releasesUrl = uri("https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/")
+            val snapshotsUrl = uri("https://s01.oss.sonatype.org/content/repositories/snapshots/")
+            url = if (version.toString().endsWith("SNAPSHOT")) snapshotsUrl else releasesUrl
+            credentials {
+                username = (findProperty("ossrhUsername") as String?) ?: System.getenv("OSSRH_USERNAME")
+                password = (findProperty("ossrhPassword") as String?) ?: System.getenv("OSSRH_TOKEN")
+            }
+        }
+    }
 }
 
 signing {
-    setRequired({ gradle.taskGraph.hasTask("publish") })
+    // Skip signing only when explicitly requested (e.g. local smoke runs).
+    setRequired({ gradle.taskGraph.hasTask("publish") && findProperty("signing.skip") != "true" })
+    val signingKey = findProperty("signingKey") as String?
+    val signingPassword = findProperty("signingPassword") as String?
+    if (signingKey != null && signingPassword != null) {
+        useInMemoryPgpKeys(signingKey, signingPassword)
+    }
     sign(publishing.publications["mavenJava"])
 }

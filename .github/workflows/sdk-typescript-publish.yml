@@ -1,9 +1,13 @@
 name: sdk-typescript-publish
 
-# Phase 2: actual npm publish is wired but commented out until the
-# release process is gated on the founder signing off on the first
-# customer-facing SDK release. Triggering this workflow today is a
-# no-op build + dry-run check.
+# Publishes @iogrid/sdk to npm with provenance.
+#
+# Trigger: push a tag matching `sdk-typescript/v*` (e.g. `sdk-typescript/v0.1.0`).
+# Auth:    npm OIDC + provenance — NO long-lived NPM_TOKEN needed for a
+#          public package on a public repository. Provenance is signed by
+#          GitHub's OIDC identity and verifiable on npmjs.com.
+#
+# See `sdks/RELEASING.md` for the release cadence.
 
 on:
   push:
@@ -13,11 +17,11 @@ on:
 
 jobs:
   publish:
-    name: build + publish (dry-run until Phase 2)
+    name: build + publish to npm
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write # for npm provenance once we flip the publish on
+      id-token: write # OIDC token for npm provenance
     steps:
       - uses: actions/checkout@v4
 
@@ -41,13 +45,27 @@ jobs:
         working-directory: sdks/typescript
         run: pnpm build
 
+      - name: Verify package metadata matches tag
+        working-directory: sdks/typescript
+        run: |
+          set -euo pipefail
+          PKG_VER=$(node -p "require('./package.json').version")
+          TAG_VER="${GITHUB_REF#refs/tags/sdk-typescript/v}"
+          if [ "$PKG_VER" != "$TAG_VER" ]; then
+            echo "::error::package.json version ($PKG_VER) does not match tag ($TAG_VER)"
+            exit 1
+          fi
+          echo "version match: $PKG_VER"
+
       - name: Dry-run publish (prints the tarball contents)
         working-directory: sdks/typescript
         run: pnpm publish --dry-run --no-git-checks --access public
 
-      # PHASE 2 — uncomment when we're ready to ship.
-      # - name: Publish to npm
-      #   working-directory: sdks/typescript
-      #   run: pnpm publish --no-git-checks --access public --provenance
-      #   env:
-      #     NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish to npm with provenance
+        working-directory: sdks/typescript
+        run: pnpm publish --no-git-checks --access public --provenance
+        env:
+          # NODE_AUTH_TOKEN is unset on purpose — npm OIDC + provenance
+          # authenticates via id-token. For private packages you'd add
+          # NPM_TOKEN here from secrets.
+          NPM_CONFIG_PROVENANCE: "true"

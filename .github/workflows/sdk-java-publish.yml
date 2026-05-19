@@ -1,13 +1,18 @@
 name: sdk-java-publish
 
-# Phase 2: Maven Central publish via Sonatype OSSRH.
-# Requires signing key + Sonatype credentials in repo secrets:
-#   - SIGNING_KEY (ASCII-armoured GPG private key)
-#   - SIGNING_PASSWORD
-#   - OSSRH_USERNAME
-#   - OSSRH_TOKEN
-# Until those are wired, this workflow performs a local `publishToMavenLocal`
-# smoke step so the build script is exercised on every release tag.
+# Publishes com.iogrid:sdk to Maven Central via Sonatype OSSRH.
+#
+# Trigger: push a tag matching `sdk-java/v*` (e.g. `sdk-java/v0.1.0`).
+# Auth:    Sonatype OSSRH user token + GPG signing key. Both are
+#          long-lived secrets — Maven Central does not support OIDC
+#          publishing as of 2026-05. See `sdks/RELEASING.md` § "Founder
+#          one-time setup" for namespace registration and secret wiring.
+#
+# Required repository secrets:
+#   SIGNING_KEY       — ASCII-armoured GPG private key (gpg --armor --export-secret-keys)
+#   SIGNING_PASSWORD  — passphrase for the GPG key
+#   OSSRH_USERNAME    — Sonatype OSSRH user-token username
+#   OSSRH_TOKEN       — Sonatype OSSRH user-token password
 
 on:
   push:
@@ -17,8 +22,12 @@ on:
 
 jobs:
   publish:
-    name: build + publish (local until Phase 2)
+    name: build + publish to Maven Central
     runs-on: ubuntu-latest
+    environment:
+      name: maven-central
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -29,6 +38,18 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      - name: Verify build.gradle.kts version matches tag
+        working-directory: sdks/java
+        run: |
+          set -euo pipefail
+          GRADLE_VER=$(grep -E '^version\s*=' build.gradle.kts | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          TAG_VER="${GITHUB_REF#refs/tags/sdk-java/v}"
+          if [ "$GRADLE_VER" != "$TAG_VER" ]; then
+            echo "::error::build.gradle.kts version ($GRADLE_VER) does not match tag ($TAG_VER)"
+            exit 1
+          fi
+          echo "version match: $GRADLE_VER"
+
       - name: Run tests
         working-directory: sdks/java
         run: gradle check --no-daemon
@@ -37,16 +58,17 @@ jobs:
         working-directory: sdks/java
         run: gradle build --no-daemon
 
-      - name: Publish to local Maven (smoke)
+      - name: Publish to Maven Central (OSSRH staging)
         working-directory: sdks/java
-        run: gradle publishToMavenLocal --no-daemon -Psigning.skip=true
+        env:
+          ORG_GRADLE_PROJECT_signingKey: ${{ secrets.SIGNING_KEY }}
+          ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.SIGNING_PASSWORD }}
+          ORG_GRADLE_PROJECT_ossrhUsername: ${{ secrets.OSSRH_USERNAME }}
+          ORG_GRADLE_PROJECT_ossrhPassword: ${{ secrets.OSSRH_TOKEN }}
+        run: gradle publish --no-daemon
 
-      # PHASE 2 — uncomment when Sonatype OSSRH credentials are configured.
-      # - name: Publish to Maven Central
-      #   working-directory: sdks/java
-      #   env:
-      #     ORG_GRADLE_PROJECT_signingKey: ${{ secrets.SIGNING_KEY }}
-      #     ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.SIGNING_PASSWORD }}
-      #     ORG_GRADLE_PROJECT_ossrhUsername: ${{ secrets.OSSRH_USERNAME }}
-      #     ORG_GRADLE_PROJECT_ossrhPassword: ${{ secrets.OSSRH_TOKEN }}
-      #   run: gradle publish --no-daemon
+      # NOTE: Sonatype OSSRH stages the artefacts. The founder must then
+      # log into https://s01.oss.sonatype.org → Staging Repositories →
+      # close + release the staging bucket to promote to Maven Central.
+      # This is intentionally manual for the first ~5 releases; after
+      # trust is established Sonatype enables auto-release.

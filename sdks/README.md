@@ -71,6 +71,25 @@ All four SDKs start at `0.1.0`. They follow semantic versioning. The
 underlying protobuf contracts in [`../proto/`](../proto/) carry their
 own backward-compatibility guarantees (`buf breaking` runs in CI).
 
+## Releasing
+
+How to cut a release for any of the four SDKs is documented in
+[`RELEASING.md`](RELEASING.md). Quick reference:
+
+```bash
+make -C sdks release-ts   VERSION=0.1.0   # @iogrid/sdk → npm
+make -C sdks release-py   VERSION=0.1.0   # iogrid → PyPI
+make -C sdks release-go   VERSION=0.1.0   # github.com/iogrid/go-sdk
+make -C sdks release-java VERSION=0.1.0   # com.iogrid:sdk → Maven Central
+```
+
+Per-SDK changelogs:
+
+* [TypeScript](typescript/CHANGELOG.md)
+* [Python](python/CHANGELOG.md)
+* [Go](go/CHANGELOG.md)
+* [Java](java/CHANGELOG.md)
+
 ## License
 
 Apache-2.0 across all four SDKs.
