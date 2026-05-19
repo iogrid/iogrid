@@ -42,17 +42,23 @@ func MountFunc(cfg MountConfig) func(r chi.Router) {
 		r.Group(func(r chi.Router) {
 			r.Use(authmw.VerifyBearer(cfg.Signer))
 			cfg.API.Mount(r)
-			if cfg.Workspace != nil {
+			// chi only allows Route("/v1", ...) once — handlers that
+			// share the /v1 prefix must register inside a single Route.
+			if cfg.Workspace != nil || cfg.Identity != nil {
 				r.Route("/v1", func(r chi.Router) {
-					cfg.Workspace.MountWorkspaceJSON(r)
+					if cfg.Workspace != nil {
+						cfg.Workspace.MountWorkspaceJSON(r)
+					}
+					if cfg.Identity != nil {
+						cfg.Identity.MountIdentityJSON(r)
+					}
 				})
+			}
+			if cfg.Workspace != nil {
 				path, hh := identityv1connect.NewWorkspaceServiceHandler(cfg.Workspace)
 				r.Mount(path, hh)
 			}
 			if cfg.Identity != nil {
-				r.Route("/v1", func(r chi.Router) {
-					cfg.Identity.MountIdentityJSON(r)
-				})
 				path, hh := identityv1connect.NewIdentityServiceHandler(cfg.Identity)
 				r.Mount(path, hh)
 			}
