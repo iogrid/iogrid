@@ -199,10 +199,7 @@ pub fn pick_upgrade<'a>(
 
 /// Pick the artifact entry for a given rustc target triple. Returns
 /// None when no artifact matches — the daemon then skips this release.
-pub fn pick_artifact<'a>(
-    release: &'a ReleaseEntry,
-    target: &str,
-) -> Option<&'a ReleaseArtifact> {
+pub fn pick_artifact<'a>(release: &'a ReleaseEntry, target: &str) -> Option<&'a ReleaseArtifact> {
     release.artifacts.iter().find(|a| a.target == target)
 }
 
