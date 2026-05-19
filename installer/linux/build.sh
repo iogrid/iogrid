@@ -53,11 +53,22 @@ if ! command -v nfpm >/dev/null 2>&1; then
     exit 3
 fi
 
+# nfpm v2.41.3 does NOT auto-interpolate ${IOGRID_*} env vars in the
+# config file — that's an upstream limitation. We pre-render the YAML
+# via envsubst (gettext package) into a temp file before invoking nfpm.
+if ! command -v envsubst >/dev/null 2>&1; then
+    echo "[linux-pkg] FATAL: envsubst not found. Install: apt install gettext" >&2
+    exit 5
+fi
+rendered=$(mktemp -t nfpm-rendered.XXXXXX.yaml)
+trap 'rm -f "$rendered"' EXIT
+envsubst < nfpm.yaml > "$rendered"
+
 build_one() {
     fmt="$1"
     out_file="$2"
     echo "[linux-pkg] packaging $fmt -> $out_file"
-    nfpm pkg --packager "$fmt" --config nfpm.yaml --target "$out_file"
+    nfpm pkg --packager "$fmt" --config "$rendered" --target "$out_file"
 }
 
 case "$IOGRID_ARCH" in

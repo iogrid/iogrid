@@ -141,13 +141,17 @@ require_cmds() {
 
 download() {
     # download <url> <out>
+    # Returns 0 on success, non-zero on failure. Callers that want
+    # to abort on failure should `die` themselves; callers that have
+    # a fallback path (e.g. missing .sha256) just check the return
+    # code. We deliberately do NOT call `die` here.
     url="$1"; out="$2"
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL --connect-timeout 10 --retry 3 -o "$out" "$url" \
-            || die "Download failed: $url"
+        curl -fsSL --connect-timeout 10 --retry 3 -o "$out" "$url"
+        return $?
     elif command -v wget >/dev/null 2>&1; then
-        wget -q --tries=3 -O "$out" "$url" \
-            || die "Download failed: $url"
+        wget -q --tries=3 -O "$out" "$url"
+        return $?
     else
         die "Need curl or wget to download $url"
     fi
@@ -194,7 +198,7 @@ mac_check_docker() {
         amd64) dmg_url="https://desktop.docker.com/mac/main/amd64/Docker.dmg" ;;
     esac
     tmp_dmg=$(mktemp -t iogrid-docker).dmg
-    download "$dmg_url" "$tmp_dmg"
+    download "$dmg_url" "$tmp_dmg" || die "Failed to download Docker.dmg from $dmg_url"
     log "Mounting Docker.dmg ..."
     mnt=$(hdiutil attach -nobrowse -readonly -mountrandom /tmp "$tmp_dmg" \
         | grep "/Volumes/" | awk '{$1=$2=""; sub(/^[ \t]+/, ""); print}' | head -n1)
@@ -221,7 +225,7 @@ mac_install_daemon() {
     log "Downloading iogridd ($arch) ..."
     tmp_bin=$(mktemp -t iogridd)
     tmp_sum=$(mktemp -t iogridd-sum)
-    download "$bin_url" "$tmp_bin"
+    download "$bin_url" "$tmp_bin" || die "Failed to download $bin_url"
 
     if download "$sum_url" "$tmp_sum" 2>/dev/null; then
         expected=$(awk '{print $1}' "$tmp_sum")
@@ -392,7 +396,7 @@ linux_install_daemon() {
     log "Downloading iogridd ($arch) ..."
     tmp_bin=$(mktemp /tmp/iogridd.XXXXXX)
     tmp_sum=$(mktemp /tmp/iogridd-sum.XXXXXX)
-    download "$bin_url" "$tmp_bin"
+    download "$bin_url" "$tmp_bin" || die "Failed to download $bin_url"
 
     if download "$sum_url" "$tmp_sum" 2>/dev/null; then
         expected=$(awk '{print $1}' "$tmp_sum")

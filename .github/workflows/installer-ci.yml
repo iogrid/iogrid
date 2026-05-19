@@ -63,10 +63,14 @@ jobs:
           export APK_SIGNING_KEY_FILE=""
           export APK_SIGNING_KEY_NAME=""
           cd installer/linux
-          # README.md path is ../../README.md relative to installer/linux; nfpm
-          # resolves contents.src relative to the config file's location, which
-          # is fine in CI checkouts.
-          /tmp/nfpm pkg --packager deb --config nfpm.yaml --target /tmp/test.deb
+          # envsubst pre-renders ${IOGRID_*} placeholders (nfpm 2.41 doesn't
+          # auto-interpolate env vars). README.md path is ../../README.md
+          # relative to installer/linux; nfpm resolves contents.src relative
+          # to the config file's location.
+          rendered=$(mktemp -t nfpm-rendered.XXXXXX.yaml)
+          envsubst < nfpm.yaml > "$rendered"
+          /tmp/nfpm pkg --packager deb --config "$rendered" --target /tmp/test.deb
+          rm -f "$rendered"
           echo "nfpm config OK; built /tmp/test.deb $(stat -c %s /tmp/test.deb || stat -f %z /tmp/test.deb) bytes"
 
   # ---------------------------------------------------------------------
