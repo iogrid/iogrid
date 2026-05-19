@@ -1,0 +1,23 @@
+# Magic-link delivery: 95% < 30s
+#
+# Per docs/TECH.md SLO commitment. identity-svc emits two events for
+# every magic-link sign-in: `magic_link_requested_total` when the user
+# clicks "send link" and `magic_link_delivered_under_30s_total` when
+# the link is verified within 30s. Failures = the link never arrives
+# or arrives too late (transactional email provider issue, spam folder).
+service: identity-svc
+name: magic-link-delivery
+description: |
+  Magic-link email delivered AND clicked within 30 seconds.
+  Source: identity-svc instruments send + verify timestamps.
+objective: 95
+time_window: 30d
+sli:
+  good: sum(rate(magic_link_delivered_under_30s_total[5m]))
+  total: sum(rate(magic_link_requested_total[5m]))
+labels:
+  team: auth
+  tier: control-plane
+annotations:
+  summary: magic-link delivery budget
+  user_impact: New users abandon sign-in because the email never arrives.

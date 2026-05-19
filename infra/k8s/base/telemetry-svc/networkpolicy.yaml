@@ -1,7 +1,25 @@
 ---
-# telemetry-svc — ingests daemon and proxy-flow telemetry, fans out to Loki/Tempo/Prom + audit log.
-# Ingress: proxy-gateway (flow events), gateway-bff (read API), workloads-svc (workload events).
-# Egress: Postgres (audit log), Redis (hot metrics), NATS (event bus), monitoring namespace (Loki/Tempo).
+# telemetry-svc + otelcol gateway — runs in the same Pod, shares the
+# selector. Ingress / egress rules:
+#
+# INGRESS
+#   :8080 — telemetry-svc control surface — accepted from iogrid services
+#           that emit telemetry-related RPCs (proxy-gateway, gateway-bff,
+#           workloads-svc, build-gateway).
+#   :8080 /status — accepted from the iogrid Gateway (httproute-status)
+#                   so the public status page can fetch it. Tightened
+#                   to the Gateway namespace below.
+#   :8080 /metrics — accepted from the monitoring namespace so kube-prom
+#                    (and the otelcol prometheus receiver itself) can scrape.
+#   :4317 / :4318 — OTLP receivers, accepted from every iogrid Pod and
+#                    from the Rust daemon via the gateway egress path.
+#   :8888 — otelcol self-metrics, monitoring namespace only.
+#
+# EGRESS
+#   Postgres, Redis, NATS (audit log / hot state / event bus).
+#   monitoring namespace :3100 (Loki), :9095 (Mimir), :4317 (Tempo OTLP),
+#   :9090 (Prometheus), :443 (HTTPS for mothership-external pushes).
+#   53 DNS to kube-system.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -18,6 +36,7 @@ spec:
     - Ingress
     - Egress
   ingress:
+    # Control-surface RPCs from sibling iogrid services.
     - from:
         - podSelector:
             matchLabels:
@@ -34,13 +53,33 @@ spec:
       ports:
         - protocol: TCP
           port: 8080
+    # Public /status endpoint — accept from the iogrid Gateway namespace
+    # so the iogrid-status HTTPRoute can proxy it.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: iogrid-system
+      ports:
+        - protocol: TCP
+          port: 8080
+    # /metrics scrapes from the monitoring namespace.
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: monitoring
       ports:
         - protocol: TCP
-          port: 9090
+          port: 8080
+        - protocol: TCP
+          port: 8888
+    # OTLP receivers: EVERY iogrid Pod can push.
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 4317
+        - protocol: TCP
+          port: 4318
   egress:
     - to:
         - podSelector:
@@ -63,7 +102,7 @@ spec:
       ports:
         - protocol: TCP
           port: 4222
-    # Push to Loki/Tempo in monitoring namespace
+    # Push to Loki/Tempo/Mimir/Prometheus in the monitoring namespace.
     - to:
         - namespaceSelector:
             matchLabels:
@@ -75,3 +114,25 @@ spec:
           port: 4317
         - protocol: TCP
           port: 4318
+        - protocol: TCP
+          port: 9090
+        - protocol: TCP
+          port: 9095
+    # External HTTPS — mothership Grafana stack reachable via Gateway,
+    # plus any third-party API (Sentry, PostHog) the SLO catalogue may
+    # reference.
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 443
+    # DNS.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

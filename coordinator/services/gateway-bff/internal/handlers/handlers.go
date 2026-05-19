@@ -28,13 +28,13 @@ import (
 // API is the wired HTTP surface. Constructed once at process boot and
 // passed to chi.Router.Mount().
 type API struct {
-	Clients      *clients.Set
-	Logger       *slog.Logger
-	APIKeyStore  APIKeyStore
-	// OnboardStore backs the /onboard/* family of routes. In Phase 0
-	// this is the in-memory MemoryOnboardStore; production wires a
-	// Redis-backed implementation via WithOnboardStore.
-	OnboardStore OnboardStore
+	Clients     *clients.Set
+	Logger      *slog.Logger
+	APIKeyStore APIKeyStore
+	// VPNGateway is the HTTP proxy to the consumer-VPN microservice.
+	// Optional — when nil the /api/v1/vpn/config-for-platform endpoint
+	// responds 503 vpn_gateway_unavailable.
+	VPNGateway *VPNGatewayProxy
 }
 
 // New constructs an API. logger defaults to slog.Default(). store
@@ -46,12 +46,7 @@ func New(c *clients.Set, store APIKeyStore, logger *slog.Logger) *API {
 	if store == nil {
 		store = NewMemoryAPIKeyStore()
 	}
-	return &API{
-		Clients:      c,
-		Logger:       logger,
-		APIKeyStore:  store,
-		OnboardStore: NewMemoryOnboardStore(),
-	}
+	return &API{Clients: c, Logger: logger, APIKeyStore: store}
 }
 
 // --- JSON helpers --------------------------------------------------------

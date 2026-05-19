@@ -1,0 +1,39 @@
+name: sdk-java-ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "sdks/java/**"
+      - ".github/workflows/sdk-java-ci.yml"
+  pull_request:
+    paths:
+      - "sdks/java/**"
+      - ".github/workflows/sdk-java-ci.yml"
+
+jobs:
+  test:
+    name: spotless + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Spotless check
+        working-directory: sdks/java
+        run: gradle spotlessCheck --no-daemon
+        continue-on-error: true
+
+      - name: Gradle build (check + test)
+        working-directory: sdks/java
+        run: gradle check --no-daemon --info
+
+      - name: Publish to local Maven repo (smoke)
+        working-directory: sdks/java
+        run: gradle publishToMavenLocal --no-daemon -Psigning.skip=true

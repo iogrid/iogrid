@@ -1,2 +1,5 @@
 packages:
   - "web"
+  - "marketing"
+  - "docs-site"
+  - "sdks/typescript"

@@ -1,0 +1,137 @@
+---
+title: Python SDK
+description: The official iogrid SDK for Python 3.9+.
+sidebar:
+  label: Python
+  order: 2
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+`iogrid` on PyPI is the official Python SDK. Sync + async clients, typed
+models (Pydantic v2), works on Python 3.9+.
+
+- **PyPI:** [`iogrid`](https://pypi.org/project/iogrid/)
+- **Source:** [`github.com/iogrid/iogrid/tree/main/sdks/python`](https://github.com/iogrid/iogrid/tree/main/sdks/python)
+
+## Install
+
+<Tabs>
+  <TabItem label="pip">
+
+```bash
+pip install iogrid
+```
+
+  </TabItem>
+  <TabItem label="uv">
+
+```bash
+uv add iogrid
+```
+
+  </TabItem>
+  <TabItem label="poetry">
+
+```bash
+poetry add iogrid
+```
+
+  </TabItem>
+</Tabs>
+
+## Example 1: a residential proxy session
+
+```python
+import os
+from iogrid import IogridClient
+
+client = IogridClient(api_key=os.environ["IOGRID_API_KEY"])
+
+session = client.proxy.sessions.create(
+    geo={"country": "DE"},
+    stickiness_seconds=1800,
+)
+
+print(f"proxy.iogrid.org:443 user={session.username} pass={session.password}")
+```
+
+## Example 2: submit a Docker workload and stream logs
+
+```python
+import os, sys
+from iogrid import IogridClient
+
+client = IogridClient(api_key=os.environ["IOGRID_API_KEY"])
+
+job = client.workloads.create(
+    type="docker",
+    image="ghcr.io/myorg/etl:v1.4.2",
+    command=["python", "-m", "etl"],
+    resources={"cpu": 4, "memory_gb": 8, "time_limit_seconds": 1800},
+    category="batch",
+)
+
+for line in client.workloads.stream_logs(job.id):
+    sys.stdout.write(line)
+
+result = client.workloads.wait(job.id)
+print(f"exited with code {result.exit_code}")
+```
+
+## Example 3: async client + iOS build
+
+```python
+import asyncio, os
+from iogrid import AsyncIogridClient
+
+async def main():
+    async with AsyncIogridClient(api_key=os.environ["IOGRID_API_KEY"]) as client:
+        build = await client.workloads.create(
+            type="ios-build",
+            git_url="https://github.com/myorg/myapp",
+            git_ref="main",
+            xcode_version="16.2",
+            build_command="xcodebuild -scheme MyApp archive",
+            artifacts=["build/MyApp.xcarchive"],
+            time_limit_seconds=1800,
+        )
+        finished = await client.workloads.wait(build.id)
+        if finished.status == "succeeded":
+            for art in finished.artifacts:
+                print(f"download {art.name}: {art.download_url}")
+
+asyncio.run(main())
+```
+
+## Configuration
+
+```python
+client = IogridClient(
+    api_key=os.environ["IOGRID_API_KEY"],
+    base_url="https://sandbox.api.iogrid.org/v1",  # optional
+    timeout=30.0,                                   # seconds
+    max_retries=5,
+    user_agent="myapp/1.2.3",
+)
+```
+
+## Error handling
+
+```python
+from iogrid import IogridError
+
+try:
+    client.workloads.create(...)
+except IogridError as e:
+    if e.code == "RATE_LIMITED":
+        print(f"retry after {e.details['retry_after_seconds']}s")
+    else:
+        raise
+```
+
+## Where next
+
+- [API overview](/api/overview/)
+- [API reference](/api/reference/)
+- [Customer quickstart](/getting-started/quickstart/)

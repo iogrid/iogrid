@@ -1,0 +1,140 @@
+---
+title: $GRID tokenomics
+description: $GRID is a utility token for provider earnings and network alignment. No price promises.
+sidebar:
+  label: $GRID
+  order: 5
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+<Aside type="caution" title="Utility-first, no price promises">
+  $GRID is a **utility token** designed for provider earnings and long-term
+  network alignment. **Nothing on this page is a price prediction, financial
+  advice, or an offer to sell securities.** Whether $GRID has any market value
+  at any moment depends entirely on supply, demand, and circumstances that
+  iogrid cannot and does not promise to control. See the
+  [legal disclaimer](#legal-disclaimer) below before reading further.
+</Aside>
+
+This page summarizes $GRID's design. The full spec lives in
+[`docs/TOKENOMICS.md`](https://github.com/iogrid/iogrid/blob/main/docs/TOKENOMICS.md).
+
+## Headline parameters
+
+| Parameter | Value | Rationale |
+|---|---|---|
+| Symbol | `$GRID` | Short, memorable |
+| Network | Solana (SPL token) | Sub-second finality, ~$0.0005 per tx, no per-action gas surprises |
+| Initial supply | 1,000,000,000 (1B) | Standard for SPL ecosystem |
+| Decimals | 9 | Solana SPL standard |
+| Emission curve | Halving every 2 years | Bitcoin-style scarcity |
+| Year-1 emission | 50M (5% of supply) | Bootstrap providers + ecosystem |
+| Year-10 cumulative | ~485M emitted (~48.5%) | Provider reward pool effectively exhausted |
+| Burn rate target | ≥ 2% of monthly revenue → market-buy → burn | Continuously reduces circulating supply |
+| Treasury custody | 3-of-5 Squads multisig | Programmatic governance |
+
+## Allocation
+
+```
+50% — Provider rewards     500M    Vested linear over 10 years (halving baked in)
+15% — Team                 150M    4-year vest, 1-year cliff
+10% — Treasury/Governance  100M    Multisig; legal, audits, infra, grants
+10% — Strategic investors  100M    12-month cliff + 24-month vest
+10% — Community/ecosystem  100M    Airdrops, bug bounties, integration grants
+ 5% — Initial DEX liquidity 50M    Raydium / Jupiter, paired with USDC
+```
+
+Distribution proportions are configurable up to mainnet launch; locked at TGE.
+
+## Deflationary mechanism — three layers
+
+### Layer 1 — Buyback-and-burn from customer revenue
+
+- Customers pay in USD (Stripe), USDC (on-chain), or $GRID directly.
+- A daily automated process converts **2% of all revenue** to $GRID via
+  Jupiter swap, then sends to the well-known Solana burn address.
+- Burns are public, on-chain, verifiable at `burn.iogrid.org`.
+
+### Layer 2 — Emission halving (every 24 months)
+
+| Year | Provider emission rate |
+|---|---|
+| 0–2 | 50M / year |
+| 2–4 | 25M / year |
+| 4–6 | 12.5M / year |
+| 6–8 | 6.25M / year |
+| 8–10 | 3.125M / year |
+| 10+ | 0 new emissions; only burns reduce supply |
+
+Hard-coded into the SPL emission program; no governance override.
+
+### Layer 3 — Mandatory provider-earnings lockup
+
+**Every $GRID earned by a provider is auto-locked the moment it's
+distributed.** Providers cannot sell freshly earned tokens.
+
+Base schedule applied to ALL earned $GRID:
+
+| Time since earned | % unlocked |
+|---|---|
+| Day 0 – 30 | 0% (cliff) |
+| Day 30 – 90 | Linear vest 0% → 100% |
+| Day 90+ | 100% unlocked |
+
+Rolling per payout — every weekly distribution starts its own 30/90-day clock.
+
+### Why it works
+
+1. **Stops day-1 dump.** Without lockup, every provider would convert
+   $GRID → USDC on receipt. With lockup, ~33% of any month's earnings are
+   sellable at any moment.
+2. **Compounds with deflation.** Locked tokens count toward "circulating
+   supply removed".
+3. **Skin in the game.** Providers care about $GRID price even after they
+   stop providing.
+
+### Optional bonus lockup tiers
+
+Providers can elect a **longer** lockup at signup for a rewards multiplier:
+
+| Lockup tier | Cliff + vest schedule | Multiplier |
+|---|---|---|
+| **Standard** (default) | 30-day cliff + 60-day vest | 1.0× |
+| **Loyalty** | 90-day cliff + 180-day vest | 1.25× |
+| **Conviction** | 180-day cliff + 365-day vest | 1.5× |
+| **Maximum** | 365-day cliff + 730-day vest | 2.0× |
+
+Tier can be upgraded any time, never downgraded.
+
+### Early-unlock escape hatch
+
+A provider in genuine financial need can early-unlock locked $GRID — with a
+**50% penalty**, which is burned (strengthens deflation). One per provider
+per 12 months (anti-gaming).
+
+## What $GRID is **not**
+
+- **Not a security** — utility token only. No claim on iogrid revenue, no
+  voting rights over corporate decisions, no equity equivalence.
+- **Not a stablecoin** — value is market-determined, no peg.
+- **Not a payment processor replacement** — customers can pay in fiat
+  (Stripe) or USDC; $GRID is one option among three.
+- **Not a price prediction tool** — see disclaimer below.
+
+## Legal disclaimer
+
+The information on this page is for general informational purposes only and
+does not constitute financial, investment, legal, or tax advice. Cryptocurrency
+markets are highly volatile and risky. Past performance is no indication of
+future results. iogrid makes no warranty that $GRID will have any specific
+market value at any time. If you are considering acquiring $GRID, you should
+do your own research and, where appropriate, consult a qualified professional.
+
+Some jurisdictions restrict or prohibit token transactions; you are responsible
+for compliance with the laws applicable to you.
+
+## Where next
+
+- [Provider payouts](/billing/payouts/) — how to opt into $GRID payouts
+- [Full whitepaper](https://github.com/iogrid/iogrid/blob/main/docs/TOKENOMICS.md)

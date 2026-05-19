@@ -1,0 +1,169 @@
+---
+title: Provider quickstart
+description: Install the iogrid daemon, pick a payout, watch every byte that flows.
+sidebar:
+  label: Quickstart (providers)
+  order: 2
+---
+
+import { Tabs, TabItem, Steps, Aside, Card, CardGrid } from '@astrojs/starlight/components';
+
+This page gets the iogrid daemon running on your device in about five minutes.
+You'll need a few prerequisites:
+
+- A device that's online most of the day (home desktop, idle server, Mac Mini, Apple Silicon laptop)
+- Admin (sudo / Run-as-Administrator) on first install — the daemon installs a system service
+- A free iogrid account ([signup at iogrid.org](https://iogrid.org/signup)) so we can pay you
+
+<Aside type="caution" title="What you're agreeing to">
+  By becoming a provider you're sharing **idle** bandwidth and compute with
+  paying customers. You can cap how much (default 50 GB/month bandwidth + 25%
+  CPU), block destinations and categories, and shut everything off with one
+  command. We show you every byte. See [Transparency](/concepts/transparency/)
+  for the full picture.
+</Aside>
+
+## 1. Install the daemon
+
+<Tabs>
+  <TabItem label="macOS (Apple Silicon)">
+
+```bash
+curl -fsSL https://install.iogrid.org | bash
+```
+
+The script downloads the signed universal binary, installs it as a
+`launchd` agent in user scope, and opens the local control UI at
+[http://localhost:7777](http://localhost:7777).
+
+  </TabItem>
+  <TabItem label="macOS (Intel)">
+
+```bash
+curl -fsSL https://install.iogrid.org | bash
+```
+
+Same one-liner — the installer detects the architecture.
+Bandwidth + Docker + iOS-build (Tart Intel mode) enabled; GPU disabled
+(MLX requires Apple Silicon).
+
+  </TabItem>
+  <TabItem label="Linux">
+
+```bash
+curl -fsSL https://install.iogrid.org | sudo bash
+```
+
+Installs as a systemd unit (`iogridd.service`). On Debian / Ubuntu / Fedora /
+Arch the package manager-native paths are used. NVIDIA GPUs are detected
+automatically and the CUDA workload toggle becomes available.
+
+  </TabItem>
+  <TabItem label="Windows">
+
+```powershell
+iwr https://install.iogrid.org/install.ps1 -UseBasicParsing | iex
+```
+
+PowerShell as Administrator. The daemon registers as a Windows service.
+Docker Desktop or WSL2 backend required for the compute workloads.
+
+  </TabItem>
+</Tabs>
+
+The installer is open source: see
+[install/install.sh](https://github.com/iogrid/iogrid/blob/main/infra/install/install.sh).
+Verify the checksums before piping to `bash` if you're security-paranoid.
+
+## 2. Link your account
+
+The first time the daemon starts, the control UI shows a six-digit code.
+Open [link.iogrid.org](https://link.iogrid.org), sign in, paste the code, done.
+
+The link establishes a mTLS-authenticated long-lived gRPC stream from your
+daemon to the coordinator. No port forwarding required — the daemon
+**dials out**, never accepts inbound connections from the public internet.
+
+## 3. Pick a payout
+
+<CardGrid>
+  <Card title="Cash — Tier 1" icon="approve-check-circle">
+    **$0.30/GB** bandwidth, Stripe Connect payout, $10 minimum threshold,
+    1099 issued at year-end for >$600. The Honeygain-equivalent.
+  </Card>
+  <Card title="Free VPN — Tier 2" icon="seti:lock">
+    Your share pays for unlimited iogrid VPN on all your devices. Equivalent
+    to $5/month NordVPN at zero cash cost to you. Marginal cost to us: $0.20/mo.
+  </Card>
+  <Card title="$GRID token — Tier 3" icon="rocket">
+    SPL token, paid weekly, auto-locked 30/90-day vest. Optional 1.25× / 1.5× /
+    2× lockup tiers. See [tokenomics](/concepts/tokenomics/).
+  </Card>
+  <Card title="Charity — Tier 4" icon="heart">
+    Donate the cash equivalent to EFF, Tor Project, Wikipedia, Doctors Without
+    Borders — your pick. Tax receipt issued by the recipient.
+  </Card>
+</CardGrid>
+
+Switch payout tiers any time. Tier choice affects future earnings only; never
+retroactive.
+
+## 4. Watch the dashboard
+
+Open the local control UI at [http://localhost:7777](http://localhost:7777) or
+the hosted view at
+[dashboard.iogrid.org/provide](https://dashboard.iogrid.org/provide).
+
+You see, in real time:
+
+- Every destination your IP has reached in the last 24 hours, **categorized**
+  (e-commerce / SEO / ad-verify / lead-gen / AI-training-data / other)
+- Bytes by category, by customer (aggregated), by hour
+- Pre-flight blocks: anything iogrid refused to route through you
+- Per-destination one-click blocklist: "don't ever route LinkedIn through me again"
+
+<Aside type="tip" title="Set caps that make sense">
+  Default: 50 GB bandwidth/month, 25% CPU, GPU off when game-detector triggers,
+  iOS-build VMs paused when battery is below 30% on laptops. Tune in
+  **Settings → Resource caps** — the daemon respects them at the cgroup /
+  scheduler level, not advisory.
+</Aside>
+
+## 5. Earn
+
+Your accumulated earnings update every five minutes. Payouts run weekly on
+Mondays for cash and $GRID; instantly available for VPN credits and charity.
+
+Realistic monthly earnings for a typical provider (numbers are projections,
+not guarantees — see [provider economics](/concepts/providers/)):
+
+| Device profile | Bandwidth-only | All workloads |
+|---|---|---|
+| Home desktop (Linux, no GPU) | $9 | $25 |
+| Home desktop (Linux, RTX 4070) | $9 | $80 |
+| Apple Silicon Mac Mini | $9 | **$145** |
+| Idle datacenter Linux server | $30 | $200 |
+
+The Mac Mini number is where the iOS-build wedge kicks in: 4 hours/day of
+Xcode-minutes at $0.04/minute = ~$145/month with the host computer 99% idle the
+rest of the time.
+
+## What can go wrong (real talk)
+
+- **Your ISP doesn't allow servers.** Most residential ToS technically forbid
+  running servers. The daemon dials out and never opens listening ports, but
+  if your ISP runs deep-packet-inspection they may notice the WireGuard traffic
+  pattern. Worst case: a warning email. Read your ISP ToS.
+- **Your IP gets flagged.** Per-destination rate limits and IP rotation
+  minimize this; your LinkedIn / banking domains are blocklisted by default.
+  Real-time alerts fire if anything sketchy happens.
+- **You get a law-enforcement contact.** Read the
+  [legal posture](/security/anti-abuse/) page first. We cover legal fees from a
+  defense fund for any provider acting in good faith.
+
+## Where next
+
+- [Concepts: providers](/concepts/providers/) — the supply side, deep dive
+- [Concepts: transparency](/concepts/transparency/) — what you see, anti-Hola
+- [Billing: payouts](/billing/payouts/) — taxes, currencies, Stripe Connect
+- [Security: anti-abuse](/security/anti-abuse/) — exactly what we block

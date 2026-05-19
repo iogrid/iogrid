@@ -1,0 +1,153 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vpn-gateway
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: vpn-gateway
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: vpn
+  annotations:
+    # vpn-gateway is the consumer-side WireGuard aggregator. It accepts
+    # UDP :51820 from end-user devices (iOS/Android/Mac/Win/Linux) and
+    # forwards their traffic through the same provider pool the
+    # proxy-gateway uses. Free tier capped at 2GB/mo, Plus $2.99 unlimited,
+    # Pro $4.99 + ad/tracker blocking.
+    iogrid.org/data-plane: "true"
+    iogrid.org/consumer-side: "true"
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  strategy:
+    # Rolling-update needs careful coordination here: every active WG
+    # tunnel is bound to a specific pod (UDP is hashed by Cilium's
+    # eBPF DSR). We keep maxUnavailable=0 so existing tunnels are
+    # never dropped during a roll.
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vpn-gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vpn-gateway
+        app.kubernetes.io/part-of: iogrid
+        app.kubernetes.io/component: vpn
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: vpn-gateway
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: vpn-gateway
+          image: ghcr.io/iogrid/vpn-gateway:scaffold
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: wireguard
+              containerPort: 51820
+              protocol: UDP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: LOG_LEVEL
+              value: info
+            - name: SERVICE_NAME
+              value: vpn-gateway
+            - name: SERVER_ENDPOINT
+              value: vpn.iogrid.org:51820
+            # Blocklist file mounted via ConfigMap. The vpn-gateway
+            # binary refreshes it weekly from BLOCKLIST_URL (set in
+            # the secret) when one is configured.
+            - name: BLOCKLIST_FILE
+              value: /etc/vpn-gateway/blocklist/hosts.txt
+            - name: WG_LISTEN_ENABLE
+              value: "true"
+            - name: WG_LISTEN_PORT
+              value: "51820"
+            - name: DNS_ADDRESS
+              value: "10.99.0.1"
+          envFrom:
+            - configMapRef:
+                name: vpn-gateway-config
+                optional: true
+            - secretRef:
+                name: vpn-gateway-secrets
+                optional: true
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 2000m
+              memory: 1Gi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+              # NET_ADMIN required for the kernel WG netlink path.
+              # Granted in production via PodSecurity 'baseline' profile;
+              # the userspace fallback (wireguard-go) does not need it.
+              add:
+                - NET_ADMIN
+          volumeMounts:
+            - name: blocklist
+              mountPath: /etc/vpn-gateway/blocklist
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: blocklist
+          configMap:
+            name: vpn-gateway-blocklist
+            optional: true
+        - name: tmp
+          emptyDir: {}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: vpn-gateway

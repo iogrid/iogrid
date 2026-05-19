@@ -25,8 +25,11 @@ spec:
         app.kubernetes.io/part-of: iogrid
         app.kubernetes.io/component: backend
       annotations:
+        # The /metrics endpoint on the telemetry-svc container itself is
+        # scraped by the in-pod otelcol gateway via prometheus receiver
+        # auto-discovery. Annotations match the receiver's relabel_configs.
         prometheus.io/scrape: "true"
-        prometheus.io/port: "9090"
+        prometheus.io/port: "8080"
         prometheus.io/path: "/metrics"
     spec:
       serviceAccountName: telemetry-svc
@@ -39,15 +42,13 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
+        # ---------- telemetry-svc control surface ----------
         - name: telemetry-svc
           image: ghcr.io/iogrid/telemetry-svc:scaffold
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 8080
-              protocol: TCP
-            - name: metrics
-              containerPort: 9090
               protocol: TCP
           env:
             - name: POD_NAME
@@ -62,6 +63,17 @@ spec:
               value: info
             - name: SERVICE_NAME
               value: telemetry-svc
+            - name: SLO_DIR
+              value: /etc/slo
+            # The collector config is written here at boot, then mounted
+            # into the otelcol container at the same path. The shared
+            # volume is an emptyDir so both containers see the same file.
+            - name: COLLECTOR_CONFIG_PATH
+              value: /etc/otelcol/config.yaml
+            - name: COLLECTOR_GRPC_ADDR
+              value: 0.0.0.0:4317
+            - name: COLLECTOR_HTTP_ADDR
+              value: 0.0.0.0:4318
           envFrom:
             - configMapRef:
                 name: telemetry-svc-config
@@ -74,8 +86,8 @@ spec:
               cpu: 100m
               memory: 128Mi
             limits:
-              cpu: 1000m
-              memory: 512Mi
+              cpu: 500m
+              memory: 256Mi
           livenessProbe:
             httpGet:
               path: /healthz
@@ -101,9 +113,93 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: otelcol-config
+              mountPath: /etc/otelcol
+            - name: slo-catalogue
+              mountPath: /etc/slo
+              readOnly: true
+
+        # ---------- otelcol gateway (central, in-pod) ----------
+        # The collector is INSIDE the iogrid namespace as a central
+        # gateway, not as a per-pod sidecar on every service. Other
+        # iogrid services push OTLP to the telemetry-otelcol Service
+        # on :4317 / :4318 (defined in service.yaml).
+        #
+        # Co-locating it in the telemetry-svc Pod lets us share the
+        # config volume (no ConfigMap roundtrip on hot reload) and
+        # gives the otelcol container an immediate ready-config the
+        # moment telemetry-svc finishes rendering it on first boot.
+        - name: otelcol
+          image: otel/opentelemetry-collector-contrib:0.105.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - --config=/etc/otelcol/config.yaml
+          ports:
+            - name: otlp-grpc
+              containerPort: 4317
+              protocol: TCP
+            - name: otlp-http
+              containerPort: 4318
+              protocol: TCP
+            - name: otelcol-metrics
+              containerPort: 8888
+              protocol: TCP
+            - name: health-check
+              containerPort: 13133
+              protocol: TCP
+          env:
+            - name: GOMEMLIMIT
+              value: "400MiB"
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 768Mi
+          livenessProbe:
+            httpGet:
+              path: /
+              port: health-check
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /
+              port: health-check
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: otelcol-config
+              mountPath: /etc/otelcol
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+
       volumes:
         - name: tmp
           emptyDir: {}
+        # otelcol-config is shared rw between telemetry-svc (writer) and
+        # otelcol (reader). otelcol watches the file via its built-in
+        # config watcher and hot-reloads its pipelines on change.
+        - name: otelcol-config
+          emptyDir: {}
+        # The SLO catalogue is shipped as a ConfigMap so operators can
+        # iterate on objectives without rebuilding the binary. The
+        # ConfigMap is generated from coordinator/services/telemetry-svc/slo/
+        # by the Flux Kustomization (configMapGenerator below).
+        - name: slo-catalogue
+          configMap:
+            name: telemetry-svc-slo
+            optional: true
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname

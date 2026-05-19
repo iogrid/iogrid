@@ -89,6 +89,14 @@ func main() {
 	hr := health.New()
 	hr.MarkReady()
 
+	// vpn-gateway is reached via plain HTTP/JSON; we don't generate a
+	// Connect client because the surface is small and the artefact
+	// payloads are binary.
+	var vpnProxy *handlers.VPNGatewayProxy
+	if cfg.VPNGatewayURL != "" {
+		vpnProxy = handlers.NewVPNGatewayProxy(cfg.VPNGatewayURL)
+	}
+
 	deps := server.Deps{
 		Config:        cfg,
 		Clients:       clientSet,
@@ -97,6 +105,7 @@ func main() {
 		AuthedLimiter: authedLim,
 		AnonLimiter:   anonLim,
 		Logger:        logger,
+		VPNGateway:    vpnProxy,
 	}
 
 	if err := sharedserver.Run(ctx, sharedserver.Options{

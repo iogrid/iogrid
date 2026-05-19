@@ -10,6 +10,10 @@ vendor/
 bin/
 dist/
 
+# Top-level pnpm workspace artefacts (web/ + marketing/ + docs-site/)
+/node_modules/
+.pnpm-store/
+
 # IDE
 .vscode/
 .idea/
@@ -72,4 +76,35 @@ marketing/.lighthouseci/
 marketing/.vercel/
 marketing/.turbo/
 marketing/*.tsbuildinfo
+
+# Docs site (Astro / Starlight)
+docs-site/node_modules/
+docs-site/dist/
+docs-site/.astro/
+docs-site/.lighthouseci/
+docs-site/public/og-default.png
+docs-site/public/openapi.yaml
+docs-site/*.tsbuildinfo
+
+# Customer SDKs — build outputs only; sources are committed.
+sdks/typescript/node_modules/
+sdks/typescript/dist/
+sdks/typescript/coverage/
+sdks/typescript/*.tgz
+sdks/python/.venv/
+sdks/python/.hatch/
+sdks/python/.pytest_cache/
+sdks/python/.mypy_cache/
+sdks/python/.ruff_cache/
+sdks/python/dist/
+sdks/python/build/
+sdks/python/*.egg-info/
+sdks/python/**/__pycache__/
+sdks/go/vendor/
+sdks/java/.gradle/
+sdks/java/build/
+sdks/java/out/
+
+# pnpm hoists workspace deps to the repo root.
+/node_modules/
 

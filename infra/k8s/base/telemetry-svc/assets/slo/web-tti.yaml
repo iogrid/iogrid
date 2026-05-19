@@ -1,0 +1,26 @@
+# Web management plane TTI: p95 < 2s
+#
+# Per docs/TECH.md SLO commitment. TTI (Time-To-Interactive) is reported
+# by the Next.js app via /api/rum (real user monitoring) endpoint.
+# Cold-cache TTI < 2s, warm-cache < 500ms; this SLI tracks cold-cache.
+#
+# Note: this SLO depends on a synthetic check or RUM beacon — pure
+# server-side metrics can't observe TTI. The collector receives the
+# beacon via OTLP/HTTP from the browser.
+service: web
+name: tti
+description: |
+  Next.js management-plane Time-To-Interactive p95 under 2 seconds
+  on cold cache. Source: browser RUM beacons posted to /api/rum.
+objective: 99
+time_window: 30d
+sli:
+  good: |
+    sum(rate(web_tti_seconds_bucket{le="2",cache="cold"}[5m]))
+  total: sum(rate(web_tti_seconds_count{cache="cold"}[5m]))
+labels:
+  team: web
+  tier: web
+annotations:
+  summary: web TTI cold-cache budget
+  user_impact: Operators see slow dashboard load on first visit.

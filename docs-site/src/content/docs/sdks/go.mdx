@@ -1,0 +1,148 @@
+---
+title: Go SDK
+description: The official iogrid-go SDK with Connect-Go gRPC + REST clients.
+sidebar:
+  label: Go
+  order: 3
+---
+
+The Go SDK ships two transports against the same proto schema:
+
+- **REST client** (`iogrid.RESTClient`) — JSON, talks to `api.iogrid.org/v1/...`
+- **Connect-Go client** (`iogrid.ConnectClient`) — gRPC-on-HTTP/2, lower latency,
+  better for streaming workloads
+
+- **Source:** [`github.com/iogrid/iogrid/tree/main/sdks/go`](https://github.com/iogrid/iogrid/tree/main/sdks/go)
+- **Module:** `github.com/iogrid/iogrid-go`
+
+## Install
+
+```bash
+go get github.com/iogrid/iogrid-go@latest
+```
+
+Requires Go 1.22+.
+
+## Example 1: residential proxy session (REST)
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+
+	"github.com/iogrid/iogrid-go"
+)
+
+func main() {
+	client, err := iogrid.NewRESTClient(os.Getenv("IOGRID_API_KEY"))
+	if err != nil { panic(err) }
+	ctx := context.Background()
+
+	session, err := client.Proxy.Sessions.Create(ctx, &iogrid.ProxySessionCreate{
+		Geo:               &iogrid.Geo{Country: "DE"},
+		StickinessSeconds: 1800,
+	})
+	if err != nil { panic(err) }
+
+	fmt.Printf("proxy.iogrid.org:443 user=%s pass=%s\n",
+		session.Username, session.Password)
+}
+```
+
+## Example 2: Docker workload with log streaming (Connect-Go)
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"os"
+
+	"github.com/iogrid/iogrid-go"
+)
+
+func main() {
+	client, _ := iogrid.NewConnectClient(os.Getenv("IOGRID_API_KEY"))
+	ctx := context.Background()
+
+	job, err := client.Workloads.Create(ctx, &iogrid.WorkloadCreate{
+		Type:    "docker",
+		Image:   "ghcr.io/myorg/etl:v1.4.2",
+		Command: []string{"python", "-m", "etl"},
+		Resources: &iogrid.Resources{
+			CPU:              4,
+			MemoryGB:         8,
+			TimeLimitSeconds: 1800,
+		},
+		Category: "batch",
+	})
+	if err != nil { panic(err) }
+
+	stream, err := client.Workloads.StreamLogs(ctx, job.ID)
+	if err != nil { panic(err) }
+	for {
+		line, err := stream.Recv()
+		if err == io.EOF { break }
+		if err != nil { panic(err) }
+		fmt.Print(line.Text)
+	}
+
+	result, _ := client.Workloads.Wait(ctx, job.ID)
+	fmt.Printf("exited with code %d\n", result.ExitCode)
+}
+```
+
+## Example 3: iOS build
+
+```go
+build, err := client.Workloads.Create(ctx, &iogrid.WorkloadCreate{
+	Type:         "ios-build",
+	GitURL:       "https://github.com/myorg/myapp",
+	GitRef:       "main",
+	XcodeVersion: "16.2",
+	BuildCommand: "xcodebuild -scheme MyApp archive",
+	Artifacts:    []string{"build/MyApp.xcarchive"},
+})
+finished, _ := client.Workloads.Wait(ctx, build.ID)
+for _, a := range finished.Artifacts {
+	fmt.Printf("download %s: %s\n", a.Name, a.DownloadURL)
+}
+```
+
+## Configuration
+
+```go
+client, _ := iogrid.NewRESTClient(
+	apiKey,
+	iogrid.WithBaseURL("https://sandbox.api.iogrid.org/v1"),
+	iogrid.WithTimeout(30*time.Second),
+	iogrid.WithMaxRetries(5),
+	iogrid.WithUserAgent("myapp/1.2.3"),
+)
+```
+
+## Error handling
+
+```go
+job, err := client.Workloads.Create(ctx, &iogrid.WorkloadCreate{...})
+if err != nil {
+	var apiErr *iogrid.APIError
+	if errors.As(err, &apiErr) && apiErr.Code == "RATE_LIMITED" {
+		time.Sleep(time.Duration(apiErr.RetryAfterSeconds) * time.Second)
+		// retry
+	} else {
+		return err
+	}
+}
+```
+
+## Where next
+
+- [API overview](/api/overview/)
+- [API reference](/api/reference/)
+- [Customer quickstart](/getting-started/quickstart/)

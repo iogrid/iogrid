@@ -1,0 +1,21 @@
+# Spectral ruleset for the iogrid customer OpenAPI spec.
+# Run with: spectral lint proto/gen/openapi/iogrid.yaml --ruleset proto/gen/openapi/.spectral.yaml
+extends:
+  - spectral:oas
+rules:
+  # We do not advertise a server-side default operationId scheme; require
+  # explicit ids so the SDK generator names methods predictably.
+  operation-operationId: error
+  operation-operationId-unique: error
+  # Customer-facing — keep summaries crisp.
+  operation-tag-defined: error
+  operation-tags: error
+  # The proto-side description for some envelope types is intentionally
+  # short; Spectral's noise about missing operation `description` is OK
+  # if `summary` is present.
+  operation-description: off
+  # Examples are documented separately in the SDK READMEs.
+  oas3-valid-media-example: off
+  # The OpenAPI 3.1 nullable model differs; turn off the 3.0 lint.
+  oas2-anyOf: off
+  oas2-oneOf: off

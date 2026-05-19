@@ -1,0 +1,116 @@
+---
+title: Privacy Policy
+description: How iogrid handles personal data — for customers, providers, and end users.
+sidebar:
+  label: Privacy Policy
+  order: 3
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+<Aside type="caution" title="This is a summary, not the contract">
+  The canonical Privacy Policy lives at
+  [iogrid.org/legal/privacy](https://iogrid.org/legal/privacy). That version
+  controls in case of any conflict.
+</Aside>
+
+## Three audiences, three relationships
+
+iogrid is processing data on behalf of three distinct groups:
+
+- **Customers** — companies using iogrid's API to do work
+- **Providers** — individuals sharing their device's idle capacity
+- **End users** — your customers, who may interact with your services that
+  run on iogrid
+
+This Privacy Policy describes our practices for all three.
+
+## What we collect — customers
+
+- Account info: email, name, billing address, payment method (Stripe-tokenized)
+- API usage telemetry: request counts, workload submissions, billable units
+- Workload metadata: image refs, run specs, secrets (KMS-encrypted)
+- Support communications
+
+## What we collect — providers
+
+- Account info: email, country, payout currency, Stripe Connect ID
+- Device telemetry: CPU/RAM utilization, uptime, OS version, GPU model
+- Bandwidth + workload metadata: destination categories, byte counts (audit log)
+- $GRID wallet address if Tier 3 payout chosen
+
+## What we collect — end users
+
+We **do not** collect identifying data about your customers via the
+bandwidth workload. Customer HTTPS traffic is end-to-end encrypted; iogrid
+sees only the **destination** and the encrypted byte stream, not the content.
+
+For Docker / GPU workloads, end-user data is whatever your container handles
+— iogrid is a processor, not a controller, of that data.
+
+## Legal bases (GDPR)
+
+| Purpose | Lawful basis |
+|---|---|
+| Service provision | Contract (Art. 6(1)(b)) |
+| Billing | Contract |
+| Anti-abuse | Legitimate interest (Art. 6(1)(f)) |
+| Marketing emails (opt-in only) | Consent (Art. 6(1)(a)) |
+| Law-enforcement cooperation | Legal obligation (Art. 6(1)(c)) |
+
+## Data retention
+
+| Data | Retention |
+|---|---|
+| Customer account info | While account active + 30 days after closure |
+| Billing data | 7 years (regulatory) |
+| API usage logs | 90 days |
+| Workload images / specs | 30 days post-completion |
+| Workload secrets | Until customer deletes |
+| Provider audit log | 90 days |
+| Provider account info | While account active + 30 days |
+
+## Your rights
+
+You can:
+
+- **Access** your data
+- **Correct** inaccurate data
+- **Delete** your account and data (subject to billing-record retention)
+- **Export** your data in machine-readable form
+- **Object** to specific processing
+- **Lodge a complaint** with your data protection authority
+
+Email [privacy@iogrid.org](mailto:privacy@iogrid.org) to exercise any of
+these. We respond within 30 days (sooner if straightforward).
+
+## Subprocessors
+
+See [security/privacy#subprocessors](/security/privacy/#subprocessors).
+Full DPA available on request from
+[privacy@iogrid.org](mailto:privacy@iogrid.org).
+
+## International transfers
+
+iogrid is based in the EU. Customers worldwide may use the service. Data
+transferred outside the EEA flows under SCCs (Standard Contractual Clauses)
+where applicable.
+
+## Cookies
+
+The marketing site uses essential cookies only. The dashboard uses session
+cookies (httpOnly, secure, SameSite=Lax) plus optional analytics cookies
+(opt-in via consent banner). No third-party advertising or cross-site
+tracking cookies.
+
+## Where to read the real document
+
+- HTML: [iogrid.org/legal/privacy](https://iogrid.org/legal/privacy)
+- PDF: [iogrid.org/legal/privacy.pdf](https://iogrid.org/legal/privacy.pdf)
+- Subprocessors: [iogrid.org/legal/subprocessors](https://iogrid.org/legal/subprocessors)
+
+## Where next
+
+- [Terms of Service](/legal/tos/)
+- [Acceptable Use Policy](/legal/aup/)
+- [Security: privacy posture](/security/privacy/)

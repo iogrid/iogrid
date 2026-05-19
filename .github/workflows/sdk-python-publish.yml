@@ -1,0 +1,44 @@
+name: sdk-python-publish
+
+# Phase 2: PyPI publish is wired but commented out until the first
+# release. Triggering today is a build + dry-run check.
+
+on:
+  push:
+    tags:
+      - "sdk-python/v*"
+  workflow_dispatch:
+
+jobs:
+  publish:
+    name: build + publish (dry-run until Phase 2)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # PyPI Trusted Publishing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install hatch
+        run: pip install hatch==1.13.0
+
+      - name: Run tests
+        working-directory: sdks/python
+        run: hatch run test
+
+      - name: Build wheel + sdist
+        working-directory: sdks/python
+        run: hatch build
+
+      - name: Inspect artifacts
+        working-directory: sdks/python
+        run: ls -la dist/
+
+      # PHASE 2 — uncomment to publish to PyPI via Trusted Publishing.
+      # - name: Publish to PyPI
+      #   uses: pypa/gh-action-pypi-publish@release/v1
+      #   with:
+      #     packages-dir: sdks/python/dist/

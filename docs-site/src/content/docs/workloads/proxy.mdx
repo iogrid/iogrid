@@ -1,0 +1,210 @@
+---
+title: Bandwidth proxy workload
+description: Residential proxy sessions — geo targeting, session stickiness, billing, code samples.
+sidebar:
+  label: Bandwidth proxy
+  order: 1
+---
+
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+The bandwidth workload exposes residential IPs from iogrid's provider mesh as
+SOCKS5 / HTTP CONNECT endpoints. The customer-perceived shape is a standard
+proxy; the difference from incumbents is the **transparency + pricing**.
+
+## Pricing
+
+| Plan | Per GB | Min commit | Sticky session length |
+|---|---|---|---|
+| Free | $0.60 | $0 (free $5 credit) | 5 min |
+| Pro | $0.45 | $50/month | 30 min |
+| Business | $0.35 | $500/month | 60 min |
+| Enterprise | $0.30 | custom | unlimited |
+
+10× to 30× cheaper than enterprise residential proxy incumbents at the same
+geo coverage. The price difference comes from non-cash provider payouts (free
+VPN tier provides 98% margin).
+
+## Concepts
+
+### Session
+
+A **session** is a routing intent: "I want a sticky proxy in Germany for the
+next 30 minutes". Sessions get a unique `username` / `password` pair you use
+as the SOCKS5 credentials. Every connection that authenticates with the same
+session credentials gets routed through the same provider for the session
+lifetime.
+
+### Stickiness
+
+Default 30 minutes (Pro+); sessions get reassigned to a new provider on
+expiry. Lower stickiness (5 s) for ad-verify and price-aggregation workloads
+where IP rotation matters. Higher stickiness (60 min) for shopping-cart and
+login-required workflows.
+
+### Geo targeting
+
+Currently country-level. Region / city / ASN targeting in Phase 2. Specify
+with ISO 3166-1 alpha-2:
+
+```json
+{ "geo": { "country": "DE" } }
+{ "geo": { "country": "US" } }
+{ "geo": { "country": "BR" } }
+```
+
+If you don't care about geo, omit the field — the scheduler picks any geo
+with quality score weighting.
+
+### Categories (anti-abuse)
+
+Every session carries a declared workload category. The scheduler matches
+sessions to providers who have opted into that category. Common categories:
+
+- `ecommerce-monitor` — price tracking on public storefronts
+- `seo-serp` — search engine result page scraping
+- `ad-verify` — verifying ad placement / brand-safety
+- `travel-aggregate` — flight, hotel, car-rental price aggregation
+- `lead-gen` — public business contact info
+- `ai-training-data` — public-web crawling
+- `social-intel` — social media platform scraping (opt-in providers only)
+- `other` — generic; lowest opt-in count
+
+The category is also surfaced on the provider audit dashboard, byte by byte.
+
+## API: create a session
+
+```bash
+curl -X POST https://api.iogrid.org/v1/proxy/sessions \
+  -H "Authorization: Bearer sk_live_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "geo": { "country": "DE" },
+    "stickiness_seconds": 1800,
+    "category": "ecommerce-monitor"
+  }'
+```
+
+Response:
+
+```json
+{
+  "session_id": "ses_01HXY...",
+  "endpoint": "proxy.iogrid.org:443",
+  "protocol": "socks5+tls",
+  "username": "ses_01HXY",
+  "password": "ses_pw_8aBc...",
+  "expires_at": "2026-05-19T12:00:00Z",
+  "metered_usage_gb": 0
+}
+```
+
+## Using the session
+
+<Tabs>
+  <TabItem label="curl">
+
+```bash
+curl --proxy socks5://ses_01HXY:ses_pw_8aBc@proxy.iogrid.org:443 \
+     https://www.example.com/
+```
+
+  </TabItem>
+  <TabItem label="Python (requests)">
+
+```python
+import requests
+
+proxies = {
+    "http":  "socks5://ses_01HXY:ses_pw_8aBc@proxy.iogrid.org:443",
+    "https": "socks5://ses_01HXY:ses_pw_8aBc@proxy.iogrid.org:443",
+}
+r = requests.get("https://www.example.com/", proxies=proxies)
+```
+
+  </TabItem>
+  <TabItem label="Node (undici)">
+
+```ts
+import { fetch, ProxyAgent } from "undici";
+
+const dispatcher = new ProxyAgent({
+  uri: "socks5://ses_01HXY:ses_pw_8aBc@proxy.iogrid.org:443",
+});
+const r = await fetch("https://www.example.com/", { dispatcher });
+```
+
+  </TabItem>
+  <TabItem label="Go">
+
+```go
+import "golang.org/x/net/proxy"
+
+dialer, _ := proxy.SOCKS5("tcp", "proxy.iogrid.org:443",
+  &proxy.Auth{User: "ses_01HXY", Password: "ses_pw_8aBc"}, proxy.Direct)
+httpClient := &http.Client{Transport: &http.Transport{Dial: dialer.Dial}}
+```
+
+  </TabItem>
+</Tabs>
+
+## Pre-flight filters (your traffic, with safety rails)
+
+Every request is filtered before iogrid forwards it. You'll see the filter
+decision in the dashboard and on the response headers:
+
+```
+X-Iogrid-Filter-Decision:  passed
+X-Iogrid-Filter-Decision:  blocked  category=csam-suspect
+X-Iogrid-Filter-Decision:  rate-limited  retry-after=3
+```
+
+Blocked destinations:
+
+- CSAM hash matches (NCMEC + INTERPOL)
+- PhishTank / OpenPhish hits
+- `.gov`, `.mil`
+- SMTP (25, 465, 587), IRC (6667, 6697), Tor exit ports (9001, 9030)
+
+See [security: anti-abuse](/security/anti-abuse/) for the full list.
+
+## Metering & billing
+
+Bytes are metered at the coordinator (out + in). A session's `metered_usage_gb`
+updates roughly every 60 seconds. Billing runs daily; invoice issued monthly.
+
+Get a session's current usage:
+
+```bash
+GET /v1/proxy/sessions/{session_id}
+```
+
+```json
+{
+  "session_id": "ses_01HXY...",
+  "status": "active",
+  "metered_usage_gb": 0.42,
+  "cost_usd": 0.19,
+  "expires_at": "2026-05-19T12:00:00Z"
+}
+```
+
+## Limits
+
+- Per-session bandwidth cap: configurable, default 100 GB
+- Per-session lifetime: max 24 h regardless of stickiness setting
+- Concurrent sessions per account: plan-dependent (see [rate limits](/api/rate-limits/))
+- Per-destination domain per-account: 10,000 RPS aggregate
+
+<Aside type="caution" title="Hot destinations are special">
+  Per-provider per-destination cap of 10 RPS for LinkedIn, Facebook, Twitter,
+  Google. If you push high volume at a hot destination, the scheduler rotates
+  through more providers — your total RPS is preserved, but your effective IP
+  count goes up.
+</Aside>
+
+## Where next
+
+- [Concepts: transparency](/concepts/transparency/)
+- [Security: anti-abuse](/security/anti-abuse/)
+- [API: errors](/api/errors/)

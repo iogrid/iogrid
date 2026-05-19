@@ -96,6 +96,7 @@ jobs:
           - gateway-bff
           - proxy-gateway
           - build-gateway
+          - vpn-gateway
     steps:
       - uses: actions/checkout@v4
 

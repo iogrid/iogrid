@@ -1,0 +1,33 @@
+---
+# Telemetry-svc runtime config. Values referenced via envFrom in the
+# Deployment so a kubectl edit on this ConfigMap re-rolls the Pods on
+# the next reconcile (annotation-based rollout via Flux's
+# configMap-resource-version trick).
+#
+# MIMIR_URL / LOKI_URL / TEMPO_URL are populated by the staging / prod
+# overlays so a missing-env in dev produces an exporter-DISABLED
+# config (see internal/collector for the conditional emit logic).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: telemetry-svc-config
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: telemetry-svc
+    app.kubernetes.io/part-of: iogrid
+data:
+  CLUSTER_ID: iogrid-prod
+  REGION: eu-central-1
+  BASELINE_SAMPLING_PERCENT: "1"
+  SLOW_TRACE_THRESHOLD_MS: "500"
+  MEMORY_LIMIT_MIB: "400"
+  BATCH_TIMEOUT: "5s"
+  BATCH_MAX_SIZE: "8192"
+  PROM_SCRAPE_NAMESPACES: iogrid
+  # Mothership endpoint defaults — overridden per environment.
+  MIMIR_URL: ""
+  MIMIR_TENANT: iogrid
+  LOKI_URL: ""
+  LOKI_TENANT: iogrid
+  TEMPO_URL: ""
+  TEMPO_TENANT: iogrid

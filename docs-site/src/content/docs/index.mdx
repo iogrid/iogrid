@@ -1,0 +1,102 @@
+---
+title: iogrid — the open mesh for compute
+description: >-
+  iogrid is a transparent mesh network for bandwidth, Docker, GPU, and iOS-build
+  workloads. Providers share idle capacity and see every byte categorized in
+  real time. Customers buy at 30–60% below market.
+template: splash
+hero:
+  tagline: >-
+    Bandwidth, compute, GPU, and iOS-build CI — bought from a global mesh of
+    consenting home devices. Live audit dashboard for every provider. No Hola
+    redux.
+  image:
+    file: ../../assets/logo.svg
+  actions:
+    - text: Customer quickstart (5 min)
+      link: /getting-started/quickstart/
+      icon: right-arrow
+      variant: primary
+    - text: Become a provider
+      link: /getting-started/provider-quickstart/
+      icon: external
+      variant: secondary
+    - text: View on GitHub
+      link: https://github.com/iogrid/iogrid
+      icon: github
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+## Four workloads, one daemon
+
+iogrid is a single horizontally-integrated mesh. The same provider daemon, the
+same coordinator, the same auth and billing, the same transparency layer — what
+varies is the workload module.
+
+<CardGrid stagger>
+  <Card title="Bandwidth proxy" icon="seti:rss">
+    Residential proxy at **$0.30–0.60/GB**, 10–30× under enterprise pricing.
+    Geo-targeted, session-sticky, fully metered.
+  </Card>
+  <Card title="Docker compute" icon="seti:docker">
+    Containers on idle home Linux + Mac providers. **$0.02–0.10/CPU-hour**
+    with cgroup isolation and approved-registry-only image policy.
+  </Card>
+  <Card title="GPU / AI inference" icon="seti:cuda">
+    NVIDIA on Linux, **MLX on Apple Silicon**. Per-VRAM scheduling.
+    **$0.20–2.00/GPU-hour** depending on GPU class.
+  </Card>
+  <Card title="iOS build CI" icon="seti:apple">
+    The wedge. **$0.04/Xcode-minute — 50% under GitHub Actions.** Ephemeral
+    Tart VMs on real Macs. No 24-hour lease minimum like EC2 Mac.
+  </Card>
+</CardGrid>
+
+## Why iogrid, not Bright Data / Honeygain / Salad
+
+| | iogrid | Residential-proxy incumbents | Compute marketplaces |
+|---|---|---|---|
+| Workload mix | Bandwidth · Docker · GPU · iOS-build | Bandwidth only | Compute only |
+| Provider sees what flows | **Live category labels, per-byte audit** | Opaque ToS | Limited dashboard |
+| Provider payout | Cash · free VPN · $GRID · charity | Cash only | Cash or crypto |
+| Customer pricing | $0.30/GB · $0.04/Xcode-min | $5–15/GB | n/a |
+| Brand legacy | Built post-Hola, transparency-first | Hola scandal in lineage | Gamer-GPU niche |
+
+The full master comparison lives in
+[Competitive landscape](/concepts/overview/#competitive-landscape).
+
+## Status
+
+- **Phase 0:** infrastructure + scaffolding — _in progress_
+- **Phase 1:** closed beta with 100 providers — _Q3 2026 target_
+- **Phase 2:** open onboarding + $GRID launch — _Q1 2027 target_
+
+The roadmap is public:
+[github.com/iogrid/iogrid/blob/main/docs/ROADMAP.md](https://github.com/iogrid/iogrid/blob/main/docs/ROADMAP.md).
+
+## Get started in 5 minutes
+
+<CardGrid>
+  <LinkCard
+    title="I'm a customer"
+    description="Spin up an API key, pull a proxy session, run your first iOS build."
+    href="/getting-started/quickstart/"
+  />
+  <LinkCard
+    title="I'm a provider"
+    description="One command. Pick a payout. Watch every byte that flows through your IP."
+    href="/getting-started/provider-quickstart/"
+  />
+  <LinkCard
+    title="I'm an integrator"
+    description="REST + gRPC, four official SDKs, OpenAPI spec, sandbox keys."
+    href="/api/overview/"
+  />
+  <LinkCard
+    title="I'm doing diligence"
+    description="Architecture, security model, $GRID tokenomics, legal posture."
+    href="/concepts/overview/"
+  />
+</CardGrid>

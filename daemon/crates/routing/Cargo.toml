@@ -27,3 +27,5 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 serde = { workspace = true }
 bytes = { workspace = true }
+iogrid-anti-abuse = { workspace = true }
+iogrid-scheduler = { workspace = true }

@@ -7,6 +7,7 @@ toolchain go1.23.4
 require (
 	github.com/go-chi/chi/v5 v5.1.0
 	github.com/iogrid/iogrid/coordinator/shared v0.0.0-00010101000000-000000000000
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (

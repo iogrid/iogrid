@@ -1,0 +1,46 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: antiabuse-svc
+  labels: { app.kubernetes.io/name: antiabuse-svc, app.kubernetes.io/part-of: iogrid }
+spec:
+  selector: { app.kubernetes.io/name: antiabuse-svc }
+  ports:
+    - { name: http, port: 8080, targetPort: 8080 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: antiabuse-svc
+  labels: { app.kubernetes.io/name: antiabuse-svc, app.kubernetes.io/part-of: iogrid }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app.kubernetes.io/name: antiabuse-svc } }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: antiabuse-svc, app.kubernetes.io/part-of: iogrid }
+    spec:
+      containers:
+        - name: antiabuse-svc
+          image: ghcr.io/iogrid/antiabuse-svc:${IMAGE_TAG}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - { name: http, containerPort: 8080 }
+          env:
+            - { name: LOG_LEVEL, value: debug }
+            - { name: LISTEN_ADDR, value: ":8080" }
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef: { name: postgres-credentials, key: ANTIABUSE_DSN }
+            - { name: NATS_URL, value: "nats://nats:4222" }
+            # Pre-seed the deny-list with this fixture so smoke flows can
+            # assert known-bad URLs return BLOCK.
+            - { name: BLOCK_DOMAINS, value: "malware.test,known-bad.test" }
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits:   { cpu: 500m, memory: 256Mi }

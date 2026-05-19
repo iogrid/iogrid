@@ -1,0 +1,68 @@
+{
+  "uid": "iogrid-revenue",
+  "title": "iogrid — Revenue & billing",
+  "tags": ["iogrid", "revenue", "admin-only"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "5m",
+  "time": {"from": "now-30d", "to": "now"},
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Revenue (30d)",
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+      "targets": [{"expr": "sum(increase(billing_revenue_usd_total[30d]))", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "currencyUSD"}}
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Provider earnings (30d)",
+      "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+      "targets": [{"expr": "sum(increase(billing_provider_earnings_usd_total[30d]))", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "currencyUSD"}}
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Coordinator margin (30d)",
+      "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
+      "targets": [{
+        "expr": "sum(increase(billing_revenue_usd_total[30d])) - sum(increase(billing_provider_earnings_usd_total[30d]))",
+        "refId": "A"
+      }],
+      "fieldConfig": {"defaults": {"unit": "currencyUSD"}}
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "MRR (last 30d)",
+      "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+      "targets": [{"expr": "billing_mrr_usd", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "currencyUSD"}}
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Daily revenue",
+      "gridPos": {"x": 0, "y": 4, "w": 12, "h": 9},
+      "targets": [{
+        "expr": "sum(increase(billing_revenue_usd_total[1d]))",
+        "refId": "A"
+      }],
+      "fieldConfig": {"defaults": {"unit": "currencyUSD"}}
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Daily provider payouts",
+      "gridPos": {"x": 12, "y": 4, "w": 12, "h": 9},
+      "targets": [{
+        "expr": "sum(increase(billing_provider_earnings_usd_total[1d]))",
+        "refId": "A"
+      }],
+      "fieldConfig": {"defaults": {"unit": "currencyUSD"}}
+    }
+  ]
+}
