@@ -72,17 +72,32 @@ wix extension add -g WixToolset.UI.wixext/4.0.6 2>$null
 wix extension add -g WixToolset.Util.wixext/4.0.6 2>$null
 
 Section "Build .msi"
-New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
-$msi = Join-Path $OutDir "iogrid-$Version-$Arch.msi"
-$wxs = Join-Path $PSScriptRoot 'iogrid.wxs'
-& wix build $wxs `
-    -arch $Arch `
-    -d "DaemonExeArch=$Arch" `
-    -d "Version=$Version" `
-    -ext WixToolset.UI.wixext `
-    -ext WixToolset.Util.wixext `
-    -out $msi
-if ($LASTEXITCODE -ne 0) { throw "wix build failed" }
+$absOutDir = if ([System.IO.Path]::IsPathRooted($OutDir)) {
+    $OutDir
+} else {
+    Join-Path (Get-Location).Path $OutDir
+}
+New-Item -ItemType Directory -Path $absOutDir -Force | Out-Null
+$msi = Join-Path $absOutDir "iogrid-$Version-$Arch.msi"
+
+# WiX resolves File@Source paths relative to its CURRENT WORKING
+# DIRECTORY, not relative to the .wxs file. Our .wxs references
+# `staging/iogridd.exe`; the staging dir lives next to the .wxs
+# (installer/windows/staging/). Push-Location into that dir so the
+# relative paths resolve.
+Push-Location $PSScriptRoot
+try {
+    & wix build 'iogrid.wxs' `
+        -arch $Arch `
+        -d "DaemonExeArch=$Arch" `
+        -d "Version=$Version" `
+        -ext WixToolset.UI.wixext/4.0.6 `
+        -ext WixToolset.Util.wixext/4.0.6 `
+        -out $msi
+    if ($LASTEXITCODE -ne 0) { throw "wix build failed" }
+} finally {
+    Pop-Location
+}
 Write-Host "Built: $msi" -ForegroundColor Green
 
 Section "Sign (if cert provided)"
