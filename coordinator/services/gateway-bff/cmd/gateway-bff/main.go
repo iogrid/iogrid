@@ -103,17 +103,25 @@ func main() {
 		offRampProxy = handlers.NewOffRampProxy(cfg.BillingSvcURL, httpClient)
 	}
 
+	// Transparency-report cache. The antiabuse-svc CronJob POSTs each
+	// quarterly report to /api/v1/transparency/publish; the BFF caches
+	// the latest snapshot in memory so the public /status/transparency/
+	// endpoint serves without round-tripping S3 per request.
+	transparencyStore := handlers.NewMemoryTransparencyStore()
+
 	deps := server.Deps{
-		Config:        cfg,
-		Clients:       clientSet,
-		Verifier:      verifier,
-		APIKeyStore:   apiKeyStore,
-		AuthedLimiter: authedLim,
-		AnonLimiter:   anonLim,
-		Logger:        logger,
-		VPNGateway:    vpnProxy,
-		Workspaces:    clientSet.Workspaces,
-		OffRamp:       offRampProxy,
+		Config:                   cfg,
+		Clients:                  clientSet,
+		Verifier:                 verifier,
+		APIKeyStore:              apiKeyStore,
+		AuthedLimiter:            authedLim,
+		AnonLimiter:              anonLim,
+		Logger:                   logger,
+		VPNGateway:               vpnProxy,
+		Workspaces:               clientSet.Workspaces,
+		OffRamp:                  offRampProxy,
+		Transparency:             transparencyStore,
+		TransparencyPublishToken: os.Getenv("TRANSPARENCY_PUBLISH_TOKEN"),
 	}
 
 	if err := sharedserver.Run(ctx, sharedserver.Options{

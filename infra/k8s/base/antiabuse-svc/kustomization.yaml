@@ -6,3 +6,4 @@ resources:
   - service.yaml
   - hpa.yaml
   - networkpolicy.yaml
+  - cronjob-transparency.yaml
