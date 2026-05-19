@@ -443,13 +443,24 @@ fn read_pem(p: &std::path::Path) -> Result<Vec<u8>, TransportError> {
 /// us off the resolver hot path between reconnect cycles.
 const RESOLVED_HOST_TTL: Duration = Duration::from_secs(3600);
 
+/// Cache key: the URL authority `(host, port)` callers pass through
+/// `ConnectConfig::coordinator_url`.
+type HostKey = (String, u16);
+
+/// Cache value: the resolved IP plus the wall-clock instant we stored it
+/// at (used to enforce [`RESOLVED_HOST_TTL`]).
+type CachedIp = (std::net::IpAddr, std::time::Instant);
+
+/// Process-global cache map type — factored out so clippy's
+/// `type_complexity` lint stays happy.
+type HostCacheMap = std::collections::HashMap<HostKey, CachedIp>;
+
 /// Process-global cache of host→IP resolution results.
 ///
-/// Keyed by `(host, port)` — the URL authority that callers pass through
-/// `ConnectConfig::coordinator_url`. Stored under a sync `Mutex` because
-/// every operation is O(1) and contention is null (the supervisor's
-/// single dispatch reconnect loop is the only caller in production today;
-/// even with N reconnect loops the critical section is a HashMap probe).
+/// Stored under a sync `Mutex` because every operation is O(1) and
+/// contention is null (the supervisor's single dispatch reconnect loop
+/// is the only caller in production today; even with N reconnect loops
+/// the critical section is just a HashMap probe).
 ///
 /// Entries expire after [`RESOLVED_HOST_TTL`] **or** when
 /// [`invalidate_resolved_host`] is called explicitly from the connect
@@ -460,16 +471,11 @@ const RESOLVED_HOST_TTL: Duration = Duration::from_secs(3600);
 ///   next attempt re-resolves and picks up the new IP.
 /// * Long-running daemons (months of uptime) drifting from current DNS
 ///   state — 1 h TTL refresh.
-static RESOLVED_HOST_CACHE: std::sync::OnceLock<
-    std::sync::Mutex<
-        std::collections::HashMap<(String, u16), (std::net::IpAddr, std::time::Instant)>,
-    >,
-> = std::sync::OnceLock::new();
+static RESOLVED_HOST_CACHE: std::sync::OnceLock<std::sync::Mutex<HostCacheMap>> =
+    std::sync::OnceLock::new();
 
-fn resolved_host_cache() -> &'static std::sync::Mutex<
-    std::collections::HashMap<(String, u16), (std::net::IpAddr, std::time::Instant)>,
-> {
-    RESOLVED_HOST_CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+fn resolved_host_cache() -> &'static std::sync::Mutex<HostCacheMap> {
+    RESOLVED_HOST_CACHE.get_or_init(|| std::sync::Mutex::new(HostCacheMap::new()))
 }
 
 /// Invalidate a cached host→IP entry — call from connect-failure paths
