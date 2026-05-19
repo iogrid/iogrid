@@ -550,6 +550,152 @@ ON CONFLICT (user_id, tax_year, quarter, form_type) DO UPDATE SET
 	return err
 }
 
+// ── ApiKey rows ─────────────────────────────────────────────────────
+
+// ApiKey mirrors proto iogrid.billing.v1.ApiKey. The plaintext token is
+// NEVER stored — only sha256 hex in key_hash + the last four characters
+// for UI display.
+type ApiKey struct {
+	ID                uuid.UUID
+	WorkspaceID       uuid.UUID
+	Label             string
+	KeyHash           string
+	LastFour          string
+	Tier              string
+	AllowedCategories string // comma-separated; "" = inherit
+	GeoTarget         string
+	KYCVerified       bool
+	CreatedAt         time.Time
+	LastUsedAt        *time.Time
+	RevokedAt         *time.Time
+}
+
+// InsertApiKey persists a freshly-minted key. Caller is responsible for
+// hashing the plaintext + populating LastFour.
+func (s *Store) InsertApiKey(ctx context.Context, k ApiKey) error {
+	const q = `
+INSERT INTO api_key (
+    id, workspace_id, label, key_hash, last_four, tier,
+    allowed_categories, geo_target, kyc_verified,
+    created_at, last_used_at, revoked_at
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`
+	if k.ID == uuid.Nil {
+		k.ID = uuid.New()
+	}
+	if k.CreatedAt.IsZero() {
+		k.CreatedAt = time.Now().UTC()
+	}
+	_, err := s.pool.Exec(ctx, q,
+		k.ID, k.WorkspaceID, k.Label, k.KeyHash, k.LastFour, k.Tier,
+		k.AllowedCategories, k.GeoTarget, k.KYCVerified,
+		k.CreatedAt, k.LastUsedAt, k.RevokedAt,
+	)
+	return err
+}
+
+// LookupApiKeyByHash is the hot-path used by ValidateApiKey. Returns
+// ErrNotFound when no row matches OR the row is revoked.
+func (s *Store) LookupApiKeyByHash(ctx context.Context, keyHash string) (*ApiKey, error) {
+	const q = `
+SELECT id, workspace_id, label, key_hash, last_four, tier,
+       allowed_categories, geo_target, kyc_verified,
+       created_at, last_used_at, revoked_at
+  FROM api_key
+ WHERE key_hash = $1
+   AND revoked_at IS NULL`
+	var k ApiKey
+	err := s.pool.QueryRow(ctx, q, keyHash).Scan(
+		&k.ID, &k.WorkspaceID, &k.Label, &k.KeyHash, &k.LastFour, &k.Tier,
+		&k.AllowedCategories, &k.GeoTarget, &k.KYCVerified,
+		&k.CreatedAt, &k.LastUsedAt, &k.RevokedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &k, nil
+}
+
+// ListApiKeysByWorkspace returns redacted keys (no plaintext) for the
+// workspace, newest first. Includes revoked rows so the UI can show
+// audit history.
+func (s *Store) ListApiKeysByWorkspace(ctx context.Context, workspaceID uuid.UUID, limit, offset int) ([]ApiKey, error) {
+	const q = `
+SELECT id, workspace_id, label, key_hash, last_four, tier,
+       allowed_categories, geo_target, kyc_verified,
+       created_at, last_used_at, revoked_at
+  FROM api_key
+ WHERE workspace_id = $1
+ ORDER BY created_at DESC
+ LIMIT $2 OFFSET $3`
+	rows, err := s.pool.Query(ctx, q, workspaceID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ApiKey
+	for rows.Next() {
+		var k ApiKey
+		if err := rows.Scan(
+			&k.ID, &k.WorkspaceID, &k.Label, &k.KeyHash, &k.LastFour, &k.Tier,
+			&k.AllowedCategories, &k.GeoTarget, &k.KYCVerified,
+			&k.CreatedAt, &k.LastUsedAt, &k.RevokedAt,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, k)
+	}
+	return out, rows.Err()
+}
+
+// GetApiKey returns the row by id, regardless of revoked state. Used by
+// RevokeApiKey to fetch + echo the key being revoked.
+func (s *Store) GetApiKey(ctx context.Context, id uuid.UUID) (*ApiKey, error) {
+	const q = `
+SELECT id, workspace_id, label, key_hash, last_four, tier,
+       allowed_categories, geo_target, kyc_verified,
+       created_at, last_used_at, revoked_at
+  FROM api_key
+ WHERE id = $1`
+	var k ApiKey
+	err := s.pool.QueryRow(ctx, q, id).Scan(
+		&k.ID, &k.WorkspaceID, &k.Label, &k.KeyHash, &k.LastFour, &k.Tier,
+		&k.AllowedCategories, &k.GeoTarget, &k.KYCVerified,
+		&k.CreatedAt, &k.LastUsedAt, &k.RevokedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &k, nil
+}
+
+// RevokeApiKey marks the row revoked. Idempotent: calling twice is a
+// no-op on the second call.
+func (s *Store) RevokeApiKey(ctx context.Context, id uuid.UUID) error {
+	const q = `UPDATE api_key SET revoked_at = COALESCE(revoked_at, now()) WHERE id = $1`
+	tag, err := s.pool.Exec(ctx, q, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// TouchApiKeyLastUsed bumps last_used_at. Fire-and-forget; failures are
+// non-fatal for the auth path.
+func (s *Store) TouchApiKeyLastUsed(ctx context.Context, id uuid.UUID) error {
+	const q = `UPDATE api_key SET last_used_at = now() WHERE id = $1`
+	_, err := s.pool.Exec(ctx, q, id)
+	return err
+}
+
 // GuardClause prevents accidental use of an unconfigured store.
 func GuardClause(s *Store) error {
 	if s == nil || s.pool == nil {
