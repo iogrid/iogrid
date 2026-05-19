@@ -43,6 +43,8 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -52,11 +54,11 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"golang.org/x/net/html"
-	"golang.org/x/net/proxy"
 )
 
 // EnrichResult is the JSON shape this binary emits.
@@ -118,36 +120,252 @@ func loadConfig(args []string) (*Config, error) {
 }
 
 // newProxyClient returns an *http.Client that tunnels every request
-// through the iogrid SOCKS5 entry point. The customer API key is sent
-// as the SOCKS5 password (RFC 1929 USERPASS), the workspace handle as
-// the username. Anything else fails the gateway's pre-flight check.
+// through the iogrid SOCKS5 entry point.
+//
+// Wire protocol (see issue #265 and the README "How the proxy is wired"
+// diagram): Traefik terminates TLS at the edge on proxy.iogrid.org:443
+// (IngressRouteTCP with HostSNI(`proxy.iogrid.org`) and the public ACME
+// cert) and forwards plain TCP to the in-cluster proxy-gateway which
+// speaks SOCKS5. Therefore the client must:
+//
+//  1. tls.Dial to proxy.iogrid.org:443 (SNI = host) — this satisfies
+//     Traefik's HostSNI router and establishes the edge-TLS layer.
+//  2. Speak RFC 1928 SOCKS5 + RFC 1929 USERPASS on top of the *tls.Conn*.
+//     User = workspace handle, Password = ig_live API key.
+//  3. After CONNECT succeeds the same byte stream tunnels the customer's
+//     end-to-end TLS handshake with LinkedIn — the proxy still never
+//     sees plaintext, the gateway only sees opaque bytes.
+//
+// Prior to this fix the client called golang.org/x/net/proxy.SOCKS5
+// which dials raw TCP. Against a Traefik TLS-terminating ingress that
+// hangs forever — Traefik buffers waiting for a ClientHello while the
+// SOCKS5 greeting is interpreted as malformed TLS, the connection idles
+// out, and the caller sees `context deadline exceeded`. The Go x/net
+// proxy package has no hook to swap in a pre-dialled net.Conn, so we
+// inline a minimal SOCKS5 client below.
 func newProxyClient(cfg *Config) (*http.Client, error) {
-	auth := &proxy.Auth{User: cfg.Workspace, Password: cfg.APIKey}
-	dialer, err := proxy.SOCKS5("tcp", cfg.ProxyHostPort, auth, proxy.Direct)
+	host, _, err := net.SplitHostPort(cfg.ProxyHostPort)
 	if err != nil {
-		return nil, fmt.Errorf("socks5 dialer: %w", err)
+		return nil, fmt.Errorf("PROXY_URL must be host:port — got %q: %w", cfg.ProxyHostPort, err)
 	}
 	tr := &http.Transport{
-		// Use the SOCKS5 dialer for outbound TCP. Context-aware Dial
-		// is required because Go's http.Transport calls DialContext;
-		// the proxy.SOCKS5 dialer satisfies the ContextDialer interface
-		// in golang.org/x/net.
+		// DialContext does, per request:
+		//   1. tls.Dial to the iogrid edge (Traefik strips TLS),
+		//   2. SOCKS5 greet + USERPASS auth + CONNECT to `addr`,
+		//   3. return the *tls.Conn as a tunnelled byte stream.
+		// http.Transport then performs the destination TLS handshake
+		// (E2E to LinkedIn) over this stream — see the layering diagram
+		// in README.md.
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			if cd, ok := dialer.(proxy.ContextDialer); ok {
-				return cd.DialContext(ctx, network, addr)
-			}
-			return dialer.Dial(network, addr)
+			return dialThroughTLSSOCKS5(ctx, cfg.ProxyHostPort, host, cfg.Workspace, cfg.APIKey, network, addr)
 		},
-		// We let HTTPS handshakes happen E2E — the proxy MUST NOT
-		// terminate TLS, otherwise the customer would have to trust
-		// the proxy's CA. Force HTTP/1.1 to keep header parsing
-		// deterministic for the HTML extractor.
+		// HTTPS handshakes happen E2E — the proxy MUST NOT terminate
+		// TLS, otherwise the customer would have to trust the proxy's
+		// CA. Force HTTP/1.1 to keep header parsing deterministic for
+		// the HTML extractor.
 		ForceAttemptHTTP2: false,
 	}
 	return &http.Client{
 		Timeout:   cfg.Timeout,
 		Transport: tr,
 	}, nil
+}
+
+// dialThroughTLSSOCKS5 performs:
+//   - tls.Dial proxyHostPort with SNI = sni (Traefik HostSNI match),
+//   - RFC 1928 SOCKS5 greet + RFC 1929 USERPASS auth on the *tls.Conn,
+//   - CONNECT to `addr` (destination passed by http.Transport).
+//
+// It returns the live tls.Conn — anything written next goes straight
+// through the tunnel to `addr`.
+//
+// network must be "tcp", "tcp4", or "tcp6"; SOCKS5 doesn't support
+// anything else and http.Transport never asks for anything else.
+func dialThroughTLSSOCKS5(ctx context.Context, proxyHostPort, sni, user, pass, network, addr string) (net.Conn, error) {
+	switch network {
+	case "tcp", "tcp4", "tcp6":
+	default:
+		return nil, fmt.Errorf("socks5: unsupported network %q", network)
+	}
+
+	// Step 1 — TLS handshake to the iogrid edge.
+	d := &tls.Dialer{
+		Config: &tls.Config{
+			ServerName: sni,
+			MinVersion: tls.VersionTLS12,
+		},
+	}
+	rawConn, err := d.DialContext(ctx, "tcp", proxyHostPort)
+	if err != nil {
+		return nil, fmt.Errorf("tls.Dial proxy: %w", err)
+	}
+	conn := rawConn.(*tls.Conn)
+
+	// Propagate ctx cancellation into the connection so a context
+	// timeout during the SOCKS5 handshake aborts cleanly. We clear
+	// the deadline on success.
+	if dl, ok := ctx.Deadline(); ok {
+		_ = conn.SetDeadline(dl)
+	}
+
+	if err := socks5Handshake(conn, user, pass, addr); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+
+	// Reset deadline so http.Transport's per-request timeouts win.
+	_ = conn.SetDeadline(time.Time{})
+	return conn, nil
+}
+
+// socks5Handshake performs greet + USERPASS auth + CONNECT against an
+// existing connection. See RFC 1928 §3 (greet/method-select), §4
+// (CONNECT request/reply), and RFC 1929 (USERPASS sub-negotiation).
+func socks5Handshake(conn net.Conn, user, pass, addr string) error {
+	// RFC 1928 §3 — version identifier / method-selection.
+	// We advertise only method 0x02 (USERPASS) — the iogrid gateway
+	// rejects NoAuth on Phase 0 so there's no point listing it.
+	if _, err := conn.Write([]byte{0x05, 0x01, 0x02}); err != nil {
+		return fmt.Errorf("socks5 greet: %w", err)
+	}
+	var sel [2]byte
+	if _, err := io.ReadFull(conn, sel[:]); err != nil {
+		return fmt.Errorf("socks5 read method select: %w", err)
+	}
+	if sel[0] != 0x05 {
+		return fmt.Errorf("socks5: bad version %#x in method-select reply", sel[0])
+	}
+	switch sel[1] {
+	case 0x02:
+		// proceed to USERPASS
+	case 0xff:
+		return errors.New("socks5: server rejected all offered auth methods (expected USERPASS)")
+	default:
+		return fmt.Errorf("socks5: server selected method %#x, expected 0x02 (USERPASS)", sel[1])
+	}
+
+	// RFC 1929 — USERPASS sub-negotiation.
+	if len(user) > 255 || len(pass) > 255 {
+		return errors.New("socks5: username/password exceed 255 bytes (RFC 1929 limit)")
+	}
+	req := make([]byte, 0, 3+len(user)+len(pass))
+	req = append(req, 0x01)            // VER (sub-negotiation)
+	req = append(req, byte(len(user))) // ULEN
+	req = append(req, user...)         // UNAME
+	req = append(req, byte(len(pass))) // PLEN
+	req = append(req, pass...)         // PASSWD
+	if _, err := conn.Write(req); err != nil {
+		return fmt.Errorf("socks5 userpass write: %w", err)
+	}
+	var authResp [2]byte
+	if _, err := io.ReadFull(conn, authResp[:]); err != nil {
+		return fmt.Errorf("socks5 read userpass reply: %w", err)
+	}
+	if authResp[0] != 0x01 {
+		return fmt.Errorf("socks5: bad userpass version %#x", authResp[0])
+	}
+	if authResp[1] != 0x00 {
+		return fmt.Errorf("socks5: authentication failed (status %#x)", authResp[1])
+	}
+
+	// RFC 1928 §4 — CONNECT request.
+	host, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		return fmt.Errorf("socks5: bad destination %q: %w", addr, err)
+	}
+	port, err := strconv.ParseUint(portStr, 10, 16)
+	if err != nil {
+		return fmt.Errorf("socks5: bad destination port %q: %w", portStr, err)
+	}
+
+	connectReq := []byte{0x05, 0x01, 0x00} // VER, CMD=CONNECT, RSV
+	if ip := net.ParseIP(host); ip != nil {
+		if v4 := ip.To4(); v4 != nil {
+			connectReq = append(connectReq, 0x01) // ATYP=IPv4
+			connectReq = append(connectReq, v4...)
+		} else {
+			connectReq = append(connectReq, 0x04) // ATYP=IPv6
+			connectReq = append(connectReq, ip.To16()...)
+		}
+	} else {
+		if len(host) > 255 {
+			return fmt.Errorf("socks5: hostname %q exceeds 255 bytes", host)
+		}
+		connectReq = append(connectReq, 0x03)            // ATYP=DOMAINNAME
+		connectReq = append(connectReq, byte(len(host))) // length-prefixed
+		connectReq = append(connectReq, host...)
+	}
+	var portBytes [2]byte
+	binary.BigEndian.PutUint16(portBytes[:], uint16(port))
+	connectReq = append(connectReq, portBytes[:]...)
+
+	if _, err := conn.Write(connectReq); err != nil {
+		return fmt.Errorf("socks5 CONNECT write: %w", err)
+	}
+
+	// CONNECT reply: VER REP RSV ATYP BND.ADDR BND.PORT.
+	// Read the fixed 4-byte header then a variable BND.ADDR + 2-byte port.
+	var hdr [4]byte
+	if _, err := io.ReadFull(conn, hdr[:]); err != nil {
+		return fmt.Errorf("socks5 CONNECT read header: %w", err)
+	}
+	if hdr[0] != 0x05 {
+		return fmt.Errorf("socks5: bad CONNECT reply version %#x", hdr[0])
+	}
+	if hdr[1] != 0x00 {
+		return fmt.Errorf("socks5: CONNECT rejected (REP=%s)", socks5RepName(hdr[1]))
+	}
+	// Drain BND.ADDR + port so the byte stream is aligned for the caller.
+	switch hdr[3] {
+	case 0x01: // IPv4
+		var skip [4 + 2]byte
+		if _, err := io.ReadFull(conn, skip[:]); err != nil {
+			return fmt.Errorf("socks5 CONNECT read bnd v4: %w", err)
+		}
+	case 0x04: // IPv6
+		var skip [16 + 2]byte
+		if _, err := io.ReadFull(conn, skip[:]); err != nil {
+			return fmt.Errorf("socks5 CONNECT read bnd v6: %w", err)
+		}
+	case 0x03: // DOMAINNAME
+		var l [1]byte
+		if _, err := io.ReadFull(conn, l[:]); err != nil {
+			return fmt.Errorf("socks5 CONNECT read bnd domain len: %w", err)
+		}
+		skip := make([]byte, int(l[0])+2)
+		if _, err := io.ReadFull(conn, skip); err != nil {
+			return fmt.Errorf("socks5 CONNECT read bnd domain: %w", err)
+		}
+	default:
+		return fmt.Errorf("socks5: unexpected ATYP %#x in CONNECT reply", hdr[3])
+	}
+	return nil
+}
+
+// socks5RepName turns a SOCKS5 REP byte (RFC 1928 §6) into a human label.
+func socks5RepName(b byte) string {
+	switch b {
+	case 0x00:
+		return "succeeded"
+	case 0x01:
+		return "general SOCKS server failure"
+	case 0x02:
+		return "connection not allowed by ruleset"
+	case 0x03:
+		return "network unreachable"
+	case 0x04:
+		return "host unreachable"
+	case 0x05:
+		return "connection refused"
+	case 0x06:
+		return "TTL expired"
+	case 0x07:
+		return "command not supported"
+	case 0x08:
+		return "address type not supported"
+	default:
+		return fmt.Sprintf("unknown(%#x)", b)
+	}
 }
 
 // EnrichVanity fetches the LinkedIn profile page for vanity and

@@ -69,37 +69,59 @@ go run ./examples/phase0-vcard-customer \
 ## How the proxy is wired
 
 ```
-   vCard worker                 iogrid proxy-gateway          provider daemon
-   (this Go binary)             (proxy.iogrid.org:443)        (home Mac, WG tunnel)
-       │                                │                            │
-       │  SOCKS5 greet (USERPASS)       │                            │
-       ├───────────────────────────────►│                            │
-       │  user = workspace handle       │                            │
-       │  pass = ig_live_xxxx (API key) │                            │
-       │                                │── billing-svc.ValidateApiKey
-       │                                │── antiabuse-svc.CheckUrl(https://www.linkedin.com/in/...)
-       │                                │── scheduler picks provider with
-       │                                │   `social-intel` opt-in + US geo
-       │                                │                            │
-       │  SOCKS5 CONNECT linkedin:443   │── mTLS tunnel               │
-       ├───────────────────────────────►├────────────────────────────►│
-       │                                │                            │── outbound TCP from
-       │                                │                            │   provider's residential IP
-       │  TLS handshake (E2E)           │                            │
-       │═══════════════════════════════════════════════════════════►│
-       │  HTTP GET /in/<vanity>         │                            │
-       │═══════════════════════════════════════════════════════════►│
-       │                                │                            │
-       │  200 OK + HTML                 │  ← bytes metered every 1 MiB
-       │◄═══════════════════════════════════════════════════════════│
-       │                                │                            │
-       │  parse name/title/company      │                            │
+   vCard worker          Traefik edge          iogrid proxy-gateway      provider daemon
+   (this Go binary)     (TLS terminator,      (in-cluster Service,      (home Mac, WG tunnel)
+                        proxy.iogrid.org:443)  speaks SOCKS5 on TCP)
+       │                        │                       │                         │
+       │  TCP SYN/SYN-ACK       │                       │                         │
+       ├───────────────────────►│                       │                         │
+       │  ─── STEP 1 ─── TLS handshake (SNI=proxy.iogrid.org) ────                │
+       │═══════════════════════►│                       │                         │
+       │  (Traefik's iogrid-tls cert; HostSNI router selects the                  │
+       │   proxy IngressRouteTCP and terminates TLS here)                         │
+       │                        │  plain TCP forward    │                         │
+       │                        ├──────────────────────►│                         │
+       │  ─── STEP 2 ─── SOCKS5 greet (method=USERPASS) on the *tls.Conn* ───     │
+       ├═══════════════════════►├──────────────────────►│                         │
+       │  USERPASS sub-negotiate                                                   │
+       │  user = workspace handle                                                  │
+       │  pass = ig_live_xxxx                                                      │
+       ├═══════════════════════►├──────────────────────►│── billing-svc.ValidateApiKey
+       │                        │                       │── antiabuse-svc.CheckUrl(linkedin.com)
+       │                        │                       │── scheduler picks provider with
+       │                        │                       │   `social-intel` opt-in + US geo
+       │                        │                       │                         │
+       │  ─── STEP 3 ─── SOCKS5 CONNECT linkedin.com:443 ───                      │
+       ├═══════════════════════►├──────────────────────►├─── mTLS tunnel ────────►│
+       │                        │                       │                         │── outbound TCP from
+       │                        │                       │                         │   provider's residential IP
+       │  ─── STEP 4 ─── INNER TLS handshake (E2E client ↔ LinkedIn) ─────        │
+       │═════════════════════════════════════════════════════════════════════════►
+       │  HTTP GET /in/<vanity>                                                   │
+       │═════════════════════════════════════════════════════════════════════════►
+       │                                                                          │
+       │  200 OK + HTML                  ← bytes metered every 1 MiB              │
+       │◄═════════════════════════════════════════════════════════════════════════
+       │                                                                          │
+       │  parse name/title/company                                                │
 ```
 
 Key points:
 
-- The TLS handshake is end-to-end between this client and LinkedIn.
-  The proxy-gateway and the provider daemon **never see the
+- **TWO TLS layers — both matter** (see issue #265 for what happens
+  if you skip the outer one):
+  - **Outer TLS** (`client ↔ Traefik`, STEP 1 above). Terminates at
+    the iogrid edge with the public ACME cert for
+    `proxy.iogrid.org`. The client MUST open this with `tls.Dial`
+    *before* writing any SOCKS5 byte — Traefik's
+    `HostSNI(proxy.iogrid.org)` router needs to see the
+    `ClientHello`. Speaking SOCKS5 on raw TCP to port 443 hangs
+    forever and the caller observes `context deadline exceeded`.
+  - **Inner TLS** (`client ↔ LinkedIn`, STEP 4 above). End-to-end
+    over the SOCKS5 tunnel; opaque bytes from the edge's and the
+    proxy-gateway's perspective. Tunnels through the residential
+    provider with no MITM possible.
+- The proxy-gateway and the provider daemon **never see the
   plaintext**. They see bytes. The customer-supplied destination is
   used for routing + anti-abuse, nothing else.
 - Bytes are metered at the gateway (in + out). Customer is invoiced
