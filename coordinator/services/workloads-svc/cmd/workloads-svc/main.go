@@ -15,6 +15,7 @@ import (
 	"os"
 
 	"github.com/iogrid/iogrid/coordinator/services/workloads-svc/internal/dispatcher"
+	"github.com/iogrid/iogrid/coordinator/services/workloads-svc/internal/forwarder"
 	"github.com/iogrid/iogrid/coordinator/services/workloads-svc/internal/server"
 	"github.com/iogrid/iogrid/coordinator/services/workloads-svc/internal/store"
 	"github.com/iogrid/iogrid/coordinator/shared/health"
@@ -61,13 +62,35 @@ func main() {
 	// daemon connected via this workloads-svc replica. In the Phase 0
 	// NAT-bound layout that's the workloads-svc TCP-over-DispatchFrame
 	// forwarder's own listener address. Empty == off (proxy-gateway
-	// uses its DEV_PROVIDER_ENDPOINT static pool). See issue #217 +
-	// the follow-up forwarder ticket.
+	// uses its DEV_PROVIDER_ENDPOINT static pool). See issue #217.
 	providerEndpoint := os.Getenv("WORKLOADS_SVC_PROVIDER_ENDPOINT")
 	if providerEndpoint != "" {
 		logger.Info("provider endpoint template configured",
 			slog.String("endpoint", providerEndpoint))
 	}
+
+	// FORWARDER_LISTEN_ADDR controls the TCP-over-DispatchFrame
+	// forwarder's bind address (issue #222). Defaults to ":9090".
+	// When the env var "WORKLOADS_SVC_PROVIDER_ENDPOINT" is empty we
+	// still start the forwarder, but the EndpointHint advertised in
+	// assignments will be empty (proxy-gateway falls back to its dev
+	// pool). The two are intentionally separate: the listener may
+	// bind to ":9090" while the publicly-routable endpoint is the
+	// Kubernetes Service DNS name.
+	forwarderAddr := os.Getenv("FORWARDER_LISTEN_ADDR")
+	if forwarderAddr == "" {
+		forwarderAddr = ":9090"
+	}
+	fwd := forwarder.New(forwarder.Options{
+		ListenAddr: forwarderAddr,
+		Dispatcher: disp,
+		Log:        logger,
+	})
+	if _, err := fwd.Start(ctx); err != nil {
+		logger.Error("forwarder start failed", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+	defer func() { _ = fwd.Close() }()
 
 	if err := sharedserver.Run(ctx, sharedserver.Options{
 		ServiceName: serviceName,

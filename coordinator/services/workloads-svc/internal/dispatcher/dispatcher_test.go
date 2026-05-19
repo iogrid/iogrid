@@ -144,6 +144,58 @@ func TestUpdateSnapshot(t *testing.T) {
 	}
 }
 
+// fakeSink captures TunnelSink callbacks for the registry tests.
+type fakeSink struct {
+	data   [][]byte
+	closed string
+}
+
+func (f *fakeSink) OnTunnelData(b []byte) { f.data = append(f.data, append([]byte(nil), b...)) }
+func (f *fakeSink) OnTunnelClose(r string) { f.closed = r }
+
+func TestTunnelRegistry_DeliverAndUnregister(t *testing.T) {
+	d := New(store.NewInMemory(), nil)
+	sink := &fakeSink{}
+	d.RegisterTunnel("att-1", sink)
+
+	if ok := d.DeliverTunnelData("att-1", []byte("hello")); !ok {
+		t.Fatalf("DeliverTunnelData returned false for registered attempt")
+	}
+	if ok := d.DeliverTunnelData("att-unknown", []byte("x")); ok {
+		t.Fatalf("DeliverTunnelData returned true for unknown attempt")
+	}
+	if len(sink.data) != 1 || string(sink.data[0]) != "hello" {
+		t.Fatalf("sink.data=%v", sink.data)
+	}
+
+	if ok := d.DeliverTunnelClose("att-1", "eof"); !ok {
+		t.Fatalf("DeliverTunnelClose returned false")
+	}
+	if sink.closed != "eof" {
+		t.Fatalf("sink.closed=%q", sink.closed)
+	}
+
+	d.UnregisterTunnel("att-1")
+	if ok := d.DeliverTunnelData("att-1", []byte("x")); ok {
+		t.Fatalf("DeliverTunnelData returned true after unregister")
+	}
+}
+
+func TestConnectionByProviderID_ReturnsRegistered(t *testing.T) {
+	d := New(store.NewInMemory(), nil)
+	d.Register(&Connection{ProviderID: "p-mac", EndpointHint: "x:9090", Send: func(_ *Assignment) error { return nil }})
+	got := d.ConnectionByProviderID("p-mac")
+	if got == nil {
+		t.Fatalf("expected non-nil connection")
+	}
+	if got.EndpointHint != "x:9090" {
+		t.Fatalf("EndpointHint=%q", got.EndpointHint)
+	}
+	if d.ConnectionByProviderID("nope") != nil {
+		t.Fatalf("expected nil for unknown provider id")
+	}
+}
+
 func TestAttemptDeadline_Default(t *testing.T) {
 	d := New(store.NewInMemory(), nil)
 	if d.attemptTimeout != DefaultAttemptTimeout {
