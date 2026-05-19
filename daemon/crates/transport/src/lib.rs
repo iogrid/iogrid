@@ -488,7 +488,10 @@ pub struct DispatchHello {
 pub fn spawn_live_dispatch(cfg: ConnectConfig, hello: DispatchHello) -> LiveDispatchHandle {
     let (out_tx, out_rx) = mpsc::channel(64);
     let (in_tx, in_rx) = mpsc::channel::<DispatchFrame>(64);
-    let daemon_side = DispatchChannel { tx: out_tx, rx: in_rx };
+    let daemon_side = DispatchChannel {
+        tx: out_tx,
+        rx: in_rx,
+    };
     let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
     let task = tokio::spawn(async move {
         // Drain any inbound supervisor → coordinator frames so the
@@ -670,10 +673,16 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let cert = dir.path().join("cert.pem");
         let key = dir.path().join("key.pem");
-        std::fs::write(&cert, b"-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n")
-            .unwrap();
-        std::fs::write(&key, b"-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n")
-            .unwrap();
+        std::fs::write(
+            &cert,
+            b"-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n",
+        )
+        .unwrap();
+        std::fs::write(
+            &key,
+            b"-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n",
+        )
+        .unwrap();
         let cfg = ConnectConfig {
             coordinator_url: "https://127.0.0.1:1".into(),
             cert_pem: cert,
