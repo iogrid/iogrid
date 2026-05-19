@@ -1,0 +1,172 @@
+name: e2e-ci
+
+# End-to-end smoke harness — kind cluster + lightweight infra + smoke flows.
+#
+# Triggered only on manual dispatch (workflow_dispatch) at this stage.
+# When the smoke flows stabilise we'll promote to PR runs, but for now
+# the workflow is informational only — it does NOT block PR merges.
+#
+# The job runs the full `make -C e2e full` cycle and uploads:
+#   - junit.xml — per-flow pass/fail matrix
+#   - <flow>.log — captured stdout/stderr
+#   - kube logs — last 200 lines from every pod in the iogrid namespace
+#
+# Boot budget on ubuntu-latest:
+#   - kind create: ~30s
+#   - bootstrap (postgres/nats/mailhog): ~60s
+#   - seed (6 service Deployments): ~60s — pods will spin while images pull
+#   - smoke (5 flows): ~30s
+#   ~ TOTAL: under 4 minutes (well within the 6h job ceiling)
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_local:
+        description: 'Build images locally instead of pulling scaffold tags from ghcr.io'
+        required: false
+        type: boolean
+        default: false
+  # Uncomment to wire as a per-PR smoke once flows stabilise:
+  # pull_request:
+  #   paths:
+  #     - 'coordinator/**'
+  #     - 'infra/k8s/**'
+  #     - 'e2e/**'
+  #     - '.github/workflows/e2e-ci.yml'
+
+permissions:
+  contents: read
+  packages: read   # pull ghcr.io/iogrid/<svc>:scaffold images
+
+concurrency:
+  group: e2e-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: e2e smoke (kind + 5 flows)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    # CRITICAL: continue-on-error so a partial smoke failure surfaces
+    # the JUnit report instead of marking the run red and aborting the
+    # upload step. The harness is informational at this stage.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      # ----- toolchain -----
+      - name: Install kind
+        uses: helm/kind-action@v1
+        with:
+          install_only: true
+          version: v0.24.0
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: v1.31.0
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+
+      - name: Install jq + envsubst + skopeo
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq jq gettext-base skopeo openssl ncat
+
+      # ----- log in to ghcr so scaffold image pulls don't rate-limit -----
+      - name: Login to ghcr.io
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ----- pull scaffold images and side-load into kind -----
+      # The scaffold images live at ghcr.io/iogrid/<svc>:scaffold. We
+      # pre-pull them with docker so kind can load them via `kind load
+      # docker-image` — that's faster than letting each pod pull on first
+      # schedule (avoids rate limits + serialises image fetch).
+      - name: Pre-pull scaffold images
+        if: ${{ !inputs.build_local }}
+        run: |
+          set -e
+          imgs=(identity-svc providers-svc workloads-svc antiabuse-svc billing-svc proxy-gateway)
+          for i in "${imgs[@]}"; do
+            echo "==> pulling ghcr.io/iogrid/$i:scaffold"
+            docker pull --quiet "ghcr.io/iogrid/$i:scaffold" \
+              || echo "    skipped (image absent — will surface in smoke)"
+          done
+
+      # ----- e2e cycle -----
+      - name: make up
+        working-directory: e2e
+        run: make up
+
+      - name: kind load images
+        if: ${{ !inputs.build_local }}
+        run: |
+          set -e
+          for i in identity-svc providers-svc workloads-svc antiabuse-svc billing-svc proxy-gateway; do
+            if docker image inspect "ghcr.io/iogrid/$i:scaffold" >/dev/null 2>&1; then
+              kind load docker-image "ghcr.io/iogrid/$i:scaffold" --name iogrid-e2e
+            fi
+          done
+
+      - name: make seed
+        working-directory: e2e
+        env:
+          BUILD_LOCAL: ${{ inputs.build_local && '1' || '0' }}
+        run: make seed
+
+      - name: make smoke
+        working-directory: e2e
+        run: make smoke
+
+      # ----- diagnostics -----
+      - name: dump pod state on failure
+        if: always()
+        working-directory: e2e
+        run: |
+          export KUBECONFIG=$(pwd)/out/kubeconfig
+          kubectl -n iogrid get pods,svc,ep -o wide || true
+          kubectl -n iogrid describe pods || true
+          echo "--- pod logs ---"
+          for p in $(kubectl -n iogrid get pods -o name); do
+            echo "=== $p ==="
+            kubectl -n iogrid logs --tail=200 "$p" || true
+          done
+
+      # ----- upload junit + smoke logs -----
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-smoke-${{ github.run_id }}
+          path: |
+            e2e/out/smoke/junit.xml
+            e2e/out/smoke/*.log
+          if-no-files-found: warn
+
+      - name: Annotate JUnit results in summary
+        if: always()
+        working-directory: e2e
+        run: |
+          if [ -f out/smoke/junit.xml ]; then
+            echo '## e2e smoke results' >> $GITHUB_STEP_SUMMARY
+            echo '' >> $GITHUB_STEP_SUMMARY
+            grep -oE '<testcase[^/]*/>' out/smoke/junit.xml || true \
+              | sed 's|<testcase name="\([^"]*\)" classname="[^"]*" time="\([^"]*\)"/>|- PASS \1 (\2s)|' \
+              >> $GITHUB_STEP_SUMMARY || true
+            grep -oE '<testcase[^>]*>[^<]*<failure[^/]*/>' out/smoke/junit.xml || true \
+              | sed 's|<testcase name="\([^"]*\)".*|- FAIL \1|' \
+              >> $GITHUB_STEP_SUMMARY || true
+          fi
+
+      - name: make down
+        if: always()
+        working-directory: e2e
+        run: make down

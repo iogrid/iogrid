@@ -1,0 +1,48 @@
+# Single-node kind cluster sized to fit on a 4-vCPU / 7Gi runner (default
+# GitHub Actions ubuntu-latest). Two extra host-port mappings let the
+# smoke flows hit:
+#   - 30080: nginx-ish ingress for the proxy-gateway (SOCKS5/HTTP-CONNECT)
+#   - 30025: MailHog SMTP intake (identity-svc magic-link probe target)
+#   - 30025-mh-http (mapped via NodePort 30180): MailHog web UI
+#
+# We intentionally do NOT enable Cilium / multi-node / containerd image
+# limits — the harness uses the default kindnet CNI and the kind builtin
+# containerd registry mirror. Stay close to defaults so this works on any
+# kind v0.20+ release.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: iogrid-e2e
+nodes:
+  - role: control-plane
+    image: kindest/node:v1.31.0
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      # proxy-gateway via NodePort
+      - containerPort: 30080
+        hostPort: 30080
+        protocol: TCP
+      # MailHog SMTP intake (identity-svc magic-link target)
+      - containerPort: 30025
+        hostPort: 30025
+        protocol: TCP
+      # MailHog HTTP UI (smoke flows poll for delivered mail)
+      - containerPort: 30180
+        hostPort: 30180
+        protocol: TCP
+      # gateway-bff API (used by some smoke flows that go via BFF)
+      - containerPort: 30081
+        hostPort: 30081
+        protocol: TCP
+
+# Resource hints — kind doesn't enforce these, but documenting them helps
+# the CI matrix planning.
+networking:
+  apiServerAddress: "127.0.0.1"
+  apiServerPort: 6443
+  podSubnet: "10.244.0.0/16"
+  serviceSubnet: "10.96.0.0/12"
