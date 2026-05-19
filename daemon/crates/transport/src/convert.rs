@@ -62,8 +62,8 @@ fn ts_from_rfc3339(s: &str) -> Option<Timestamp> {
 fn ts_to_rfc3339(ts: &Option<Timestamp>) -> String {
     match ts {
         Some(t) => {
-            let dt = DateTime::<Utc>::from_timestamp(t.seconds, t.nanos as u32)
-                .unwrap_or_else(Utc::now);
+            let dt =
+                DateTime::<Utc>::from_timestamp(t.seconds, t.nanos as u32).unwrap_or_else(Utc::now);
             dt.to_rfc3339()
         }
         None => String::new(),
@@ -164,12 +164,12 @@ pub fn frame_to_pb(f: &DispatchFrame) -> wlv1::DispatchFrame {
             rejection_reason: rejection_reason.clone().unwrap_or_default(),
         }),
         DispatchFrame::Cancel { workload_id } => Frame::CancelWorkloadId(uuid(workload_id)),
-        DispatchFrame::Ping { at_rfc3339 } => Frame::Ping(
-            ts_from_rfc3339(at_rfc3339).unwrap_or(Timestamp {
+        DispatchFrame::Ping { at_rfc3339 } => {
+            Frame::Ping(ts_from_rfc3339(at_rfc3339).unwrap_or(Timestamp {
                 seconds: 0,
                 nanos: 0,
-            }),
-        ),
+            }))
+        }
         DispatchFrame::Drain => Frame::Drain(true),
     };
     wlv1::DispatchFrame { frame: Some(frame) }
@@ -216,7 +216,11 @@ pub fn frame_from_pb(pb: wlv1::DispatchFrame) -> Option<DispatchFrame> {
             attempt_id: uuid_string(&u.attempt_id),
             status: status_slug(u.status),
             observed_at_rfc3339: ts_to_rfc3339(&u.observed_at),
-            note: if u.note.is_empty() { None } else { Some(u.note) },
+            note: if u.note.is_empty() {
+                None
+            } else {
+                Some(u.note)
+            },
             bytes_in: u.bytes_in,
             bytes_out: u.bytes_out,
             exit_code: u.exit_code,

@@ -872,9 +872,8 @@ mod tests {
 
     #[tonic::async_trait]
     impl wlv1::workload_dispatch_service_server::WorkloadDispatchService for StubDispatch {
-        type DispatchStream = tokio_stream::wrappers::ReceiverStream<
-            Result<wlv1::DispatchFrame, Status>,
-        >;
+        type DispatchStream =
+            tokio_stream::wrappers::ReceiverStream<Result<wlv1::DispatchFrame, Status>>;
 
         async fn dispatch(
             &self,
