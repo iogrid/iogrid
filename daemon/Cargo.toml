@@ -66,6 +66,16 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "logging"] }
 rustls-pemfile = "2"
 
+# DNS — pure-Rust async resolver. Replaces hyper's default
+# GaiResolver (which calls tokio::task::spawn_blocking around
+# getaddrinfo) on the coordinator-connect path. The GaiResolver
+# blocking task is cancelled mid-flight whenever the parent
+# future is polled-then-dropped by tower's reconnect / buffer
+# middleware, which surfaces as "dns error → task NNN was
+# cancelled" with no real DNS failure underneath. See #248.
+hickory-resolver = "0.24"
+url = "2"
+
 # Time
 chrono = { version = "0.4", features = ["serde"] }
 time = "0.3"
