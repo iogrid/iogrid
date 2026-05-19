@@ -1,0 +1,155 @@
+name: legal-ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "legal/**"
+      - ".github/workflows/legal-ci.yml"
+  pull_request:
+    paths:
+      - "legal/**"
+      - ".github/workflows/legal-ci.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: legal-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: markdownlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install markdownlint-cli2
+        run: npm install -g markdownlint-cli2@0.13.0
+
+      - name: Lint legal/*.md
+        # Permissive config at legal/.markdownlint.json — these are
+        # LAWYER-READY DRAFTS and we don't want stylistic noise to gate
+        # counsel review. See the committed config file for the rules
+        # disabled (long-line, blanks-around-lists, bare-URLs, etc.).
+        run: markdownlint-cli2 "legal/**/*.md"
+
+  link-check:
+    name: link-check (relative-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install markdown-link-check
+        run: npm install -g markdown-link-check@3.12.2
+
+      - name: Write link-check config (ignore external + COUNSEL placeholders)
+        run: |
+          cat > .markdown-link-check.json <<'EOF'
+          {
+            "ignorePatterns": [
+              { "pattern": "^https?://" },
+              { "pattern": "\\[COUNSEL" },
+              { "pattern": "^mailto:" }
+            ],
+            "retryOn429": true,
+            "retryCount": 2,
+            "fallbackRetryDelay": "10s",
+            "aliveStatusCodes": [200, 206]
+          }
+          EOF
+
+      - name: Check links in legal/*.md
+        run: |
+          for f in legal/*.md; do
+            echo "::group::Checking $f"
+            markdown-link-check -q --config .markdown-link-check.json "$f"
+            echo "::endgroup::"
+          done
+
+  inventory:
+    name: required-docs inventory
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify every required document is present
+        # Phase 1 legal scaffolding contract — these files must exist.
+        # If any is missing, the build fails.
+        run: |
+          REQUIRED=(
+            legal/README.md
+            legal/provider-tos.md
+            legal/customer-tos.md
+            legal/aup.md
+            legal/dpa.md
+            legal/privacy-policy.md
+            legal/token-disclaimer.md
+            legal/incident-response.md
+          )
+          MISSING=()
+          for f in "${REQUIRED[@]}"; do
+            if [[ ! -f "$f" ]]; then
+              MISSING+=("$f")
+            fi
+          done
+          if (( ${#MISSING[@]} > 0 )); then
+            echo "::error::Missing required legal documents:"
+            for m in "${MISSING[@]}"; do
+              echo "  - $m"
+            done
+            exit 1
+          fi
+          echo "All ${#REQUIRED[@]} required legal documents present."
+
+      - name: Verify draft-status banner present in each document
+        # Every draft must carry the "pre-counsel-review" banner so a reader
+        # cannot mistake the file for finalized counsel-reviewed material.
+        run: |
+          FAILED=0
+          for f in legal/*.md; do
+            # Skip the README — it has its own status framing
+            if [[ "$(basename "$f")" == "README.md" ]]; then
+              continue
+            fi
+            if ! grep -q "pre-counsel-review" "$f"; then
+              echo "::error file=$f::Missing 'pre-counsel-review' draft-status banner"
+              FAILED=1
+            fi
+          done
+          if (( FAILED == 1 )); then
+            exit 1
+          fi
+          echo "All non-README legal docs carry draft-status banner."
+
+      - name: Verify counsel-review markers exist
+        # Each substantive doc should carry at least one [COUNSEL:...] marker
+        # flagging where counsel review is needed. Zero markers would suggest
+        # the doc was finalized without going through review — fail the build.
+        run: |
+          FAILED=0
+          for f in legal/*.md; do
+            if [[ "$(basename "$f")" == "README.md" ]]; then
+              continue
+            fi
+            COUNT=$(grep -c '\[COUNSEL' "$f" || true)
+            if (( COUNT < 1 )); then
+              echo "::error file=$f::No [COUNSEL:...] markers found — drafts must flag at least one counsel-review TODO"
+              FAILED=1
+            else
+              echo "$f: $COUNT counsel-review markers"
+            fi
+          done
+          if (( FAILED == 1 )); then
+            exit 1
+          fi
