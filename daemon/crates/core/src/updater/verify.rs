@@ -11,10 +11,10 @@
 //! 2. [`verify_artifact`] — checks two things on a downloaded binary
 //!    blob:
 //!    a) the SHA-256 hash matches the manifest's `sha256` field
-//!       (free integrity check); and
+//!    (free integrity check); and
 //!    b) if the manifest carries `signature` (per-binary Ed25519
-//!       over the hex SHA-256), that signature verifies against
-//!       the same embedded pubkey set.
+//!    over the hex SHA-256), that signature verifies against
+//!    the same embedded pubkey set.
 //!    Either failure rejects the staged binary.
 //!
 //! Test vectors are generated at runtime — we sign a known body with
@@ -156,7 +156,7 @@ pub fn verify_artifact_with(
     hasher.update(blob);
     let digest = hasher.finalize();
     let actual_hex = hex_encode(digest.as_slice());
-    if actual_hex.to_ascii_lowercase() != a.sha256.to_ascii_lowercase() {
+    if !actual_hex.eq_ignore_ascii_case(&a.sha256) {
         return Err(VerifyError::HashMismatch {
             manifest: a.sha256.clone(),
             actual: actual_hex,

@@ -19,7 +19,7 @@ use tokio::sync::Notify;
 
 use super::binary::{self, BinaryError, InstallLayout};
 use super::manifest;
-use super::types::{UpdateConfig, UpdateHistoryEntry, UpdateManifest, UpdateOutcome};
+use super::types::{UpdateConfig, UpdateHistoryEntry, UpdateOutcome};
 use super::verify::{self, VerifyError};
 
 /// Errors raised by the worker.

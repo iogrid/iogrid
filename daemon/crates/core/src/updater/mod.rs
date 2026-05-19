@@ -7,11 +7,11 @@
 //!  * [`types`]     — wire types + config knobs (no I/O).
 //!  * [`manifest`]  — JSON parse + schema-level validation.
 //!  * [`verify`]    — Ed25519 manifest signature + SHA-256 / per-binary
-//!                    Ed25519 signature verification.
+//!    Ed25519 signature verification.
 //!  * [`binary`]    — atomic-replace + rollback on the install dir.
 //!  * [`worker`]    — the polling loop + fetcher trait + UpdateHandle
-//!                    that the supervisor parks alongside its other
-//!                    sub-tasks.
+//!    that the supervisor parks alongside its other
+//!    sub-tasks.
 //!
 //! The updater is **disabled by default**. Providers opt in via
 //! `config.updater.disabled = false` (config.toml) or via the web UI
