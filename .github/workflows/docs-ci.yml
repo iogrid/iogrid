@@ -101,7 +101,10 @@ jobs:
 
       - name: Serve and run Lighthouse CI
         run: |
-          npm install -g @lhci/cli@0.14.x http-server
+          # GitHub-hosted runners disallow global npm installs without sudo.
+          # Pinning lhci + http-server locally side-steps the EACCES symlink
+          # error and keeps the audit reproducible across runs.
+          sudo npm install -g @lhci/cli@0.14.x http-server
           cd docs-site
           http-server dist -p 8080 -s &
           SERVER_PID=$!
