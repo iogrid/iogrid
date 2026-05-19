@@ -47,9 +47,14 @@ jobs:
         working-directory: examples/phase0-vcard-customer
         run: go test -race -count=1 ./...
 
-      - name: go build
+      - name: go build (multi-arch)
         working-directory: examples/phase0-vcard-customer
-        run: go build -o /tmp/vcard-enrich ./...
+        run: |
+          mkdir -p /tmp/dist
+          GOOS=linux GOARCH=amd64 go build -o /tmp/dist/vcard-enrich-linux-amd64 ./...
+          GOOS=linux GOARCH=arm64 go build -o /tmp/dist/vcard-enrich-linux-arm64 ./...
+          GOOS=darwin GOARCH=arm64 go build -o /tmp/dist/vcard-enrich-darwin-arm64 ./...
+          cp /tmp/dist/vcard-enrich-linux-amd64 /tmp/vcard-enrich
 
       - name: dry-run smoke
         working-directory: examples/phase0-vcard-customer
@@ -58,6 +63,14 @@ jobs:
           grep -q '"name":"Satya Nadella"' /tmp/result.json
           grep -q '"proxy_used":false' /tmp/result.json
           grep -q '"provider_country":"FIXTURE"' /tmp/result.json
+
+      - name: Upload vcard-enrich binaries
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: vcard-enrich-binaries
+          path: /tmp/dist/vcard-enrich-*
+          retention-days: 30
 
   docker:
     name: Docker build (no push)
