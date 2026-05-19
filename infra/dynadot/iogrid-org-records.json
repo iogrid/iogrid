@@ -13,7 +13,9 @@
     { "subdomain": "app",    "record_type": "a", "value": "45.151.123.50", "ttl": 300 },
     { "subdomain": "proxy",  "record_type": "a", "value": "45.151.123.50", "ttl": 300 },
     { "subdomain": "build",  "record_type": "a", "value": "45.151.123.50", "ttl": 300 },
-    { "subdomain": "docs",   "record_type": "a", "value": "45.151.123.50", "ttl": 300 },
-    { "subdomain": "status", "record_type": "a", "value": "45.151.123.50", "ttl": 300 }
+    { "subdomain": "docs",     "record_type": "a", "value": "45.151.123.50", "ttl": 300 },
+    { "subdomain": "status",   "record_type": "a", "value": "45.151.123.50", "ttl": 300 },
+    { "subdomain": "releases", "record_type": "a", "value": "45.151.123.50", "ttl": 300 },
+    { "subdomain": "updates",  "record_type": "a", "value": "45.151.123.50", "ttl": 300 }
   ]
 }
