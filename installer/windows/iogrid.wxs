@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  WiX 4.x source for the iogrid Windows installer.
+
+  Builds an .msi that:
+    - Lays down iogridd.exe under "Program Files\iogrid\"
+    - Registers a Windows service "iogridd" with auto-start
+    - Adds a Start Menu shortcut to the onboarding URL
+    - Runs the daemon's `pair` subcommand as a custom action and opens
+      the browser to the onboarding URL on first install
+
+  ProductCode is a NEW GUID every build; UpgradeCode is FIXED so
+  major-upgrade detection works (uninstall old version, install new).
+  Update SHA-256 of the binary at signing time, never check in raw
+  binaries.
+
+  Build:
+    wix build iogrid.wxs -arch x64 -out iogrid.msi
+  Sign:
+    signtool sign /fd SHA256 /a /tr http://timestamp.digicert.com /td SHA256 iogrid.msi
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+
+    <Package Name="iogrid"
+             Manufacturer="iogrid"
+             Version="0.1.0.0"
+             UpgradeCode="d3f9a7b2-9c44-4f0e-8c91-3e6f7b8c1234"
+             Scope="perMachine"
+             InstallerVersion="500"
+             Compressed="yes">
+
+        <!-- A.k.a. /qb-like behaviour: silent except for UAC. -->
+        <MediaTemplate EmbedCab="yes"/>
+
+        <!-- Major-upgrade: any older version of the same UpgradeCode is
+             scheduled for removal at the very end of the install. -->
+        <MajorUpgrade
+            Schedule="afterInstallExecute"
+            DowngradeErrorMessage="A newer version of iogrid is already installed. Setup will now exit."
+            AllowSameVersionUpgrades="yes"/>
+
+        <!-- Files + service registration. -->
+        <StandardDirectory Id="ProgramFiles64Folder">
+            <Directory Id="INSTALLDIR" Name="iogrid">
+
+                <Component Id="DaemonExe" Guid="*">
+                    <File Id="iogridd.exe"
+                          Source="staging/iogridd.exe"
+                          KeyPath="yes"/>
+
+                    <ServiceInstall
+                        Id="iogriddService"
+                        Type="ownProcess"
+                        Name="iogridd"
+                        DisplayName="iogrid provider daemon"
+                        Description="Runs iogrid workloads + reports metrics to the coordinator."
+                        Start="auto"
+                        Account="LocalSystem"
+                        ErrorControl="normal"
+                        Arguments="run"
+                        Vital="yes">
+                        <!-- Restart on failure 3 times then give up. -->
+                        <util:ServiceConfig
+                            FirstFailureActionType="restart"
+                            SecondFailureActionType="restart"
+                            ThirdFailureActionType="restart"
+                            RestartServiceDelayInSeconds="5"
+                            ResetPeriodInDays="1"/>
+                    </ServiceInstall>
+
+                    <ServiceControl
+                        Id="StartiogriddService"
+                        Name="iogridd"
+                        Start="install"
+                        Stop="both"
+                        Remove="uninstall"
+                        Wait="yes"/>
+                </Component>
+
+                <Component Id="LicenseTxt" Guid="*">
+                    <File Id="LICENSE.txt" Source="staging/LICENSE.txt" KeyPath="yes"/>
+                </Component>
+
+            </Directory>
+        </StandardDirectory>
+
+        <!-- Start menu shortcut to the onboarding page. -->
+        <StandardDirectory Id="ProgramMenuFolder">
+            <Directory Id="ProgramMenuDir" Name="iogrid">
+                <Component Id="OnboardShortcut" Guid="*">
+                    <Shortcut Id="OnboardShortcutFile"
+                              Name="Finish iogrid setup"
+                              Target="https://app.iogrid.org/onboard"
+                              Description="Open the iogrid onboarding page in your browser"/>
+                    <RemoveFolder Id="RemoveOnboardMenuDir" On="uninstall"/>
+                    <RegistryValue
+                        Root="HKCU"
+                        Key="Software\iogrid"
+                        Name="installed"
+                        Type="integer"
+                        Value="1"
+                        KeyPath="yes"/>
+                </Component>
+            </Directory>
+        </StandardDirectory>
+
+        <Feature Id="Daemon" Title="iogrid daemon" Level="1">
+            <ComponentRef Id="DaemonExe"/>
+            <ComponentRef Id="LicenseTxt"/>
+            <ComponentRef Id="OnboardShortcut"/>
+        </Feature>
+
+        <!-- Custom action: open onboarding URL after install completes.
+             The pair (request) subcommand is deferred to first run by the
+             service itself; the launched browser will display a "waiting
+             for pairing" page until the daemon registers its code. -->
+        <Property Id="ONBOARD_URL" Value="https://app.iogrid.org/onboard"/>
+        <CustomAction Id="OpenOnboardBrowser"
+                      ExeCommand='[SystemFolder]cmd.exe /c start "" "[ONBOARD_URL]"'
+                      Directory="INSTALLDIR"
+                      Execute="immediate"
+                      Impersonate="yes"
+                      Return="ignore"/>
+        <InstallExecuteSequence>
+            <Custom Action="OpenOnboardBrowser"
+                    After="InstallFinalize"
+                    Condition="NOT Installed AND NOT REMOVE"/>
+        </InstallExecuteSequence>
+
+        <!-- Minimal UI: license + progress + finish. -->
+        <ui:WixUI Id="WixUI_Minimal" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"/>
+        <WixVariable Id="WixUILicenseRtf" Value="staging/License.rtf"/>
+
+    </Package>
+</Wix>

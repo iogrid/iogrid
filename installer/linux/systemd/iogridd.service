@@ -1,0 +1,22 @@
+[Unit]
+Description=iogrid provider daemon (system unit)
+Documentation=https://iogrid.org/docs
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/iogridd run
+Environment=IOGRID_CONFIG=/etc/iogrid/config.toml
+Environment=RUST_LOG=info
+Restart=on-failure
+RestartSec=5s
+# Hardening — keep these moderate so the daemon can talk to Docker.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/etc/iogrid /var/lib/iogrid /var/log/iogrid
+
+[Install]
+WantedBy=multi-user.target

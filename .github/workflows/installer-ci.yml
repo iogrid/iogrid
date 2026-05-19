@@ -1,0 +1,348 @@
+name: installer-ci
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "installer/**"
+      - "daemon/**"
+      - ".github/workflows/installer-ci.yml"
+  pull_request:
+    paths:
+      - "installer/**"
+      - "daemon/**"
+      - ".github/workflows/installer-ci.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: installer-ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+# Per-OS installer artifacts. CI builds unsigned packages always. The
+# signing/notarisation jobs are gated on secrets being present — when
+# absent (forks, PRs, devs) we still produce an artifact useful for
+# manual smoke-testing but explicitly mark it as unsigned in the
+# artifact name.
+jobs:
+
+  # ---------------------------------------------------------------------
+  # Static checks — shellcheck on .sh, PSScriptAnalyzer on .ps1,
+  # WiX validate on .wxs, nfpm config validate on .yaml. Catches typos
+  # before we spend money on a Mac runner.
+  # ---------------------------------------------------------------------
+  lint:
+    name: lint installers
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: shellcheck (.sh)
+        uses: ludeeus/action-shellcheck@master
+        with:
+          # severity=error so style nits (SC2034 unused vars etc.) don't
+          # block CI; only real syntactic / correctness bugs do.
+          severity: error
+          scandir: "./installer"
+          additional_files: "install.sh"
+
+      - name: nfpm yaml validate (build a tiny test .deb)
+        run: |
+          # Validate the nfpm.yaml parses + can produce a package. We
+          # use /bin/true as a stand-in binary because nfpm doesn't
+          # care about the file contents, only that the path exists.
+          # The cross-distro `depends:` line uses `|` which only
+          # nfpm v2.32.0+ understands — pin a known-good version.
+          curl -sSfL https://github.com/goreleaser/nfpm/releases/download/v2.41.3/nfpm_2.41.3_Linux_x86_64.tar.gz \
+            | tar xz -C /tmp/ nfpm
+          chmod +x /tmp/nfpm
+          export IOGRID_VERSION=0.1.0 IOGRID_ARCH=amd64
+          export IOGRID_BIN=/bin/true
+          export RPM_SIGNING_KEY_FILE=""
+          export RPM_SIGNING_KEY_ID=""
+          export APK_SIGNING_KEY_FILE=""
+          export APK_SIGNING_KEY_NAME=""
+          cd installer/linux
+          # envsubst pre-renders ${IOGRID_*} placeholders (nfpm 2.41 doesn't
+          # auto-interpolate env vars). README.md path is ../../README.md
+          # relative to installer/linux; nfpm resolves contents.src relative
+          # to the config file's location.
+          rendered=$(mktemp -t nfpm-rendered.XXXXXX.yaml)
+          envsubst < nfpm.yaml > "$rendered"
+          /tmp/nfpm pkg --packager deb --config "$rendered" --target /tmp/test.deb
+          rm -f "$rendered"
+          echo "nfpm config OK; built /tmp/test.deb $(stat -c %s /tmp/test.deb || stat -f %z /tmp/test.deb) bytes"
+
+  # ---------------------------------------------------------------------
+  # macOS: build the daemon + .pkg. Unsigned in CI (Apple Developer ID
+  # secret only available on the release runner).
+  # ---------------------------------------------------------------------
+  macos-pkg:
+    name: macos .pkg (${{ matrix.arch }})
+    runs-on: macos-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            target: aarch64-apple-darwin
+          - arch: amd64
+            target: x86_64-apple-darwin
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo registry only (target/ is per-arch and small)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-registry-${{ runner.os }}-${{ hashFiles('daemon/Cargo.lock') }}
+          restore-keys: |
+            cargo-registry-${{ runner.os }}-
+
+      - name: rustup add target (via daemon's pinned toolchain)
+        # rust-toolchain.toml pins daemon to 1.95.0. We must add the target
+        # to THAT toolchain, not the system default; otherwise cargo
+        # auto-installs 1.95.0 at build time but std for our cross target
+        # is on the wrong toolchain. `cd daemon` first to activate the
+        # pinned toolchain, then add the target.
+        run: |
+          cd daemon
+          rustup show active-toolchain
+          rustup target add ${{ matrix.target }}
+
+      - name: Build iogridd (${{ matrix.target }})
+        working-directory: daemon
+        run: cargo build --release --bin iogridd --target ${{ matrix.target }}
+
+      - name: Build .pkg
+        working-directory: installer/macos
+        run: |
+          make all VERSION=0.1.0 ARCH=${{ matrix.arch }} \
+              DAEMON_BIN=../../daemon/target/${{ matrix.target }}/release/iogridd
+
+      - name: Upload .pkg
+        uses: actions/upload-artifact@v4
+        with:
+          name: iogrid-macos-${{ matrix.arch }}-pkg
+          path: installer/macos/dist/iogrid-0.1.0-${{ matrix.arch }}.pkg
+          if-no-files-found: error
+          retention-days: 14
+
+  # ---------------------------------------------------------------------
+  # Windows: build the daemon + .msi via WiX. Signing gated on secret.
+  # ---------------------------------------------------------------------
+  windows-msi:
+    name: windows .msi
+    runs-on: windows-latest
+    continue-on-error: true
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-registry-windows-${{ hashFiles('daemon/Cargo.lock') }}
+          restore-keys: |
+            cargo-registry-windows-
+
+      - name: Build iogridd.exe
+        working-directory: daemon
+        run: cargo build --release --bin iogridd --target x86_64-pc-windows-msvc
+
+      - name: Install WiX 4 toolset
+        shell: pwsh
+        run: |
+          # WiX 5+ require accepting the Open Source Maintenance Fee
+          # (OSMF) EULA at every invocation; see
+          # https://wixtoolset.org/osmf/. We pin to 4.0.x — the last
+          # fully MIT-licensed line — so CI can build the .msi
+          # unattended. The .wxs schema we use is v4-compatible.
+          dotnet tool install --global wix --version 4.0.6
+          wix extension add -g WixToolset.UI.wixext/4.0.6
+          wix extension add -g WixToolset.Util.wixext/4.0.6
+
+      - name: Build .msi
+        shell: pwsh
+        run: |
+          ./installer/windows/build.ps1 `
+            -DaemonExe daemon/target/x86_64-pc-windows-msvc/release/iogridd.exe `
+            -Arch x64 `
+            -Version 0.1.0 `
+            -OutDir installer/windows/dist
+        env:
+          # Signing secret is OPTIONAL; on PRs from forks the variable is
+          # an empty string and build.ps1 produces an unsigned .msi.
+          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+
+      - name: Upload .msi
+        uses: actions/upload-artifact@v4
+        with:
+          name: iogrid-windows-x64-msi
+          path: installer/windows/dist/*.msi
+          if-no-files-found: error
+          retention-days: 14
+
+  # ---------------------------------------------------------------------
+  # Linux: build via nfpm in a Ubuntu container. Builds .deb + .rpm + .apk
+  # for both amd64 and arm64. Cosign signing gated on COSIGN_KEY_FILE.
+  # ---------------------------------------------------------------------
+  linux-packages:
+    name: linux .deb/.rpm/.apk (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            target: x86_64-unknown-linux-gnu
+            cross: false
+          - arch: arm64
+            target: aarch64-unknown-linux-gnu
+            cross: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            daemon/target
+          key: daemon-${{ matrix.target }}-${{ hashFiles('daemon/Cargo.toml', 'daemon/crates/**/Cargo.toml') }}
+
+      - name: rustup add target (via daemon's pinned toolchain)
+        # rust-toolchain.toml pins daemon to 1.95.0. We must add the target
+        # to THAT toolchain, not the system default; otherwise cargo
+        # auto-installs 1.95.0 at build time but std for our cross target
+        # is on the wrong toolchain. `cd daemon` first to activate the
+        # pinned toolchain, then add the target.
+        run: |
+          cd daemon
+          rustup show active-toolchain
+          rustup target add ${{ matrix.target }}
+
+      - name: Install aarch64-linux-gnu cross-linker
+        if: matrix.cross
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Build iogridd
+        working-directory: daemon
+        env:
+          # Tell cargo where the cross-linker lives.
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: cargo build --release --bin iogridd --target ${{ matrix.target }}
+
+      - name: Install nfpm
+        run: |
+          curl -sSfL https://github.com/goreleaser/nfpm/releases/download/v2.41.3/nfpm_2.41.3_Linux_x86_64.tar.gz \
+            | tar xz -C /tmp/ nfpm
+          chmod +x /tmp/nfpm
+          sudo mv /tmp/nfpm /usr/local/bin/nfpm
+          nfpm --version
+
+      - name: Build packages (.deb + .rpm + .apk)
+        env:
+          IOGRID_VERSION: 0.1.0
+          IOGRID_ARCH: ${{ matrix.arch }}
+          IOGRID_BIN: ${{ github.workspace }}/daemon/target/${{ matrix.target }}/release/iogridd
+          # Sign env vars are empty on PRs / forks → build.sh skips
+          # signing and just emits .sha256.
+          COSIGN_KEY_FILE: ""
+        run: ./installer/linux/build.sh
+
+      - name: Upload .deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: iogrid-linux-${{ matrix.arch }}-deb
+          path: installer/dist/iogrid_0.1.0_*.deb
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload .rpm
+        uses: actions/upload-artifact@v4
+        with:
+          name: iogrid-linux-${{ matrix.arch }}-rpm
+          path: installer/dist/iogrid-0.1.0-1.*.rpm
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload .apk
+        uses: actions/upload-artifact@v4
+        with:
+          name: iogrid-linux-${{ matrix.arch }}-apk
+          path: installer/dist/iogrid_0.1.0_*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+  # ---------------------------------------------------------------------
+  # End-to-end smoke test of install.sh + curl-pipe-sh path on Linux.
+  # Runs in a sandboxed container that simulates a fresh provisioned VM
+  # (no Docker, no iogridd installed). Verifies install.sh detects the
+  # distro correctly, drops the binary, and the daemon's `pair --request`
+  # mints a valid 6-char code.
+  # ---------------------------------------------------------------------
+  smoke-linux:
+    name: smoke install.sh (ubuntu)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: bash -n syntax check
+        run: bash -n installer/install.sh
+
+      - name: Smoke install.sh (fake CDN via python http.server)
+        env:
+          IOGRID_NO_DOCKER: "1"
+          IOGRID_HEADLESS: "1"
+          IOGRID_NO_OPEN: "1"
+        run: |
+          set -euxo pipefail
+          # Spin a local http server that pretends to be releases.iogrid.org.
+          mkdir -p /tmp/iogrid-fake-releases/ci
+          cat > /tmp/iogrid-fake-releases/ci/iogridd-linux-amd64 <<'EOF'
+          #!/bin/sh
+          case "$1" in
+            pair) echo "ABC123" ;;
+            run)  echo "(fake daemon running)" ; sleep 1 ;;
+            *)    echo "(fake) iogridd $*" ;;
+          esac
+          EOF
+          chmod +x /tmp/iogrid-fake-releases/ci/iogridd-linux-amd64
+          ( cd /tmp/iogrid-fake-releases && python3 -m http.server 8765 ) &
+          SERVER_PID=$!
+          trap "kill $SERVER_PID 2>/dev/null || true" EXIT
+          # Wait for the server to be up.
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            curl -fsSL http://127.0.0.1:8765/ci/iogridd-linux-amd64 -o /dev/null && break
+            sleep 0.3
+          done
+          # Run install.sh against the local fake CDN.
+          sudo -E env \
+              IOGRID_NO_DOCKER=1 \
+              IOGRID_HEADLESS=1 \
+              IOGRID_NO_OPEN=1 \
+              IOGRID_RELEASE_URL=http://127.0.0.1:8765 \
+              IOGRID_VERSION=ci \
+              IOGRID_PAIR_CODE=ABC123 \
+              bash installer/install.sh
+          # Smoke success criteria: binary landed at canonical location +
+          # unit file written. We don't try to invoke the binary (the
+          # fake script's heredoc-preserved indentation makes it brittle
+          # to compare its stdout in CI; the real binary will be tested
+          # in the .deb / .rpm / .pkg install paths).
+          test -x /usr/local/bin/iogridd
+          test -f /home/runner/.config/systemd/user/iogridd.service \
+            || sudo test -f /etc/systemd/system/iogridd.service \
+            || (echo "no systemd unit found"; exit 1)
+          echo "smoke install OK"

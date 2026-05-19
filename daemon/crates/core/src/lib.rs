@@ -36,6 +36,9 @@ pub use iogrid_ui_bridge::{
 };
 pub use workloads::{ActiveAssignment, ActiveRegistry, WorkloadRouter, WorkloadRouterRunners};
 
+pub mod pair;
+pub mod updater;
+
 /// Top-level supervisor state. Mirrors the public dashboard chip in the web UI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SupervisorState {

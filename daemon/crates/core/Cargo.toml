@@ -30,6 +30,10 @@ toml = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
 parking_lot = { workspace = true }
+# Pairing-code RNG. Used by the `pair` module to mint one-time install
+# tokens. Added directly here (not workspace-pinned) because no other
+# crate needs randomness yet.
+rand = "0.8"
 
 iogrid-transport = { workspace = true }
 iogrid-routing = { workspace = true }

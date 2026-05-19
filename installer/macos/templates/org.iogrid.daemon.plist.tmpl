@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>org.iogrid.daemon</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/iogrid/iogridd</string>
+        <string>run</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>IOGRID_CONFIG</key>
+        <string>@USER_HOME@/Library/Application Support/iogrid/config.toml</string>
+        <key>RUST_LOG</key>
+        <string>info</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+        <key>NetworkState</key>
+        <true/>
+    </dict>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>StandardOutPath</key>
+    <string>@USER_HOME@/Library/Logs/iogrid/iogridd.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>@USER_HOME@/Library/Logs/iogrid/iogridd.err.log</string>
+    <key>WorkingDirectory</key>
+    <string>@USER_HOME@</string>
+    <key>UserName</key>
+    <string>@USER_NAME@</string>
+</dict>
+</plist>

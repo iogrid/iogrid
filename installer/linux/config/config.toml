@@ -1,0 +1,28 @@
+# iogrid daemon configuration.
+#
+# This file is /etc/iogrid/config.toml for the system-mode unit, or
+# ~/.config/iogrid/config.toml for the user-mode unit. The daemon
+# resolves it from $IOGRID_CONFIG (set in the systemd unit).
+#
+# Values shown here are the defaults documented in docs/TECH.md. The
+# onboarding wizard at app.iogrid.org/onboard/<token> writes the
+# user's choices into this file via the daemon's IPC bridge, so most
+# operators will never edit this directly.
+
+# Coordinator endpoint. Production is coordinator.iogrid.org:443.
+coordinator_url = "https://coordinator.iogrid.org:443"
+
+# Identity material (mTLS client cert). Created during onboarding.
+identity_pem = "/var/lib/iogrid/identity.pem"
+
+# UI bridge — localhost only, port 7777 (dynamic fallback on conflict).
+ui_listen = "127.0.0.1:7777"
+
+# Resource caps — sane defaults for grandma's PC.
+bandwidth_cap_gb = 50          # GB / month
+cpu_cap_pct      = 30          # % of total system CPU
+memory_cap_pct   = 25          # % of total system RAM
+
+# Idle detection: only accept work when the user is away.
+idle_only            = true
+idle_threshold_secs  = 300     # 5 minutes

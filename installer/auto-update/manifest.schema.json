@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://updates.iogrid.org/manifest.schema.json",
+  "title": "iogrid auto-update manifest",
+  "description": "Signed manifest the daemon polls daily to decide whether to self-replace.",
+  "type": "object",
+  "required": ["version", "channel", "releases", "signature"],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "description": "Manifest schema version. Bumped on incompatible changes.",
+      "enum": [1]
+    },
+    "channel": {
+      "type": "string",
+      "description": "Release channel this manifest is published on.",
+      "enum": ["stable", "beta", "edge"]
+    },
+    "issued_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "releases": {
+      "type": "array",
+      "description": "Available releases. Daemon picks the highest semver ≥ its own.",
+      "items": {
+        "type": "object",
+        "required": ["version", "artifacts", "min_supported_from"],
+        "properties": {
+          "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-[A-Za-z0-9.-]+)?$" },
+          "min_supported_from": {
+            "type": "string",
+            "description": "Lowest installed version that may upgrade to this release directly. Older daemons must hop via an intermediate version."
+          },
+          "release_notes_url": { "type": "string", "format": "uri" },
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["target", "url", "sha256", "size_bytes"],
+              "properties": {
+                "target": {
+                  "type": "string",
+                  "description": "rustc-style target triple of the artifact.",
+                  "enum": [
+                    "x86_64-unknown-linux-gnu",
+                    "aarch64-unknown-linux-gnu",
+                    "x86_64-apple-darwin",
+                    "aarch64-apple-darwin",
+                    "x86_64-pc-windows-msvc",
+                    "aarch64-pc-windows-msvc"
+                  ]
+                },
+                "url": { "type": "string", "format": "uri" },
+                "sha256": { "type": "string", "pattern": "^[a-fA-F0-9]{64}$" },
+                "size_bytes": { "type": "integer", "minimum": 1 },
+                "cosign_signature": {
+                  "type": "string",
+                  "description": "Base64-encoded cosign blob signature over the binary."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "signature": {
+      "type": "object",
+      "required": ["algorithm", "key_id", "value"],
+      "description": "Ed25519 signature over the canonical JSON of the manifest with .signature stripped.",
+      "properties": {
+        "algorithm": { "type": "string", "enum": ["ed25519"] },
+        "key_id":    { "type": "string" },
+        "value":     { "type": "string", "description": "base64(signature)" }
+      }
+    }
+  }
+}
