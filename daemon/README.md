@@ -92,6 +92,51 @@ The daemon ships three workload-execution engines (PRs #12, #13, #14):
 
 The supervisor (`iogrid_core::WorkloadRouter`) decodes `DispatchFrame::NewAssignment` envelopes and routes them to the right runner. It tracks active assignments in `ActiveRegistry`, surfaces `running` → `succeeded` / `failed` / `timed_out` / `cancelled` `Update` frames back to the coordinator, and revokes every in-flight runner when the scheduler flips to `Paused` or when the daemon shuts down.
 
+## Auto-update (issue #59)
+
+The daemon polls a signed manifest at `https://updates.iogrid.org/manifest.json`
+(override via `[updater].manifest_url`), picks the highest-semver release on
+its configured channel, verifies the manifest's Ed25519 signature against an
+embedded trust root, downloads + SHA-256-verifies the per-target binary,
+stages it at `<install-dir>/iogridd.new`, then on operator-confirmed restart
+atomic-renames it over `iogridd` while keeping the previous version at
+`iogridd.old` for one cycle.
+
+CLI:
+
+```bash
+iogridd update --check     # poll once, print JSON outcome
+iogridd update --apply     # rename .new over current binary
+iogridd update --rollback  # restore .old binary
+```
+
+Config (in `~/.iogrid/config.toml`):
+
+```toml
+[updater]
+manifest_url       = "https://updates.iogrid.org/manifest.json"
+channel            = "stable"   # or beta / edge
+disabled           = true       # default: opt-in
+poll_interval_secs = 21600      # 6h, override for tests
+```
+
+Module layout:
+
+```
+daemon/crates/core/src/updater/
+├── mod.rs        — public re-exports
+├── types.rs      — UpdateConfig + manifest wire types
+├── manifest.rs   — JSON parse + schema validation
+├── verify.rs     — Ed25519 manifest sig + SHA-256 / per-binary Ed25519 sig
+├── binary.rs     — atomic-replace + rollback on disk
+└── worker.rs     — polling loop + Fetcher trait + UpdateHandle
+```
+
+Rollback safety: if the new binary crashes within 30s of first launch, the
+pre-exec wrapper (in `iogrid-platform-{mac,linux,windows}`) restores
+`iogridd.old`. See `installer/auto-update/README.md` for the operator
+runbook and CI test harness.
+
 ## Adding a new crate
 
 1. `mkdir crates/<name> && cd crates/<name>`

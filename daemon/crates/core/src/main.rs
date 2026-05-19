@@ -13,7 +13,10 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use iogrid_core::{init_tracing, DaemonConfig, Supervisor};
+use iogrid_core::{
+    default_install_layout, init_tracing, target_triple, updater, DaemonConfig, Supervisor,
+};
+use std::sync::Arc;
 
 #[derive(Parser)]
 #[command(name = "iogridd", version, about = "iogrid provider daemon")]
@@ -44,6 +47,19 @@ enum Cmd {
     Uninstall,
     /// Print version + target.
     Version,
+    /// Auto-update subcommands.
+    Update {
+        /// Poll the manifest server once and print the outcome.
+        #[arg(long, conflicts_with_all = ["apply", "rollback"])]
+        check: bool,
+        /// Apply a previously-staged update (rename `iogridd.new` over
+        /// `iogridd`, copy old to `iogridd.old`).
+        #[arg(long, conflicts_with_all = ["check", "rollback"])]
+        apply: bool,
+        /// Restore the previous binary (`iogridd.old` → `iogridd`).
+        #[arg(long, conflicts_with_all = ["check", "apply"])]
+        rollback: bool,
+    },
 }
 
 #[tokio::main]
@@ -70,6 +86,11 @@ async fn main() -> Result<()> {
             );
             Ok(())
         }
+        Some(Cmd::Update {
+            check,
+            apply,
+            rollback,
+        }) => run_update(&state_dir, check, apply, rollback).await,
     }
 }
 
@@ -183,6 +204,56 @@ async fn run_stop() -> Result<()> {
             .args(["stop", "iogridd"])
             .status();
         Ok(())
+    }
+}
+
+async fn run_update(
+    state_dir: &std::path::Path,
+    check: bool,
+    apply: bool,
+    rollback: bool,
+) -> Result<()> {
+    let layout = default_install_layout();
+    // `check` is accepted explicitly so `iogridd update --check` reads
+    // naturally; with no flag we fall through to the same branch.
+    let _ = check;
+
+    if rollback {
+        let cur = updater::apply_rollback(&layout).context("rollback")?;
+        println!("rolled back to {}", cur.display());
+        return Ok(());
+    }
+    if apply {
+        let cur = updater::apply_pending(&layout).context("apply pending update")?;
+        println!("applied; binary now at {}", cur.display());
+        println!(
+            "service manager (launchd / systemd / sc.exe) will restart the daemon \
+             on its next stop; or run `iogridd stop` to trigger immediately."
+        );
+        return Ok(());
+    }
+
+    // --check (default). Force the worker to run a single iteration
+    // regardless of config.disabled — the operator just invoked us.
+    let cfg = DaemonConfig::load_or_init(state_dir).context("load daemon config")?;
+    let mut updater_cfg = cfg.updater.clone();
+    updater_cfg.disabled = false;
+    let ctx = updater::PollCtx {
+        config: updater_cfg,
+        current_version: env!("CARGO_PKG_VERSION").to_string(),
+        target: target_triple().to_string(),
+        layout,
+        fetcher: Arc::new(updater::HttpFetcher::default()),
+    };
+    match updater::run_one_poll(&ctx).await {
+        Ok(o) => {
+            println!("{}", serde_json::to_string_pretty(&o)?);
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("update check failed: {e}");
+            std::process::exit(1);
+        }
     }
 }
 

@@ -11,10 +11,12 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"log/slog"
 	"os"
 
 	"github.com/go-chi/chi/v5"
+	_ "github.com/jackc/pgx/v5/stdlib" // registers "pgx" driver
 	"github.com/redis/go-redis/v9"
 
 	"github.com/iogrid/iogrid/coordinator/services/antiabuse-svc/internal/audit"
@@ -101,8 +103,9 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*handle
 
 	// Audit emitter (NATS or slog fallback).
 	auditEmitter, err := audit.New(ctx, audit.Options{
-		NATSURL: cfg.NATSURL,
-		Logger:  logger,
+		NATSURL:       cfg.NATSURL,
+		Logger:        logger,
+		RetentionDays: cfg.AuditRetentionDays,
 	})
 	if err != nil {
 		logger.Warn("audit emitter init failed", slog.String("error", err.Error()))
@@ -110,6 +113,37 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*handle
 	if auditEmitter != nil {
 		addCleanup(auditEmitter.Close)
 	}
+
+	// Optional Postgres mirror — only opened when DSN is set so the
+	// dev-mode boot stays zero-dependency. The pgx stdlib driver was
+	// linked at the top-level import.
+	var auditDB *sql.DB
+	if cfg.AuditPostgresDSN != "" {
+		db, err := sql.Open("pgx", cfg.AuditPostgresDSN)
+		if err != nil {
+			logger.Warn("AUDIT_POSTGRES_DSN open failed; skipping mirror",
+				slog.String("error", err.Error()))
+		} else {
+			auditDB = db
+			addCleanup(func() { _ = db.Close() })
+		}
+	}
+
+	// Background retention pruner — enforces the 90-day TTL on the
+	// JetStream stream (re-asserts MaxAge) and on the Postgres mirror
+	// (batched DELETE) every 24h.
+	pruneCtx, pruneCancel := context.WithCancel(context.Background())
+	addCleanup(pruneCancel)
+	prunerOpts := audit.PrunerOptions{
+		RetentionDays: cfg.AuditRetentionDays,
+		DB:            auditDB,
+		Logger:        logger,
+	}
+	if auditEmitter != nil {
+		prunerOpts.Stream = auditEmitter.Stream()
+		prunerOpts.JS = auditEmitter.JS()
+	}
+	audit.NewPruner(prunerOpts).Start(pruneCtx)
 
 	// Reputation backends. Each one Start()s its own refresh goroutine.
 	ptCtx, ptCancel := context.WithCancel(context.Background())
@@ -138,6 +172,15 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*handle
 	if !pd.Enabled() {
 		logger.Warn("PHOTODNA_API_KEY unset; NCMEC PhotoDNA in stub mode",
 			slog.String("action", "complete NCMEC partnership and set PHOTODNA_API_KEY before Phase 1 onboarding"))
+	} else {
+		// Weekly refresh of NCMEC's published hash list into the
+		// in-memory bloom filter. No-op in stub mode.
+		pdCtx, pdCancel := context.WithCancel(context.Background())
+		addCleanup(pdCancel)
+		photodna.NewRefresher(pd, photodna.RefresherOptions{
+			Interval: cfg.PhotoDNABloomRefresh,
+			Logger:   logger,
+		}).Start(pdCtx)
 	}
 
 	orch := filters.NewOrchestrator(pt, op, gs, pd)

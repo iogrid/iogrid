@@ -48,6 +48,9 @@ when `NATS_URL` is unset.
 | `PHOTODNA_API_KEY` | _empty_ | NCMEC PhotoDNA key; empty puts the backend in stub mode (warning logged on first call) |
 | `REDIS_URL` | _empty_ | Redis connection URL for rate limiting; empty uses in-memory fallback (NOT safe for multi-replica deploys) |
 | `NATS_URL` | _empty_ | NATS JetStream URL for audit emission; empty falls back to slog |
+| `AUDIT_POSTGRES_DSN` | _empty_ | pgx DSN for the optional relational audit mirror; when set, the 90-day retention pruner runs nightly DELETEs in batches of 10_000 |
+| `AUDIT_RETENTION_DAYS` | `90` | Retention horizon for the JetStream stream + Postgres mirror. Clamped up to the 90-day legal floor — values below 90 are coerced to 90 |
+| `PHOTODNA_BLOOM_REFRESH` | `168h` | Cadence at which the NCMEC published-hash bloom filter is rebuilt (7 days matches NCMEC's export cycle) |
 | `HIGH_VALUE_TARGETS` | `linkedin.com,facebook.com,twitter.com,google.com,instagram.com` | Comma-separated destinations under the 10 RPS-per-provider cap |
 | `BLOCK_DOMAINS` | _empty_ | Comma-separated operator deny-list (glob patterns supported). Matches return `FILTER_DECISION_BLOCK` with `reason=destination_blocked`. Intended for staging / e2e fixtures (`malware.test,known-bad.test,*.evil.example`); in prod the same list lives in the DB-backed loader (issue #72) |
 | `DEFAULT_CUSTOMER_RPS` | `100` | Per-customer aggregate cap |
@@ -103,6 +106,99 @@ first traffic and short-circuits to ALLOW. **This is the highest-priority
 gap to close before Phase 1 onboarding** — see `docs/LEGAL.md` §
 "Mandatory anti-abuse before any external provider joins".
 
+#### Partnership application process
+
+NCMEC restricts PhotoDNA access to vetted organisations under a signed
+partnership agreement. Application is via the CyberTipline IPAM portal
+(`https://report.cybertip.org/ipam`, organisation registration at
+`https://www.cybertip.org/registration`) and typically takes 4–8
+weeks. The required artefacts are:
+
+1. **Organisation evidence** — Dynolabs's certificate of incorporation,
+   doing-business-as evidence for iogrid (we operate iogrid as a
+   product line under Dynolabs per `docs/LEGAL.md`), and contact for
+   the named principal accountable for CSAM response.
+2. **Use-case statement** — a 1–2 page description of *what* iogrid
+   relays, *which* surfaces will run PhotoDNA lookups (the
+   bandwidth-workload pre-flight path), and *how often* lookups will
+   fire. Reviewers want enough specificity to understand the abuse
+   model; rough numbers from `docs/MARKET.md` are sufficient.
+3. **Anti-abuse posture** — confirmation that other filters
+   (PhishTank / OpenPhish / Google Safe Browsing / domain deny-list /
+   port deny-list / per-customer KYC) are in place. `docs/LEGAL.md` §
+   "Mandatory anti-abuse" is the canonical evidence.
+4. **Audit-log retention commitment** — written attestation that audit
+   logs are retained for 90 days with the schema documented in
+   `docs/LEGAL.md`. This package's `internal/audit` +
+   `internal/audit/retention.go` implement that commitment.
+5. **Incident-response plan** — named owner + escalation path when a
+   PhotoDNA match occurs. NCMEC requires this so they know who to
+   contact on the iogrid side when a customer dispute reaches NCMEC
+   directly.
+6. **Designated principal contact** — named individual at Dynolabs
+   responsible for the agreement. Counsel co-signs.
+
+Once issued, `PHOTODNA_API_KEY` is loaded into the
+`antiabuse-svc-secrets` Kubernetes Secret and the backend transitions
+from stub mode at the next rollout. The on-call channel receives a
+slog INFO line confirming the switch (`ncmec_photodna bloom refreshed`
+is the canonical "armed" signature).
+
+#### Weekly hash-list refresh
+
+In addition to per-image lookups the backend keeps an in-memory bloom
+filter of the published NCMEC hash database. The refresh goroutine
+pulls the export weekly (override via `PHOTODNA_BLOOM_REFRESH`); the
+filter lets us short-circuit definitively-not-CSAM lookups before any
+network round-trip. The bloom never false-negatives, so a "miss"
+always escapes to the real API call.
+
+### Audit log retention enforcement
+
+The 90-day retention requirement in `docs/LEGAL.md` is enforced at
+three layers:
+
+1. **JetStream `MaxAge`** — the `AUDIT` stream is configured with
+   `MaxAge = 90d` at creation. The pruner re-applies this every 24h
+   in case of config drift.
+2. **Postgres mirror DELETE** — when `AUDIT_POSTGRES_DSN` is set the
+   pruner runs a bounded-batch DELETE (`LIMIT 10_000` per pass) keyed
+   on a `created_at` index, every 24h. The index is created
+   idempotently on first boot via `EnsureIndex`.
+3. **`Pruner.RunOnce` admin trigger** — exposed so a future admin
+   endpoint can force a sweep out-of-band.
+
+The minimum retention is 90 days; values below that are clamped up so
+the legal-shield argument in `docs/LEGAL.md` never silently breaks.
+
+### Quarterly transparency report
+
+The `cmd/transparency-report` binary aggregates the in-window audit
+counters and publishes a JSON + Markdown report. The
+`infra/k8s/base/antiabuse-svc/cronjob-transparency.yaml` CronJob fires
+it at `03:00 UTC` on the 1st of January / April / July / October —
+publishing a report for the just-completed quarter.
+
+Each report covers:
+
+- Total filter checks performed in the quarter
+- Total blocks issued, aggregate block rate
+- Per-category block counts (CSAM, phishing, fraud, rate-limit, etc.)
+- Per-backend hit rates (PhotoDNA, PhishTank, OpenPhish, GSB)
+- Law-enforcement inquiries received + responses sent + breakdown by
+  jurisdiction + request type
+- Audit-log retention compliance (configured vs required, last prune
+  pass, oldest record)
+- Methodology footer
+
+Delivery channels:
+
+- `s3://iogrid-transparency/{year}/Q{q}.{json,md}` (canonical archive)
+- `gateway-bff` `POST /api/v1/transparency/publish` (cache for the
+  public endpoint at `https://api.iogrid.org/status/transparency/{year}/{quarter}`)
+- The marketing `/transparency` page consumes the gateway-bff endpoint
+  to render the index + per-report links
+
 ---
 
 ## Tests
@@ -122,6 +218,19 @@ go test -tags=integration ./internal/handler/...
 
 The integration test still mocks the feed endpoints so the only
 external dependency is Redis.
+
+Audit-retention integration tests live under
+`internal/audit/retention_integration_test.go` (also `//go:build
+integration`). They need a reachable Postgres (default
+`postgres://postgres:postgres@localhost:5432/antiabuse_audit?sslmode=disable`)
+and verify that 100-day-old rows are pruned while fresh rows survive:
+
+```bash
+docker run --rm -d -p 5432:5432 \
+    -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=antiabuse_audit \
+    postgres:16
+go test -tags=integration ./internal/audit/...
+```
 
 ---
 

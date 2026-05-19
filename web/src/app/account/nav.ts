@@ -5,5 +5,6 @@ export const ACCOUNT_NAV: NavItem[] = [
   { href: "/account/identifiers", label: "Identifiers" },
   { href: "/account/wallets", label: "Wallets" },
   { href: "/account/sessions", label: "Sessions" },
+  { href: "/account/updates", label: "Updates" },
   { href: "/account/danger-zone", label: "Danger zone" },
 ];

@@ -9,6 +9,11 @@ import { browserApi } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { GetEarningsSummaryResponse } from "@/lib/types";
+import {
+  WithdrawDrawer,
+  loadPendingOffRamps,
+  type PendingOffRamp,
+} from "./withdraw";
 
 type Period = "daily" | "weekly" | "monthly";
 type PayoutMethod = "cash" | "vpn" | "charity";
@@ -27,6 +32,16 @@ export function EarningsView() {
   const [chart, setChart] = React.useState<EarningsPoint[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [payout, setPayout] = React.useState<PayoutMethod>("cash");
+  const [withdrawOpen, setWithdrawOpen] = React.useState(false);
+  const [pendingOffRamps, setPendingOffRamps] = React.useState<PendingOffRamp[]>(
+    [],
+  );
+
+  React.useEffect(() => {
+    // Hydrate pending off-ramps from localStorage on mount; the
+    // earnings page persists these across reloads (issue #169).
+    setPendingOffRamps(loadPendingOffRamps());
+  }, []);
 
   React.useEffect(() => {
     const cfg = PERIODS.find((p) => p.key === period)!;
@@ -96,7 +111,35 @@ export function EarningsView() {
             </button>
           ))}
         </div>
+        <Button
+          variant="default"
+          size="sm"
+          onClick={() => setWithdrawOpen(true)}
+          aria-label="Withdraw earnings"
+        >
+          Withdraw
+        </Button>
       </div>
+
+      {pendingOffRamps.length > 0 ? (
+        <section
+          aria-label="Pending off-ramp requests"
+          className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-700 dark:bg-amber-950"
+        >
+          <p className="font-medium text-amber-900 dark:text-amber-200">
+            Off-ramp in progress
+          </p>
+          <ul className="mt-2 space-y-1 text-xs text-amber-800 dark:text-amber-300">
+            {pendingOffRamps.map((p) => (
+              <li key={p.requestId} className="flex justify-between gap-3">
+                <span>{p.providerName}</span>
+                <span className="font-mono">{p.requestId.slice(0, 8)}</span>
+                <span>{new Date(p.startedAt).toLocaleString()}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       {loading ? (
         <div className="flex h-48 items-center justify-center rounded-md border border-dashed border-zinc-300 text-sm text-zinc-500 dark:border-zinc-700">
@@ -163,6 +206,8 @@ export function EarningsView() {
           Save payout method
         </Button>
       </section>
+
+      <WithdrawDrawer open={withdrawOpen} onOpenChange={setWithdrawOpen} />
     </div>
   );
 }

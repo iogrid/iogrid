@@ -42,10 +42,22 @@ type Deps struct {
 	// VPNGateway is optional; when present the BFF surfaces
 	// /api/v1/vpn/config-for-platform proxying to the vpn-gateway pod.
 	VPNGateway *handlers.VPNGatewayProxy
+	// Transparency is optional; when present the BFF accepts the
+	// antiabuse-svc CronJob's POST at /api/v1/transparency/publish
+	// and serves the cached snapshots at /status/transparency/*.
+	Transparency handlers.TransparencyStore
+	// TransparencyPublishToken, when set, is required as a Bearer
+	// token on POST /api/v1/transparency/publish (the CronJob is
+	// configured with the same secret). When empty the endpoint
+	// relies on NetworkPolicy + in-cluster trust.
+	TransparencyPublishToken string
 	// Workspaces is the optional client over identity-svc's
 	// WorkspaceService. When nil the /api/v1/workspaces tree returns
 	// 503 — useful in dev environments where identity-svc isn't up.
 	Workspaces handlers.WorkspaceClient
+	// OffRamp is the thin HTTP proxy to billing-svc's off-ramp routes.
+	// When nil the /api/v1/offramp/* + webhook routes return 503.
+	OffRamp *handlers.OffRampProxy
 }
 
 // Mount builds the routes from the supplied Deps. Pass the returned
@@ -56,7 +68,15 @@ func Mount(deps Deps) func(chi.Router) {
 	}
 	api := handlers.New(deps.Clients, deps.APIKeyStore, deps.Logger)
 	api.VPNGateway = deps.VPNGateway
+	api.Transparency = deps.Transparency
+	if api.Transparency == nil {
+		// Default in-memory store so the CronJob POST never 503s in
+		// the dev-mode boot path. Production main.go can override
+		// with a Redis/DB-backed implementation.
+		api.Transparency = handlers.NewMemoryTransparencyStore()
+	}
 	api.Workspaces = deps.Workspaces
+	api.OffRamp = deps.OffRamp
 	// Phase 0: default to an in-memory customer-onboard store so
 	// POST /api/v1/onboard/customer works end-to-end without further
 	// wiring. Phase 1 swaps this for the identity-svc-backed impl.
@@ -69,6 +89,13 @@ func Mount(deps Deps) func(chi.Router) {
 		// (it predates the BFF's customer-facing /api/v1/* tree).
 		r.Route("/v1", func(r chi.Router) {
 			r.Get("/", indexHandler)
+		})
+
+		// Public transparency endpoints — unauthenticated by design
+		// (the docs/LEGAL.md commitment is to publish these).
+		r.Route("/status/transparency", func(r chi.Router) {
+			r.Get("/", api.ListTransparencyReports)
+			r.Get("/{year}/{quarter}", api.GetTransparencyReport)
 		})
 
 		r.Route("/api/v1", func(r chi.Router) {
@@ -93,6 +120,16 @@ func Mount(deps Deps) func(chi.Router) {
 				r.Post("/sign-in/magic/complete", api.CompleteMagicLink)
 				r.Post("/sign-out", api.SignOut)
 				r.Get("/sessions", api.ListSessions)
+
+				// Auto-update operator surface (#59).
+				r.Route("/updates", func(r chi.Router) {
+					r.Use(auth.RequireAuth)
+					r.Get("/", api.GetUpdates)
+					r.Post("/preferences", api.SaveUpdatePreferences)
+					r.Post("/check", api.TriggerUpdateCheck)
+					r.Post("/apply", api.ApplyPendingUpdate)
+					r.Post("/rollback", api.RollbackUpdate)
+				})
 			})
 
 			// /onboard ----------------------------------------------------
@@ -143,6 +180,26 @@ func Mount(deps Deps) func(chi.Router) {
 				r.Post("/abuse/{id}/resolve", api.ResolveAbuseEvent)
 			})
 
+			// /transparency ----------------------------------------------
+			// POST is the antiabuse-svc CronJob ingest hook. Optional
+			// bearer-token guard via TransparencyPublishToken; absent
+			// guard relies on cluster NetworkPolicy.
+			r.Route("/transparency", func(r chi.Router) {
+				if deps.TransparencyPublishToken != "" {
+					tok := deps.TransparencyPublishToken
+					r.Use(func(next http.Handler) http.Handler {
+						return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+							if req.Header.Get("Authorization") != "Bearer "+tok {
+								http.Error(w, `{"code":"unauthorized","message":"bad publish token"}`, http.StatusUnauthorized)
+								return
+							}
+							next.ServeHTTP(w, req)
+						})
+					})
+				}
+				r.Post("/publish", api.PublishTransparencyReport)
+			})
+
 			// /workspaces ---------------------------------------------
 			// Workspace bounded-context (#146). Auth-required; proxies
 			// to identity-svc WorkspaceService.
@@ -157,6 +214,24 @@ func Mount(deps Deps) func(chi.Router) {
 				r.Post("/{id}/members", api.AddMember)
 				r.Patch("/{id}/members/{userID}", api.UpdateMemberRole)
 				r.Delete("/{id}/members/{userID}", api.RemoveMember)
+			})
+
+			// /offramp ----------------------------------------------------
+			// Off-ramp adapter surface (issue #167 / #169 / #170).
+			// /start + /status + /providers require auth. The webhook
+			// receiver is unauthed — partners cannot carry our bearer;
+			// their signature header is the auth (validated by
+			// billing-svc's adapter).
+			r.Route("/offramp", func(r chi.Router) {
+				r.Get("/providers", api.ListOffRampProviders)
+				r.Group(func(r chi.Router) {
+					r.Use(auth.RequireAuth)
+					r.Post("/start", api.StartOffRamp)
+					r.Get("/status/{requestID}", api.GetOffRampStatus)
+				})
+			})
+			r.Route("/webhooks", func(r chi.Router) {
+				r.Post("/offramp/{providerName}", api.HandleOffRampWebhook)
 			})
 
 			// /vpn --------------------------------------------------------

@@ -21,6 +21,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/billing/v1/billingv1connect"
+	"github.com/iogrid/iogrid/coordinator/services/billing-svc/internal/offramp"
 	"github.com/iogrid/iogrid/coordinator/services/billing-svc/internal/solana"
 	"github.com/iogrid/iogrid/coordinator/services/billing-svc/internal/store"
 	"github.com/iogrid/iogrid/coordinator/services/billing-svc/internal/stripeapi"
@@ -30,10 +31,11 @@ import (
 // Deps is the bundle of collaborators the routes need. main.go builds
 // this and passes it to Mount.
 type Deps struct {
-	Store  *store.Store
-	Stripe *stripeapi.Service
-	Solana *solana.Service
-	Tax    *tax.Generator
+	Store   *store.Store
+	Stripe  *stripeapi.Service
+	Solana  *solana.Service
+	Tax     *tax.Generator
+	OffRamp *offramp.Service
 }
 
 // Mount attaches the billing-svc routes onto the shared chi router.
@@ -73,6 +75,17 @@ func Mount(d Deps) func(chi.Router) {
 
 			// Tax reports
 			r.Post("/tax/{userID}/generate", h.taxGenerate)
+
+			// Off-ramp adapter surface (issue #167 / #169 / #170).
+			// gateway-bff calls /v1/offramp/start to mint a redirect URL;
+			// partners POST to /v1/offramp/webhook/{provider_name} to
+			// report status transitions.
+			r.Route("/offramp", func(r chi.Router) {
+				r.Get("/providers", h.listOffRampProviders)
+				r.Post("/start", h.startOffRamp)
+				r.Get("/status/{requestID}", h.getOffRampStatus)
+				r.Post("/webhook/{providerName}", h.offRampWebhook)
+			})
 		})
 
 		// Connect-RPC: ApiKeyService — proxy-gateway + build-gateway

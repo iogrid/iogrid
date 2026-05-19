@@ -99,6 +99,10 @@ pub struct DaemonConfig {
     pub heartbeat_secs: u64,
     /// Anti-abuse filter refresh cadence (seconds).
     pub filter_refresh_secs: u64,
+    /// Auto-update knobs. Disabled by default; provider opts in via
+    /// config.toml or the `/account/updates` web UI.
+    #[serde(default)]
+    pub updater: updater::UpdateConfig,
 }
 
 impl Default for DaemonConfig {
@@ -120,6 +124,7 @@ impl Default for DaemonConfig {
             idle_only: true,
             heartbeat_secs: 5,
             filter_refresh_secs: 300,
+            updater: updater::UpdateConfig::default(),
         }
     }
 }
@@ -354,6 +359,29 @@ impl Supervisor {
             Ok(())
         });
 
+        // Auto-update polling worker. Only spawned when the operator
+        // opted in via config.toml. The default (disabled=true) makes
+        // this a no-op — the worker task exits immediately. See #59.
+        if !self.config.updater.disabled {
+            let ctx = updater::PollCtx {
+                config: self.config.updater.clone(),
+                current_version: env!("CARGO_PKG_VERSION").to_string(),
+                target: target_triple().to_string(),
+                layout: default_install_layout(),
+                fetcher: std::sync::Arc::new(updater::HttpFetcher::default()),
+            };
+            let _handle = updater::spawn_update_poll(ctx);
+            // We deliberately drop _handle — the supervisor doesn't yet
+            // surface UpdateState to the UI bridge in this PR. The
+            // follow-up "expose state to /api/v1/account/updates" PR
+            // will store the handle on `Supervisor` and forward it.
+            tracing::info!(
+                channel = %self.config.updater.channel.as_str(),
+                manifest_url = %self.config.updater.manifest_url,
+                "auto-update polling enabled"
+            );
+        }
+
         // Scheduler-pause watcher — if scheduler flips to Paused, revoke
         // every in-flight assignment (the supervisor's contract per
         // docs/TECH.md § Workload acceptance).
@@ -404,6 +432,83 @@ async fn wait_for_shutdown() {
     #[cfg(not(unix))]
     {
         let _ = tokio::signal::ctrl_c().await;
+    }
+}
+
+/// Best-effort guess of the rustc target triple of the running binary.
+/// Compiled in at build time. Used by the auto-updater to pick the
+/// right artifact entry from the manifest.
+pub fn target_triple() -> &'static str {
+    // The full triple isn't exposed via env! but the relevant pieces
+    // are: TARGET_OS, TARGET_ARCH, TARGET_ENV. We assemble the same
+    // form rustc uses for its `--target` flag.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    {
+        "x86_64-unknown-linux-gnu"
+    }
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+    {
+        "aarch64-unknown-linux-gnu"
+    }
+    #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+    {
+        "x86_64-apple-darwin"
+    }
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    {
+        "aarch64-apple-darwin"
+    }
+    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+    {
+        "x86_64-pc-windows-msvc"
+    }
+    #[cfg(all(target_os = "windows", target_arch = "aarch64"))]
+    {
+        "aarch64-pc-windows-msvc"
+    }
+    #[cfg(not(any(
+        all(target_os = "linux", target_arch = "x86_64"),
+        all(target_os = "linux", target_arch = "aarch64"),
+        all(target_os = "macos", target_arch = "x86_64"),
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "windows", target_arch = "x86_64"),
+        all(target_os = "windows", target_arch = "aarch64"),
+    )))]
+    {
+        "unsupported"
+    }
+}
+
+/// Resolve the directory the running daemon binary lives in. Falls back
+/// to a sensible OS-specific default if `current_exe()` is unavailable
+/// (e.g. test binaries running under cargo-nextest).
+pub fn default_install_layout() -> updater::InstallLayout {
+    let exe = std::env::current_exe().ok();
+    let (dir, name) = match exe {
+        Some(p) => {
+            let name = p
+                .file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "iogridd".into());
+            let dir = p
+                .parent()
+                .map(PathBuf::from)
+                .unwrap_or_else(default_fallback_install_dir);
+            (dir, name)
+        }
+        None => (default_fallback_install_dir(), "iogridd".to_string()),
+    };
+    updater::InstallLayout::new(dir, name)
+}
+
+fn default_fallback_install_dir() -> PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        PathBuf::from(r"C:\Program Files\iogrid")
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        PathBuf::from("/usr/local/iogrid")
     }
 }
 

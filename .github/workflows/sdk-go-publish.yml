@@ -1,9 +1,15 @@
 name: sdk-go-publish
 
-# Go modules are published by pushing a git tag of the form
-# `sdks/go/vX.Y.Z` — there is no central registry to push to.
-# This workflow validates the tag, builds + tests, and warms the
-# pkg.go.dev cache so the new version is discoverable immediately.
+# Go modules don't have a central registry — publishing == pushing a
+# git tag of the form `sdks/go/vX.Y.Z`. This workflow:
+#   1. Validates the tag matches the SDK's declared module version.
+#   2. Runs `go test -race` to gate the release.
+#   3. Warms the pkg.go.dev / proxy.golang.org cache so the new
+#      version is discoverable immediately after the tag lands.
+#
+# See `sdks/RELEASING.md` for the release cadence + monorepo-vs-split-repo
+# decision (currently: monorepo, module path is `github.com/iogrid/go-sdk`
+# which is the public re-export — see sdks/go/README.md).
 
 on:
   push:
@@ -15,8 +21,11 @@ jobs:
   warm:
     name: build + warm pkg.go.dev
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-go@v5
         with:
           go-version: "1.22"
@@ -26,9 +35,30 @@ jobs:
         working-directory: sdks/go
         run: go test -race -count=1 ./...
 
-      - name: Trigger pkg.go.dev cache warm
+      - name: Compute version from tag
+        id: ver
         run: |
           TAG=${GITHUB_REF#refs/tags/sdks/go/}
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "Tag = $TAG"
-          # PHASE 2 — uncomment to ping the proxy after the first public tag lands.
-          # curl -sf "https://proxy.golang.org/github.com/iogrid/go-sdk/@v/${TAG}.info" || true
+
+      - name: Warm proxy.golang.org cache
+        env:
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          set -e
+          # The Go module proxy lazily fetches versions on first request.
+          # Hitting it once after tag push makes the version queryable
+          # via `go get` immediately (otherwise: ~minutes delay).
+          MOD="github.com/iogrid/go-sdk"
+          echo "Warming ${MOD}@${TAG}"
+          curl -sfL "https://proxy.golang.org/${MOD}/@v/${TAG}.info" || \
+            echo "::warning::proxy warm returned non-2xx — module may need a few minutes to surface"
+
+      - name: Trigger pkg.go.dev indexing
+        env:
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          # A GET to pkg.go.dev triggers the indexer to fetch the version.
+          curl -sfL "https://pkg.go.dev/github.com/iogrid/go-sdk@${TAG}" -o /dev/null || \
+            echo "::warning::pkg.go.dev not yet indexed — typically takes <30 min"
