@@ -1,25 +1,29 @@
 import NextAuth from "next-auth";
-import Google from "next-auth/providers/google";
 import Nodemailer from "next-auth/providers/nodemailer";
 
+import { authConfig } from "@/auth.config";
+
 /**
- * iogrid identity — NextAuth.js v5 configuration.
+ * iogrid identity — NextAuth.js v5 (node-only configuration).
  *
- * Providers:
- *   - Google OAuth (primary social sign-in)
- *   - Magic-link email (for users without a Google account)
+ * This module extends the edge-safe `authConfig` with providers that
+ * require Node APIs:
  *
- * Sessions are JWT-backed so the middleware can gate routes without a
- * database round-trip. The merged identity model (single user = both
- * provider and customer) is enforced server-side in the coordinator;
- * the JWT only carries the canonical user id + optional `admin` role.
+ *   - Nodemailer magic-link provider — uses `stream`, `setImmediate`,
+ *     `net`/`tls`, none of which exist in the edge runtime.
+ *
+ * Server Components, Server Actions, API routes, and the
+ * `/api/auth/[...nextauth]` handler import from THIS module. The
+ * `middleware.ts` file MUST NOT import from here — it imports from
+ * `@/auth.config` instead, so that nodemailer is never pulled into the
+ * edge bundle.
+ *
+ * See `src/auth.config.ts` for the architecture rationale.
  */
 export const { handlers, signIn, signOut, auth } = NextAuth({
+  ...authConfig,
   providers: [
-    Google({
-      clientId: process.env.GOOGLE_CLIENT_ID,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    }),
+    ...authConfig.providers,
     Nodemailer({
       server: {
         host: process.env.EMAIL_SERVER_HOST,
@@ -32,22 +36,4 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       from: process.env.EMAIL_FROM,
     }),
   ],
-  session: { strategy: "jwt" },
-  pages: {
-    signIn: "/account",
-  },
-  callbacks: {
-    async jwt({ token, user }) {
-      if (user) {
-        token.uid = user.id;
-      }
-      return token;
-    },
-    async session({ session, token }) {
-      if (token.uid && session.user) {
-        (session.user as { id?: string }).id = token.uid as string;
-      }
-      return session;
-    },
-  },
 });
