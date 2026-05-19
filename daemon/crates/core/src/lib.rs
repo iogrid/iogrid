@@ -339,13 +339,54 @@ impl Supervisor {
             Ok(())
         });
 
-        // Workload dispatch router — in-process loopback for now (the
-        // transport crate's real bidi gRPC pump lands in a follow-up PR).
-        // We construct both halves of the loopback channel so that the
-        // pause-watcher task can drive synthetic revokes when the scheduler
-        // flips to Paused and so the unit tests of this crate can swap in
-        // a mock coordinator side.
-        let (mut daemon_side, _coord_side) = iogrid_transport::dispatch_loopback();
+        // Workload dispatch router — wires either:
+        //   * the real bidi gRPC stream (`iogrid_transport::spawn_live_dispatch`)
+        //     when the daemon has a paired identity bundle on disk + a non-
+        //     placeholder coordinator URL, OR
+        //   * an in-process loopback (`iogrid_transport::dispatch_loopback`)
+        //     for unit tests + first-boot/unpaired state where the daemon has
+        //     nothing to talk to yet.
+        //
+        // The router itself doesn't care which side it's wired to — the
+        // DispatchChannel shape is identical. The loopback `_coord_side` is
+        // dropped intentionally so test code that needs to drive the other
+        // end calls `dispatch_loopback()` directly.
+        let mut daemon_side = match live_transport_config(&self.config) {
+            Some(connect_cfg) => {
+                let hello = iogrid_transport::DispatchHello {
+                    provider_id: self.config.provider_id.clone(),
+                    // Phase 0: every paired daemon advertises BANDWIDTH so
+                    // the proxy-gateway SOCKS5 path can route customer
+                    // traffic. Other workload types (DOCKER/GPU/IOS_BUILD)
+                    // get added by their respective runner wires.
+                    supported_types: vec!["BANDWIDTH".to_string()],
+                    max_concurrent: 4,
+                };
+                let handle = iogrid_transport::spawn_live_dispatch(connect_cfg, hello);
+                tracing::info!(
+                    coordinator = %self.config.coordinator_url,
+                    "live dispatch bridge spawned"
+                );
+                // We deliberately drop `cancel_tx` + `task` — the bridge
+                // task continues until the process exits (Ctrl+C drops
+                // the watch channel, which signals shutdown). A follow-up
+                // PR stashes the handle on `Supervisor` for graceful
+                // shutdown alongside the JoinSet drain.
+                let iogrid_transport::LiveDispatchHandle {
+                    daemon_side,
+                    cancel_tx: _,
+                    task: _,
+                } = handle;
+                daemon_side
+            }
+            None => {
+                let (daemon_side, _coord_side) = iogrid_transport::dispatch_loopback();
+                tracing::info!(
+                    "dispatch loopback active (no paired identity / placeholder coordinator URL)"
+                );
+                daemon_side
+            }
+        };
         let router = Arc::new(WorkloadRouter::new(
             self.runners.clone(),
             daemon_side.tx.clone(),
@@ -416,6 +457,48 @@ impl Supervisor {
         tasks.shutdown().await;
         Ok(())
     }
+}
+
+/// Decide whether the supervisor should attempt a real coordinator dispatch
+/// stream this boot. Returns `Some(ConnectConfig)` when *every* prerequisite
+/// is satisfied:
+///
+///  * `coordinator_url` is an `https://` URL (rules out the unpaired-default
+///    placeholder check by the caller — see also [`DaemonConfig::default`]).
+///  * `provider_id` is non-empty (i.e. pairing completed).
+///  * `cert.pem` AND `key.pem` exist under `state_dir`.
+///
+/// All three guards must hold; otherwise the supervisor falls back to the
+/// in-process loopback so first-boot/unpaired daemons (and unit tests that
+/// don't write an identity bundle) stay self-contained.
+///
+/// Environment override: setting `IOGRID_FORCE_LOOPBACK=1` keeps the
+/// loopback path regardless of identity / URL — useful for the
+/// integration tests that drive the dispatch oneself via
+/// [`iogrid_transport::dispatch_loopback`].
+pub fn live_transport_config(cfg: &DaemonConfig) -> Option<TransportConfig> {
+    if std::env::var_os("IOGRID_FORCE_LOOPBACK").is_some() {
+        return None;
+    }
+    if cfg.provider_id.trim().is_empty() {
+        return None;
+    }
+    if !cfg.coordinator_url.starts_with("https://") {
+        return None;
+    }
+    let cert = cfg.state_dir.join("cert.pem");
+    let key = cfg.state_dir.join("key.pem");
+    if !cert.exists() || !key.exists() {
+        return None;
+    }
+    Some(TransportConfig {
+        coordinator_url: cfg.coordinator_url.clone(),
+        cert_pem: cert,
+        key_pem: key,
+        ca_pem: None,
+        max_backoff: Duration::from_secs(60),
+        initial_backoff: Duration::from_secs(1),
+    })
 }
 
 async fn wait_for_shutdown() {
@@ -552,6 +635,60 @@ mod tests {
         let cfg2 = DaemonConfig::load_or_init(p).unwrap();
         assert_eq!(cfg1.bandwidth_cap_gb, cfg2.bandwidth_cap_gb);
         assert_eq!(cfg1.state_dir, p);
+    }
+
+    #[test]
+    fn live_transport_off_when_unpaired() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = DaemonConfig {
+            provider_id: String::new(),
+            coordinator_url: "https://coordinator.iogrid.org:443".into(),
+            state_dir: dir.path().to_path_buf(),
+            ..DaemonConfig::default()
+        };
+        assert!(live_transport_config(&cfg).is_none());
+    }
+
+    #[test]
+    fn live_transport_off_without_identity_bundle() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = DaemonConfig {
+            provider_id: "00000000-0000-0000-0000-000000000001".into(),
+            coordinator_url: "https://coordinator.iogrid.org:443".into(),
+            state_dir: dir.path().to_path_buf(),
+            ..DaemonConfig::default()
+        };
+        assert!(live_transport_config(&cfg).is_none());
+    }
+
+    #[test]
+    fn live_transport_on_when_paired_and_bundle_present() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("cert.pem"),
+            b"-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("key.pem"),
+            b"-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n",
+        )
+        .unwrap();
+        let cfg = DaemonConfig {
+            provider_id: "00000000-0000-0000-0000-000000000001".into(),
+            coordinator_url: "https://coordinator.iogrid.org:443".into(),
+            state_dir: dir.path().to_path_buf(),
+            ..DaemonConfig::default()
+        };
+        // The env override forces loopback irrespective of pairing.
+        // SAFETY: tests run single-threaded under cargo-nextest per workspace
+        // policy; this is the only test that pokes that env var.
+        std::env::remove_var("IOGRID_FORCE_LOOPBACK");
+        let live = live_transport_config(&cfg).expect("should choose live");
+        assert_eq!(live.coordinator_url, cfg.coordinator_url);
+        std::env::set_var("IOGRID_FORCE_LOOPBACK", "1");
+        assert!(live_transport_config(&cfg).is_none());
+        std::env::remove_var("IOGRID_FORCE_LOOPBACK");
     }
 
     #[test]

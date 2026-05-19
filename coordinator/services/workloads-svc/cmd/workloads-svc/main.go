@@ -56,14 +56,28 @@ func main() {
 	memStore := store.NewInMemory()
 	disp := dispatcher.New(memStore, logger)
 
+	// WORKLOADS_SVC_PROVIDER_ENDPOINT is the host:port the
+	// proxy-gateway should dial when forwarding customer bytes to any
+	// daemon connected via this workloads-svc replica. In the Phase 0
+	// NAT-bound layout that's the workloads-svc TCP-over-DispatchFrame
+	// forwarder's own listener address. Empty == off (proxy-gateway
+	// uses its DEV_PROVIDER_ENDPOINT static pool). See issue #217 +
+	// the follow-up forwarder ticket.
+	providerEndpoint := os.Getenv("WORKLOADS_SVC_PROVIDER_ENDPOINT")
+	if providerEndpoint != "" {
+		logger.Info("provider endpoint template configured",
+			slog.String("endpoint", providerEndpoint))
+	}
+
 	if err := sharedserver.Run(ctx, sharedserver.Options{
 		ServiceName: serviceName,
 		Logger:      logger,
 		Health:      hr,
 		Mount: server.Mount(server.Deps{
-			Store:      memStore,
-			Dispatcher: disp,
-			Log:        logger,
+			Store:                    memStore,
+			Dispatcher:               disp,
+			Log:                      logger,
+			ProviderEndpointTemplate: providerEndpoint,
 		}),
 		LongLivedStreams: true,
 	}); err != nil {
