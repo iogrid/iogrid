@@ -10,6 +10,10 @@ vendor/
 bin/
 dist/
 
+# Top-level pnpm workspace artefacts (web/ + marketing/ + docs-site/)
+/node_modules/
+.pnpm-store/
+
 # IDE
 .vscode/
 .idea/
@@ -72,4 +76,13 @@ marketing/.lighthouseci/
 marketing/.vercel/
 marketing/.turbo/
 marketing/*.tsbuildinfo
+
+# Docs site (Astro / Starlight)
+docs-site/node_modules/
+docs-site/dist/
+docs-site/.astro/
+docs-site/.lighthouseci/
+docs-site/public/og-default.png
+docs-site/public/openapi.yaml
+docs-site/*.tsbuildinfo
 

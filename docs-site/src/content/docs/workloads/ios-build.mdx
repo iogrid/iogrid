@@ -1,0 +1,305 @@
+---
+title: iOS build CI workload
+description: Real Macs, ephemeral Tart VMs, $0.04 per Xcode-minute — half the price of GitHub Actions, no AWS EC2 24-hour lease minimum.
+sidebar:
+  label: iOS build CI
+  order: 4
+---
+
+import { Aside, Tabs, TabItem, Card, CardGrid } from '@astrojs/starlight/components';
+
+iOS build CI is iogrid's flagship workload. The market for managed iOS CI is
+$500M–$1B annually with structurally high prices because Apple's licensing
+locks builds to real Mac hardware. iogrid runs ephemeral macOS VMs on a mesh
+of home and small-shop Mac Minis, undercutting incumbents 50–80% without
+sacrificing build correctness.
+
+## Pricing — pay per Xcode-minute
+
+| Provider | Cost/min | Notes |
+|---|---|---|
+| **iogrid** | **$0.04** | Pay-per-minute, no commitment |
+| GitHub Actions `macos-latest` | $0.08 | 14-day rate quota, queues common |
+| GitHub Actions `macos-latest-large` | $0.16 | Faster M-series |
+| Bitrise | $0.10–0.30 | App-focused, integrations |
+| Codemagic | $0.10–0.20 | Flutter / RN focused |
+| CircleCI macOS | $0.10–0.15 | |
+| AWS EC2 Mac (`mac1.metal`) | $0.018 effective | **24-hour minimum lease** ($26 floor / session) |
+| MacStadium dedicated | $0.05–0.20 effective | Long-term lease only |
+
+iogrid is the only **pay-per-minute, no-commitment** option that's cheap.
+AWS EC2 Mac wins on raw $/minute but locks you into 24-hour leases — not
+viable for typical indie iOS or Flutter / RN dev workflows.
+
+## How it works
+
+1. You submit a build request with a Git URL + Xcode build command.
+2. The scheduler picks a Mac provider with a suitable Xcode version installed.
+3. The provider daemon spawns an **ephemeral macOS VM** via Tart
+   ([Cirrus Labs](https://github.com/cirruslabs/tart), open source, the same
+   tech [Cirrus CI](https://cirrus-ci.org) uses for their macOS runners).
+4. VM has Xcode, build tools, and your repo's working copy. No host
+   filesystem access; the VM is a clean snapshot.
+5. VM runs `xcodebuild`, archives artifacts, uploads to iogrid's S3.
+6. VM is destroyed at the end of the build — provider's host is back to clean
+   state for the next customer.
+
+## Submit a build
+
+```bash
+curl -X POST https://api.iogrid.org/v1/workloads \
+  -H "Authorization: Bearer sk_live_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "ios-build",
+    "git_url": "https://github.com/myorg/myapp",
+    "git_ref": "v1.4.2",
+    "git_credentials_secret": "github_pat",
+    "xcode_version": "16.2",
+    "swift_version": "5.10",
+    "build_command": "xcodebuild -scheme MyApp -archivePath build/MyApp.xcarchive -destination \"generic/platform=iOS\" archive",
+    "pre_build": [
+      "brew install cocoapods",
+      "pod install"
+    ],
+    "env": {
+      "MATCH_PASSWORD": "${secrets.match_password}",
+      "FASTLANE_USER": "${secrets.fastlane_user}",
+      "FASTLANE_PASSWORD": "${secrets.fastlane_password}"
+    },
+    "artifacts": [
+      "build/MyApp.xcarchive",
+      "build/MyApp.ipa",
+      "fastlane/report.xml"
+    ],
+    "time_limit_seconds": 2400
+  }'
+```
+
+Response:
+
+```json
+{
+  "id": "wkl_01HXY...",
+  "type": "ios-build",
+  "status": "scheduling",
+  "estimated_provider_match_seconds": 12,
+  "logs_url": "https://api.iogrid.org/v1/workloads/wkl_01HXY.../logs"
+}
+```
+
+## Available Xcode versions
+
+The scheduler keeps the trailing four major Xcode versions warm on the mesh:
+
+| Xcode | Apple Silicon coverage | Intel coverage |
+|---|---|---|
+| **16.2** | Excellent (90%+ of Mac providers) | Limited |
+| **16.0** | Excellent | Limited |
+| **15.4** | Good | Good |
+| **14.3.1** | Limited | Good |
+
+If a specific Xcode version isn't available within 60 s, you can either retry
+with a different version or request that version be added (24-hour SLA for
+common Xcode updates). Specify a partial version (`xcode_version: "16"`) to
+match any 16.x; iogrid picks the latest patch available.
+
+## Available simulators
+
+Each Xcode ships with its standard simulator set. iogrid pre-warms the
+following common runtimes:
+
+- iOS 17.5, 17.4, 17.2
+- iOS 18.0, 18.1, 18.2
+- iPadOS, watchOS, tvOS, visionOS — current versions
+
+For tests, set `simulator_destinations: ["platform=iOS Simulator,OS=18.0,name=iPhone 15 Pro"]`.
+
+## Secrets and code-signing
+
+iOS builds need credentials. iogrid supports three patterns:
+
+<Tabs>
+  <TabItem label="Fastlane match (recommended)">
+
+Store match-encrypted certs in your own Git repo; iogrid never sees the raw
+P12/key files.
+
+```json
+{
+  "env": {
+    "MATCH_GIT_URL": "https://github.com/myorg/certs",
+    "MATCH_PASSWORD": "${secrets.match_password}"
+  },
+  "pre_build": ["bundle exec fastlane match appstore --readonly"]
+}
+```
+
+  </TabItem>
+  <TabItem label="App Store Connect API key">
+
+```json
+{
+  "env": {
+    "APP_STORE_CONNECT_API_KEY_ID": "${secrets.asc_key_id}",
+    "APP_STORE_CONNECT_API_KEY_ISSUER_ID": "${secrets.asc_issuer_id}",
+    "APP_STORE_CONNECT_API_KEY": "${secrets.asc_p8}"
+  }
+}
+```
+
+  </TabItem>
+  <TabItem label="Direct cert upload (not recommended)">
+
+```json
+{
+  "env": {
+    "P12_BASE64": "${secrets.dist_p12_base64}",
+    "P12_PASSWORD": "${secrets.dist_p12_pwd}",
+    "PROVISIONING_PROFILE_BASE64": "${secrets.profile_base64}"
+  },
+  "pre_build": [
+    "echo $P12_BASE64 | base64 -d > /tmp/dist.p12",
+    "security import /tmp/dist.p12 -P $P12_PASSWORD -A"
+  ]
+}
+```
+
+  </TabItem>
+</Tabs>
+
+## Tart cache (faster builds)
+
+By default, every build starts from a clean Tart VM with Xcode and CocoaPods
+pre-installed. You can opt into **per-project caches**:
+
+```json
+{
+  "cache": {
+    "pods": ["Pods/", "Podfile.lock"],
+    "spm": ["~/Library/Caches/org.swift.swiftpm/"],
+    "derived_data": ["DerivedData/"]
+  }
+}
+```
+
+Cache hits typically cut build time **50–70%** on incremental builds. Each
+cache key is account-scoped and stored at the coordinator's S3 (not on the
+provider). First-build cost is unchanged; second build is much faster.
+
+## Maestro / XCUITest end-to-end runs
+
+iogrid supports running [Maestro](https://maestro.mobile.dev) or XCUITest on
+the simulator inside the Tart VM:
+
+```json
+{
+  "build_command": "xcodebuild test -scheme MyAppUITests ...",
+  "simulator_destinations": [
+    "platform=iOS Simulator,OS=18.0,name=iPhone 15 Pro"
+  ]
+}
+```
+
+The simulator's video output can be recorded and surfaced as an artifact for
+debugging failed runs.
+
+## TestFlight upload from inside the build
+
+The most common pattern: build + sign + upload to TestFlight in one workload.
+
+```json
+{
+  "type": "ios-build",
+  "git_url": "https://github.com/myorg/myapp",
+  "xcode_version": "16.2",
+  "build_command": "bundle exec fastlane beta",
+  "env": {
+    "APP_STORE_CONNECT_API_KEY_ID": "${secrets.asc_key_id}",
+    "APP_STORE_CONNECT_API_KEY_ISSUER_ID": "${secrets.asc_issuer_id}",
+    "APP_STORE_CONNECT_API_KEY": "${secrets.asc_p8}"
+  },
+  "time_limit_seconds": 3000
+}
+```
+
+`bundle exec fastlane beta` does:
+
+1. `match` to fetch signing artifacts.
+2. `gym` to build.
+3. `pilot` to upload to TestFlight.
+
+A complete recipe lives at
+[`infra/recipes/ios-testflight.md`](https://github.com/iogrid/iogrid/blob/main/infra/recipes/ios-testflight.md).
+
+<Aside type="tip" title="Expo / React Native workflow">
+  Expo SDK 54+ and React Native 0.76+ work out of the box. Add
+  `pre_build: ["yarn install --frozen-lockfile", "pod install --project-directory=ios"]`.
+  See
+  [our Expo iOS pipeline recipe](https://github.com/iogrid/iogrid/blob/main/infra/recipes/expo-ios.md)
+  for the full Maestro E2E gate setup.
+</Aside>
+
+## Artifacts
+
+`artifacts` is a list of glob patterns relative to the build root. Anything
+matching gets uploaded to iogrid's S3 with a signed URL valid for 7 days.
+
+```json
+{
+  "artifacts": [
+    "build/MyApp.xcarchive",
+    "build/MyApp.ipa",
+    "fastlane/report.xml",
+    "build/test-results/**/*.xml"
+  ]
+}
+```
+
+Artifact response:
+
+```json
+{
+  "artifacts": [
+    {
+      "name": "MyApp.ipa",
+      "size_bytes": 18532192,
+      "sha256": "...",
+      "download_url": "https://artifacts.iogrid.org/.../MyApp.ipa?...",
+      "expires_at": "2026-05-26T11:20:14Z"
+    }
+  ]
+}
+```
+
+## Cost comparison: a real iOS build
+
+A typical mid-complexity iOS app build (CocoaPods install + clean build +
+archive + TestFlight upload) takes ~18 minutes wall-clock on `macos-latest`,
+~10 minutes on `macos-latest-large`.
+
+| Service | Time | Cost |
+|---|---|---|
+| iogrid | 14 min | **$0.56** |
+| GitHub Actions `macos-latest` | 18 min | $1.44 |
+| GitHub Actions `macos-latest-large` | 10 min | $1.60 |
+| Bitrise | 15 min | $1.50–4.50 |
+| Codemagic | 15 min | $1.50–3.00 |
+
+For an indie shop doing 5 builds/day, the iogrid annual cost difference is
+~$1500-$3000.
+
+## Limits
+
+- Max build duration: 4 hours (raise via support)
+- Max source repo size: 5 GB
+- Max artifact size: 10 GB per build
+- Concurrent builds per account: plan-dependent
+- Build queue depth: 100 per account
+
+## Where next
+
+- [GitHub Actions integration](https://github.com/iogrid/iogrid-action) — drop-in `uses:` step
+- [Concepts: workloads](/concepts/workloads/)
+- [Provider quickstart for Mac providers](/getting-started/provider-quickstart/)
+- [Billing: plans](/billing/plans/)

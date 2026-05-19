@@ -1,0 +1,175 @@
+---
+title: Anti-abuse (AUP)
+description: What iogrid blocks, why, and how reports are processed.
+sidebar:
+  label: Anti-abuse
+  order: 2
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+iogrid runs pre-flight anti-abuse filters on **every** workload submission.
+This page describes the filters, the categories of content we block
+unconditionally, and the appeals + reporting process.
+
+These filters are not optional and not configurable per customer. They exist
+because the case for providers being "passive intermediaries with informed
+consent" depends on us maintaining aggressive defenses.
+
+## Bandwidth workload — pre-flight filters
+
+For every outbound destination, before iogrid relays the traffic:
+
+1. **CSAM filter** — destination URL host + hash check against NCMEC's
+   PhotoDNA database (free for registered orgs) and INTERPOL's hash list.
+2. **Phishing / fraud filter** — check destination against PhishTank,
+   OpenPhish, Google Safe Browsing.
+3. **Outbound port restrictions:**
+   - No SMTP outbound (port 25, 465, 587, 2525) — no spam
+   - No IRC (port 6667, 6697) — no DDoS coordination
+   - No Tor exit ports (9001, 9030) — don't be a Tor exit ourselves
+   - No SSH brute-force patterns (rate-limit per-target SSH)
+4. **High-risk target list:**
+   - Banking domains: customer must explicitly request, KYC verified
+   - Government / military domains (`.gov`, `.mil`): blocked unconditionally
+   - Adult content domains: provider must explicitly opt in
+5. **Per-customer rate limits:**
+   - Default: 100 RPS aggregate
+   - Premium tier: 1000 RPS aggregate, KYC required
+6. **Per-provider rate limits per destination:**
+   - No single provider IP serves more than 100 RPS to any one destination
+   - Hot destinations (LinkedIn, Facebook, Twitter, Google): max 10 RPS per
+     provider per destination
+
+## Docker workload — pre-flight filters
+
+1. Container image must come from an **approved registry**: ghcr.io,
+   docker.io official-images, Docker-Hub-verified-publisher namespace, or
+   a customer-specific registry on our allow-list.
+2. Coordinator scans the image's published vulnerability list before
+   scheduling (CRITICAL CVEs in default-running services trigger refusal).
+3. Network namespace inside container: only outbound through iogrid bandwidth
+   router (so the same anti-abuse filters above apply to anything the
+   container does).
+4. No privileged containers, no host filesystem mount, no host network
+   namespace.
+5. Resource caps enforced via cgroups — soft kill at limit + 10%; hard kill
+   at limit + 25%.
+6. Per-customer container submission rate limit.
+
+## GPU workload — pre-flight filters
+
+Same as Docker plus:
+
+- Pre-flight check that the requested `min_vram_gb` is achievable on at
+  least one online provider.
+- Image must declare CUDA / MLX runtime explicitly (we don't blindly schedule
+  GPU workloads — they're a high-cost resource).
+
+## iOS-build workload — pre-flight filters
+
+1. Source code must come from a Git URL the customer authenticates with their
+   own token (we don't store the repo).
+2. Tart VMs are ephemeral — destroyed after build, no state carries across
+   customers.
+3. Build output uploaded to coordinator's S3 with per-customer encryption keys.
+4. Build time-boxed (default 30 min, max 4 h, hard kill).
+
+## Customer KYC thresholds
+
+| Monthly spend | KYC requirement |
+|---|---|
+| Under $100 | Email verification only |
+| $100 – $500 | Business email + LinkedIn or corporate confirmation |
+| $500 – $5K | Manual review, government ID for principal |
+| Over $5K | Stripe Identity + business registration verification + AML check |
+
+## Categories we refuse
+
+iogrid does not relay traffic for, or schedule workloads in service of:
+
+- **CSAM** — any hash match → request blocked, account flagged, account
+  banned, cooperation with law enforcement (NCMEC reporting in the US, INHOPE
+  in EU)
+- **Coordinated harassment / doxxing campaigns** — case-by-case review on
+  customer reports
+- **Government / state-sponsored surveillance of civil society** — no
+  contracts with state security agencies (publicly verifiable: we don't bid
+  on those RFPs)
+- **DDoS-for-hire / "stresser" services** — pattern-detected by rate +
+  destination
+- **Counterfeit credential laundering** — flagged by destination heuristics
+- **Illegal-content piracy at industrial scale** — flagged by destination
+  blocklist
+
+## Provider opt-in categories
+
+Even content that's legal, providers can refuse on category opt-in. See
+[transparency](/concepts/transparency/) for the full list.
+
+## Reporting abuse
+
+Anyone — customer, provider, third party — can report suspected abuse to
+[abuse@iogrid.org](mailto:abuse@iogrid.org).
+
+Reports include:
+
+- Description of the issue
+- URL / domain / IP if applicable
+- Date/time observed
+- Reporter contact (anonymous reports accepted but harder to follow up)
+
+Triage SLAs:
+
+| Severity | Acknowledgement | First action |
+|---|---|---|
+| Sev 1 — CSAM / imminent harm | Under 1 hour | Block + LE referral |
+| Sev 2 — Fraud / phishing | Under 4 hours | Block + customer suspension |
+| Sev 3 — ToS violation | Under 24 hours | Customer notice + corrective action |
+| Sev 4 — Categorical preference | Under 7 days | Review + provider opt-out update |
+
+## Law-enforcement requests
+
+iogrid responds to lawful process from competent authorities. We require:
+
+- A valid subpoena, search warrant, or court order
+- Or a properly issued MLAT request for non-US jurisdictions
+- A specific identifier (workload ID, customer ID, IP + timestamp range)
+
+We **don't** respond to:
+
+- Bulk "give us everything for last month" requests — too broad, refused on
+  Fourth Amendment / equivalent grounds
+- Informal verbal requests
+- Requests from non-LE third parties (rights-holders should use DMCA / NTD
+  channels, see [legal/aup](/legal/aup/))
+
+**We notify the affected customer** of any LE request unless legally
+gagged. Annual transparency report published on
+[iogrid.org/transparency](https://iogrid.org/transparency).
+
+## Provider protections
+
+If a provider's IP is named in any abuse investigation, iogrid:
+
+1. **Cooperates with LE on the customer ID,** preserving the provider's
+   role as passive intermediary.
+2. **Notifies the provider** within 24 hours unless gagged.
+3. **Covers reasonable legal fees** from a defense fund (up to $25,000
+   per incident for providers acting in good faith on the iogrid network).
+
+This is part of why the AUP is strict and the filters are non-optional.
+
+<Aside type="tip" title="The Tor exit relay lesson">
+  William Weber's conviction (Austria, 2014) for a Tor exit relay he ran with
+  no anti-abuse filters and no commercial intermediary is what motivates this
+  whole architecture. We are different from Tor exit relays because we run
+  aggressive pre-flight filters AND we are a commercial intermediary that
+  takes the legal hit.
+</Aside>
+
+## Where next
+
+- [Security: privacy](/security/privacy/)
+- [Concepts: transparency](/concepts/transparency/)
+- [Legal: AUP](/legal/aup/)

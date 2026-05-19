@@ -1,0 +1,145 @@
+---
+title: GPU / AI inference workload
+description: NVIDIA on Linux + MLX on Apple Silicon. Per-VRAM scheduling. $0.20–2.00 per GPU-hour.
+sidebar:
+  label: GPU / AI
+  order: 3
+---
+
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+iogrid schedules containers to providers with consumer or workstation GPUs.
+Two runtimes:
+
+- **NVIDIA on Linux** — CUDA + NVIDIA Container Toolkit
+- **Apple Silicon (Mac)** — MLX runtime in an Apple Virtualization Framework
+  container, with MLX bindings exposed to Python / Swift workloads
+
+## Pricing
+
+| GPU class | Provider hardware | Customer / GPU-hr |
+|---|---|---|
+| `consumer-rtx3060` | RTX 3060 (12 GB VRAM) | $0.20 |
+| `consumer-rtx3090` | RTX 3090 (24 GB VRAM) | $0.45 |
+| `consumer-rtx4070` | RTX 4070 (12 GB VRAM) | $0.50 |
+| `consumer-rtx4080` | RTX 4080 (16 GB VRAM) | $0.80 |
+| `consumer-rtx4090` | RTX 4090 (24 GB VRAM) | $1.00 |
+| `pro-a4000` | RTX A4000 (16 GB VRAM) | $1.20 |
+| `pro-a5000` | RTX A5000 (24 GB VRAM) | $1.60 |
+| `pro-a6000` | RTX A6000 (48 GB VRAM) | $2.00 |
+| `apple-silicon-m2-pro` | M2/M3 Pro (16-32 GB unified) | $0.40 |
+| `apple-silicon-m2-max` | M2/M3 Max (32-96 GB unified) | $0.70 |
+| `apple-silicon-m2-ultra` | M2 Ultra (64-192 GB unified) | $1.20 |
+
+Compare: AWS `g5.xlarge` (A10G 24 GB) is $1.006/hr, `g6.xlarge` (L4 24 GB) is
+$0.805/hr. iogrid's consumer RTX 3090 (24 GB) at $0.45 is roughly half of
+AWS spot for similar VRAM.
+
+## Submit a job
+
+<Tabs>
+  <TabItem label="NVIDIA workload">
+
+```bash
+curl -X POST https://api.iogrid.org/v1/workloads \
+  -H "Authorization: Bearer sk_live_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "gpu",
+    "image": "ghcr.io/myorg/llm-inference:cuda12",
+    "command": ["./serve.sh", "--model", "llama3-8b-q4"],
+    "gpu_class": "consumer-rtx4090",
+    "min_vram_gb": 16,
+    "resources": { "cpu": 4, "memory_gb": 16, "time_limit_seconds": 3600 },
+    "category": "ml-inference"
+  }'
+```
+
+  </TabItem>
+  <TabItem label="Apple Silicon (MLX)">
+
+```bash
+curl -X POST https://api.iogrid.org/v1/workloads \
+  -H "Authorization: Bearer sk_live_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "gpu",
+    "image": "ghcr.io/myorg/mlx-llm:latest",
+    "command": ["python", "serve.py", "--model", "Mistral-7B-MLX-4bit"],
+    "gpu_class": "apple-silicon-m2-pro",
+    "min_vram_gb": 16,
+    "resources": { "memory_gb": 16, "time_limit_seconds": 3600 },
+    "category": "ml-inference"
+  }'
+```
+
+The MLX image is a thin wrapper over `python:3.12` with MLX + Metal bindings
+preinstalled. iogrid maintains a base image at
+`ghcr.io/iogrid/mlx-base:latest`.
+
+  </TabItem>
+</Tabs>
+
+## VRAM matching
+
+`min_vram_gb` is the **hard** matching constraint. The scheduler refuses
+providers whose GPU memory is below this threshold. Apple Silicon's unified
+memory counts toward VRAM (the M2 Max with 64 GB has 64 GB usable VRAM —
+unlike a $5K NVIDIA workstation card that ships with the same).
+
+## Gaming-mode preemption
+
+iogrid's Apple Silicon and gamer-PC providers run a **gaming detector**: if
+the host's GPU utilization spikes from a non-iogrid process (a video game,
+Final Cut, etc.), the iogrid GPU workload is paused within ~3 seconds and the
+scheduler attempts to migrate the job to another provider.
+
+For long-running training jobs, this means iogrid is **not the right choice
+unless you can checkpoint**. For stateless inference (the dominant use case),
+preemption is transparent: the next request lands on a different provider, no
+loss of state.
+
+<Aside type="caution" title="Pick the right tool for the job">
+  iogrid GPU is great for **stateless LLM/diffusion inference**, batch
+  embedding generation, and ML evaluation runs. For multi-day training jobs,
+  use a hyperscaler with dedicated capacity. We will not attempt to pretend
+  iogrid is the right surface for that.
+</Aside>
+
+## Streaming responses
+
+For long-running LLM inference, customers typically need streaming output.
+Set `http_endpoint: true` in the workload spec:
+
+```json
+{
+  "type": "gpu",
+  "image": "...",
+  "command": ["./serve.sh", "--port", "8000"],
+  "http_endpoint": {
+    "port": 8000,
+    "path": "/v1/chat/completions"
+  },
+  "gpu_class": "consumer-rtx4090",
+  "min_vram_gb": 16
+}
+```
+
+The response returns a workload-specific endpoint URL:
+
+```json
+{
+  "id": "wkl_01HXY...",
+  "http_endpoint_url": "https://endpoint-01HXY.gpu.iogrid.org/v1/chat/completions",
+  "endpoint_token": "tok_..."
+}
+```
+
+You call that URL like any inference API; iogrid handles the routing,
+auth, and per-token billing.
+
+## Where next
+
+- [Concepts: workloads](/concepts/workloads/)
+- [Concepts: providers](/concepts/providers/)
+- [API: rate limits](/api/rate-limits/)

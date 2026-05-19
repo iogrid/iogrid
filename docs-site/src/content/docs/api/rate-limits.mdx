@@ -1,0 +1,109 @@
+---
+title: Rate limits
+description: Per-key token-bucket limits, response headers, retry strategy.
+sidebar:
+  label: Rate limits
+  order: 3
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+iogrid enforces rate limits per **API key**, using a token-bucket algorithm.
+Limits scale by plan tier.
+
+## Default limits
+
+| Plan | Requests/min | Burst | Concurrent workloads |
+|---|---|---|---|
+| **Free** | 60 | 120 | 5 |
+| **Pro** | 600 | 1200 | 50 |
+| **Business** | 6000 | 12000 | 500 |
+| **Enterprise** | custom | custom | custom |
+
+**Per-workload sub-limits** also apply (e.g., proxy session creation has its
+own bucket separate from generic API calls). The `X-RateLimit-Bucket` header
+identifies which bucket was charged.
+
+## Headers on every response
+
+```
+X-RateLimit-Limit:        600
+X-RateLimit-Remaining:    584
+X-RateLimit-Reset:        1747700200    (Unix seconds)
+X-RateLimit-Bucket:       api-general
+```
+
+When a request is rejected:
+
+```
+HTTP/1.1 429 Too Many Requests
+Retry-After:            12             (seconds)
+X-RateLimit-Bucket:     workload-submit
+Content-Type:           application/json
+
+{
+  "code": "RATE_LIMITED",
+  "message": "Per-minute limit exceeded. Try again in 12 seconds.",
+  "request_id": "req_01HXY...",
+  "details": { "retry_after_seconds": 12 }
+}
+```
+
+## Retry strategy
+
+Use **exponential backoff with jitter**, capped at 60 seconds.
+
+```ts
+async function withRetry<T>(fn: () => Promise<T>, max = 5): Promise<T> {
+  for (let i = 0; i < max; i++) {
+    try {
+      return await fn();
+    } catch (e: any) {
+      if (e.code !== "RATE_LIMITED" || i === max - 1) throw e;
+      const wait =
+        Math.min(60000, 2 ** i * 1000) + Math.random() * 1000;
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+  throw new Error("unreachable");
+}
+```
+
+The official SDKs do this automatically — disable with
+`retries: 0` if you want manual control.
+
+## Per-customer aggregate caps
+
+In addition to per-key rate limits, iogrid enforces:
+
+- **Per-account daily spend cap** — defaults to $100 USD-equivalent, raisable
+  in dashboard after KYC.
+- **Per-destination domain cap** — no single account may serve more than
+  10,000 RPS to any one destination domain (e.g., LinkedIn) regardless of key
+  diversity.
+- **Per-provider cap** — no single provider IP serves more than 100 RPS to any
+  one destination (10 RPS for hot destinations: LinkedIn, Facebook, Twitter,
+  Google).
+
+## Soft limits and graceful degradation
+
+For long-running streaming endpoints (logs, audit feed), rate limits don't
+apply to in-flight streams — only to **connection initiation**. Once a stream
+is open, it can consume data for hours; closing and reconnecting too often
+re-enters the limit.
+
+<Aside type="tip" title="Pre-flight check">
+  `GET /v1/me/limits` returns your current bucket state without consuming a
+  token. Useful for dashboards.
+</Aside>
+
+## Asking for more
+
+If you're hitting limits and a higher plan tier doesn't solve it, email
+[api@iogrid.org](mailto:api@iogrid.org) with your use case. Enterprise tier
+includes negotiated limits.
+
+## Where next
+
+- [Errors](/api/errors/)
+- [Authentication](/api/authentication/)

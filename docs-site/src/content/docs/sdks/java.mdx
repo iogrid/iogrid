@@ -1,0 +1,151 @@
+---
+title: Java SDK
+description: The official iogrid SDK for Java 17+, also usable from Kotlin and Scala.
+sidebar:
+  label: Java
+  order: 4
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+`io.iogrid:iogrid-java` is the official Java SDK. Java 17+. Works from Kotlin
+and Scala unchanged. Builds against `java.net.http.HttpClient` (no external
+HTTP stack required).
+
+- **Maven Central:** `io.iogrid:iogrid-java`
+- **Source:** [`github.com/iogrid/iogrid/tree/main/sdks/java`](https://github.com/iogrid/iogrid/tree/main/sdks/java)
+
+## Install
+
+<Tabs>
+  <TabItem label="Maven">
+
+```xml
+<dependency>
+  <groupId>io.iogrid</groupId>
+  <artifactId>iogrid-java</artifactId>
+  <version>0.1.0</version>
+</dependency>
+```
+
+  </TabItem>
+  <TabItem label="Gradle (Kotlin)">
+
+```kotlin
+dependencies {
+    implementation("io.iogrid:iogrid-java:0.1.0")
+}
+```
+
+  </TabItem>
+  <TabItem label="Gradle (Groovy)">
+
+```groovy
+dependencies {
+    implementation 'io.iogrid:iogrid-java:0.1.0'
+}
+```
+
+  </TabItem>
+</Tabs>
+
+## Example 1: residential proxy session
+
+```java
+import io.iogrid.IogridClient;
+import io.iogrid.proxy.ProxySessionCreate;
+import io.iogrid.proxy.ProxySession;
+import io.iogrid.common.Geo;
+
+public class Main {
+  public static void main(String[] args) throws Exception {
+    var client = IogridClient.builder()
+        .apiKey(System.getenv("IOGRID_API_KEY"))
+        .build();
+
+    ProxySession session = client.proxy().sessions().create(
+        ProxySessionCreate.builder()
+            .geo(Geo.builder().country("DE").build())
+            .stickinessSeconds(1800)
+            .build()
+    );
+
+    System.out.printf("proxy.iogrid.org:443 user=%s pass=%s%n",
+        session.username(), session.password());
+  }
+}
+```
+
+## Example 2: Docker workload + log stream
+
+```java
+import io.iogrid.IogridClient;
+import io.iogrid.workloads.WorkloadCreate;
+import io.iogrid.workloads.Resources;
+
+var client = IogridClient.builder()
+    .apiKey(System.getenv("IOGRID_API_KEY"))
+    .build();
+
+var job = client.workloads().create(WorkloadCreate.builder()
+    .type("docker")
+    .image("ghcr.io/myorg/etl:v1.4.2")
+    .command(List.of("python", "-m", "etl"))
+    .resources(Resources.builder().cpu(4).memoryGb(8).timeLimitSeconds(1800).build())
+    .category("batch")
+    .build());
+
+client.workloads().streamLogs(job.id()).forEach(line -> System.out.print(line.text()));
+
+var result = client.workloads().wait(job.id());
+System.out.println("exited with code " + result.exitCode());
+```
+
+## Example 3: iOS build
+
+```java
+var build = client.workloads().create(WorkloadCreate.builder()
+    .type("ios-build")
+    .gitUrl("https://github.com/myorg/myapp")
+    .gitRef("main")
+    .xcodeVersion("16.2")
+    .buildCommand("xcodebuild -scheme MyApp archive")
+    .artifacts(List.of("build/MyApp.xcarchive"))
+    .build());
+
+var finished = client.workloads().wait(build.id());
+finished.artifacts().forEach(a ->
+    System.out.printf("download %s: %s%n", a.name(), a.downloadUrl()));
+```
+
+## Error handling
+
+```java
+try {
+    client.workloads().create(...);
+} catch (IogridException e) {
+    if ("RATE_LIMITED".equals(e.code())) {
+        Thread.sleep(e.retryAfterSeconds() * 1000L);
+    } else {
+        throw e;
+    }
+}
+```
+
+## Configuration
+
+```java
+var client = IogridClient.builder()
+    .apiKey(System.getenv("IOGRID_API_KEY"))
+    .baseUrl("https://sandbox.api.iogrid.org/v1")
+    .timeout(Duration.ofSeconds(30))
+    .maxRetries(5)
+    .userAgent("myapp/1.2.3")
+    .build();
+```
+
+## Where next
+
+- [API overview](/api/overview/)
+- [API reference](/api/reference/)
+- [Customer quickstart](/getting-started/quickstart/)

@@ -1,0 +1,178 @@
+---
+title: Mesh architecture overview
+description: How the iogrid coordinator, daemon, and four workload modules fit together.
+sidebar:
+  label: Mesh overview
+  order: 1
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+iogrid is a single coordinated platform with **pluggable workload modules**.
+The same provider daemon, coordinator, auth, billing, and transparency layer
+serves all four workload types. What changes per workload is the execution
+module that runs on the provider.
+
+## High-level diagram
+
+```
+                       ┌──────────────────────────────────────────────────┐
+                       │              Customer-facing API                  │
+                       │  REST + gRPC, OpenAPI spec, per-key billing       │
+                       └──────────────────┬────────────────────────────────┘
+                                          │
+                       ┌──────────────────▼────────────────────────────────┐
+                       │              Workload Scheduler                   │
+                       │  Match requests → eligible providers by:          │
+                       │   - capability (proxy / docker / gpu / ios-build) │
+                       │   - geo (country / region)                        │
+                       │   - quality score (uptime, latency, reputation)   │
+                       │   - provider opt-ins (category, destination)      │
+                       │   - load (current bandwidth / cpu utilization)    │
+                       └──────────────────┬────────────────────────────────┘
+                                          │
+            ┌────────────────────────────┬┴──────────────────────┬─────────────────────────┐
+            │                            │                       │                         │
+   ┌────────▼─────────┐    ┌────────────▼────────┐  ┌────────────▼─────────┐   ┌──────────▼──────────┐
+   │ Bandwidth router │    │ Docker workload     │  │ GPU workload         │   │ iOS-build workload  │
+   │ (SOCKS5 + WG)    │    │ scheduler (k8s-     │  │ (CUDA / MLX,         │   │ (Tart macOS VMs +   │
+   │                  │    │  lite, no etcd)     │  │  per-provider)       │   │  Xcode env images)  │
+   └────────┬─────────┘    └────────────┬────────┘  └────────────┬─────────┘   └──────────┬──────────┘
+            │                            │                       │                         │
+            └────────────────────────────┴───────────────────────┴─────────────────────────┘
+                                          │
+                              ┌───────────▼──────────┐
+                              │  Provider transport  │
+                              │  gRPC over mTLS,     │
+                              │  long-lived bidi     │
+                              │  streams. WireGuard  │
+                              │  tunnel for bandwidth│
+                              │  workload only.      │
+                              └───────────┬──────────┘
+                                          │
+              ┌───────────────────────────┴────────────────────────────┐
+              │                                                        │
+       ┌──────▼──────────────┐                              ┌──────────▼───────────┐
+       │  Provider Daemon    │                              │  Provider Daemon     │
+       │  (macOS / Apple Si) │                              │  (Linux x86_64)      │
+       └─────────────────────┘                              └──────────────────────┘
+```
+
+## Components
+
+### Coordinator (Go microservices, Kubernetes)
+
+The control plane. Initially deployed to a single mothership cluster; Phase 2+
+adds regional coordinators with eventually-consistent provider registry.
+
+- **Provider registry** — connected daemons, capabilities (OS, CPU, RAM, GPU,
+  Mac+Xcode availability), opt-in categories, state (online / offline /
+  draining), quality score.
+- **Workload scheduler** — receives customer submissions, matches eligible
+  providers using a multi-dimensional fit function.
+- **Customer API** — REST and gRPC, OpenAPI-spec'd, API-key authenticated.
+- **Auth + billing** — Stripe Connect for providers, Stripe Subscriptions +
+  usage metering for customers.
+- **Anti-abuse** — pre-flight filters per workload type. See
+  [Security: anti-abuse](/security/anti-abuse/).
+- **Transparency dashboard** — provider-facing real-time view of what's
+  flowing through their IP, with category labels and per-destination
+  breakdowns.
+
+Backing store: Postgres (CNPG) for state, Redis for ephemeral routing.
+
+### Daemon (Rust, cross-platform single binary)
+
+Installed on provider devices. One binary, OS-conditional behavior:
+
+| Target triple | Workloads enabled by default |
+|---------------|--------------------------------|
+| `darwin/arm64` (Apple Silicon Mac) | bandwidth · docker (Colima) · gpu (MLX) · ios-build (Tart) |
+| `darwin/amd64` (Intel Mac) | bandwidth · docker · ios-build (Tart Intel mode) |
+| `linux/amd64` | bandwidth · docker · gpu (CUDA if NVIDIA present) |
+| `linux/arm64` | bandwidth · docker (limited image availability) |
+| `windows/amd64` | bandwidth · docker (Docker Desktop / WSL2 backend) |
+
+Provider controls (via local CLI or web UI on `localhost:7777`):
+
+- Enable / disable individual workload types
+- Set bandwidth and compute caps
+- Block destinations (regex) and categories
+- Choose payout currency
+- View real-time + historical activity
+
+Daemon establishes a single long-lived gRPC stream to the coordinator.
+Heartbeats every 15 s. Auto-reconnect with exponential backoff. WireGuard
+tunnel for bandwidth workload is layered on top — no separate connection.
+
+### Proto schema (`proto/iogrid/...`)
+
+Protobuf-first API. Schemas grouped by domain:
+
+- `iogrid.common.v1` — shared types and errors
+- `iogrid.identity.v1` — auth, sessions, magic links, Google OAuth
+- `iogrid.providers.v1` — registration, dashboard, scheduling
+- `iogrid.workloads.v1` — submit, dispatch (the four workload types)
+- `iogrid.billing.v1` — payouts, subscriptions, plans
+- `iogrid.antiabuse.v1` — filter results, audit log
+
+OpenAPI 3.1 spec auto-generated by `buf generate` to
+`proto/gen/openapi/iogrid.yaml`. The
+[API reference](/api/overview/) on this site is rendered from that spec on
+every push to `main`.
+
+### Web management plane (`web/`)
+
+Next.js 15 + shadcn/ui. Hosts:
+
+- `dashboard.iogrid.org` — customers and providers
+- `link.iogrid.org` — provider daemon linking flow
+
+## Phase-by-phase deployment topology
+
+<Aside type="note">
+  iogrid runs end-to-end on a single mothership Kubernetes cluster today
+  (Phase 0). The federation story below is committed-direction, not
+  yet-built.
+</Aside>
+
+**Phase 0** — 1 coordinator pod · 1 Postgres (shared CNPG) · 1 Redis · Ingress
+on `api.iogrid.org` + `dashboard.iogrid.org`. ~100 internal providers, no
+external onboarding.
+
+**Phase 1** — closed beta, ~100 external providers. Mothership only. Anti-abuse
+filters fully gated. Provider audit log retained 90 days.
+
+**Phase 2** — open beta, ~5K providers, regional coordinators in US-East + EU.
+Eventually-consistent provider registry. Cross-region scheduler.
+
+**Phase 3** — federation pilot — third-party operators can run their own
+coordinator that peers with ours via signed-provenance protocol. Optional
+embedded SDK for game-engine / desktop-app developers to bundle iogrid with
+explicit user consent.
+
+## Competitive landscape
+
+iogrid is the first horizontally integrated mesh — bandwidth · Docker · GPU ·
+iOS-build, with multi-currency provider payouts and transparency as the
+default. The full master comparison matrix lives in
+[`docs/COMPETITORS.md`](https://github.com/iogrid/iogrid/blob/main/docs/COMPETITORS.md);
+here is the condensed version:
+
+| Player | Bandwidth | Docker | GPU | iOS build | VPN | Provider payout | Transparency |
+|---|---|---|---|---|---|---|---|
+| Bright Data | ✅ ~72M devices | ❌ | ❌ | ❌ | ❌ (Hola parent) | Cash | ❌ Opaque |
+| Honeygain | ✅ ~1M | ❌ | ❌ | ❌ | ❌ | Cash | ❌ Opaque |
+| Salad | ❌ | ✅ Docker | ✅ Gamer GPUs | ❌ | ❌ | Cash + gift cards | 🟡 Limited |
+| Vast.ai | ❌ | 🟡 | ✅ GPU | ❌ | ❌ | Cash | 🟡 Marketplace |
+| io.net | ❌ | 🟡 | ✅ GPU | ❌ | ❌ | Crypto | ❌ |
+| Mysterium | 🟡 Some | ❌ | ❌ | ❌ | ✅ Mesh VPN | Crypto (MYST) | 🟡 |
+| GitHub Actions | ❌ | ❌ | ❌ | ✅ at $0.08/min | ❌ | n/a | ✅ |
+| **iogrid** | ✅ Residential | ✅ Docker | ✅ NVIDIA + MLX | ✅ at $0.04/min | ✅ Free mesh | Cash + VPN + $GRID + charity | ✅ Live audit |
+
+## Where next
+
+- [Workload types](/concepts/workloads/) — the four execution modules
+- [Providers](/concepts/providers/) — the supply side, economics
+- [Transparency](/concepts/transparency/) — anti-Hola dashboard
+- [$GRID tokenomics](/concepts/tokenomics/) — utility, lockups, deflation

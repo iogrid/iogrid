@@ -1,0 +1,159 @@
+---
+title: TypeScript SDK
+description: The official @iogrid/sdk for Node.js, Deno, Bun, and the browser.
+sidebar:
+  label: TypeScript
+  order: 1
+---
+
+import { Tabs, TabItem, Aside } from '@astrojs/starlight/components';
+
+`@iogrid/sdk` is the official TypeScript SDK. It works in Node.js 20+, Bun,
+Deno, and modern browsers (with a publishable `pk_*` key only — never embed
+`sk_*` in client-side code).
+
+- **npm:** [`@iogrid/sdk`](https://www.npmjs.com/package/@iogrid/sdk)
+- **Source:** [`github.com/iogrid/iogrid/tree/main/sdks/typescript`](https://github.com/iogrid/iogrid/tree/main/sdks/typescript)
+- **Bundle size:** 8 KB gzipped (zero runtime deps; uses `fetch`)
+
+## Install
+
+<Tabs>
+  <TabItem label="pnpm">
+
+```bash
+pnpm add @iogrid/sdk
+```
+
+  </TabItem>
+  <TabItem label="npm">
+
+```bash
+npm install @iogrid/sdk
+```
+
+  </TabItem>
+  <TabItem label="yarn">
+
+```bash
+yarn add @iogrid/sdk
+```
+
+  </TabItem>
+  <TabItem label="bun">
+
+```bash
+bun add @iogrid/sdk
+```
+
+  </TabItem>
+</Tabs>
+
+## Example 1: a residential proxy session
+
+```ts
+import { IogridClient } from "@iogrid/sdk";
+
+const client = new IogridClient({
+  apiKey: process.env.IOGRID_API_KEY!,
+});
+
+const session = await client.proxy.sessions.create({
+  geo: { country: "DE" },
+  stickinessSeconds: 1800,
+});
+
+console.log(`proxy.iogrid.org:443 ` +
+  `username=${session.username} password=${session.password}`);
+```
+
+## Example 2: submit a Docker workload and stream logs
+
+```ts
+import { IogridClient } from "@iogrid/sdk";
+
+const client = new IogridClient({ apiKey: process.env.IOGRID_API_KEY! });
+
+const job = await client.workloads.create({
+  type: "docker",
+  image: "ghcr.io/myorg/etl:v1.4.2",
+  command: ["python", "-m", "etl"],
+  resources: { cpu: 4, memoryGb: 8, timeLimitSeconds: 1800 },
+  category: "batch",
+});
+
+// Stream logs as a ReadableStream of strings
+for await (const line of client.workloads.streamLogs(job.id)) {
+  process.stdout.write(line);
+}
+
+const result = await client.workloads.wait(job.id);
+console.log(`exited with code ${result.exitCode}`);
+```
+
+## Example 3: submit an iOS build
+
+```ts
+import { IogridClient } from "@iogrid/sdk";
+
+const client = new IogridClient({ apiKey: process.env.IOGRID_API_KEY! });
+
+const build = await client.workloads.create({
+  type: "ios-build",
+  gitUrl: "https://github.com/myorg/myapp",
+  gitRef: "main",
+  xcodeVersion: "16.2",
+  buildCommand:
+    "xcodebuild -scheme MyApp -archivePath build/MyApp.xcarchive archive",
+  artifacts: ["build/MyApp.xcarchive"],
+  timeLimitSeconds: 1800,
+});
+
+const finished = await client.workloads.wait(build.id);
+if (finished.status === "succeeded") {
+  for (const artifact of finished.artifacts) {
+    console.log(`download ${artifact.name}: ${artifact.downloadUrl}`);
+  }
+}
+```
+
+## Configuration
+
+```ts
+const client = new IogridClient({
+  apiKey: process.env.IOGRID_API_KEY!,
+  baseUrl: "https://sandbox.api.iogrid.org/v1",  // optional
+  timeout: 30_000,                                // ms, default 60s
+  retries: 5,                                     // exponential backoff
+  retryStatuses: [429, 502, 503, 504],
+  userAgent: "myapp/1.2.3 (+https://myapp.example)",
+});
+```
+
+## Error handling
+
+```ts
+import { IogridError } from "@iogrid/sdk";
+
+try {
+  await client.workloads.create({ ... });
+} catch (err) {
+  if (err instanceof IogridError && err.code === "RATE_LIMITED") {
+    console.warn(`retry after ${err.details.retry_after_seconds}s`);
+  } else {
+    throw err;
+  }
+}
+```
+
+<Aside type="note" title="Type-safety from protobuf">
+  The SDK's types are auto-generated from the same protobuf schema the
+  coordinator uses. Run `pnpm update @iogrid/sdk` after every iogrid API
+  release to pick up new fields; `tsc` will flag any breakage.
+</Aside>
+
+## Where next
+
+- [API overview](/api/overview/)
+- [API reference](/api/reference/)
+- [Customer quickstart](/getting-started/quickstart/)

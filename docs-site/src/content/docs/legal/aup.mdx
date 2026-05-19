@@ -1,0 +1,106 @@
+---
+title: Acceptable Use Policy
+description: What customers may and may not do with the iogrid platform.
+sidebar:
+  label: AUP
+  order: 2
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+<Aside type="caution" title="This is a summary, not the contract">
+  The canonical Acceptable Use Policy lives at
+  [iogrid.org/legal/aup](https://iogrid.org/legal/aup). That version controls.
+  This page is a developer-friendly summary.
+</Aside>
+
+## You may use iogrid to
+
+- Run public-web scraping at scale (e-commerce monitoring, SEO, price
+  aggregation, public-business contact discovery, AI training data on public
+  pages)
+- Verify ad placements and brand-safety crawls
+- Run Docker batch jobs, ML inference, GPU rendering
+- Build iOS apps in CI / CD pipelines
+- Aggregate flights, hotels, car rentals from public booking sites
+
+## You may **not** use iogrid to
+
+- Distribute, store, or transit CSAM. **Any hash match is automatically
+  blocked and may result in mandatory law-enforcement reporting.**
+- Conduct DDoS attacks, "stresser" services, or any other deliberate
+  service-degradation attack
+- Send unsolicited bulk email (we block SMTP outbound at the protocol level,
+  so this also fails technically)
+- Coordinate harassment campaigns or doxxing
+- Engage in unauthorized access to systems (no penetration testing without
+  the target's written consent)
+- Launder counterfeit credentials, stolen credit card data, or other
+  illegal commodities
+- Run cryptocurrency miners — they violate every provider's good-faith
+  expectation of what "share idle compute" means
+- Scrape data that you're contractually prohibited from scraping under
+  another agreement (we don't enforce arbitrary website ToS, but if a
+  destination has a court-issued injunction against you, that's your problem)
+
+## Public-data scraping legality (US perspective)
+
+iogrid's posture follows the *hiQ Labs v. LinkedIn* line of cases (Ninth
+Circuit, 2017–2022, eventually settled): scraping publicly available data
+does not by itself violate the Computer Fraud and Abuse Act (CFAA).
+
+This is **not legal advice**. Laws differ by jurisdiction and by what
+exactly you're scraping. iogrid customers are responsible for their own
+compliance.
+
+## Customer responsibilities
+
+You are responsible for:
+
+- **What you target.** You name the destination, you take the risk.
+- **What you collect.** Personal data scraping has GDPR / CCPA / state-law
+  implications.
+- **How you use it.** Bias-laundering, illegal redistribution, etc. are on you.
+- **What you sign with us.** When you accept these terms, you indemnify
+  iogrid against claims arising from your use of the platform.
+
+## iogrid responsibilities
+
+We commit to:
+
+- Running aggressive pre-flight anti-abuse filters (see
+  [anti-abuse](/security/anti-abuse/))
+- Cooperating with law enforcement on **specific** lawful requests with
+  proper process (not bulk fishing expeditions)
+- Notifying customers of LE requests targeting their accounts (unless gagged)
+- Maintaining the [defense fund](/security/anti-abuse/#provider-protections)
+  for providers acting in good faith
+
+## Penalties for AUP violations
+
+| Severity | First offense | Repeat |
+|---|---|---|
+| Configuration / accidental | Warning + remediation | Throttle / temporary suspension |
+| Negligent | Suspension pending review | Account termination |
+| Wilful / criminal | Immediate termination + LE cooperation | n/a |
+
+Termination triggers a 7-day data-export window before deletion. CSAM-hash
+matches trigger immediate termination with no export window.
+
+## Appealing
+
+If your account is suspended and you believe in error, email
+[appeals@iogrid.org](mailto:appeals@iogrid.org) with your account ID and a
+description. Appeals are reviewed by a person, not an automated system, with
+a target turnaround of 5 business days.
+
+## Where to read the real document
+
+- HTML: [iogrid.org/legal/aup](https://iogrid.org/legal/aup)
+- PDF: [iogrid.org/legal/aup.pdf](https://iogrid.org/legal/aup.pdf)
+
+## Where next
+
+- [Terms of Service](/legal/tos/)
+- [Privacy Policy](/legal/privacy/)
+- [Security: anti-abuse](/security/anti-abuse/)

@@ -1,0 +1,162 @@
+---
+title: Customer quickstart
+description: From zero to a paid API call in five minutes — proxy, Docker, GPU, or iOS-build.
+sidebar:
+  label: Quickstart (customers)
+  order: 1
+---
+
+import { Tabs, TabItem, Steps, Aside, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+This page takes you from "I just heard about iogrid" to a first successful API
+call in about five minutes. You'll need a credit card and (optionally) a
+terminal.
+
+<Aside type="note" title="Closed beta">
+  Until Phase 1 GA (Q3 2026 target), the customer dashboard requires an invite
+  code. Request access at [iogrid.org/early-access](https://iogrid.org/early-access).
+  Sandbox keys are available without an invite — read on.
+</Aside>
+
+## 1. Create an account
+
+<Steps>
+
+1. Open [dashboard.iogrid.org](https://dashboard.iogrid.org) and sign in with
+   Google or send yourself a magic link.
+
+2. Add a payment method. We use Stripe — no card data ever touches iogrid
+   servers. Most workloads have a free monthly credit ($5 of metered usage).
+
+3. Go to **Settings → API keys**, click **Create key**. Two key types:
+   - **`sandbox_`** — no billing, fixtures only, no real provider traffic.
+   - **`live_`** — bills against your card. Requires email verification.
+
+</Steps>
+
+## 2. Make your first call
+
+Pick the workload you care about most.
+
+<Tabs>
+  <TabItem label="Bandwidth proxy">
+
+```bash
+# A residential proxy session in Germany, sticky for 30 minutes.
+curl -X POST https://api.iogrid.org/v1/proxy/sessions \
+  -H "Authorization: Bearer sk_live_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "geo": { "country": "DE" },
+    "stickiness_seconds": 1800
+  }'
+```
+
+Response:
+
+```json
+{
+  "session_id": "ses_01HXY...",
+  "endpoint": "proxy.iogrid.org:443",
+  "username": "ses_01HXY",
+  "password": "...",
+  "expires_at": "2026-05-19T12:00:00Z",
+  "metered_usage_gb": 0
+}
+```
+
+Then point any HTTPS client at the SOCKS5 endpoint:
+
+```bash
+curl --proxy socks5://ses_01HXY:...@proxy.iogrid.org:443 https://example.com
+```
+
+  </TabItem>
+  <TabItem label="Docker compute">
+
+```bash
+curl -X POST https://api.iogrid.org/v1/workloads \
+  -H "Authorization: Bearer sk_live_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "docker",
+    "image": "ghcr.io/myorg/etl:v1.4.2",
+    "command": ["python", "-m", "etl", "--batch", "2026-05"],
+    "resources": { "cpu": 4, "memory_gb": 8, "time_limit_seconds": 1800 },
+    "category": "batch"
+  }'
+```
+
+Logs stream over Server-Sent Events at the returned `logs_url`.
+
+  </TabItem>
+  <TabItem label="GPU inference">
+
+```bash
+curl -X POST https://api.iogrid.org/v1/workloads \
+  -H "Authorization: Bearer sk_live_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "gpu",
+    "image": "ghcr.io/myorg/llm-inference:latest",
+    "gpu_class": "consumer-rtx4090",
+    "min_vram_gb": 16,
+    "command": ["./serve.sh", "--model", "llama3-8b"]
+  }'
+```
+
+`gpu_class` accepts `consumer-rtx3060`, `consumer-rtx3090`, `consumer-rtx4090`,
+`pro-a4000`, `pro-a6000`, or `apple-silicon-m2-pro`.
+
+  </TabItem>
+  <TabItem label="iOS build">
+
+```bash
+curl -X POST https://api.iogrid.org/v1/workloads \
+  -H "Authorization: Bearer sk_live_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "ios-build",
+    "git_url": "https://github.com/myorg/myapp",
+    "git_ref": "main",
+    "xcode_version": "16.2",
+    "build_command": "xcodebuild -scheme MyApp -archivePath build/MyApp.xcarchive archive",
+    "artifacts": ["build/MyApp.xcarchive"],
+    "time_limit_seconds": 1800
+  }'
+```
+
+Artifacts upload to your iogrid S3 bucket and surface as signed URLs.
+
+  </TabItem>
+</Tabs>
+
+## 3. Watch it in your dashboard
+
+Every API call shows up at
+[dashboard.iogrid.org/usage](https://dashboard.iogrid.org/usage) within ~2 s.
+You'll see:
+
+- Bytes / CPU-hours / GPU-hours / Xcode-minutes consumed
+- Provider geos that served you (aggregated, never individual IPs)
+- Per-workload cost
+- Live anti-abuse decisions (anything blocked pre-flight)
+
+## 4. Wire up a real SDK
+
+The official SDKs ship typed clients, retry logic, and Server-Sent Event
+helpers for streaming workloads.
+
+<CardGrid>
+  <LinkCard title="TypeScript" href="/sdks/typescript/" />
+  <LinkCard title="Python" href="/sdks/python/" />
+  <LinkCard title="Go" href="/sdks/go/" />
+  <LinkCard title="Java" href="/sdks/java/" />
+</CardGrid>
+
+## Where next
+
+- [API overview](/api/overview/) — REST + gRPC, auth, rate limits, errors
+- [Workload guides](/workloads/proxy/) — deeper dives per workload
+- [Billing](/billing/plans/) — plans, metering, invoices
+- [Security posture](/security/privacy/) — what we see, what we don't

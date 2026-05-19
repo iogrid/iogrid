@@ -1,0 +1,109 @@
+---
+title: Errors
+description: The full iogrid API error catalog and how to handle each code.
+sidebar:
+  label: Errors
+  order: 4
+---
+
+All iogrid API errors return JSON with a stable machine-readable `code`, a
+human-readable `message`, a request ID, and (often) structured `details`.
+
+```json
+{
+  "code": "ANTIABUSE_BLOCKED",
+  "message": "Destination domain matched fraud blocklist.",
+  "request_id": "req_01HXY...",
+  "details": {
+    "destination": "obviously-phishing.example",
+    "block_reason": "PhishTank",
+    "block_id": "blk_2026_05_19_abc"
+  }
+}
+```
+
+HTTP status codes follow standard conventions: `400` client error, `401`
+unauthenticated, `403` forbidden, `404` not found, `409` conflict, `422`
+validation, `429` rate-limited, `5xx` server / upstream.
+
+## Error code catalog
+
+### Authentication & authorization
+
+| Code | HTTP | Meaning | Suggested action |
+|---|---|---|---|
+| `INVALID_AUTH` | 401 | Missing or malformed `Authorization` header | Add the header |
+| `KEY_REVOKED` | 401 | API key was revoked | Issue a new key |
+| `KEY_EXPIRED` | 401 | API key passed its expiry | Issue a new key |
+| `KEY_IP_DENIED` | 403 | Source IP not in key's allowlist | Update allowlist or change source |
+| `SCOPE_INSUFFICIENT` | 403 | Publishable key tried a secret-only call | Use an `sk_*` key |
+
+### Validation
+
+| Code | HTTP | Meaning |
+|---|---|---|
+| `VALIDATION_ERROR` | 422 | Generic validation failure; `details.fields[]` lists each problem |
+| `UNSUPPORTED_WORKLOAD` | 422 | Workload type not yet GA (e.g., GPU before Phase 1) |
+| `INVALID_GEO` | 422 | Country code unsupported or no providers in that geo |
+| `INVALID_IMAGE_SOURCE` | 422 | Container image not from an approved registry |
+| `INVALID_XCODE_VERSION` | 422 | Requested Xcode version not available on any Mac provider |
+
+### Rate limits
+
+| Code | HTTP | Meaning |
+|---|---|---|
+| `RATE_LIMITED` | 429 | Per-key bucket exceeded; see `details.retry_after_seconds` |
+| `CONCURRENT_LIMIT` | 429 | Too many in-flight workloads for your plan |
+| `DAILY_SPEND_CAP` | 429 | Account daily spend cap hit; raise in dashboard |
+| `DESTINATION_CAP` | 429 | Per-destination domain cap hit for this account |
+
+### Anti-abuse
+
+| Code | HTTP | Meaning |
+|---|---|---|
+| `ANTIABUSE_BLOCKED` | 403 | Destination or category blocked pre-flight |
+| `CSAM_HASH_MATCH` | 403 | Hash match against NCMEC / INTERPOL; account flagged for review |
+| `KYC_REQUIRED` | 403 | Tier escalation — submit KYC to continue |
+| `CATEGORY_NOT_AVAILABLE` | 403 | No provider with that category opt-in matched |
+
+### Scheduling
+
+| Code | HTTP | Meaning |
+|---|---|---|
+| `NO_PROVIDER_AVAILABLE` | 503 | Scheduler found no eligible provider; retry in a few minutes |
+| `WORKLOAD_TIMEOUT` | 504 | Workload exceeded `time_limit_seconds`; partial output may be available |
+| `PROVIDER_DROPPED` | 503 | Provider went offline mid-workload; the workload was retried but eventually failed |
+
+### Billing
+
+| Code | HTTP | Meaning |
+|---|---|---|
+| `PAYMENT_REQUIRED` | 402 | Card declined or insufficient funds; update payment method |
+| `INVOICE_OVERDUE` | 402 | Past-due invoice blocking new workloads |
+| `STRIPE_ERROR` | 502 | Upstream Stripe error; iogrid will retry on its side |
+
+### Idempotency
+
+| Code | HTTP | Meaning |
+|---|---|---|
+| `IDEMPOTENCY_REPLAYED` | 200 | Returned cached response from the original key; not an error |
+| `IDEMPOTENCY_KEY_REUSED` | 409 | Same key with different body — refuse to merge |
+
+### Server
+
+| Code | HTTP | Meaning |
+|---|---|---|
+| `INTERNAL_ERROR` | 500 | Unexpected; `request_id` lets support correlate logs |
+| `MAINTENANCE_MODE` | 503 | Planned maintenance window; check `status.iogrid.org` |
+| `DEGRADED` | 503 | Subset of providers offline; retry or downgrade geo specificity |
+
+## Always include the request ID when contacting support
+
+Every error response carries `request_id`. Quote it verbatim in any support
+email — we can pull the full trace in seconds with it.
+
+## Where next
+
+- [Authentication](/api/authentication/)
+- [Rate limits](/api/rate-limits/)
+- [API overview](/api/overview/)

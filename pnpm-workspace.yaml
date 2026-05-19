@@ -1,2 +1,4 @@
 packages:
   - "web"
+  - "marketing"
+  - "docs-site"
