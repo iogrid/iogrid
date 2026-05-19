@@ -42,6 +42,10 @@ type Deps struct {
 	// VPNGateway is optional; when present the BFF surfaces
 	// /api/v1/vpn/config-for-platform proxying to the vpn-gateway pod.
 	VPNGateway *handlers.VPNGatewayProxy
+	// Workspaces is the optional client over identity-svc's
+	// WorkspaceService. When nil the /api/v1/workspaces tree returns
+	// 503 — useful in dev environments where identity-svc isn't up.
+	Workspaces handlers.WorkspaceClient
 }
 
 // Mount builds the routes from the supplied Deps. Pass the returned
@@ -52,6 +56,7 @@ func Mount(deps Deps) func(chi.Router) {
 	}
 	api := handlers.New(deps.Clients, deps.APIKeyStore, deps.Logger)
 	api.VPNGateway = deps.VPNGateway
+	api.Workspaces = deps.Workspaces
 	// Phase 0: default to an in-memory customer-onboard store so
 	// POST /api/v1/onboard/customer works end-to-end without further
 	// wiring. Phase 1 swaps this for the identity-svc-backed impl.
@@ -136,6 +141,22 @@ func Mount(deps Deps) func(chi.Router) {
 				r.Use(auth.RequireRole("ADMIN"))
 				r.Get("/abuse-queue", api.ListAbuseQueue)
 				r.Post("/abuse/{id}/resolve", api.ResolveAbuseEvent)
+			})
+
+			// /workspaces ---------------------------------------------
+			// Workspace bounded-context (#146). Auth-required; proxies
+			// to identity-svc WorkspaceService.
+			r.Route("/workspaces", func(r chi.Router) {
+				r.Use(auth.RequireAuth)
+				r.Get("/", api.ListWorkspaces)
+				r.Post("/", api.CreateWorkspace)
+				r.Get("/{id}", api.GetWorkspace)
+				r.Patch("/{id}", api.UpdateWorkspace)
+				r.Delete("/{id}", api.DeleteWorkspace)
+				r.Get("/{id}/members", api.ListMembers)
+				r.Post("/{id}/members", api.AddMember)
+				r.Patch("/{id}/members/{userID}", api.UpdateMemberRole)
+				r.Delete("/{id}/members/{userID}", api.RemoveMember)
 			})
 
 			// /vpn --------------------------------------------------------

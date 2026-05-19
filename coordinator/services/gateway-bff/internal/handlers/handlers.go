@@ -44,6 +44,9 @@ type API struct {
 	// Optional — when nil the /api/v1/vpn/config-for-platform endpoint
 	// responds 503 vpn_gateway_unavailable.
 	VPNGateway *VPNGatewayProxy
+	// Workspaces is the proxy to identity-svc's WorkspaceService.
+	// Optional — when nil the /api/v1/workspaces tree returns 503.
+	Workspaces WorkspaceClient
 }
 
 // New constructs an API. logger defaults to slog.Default(). store

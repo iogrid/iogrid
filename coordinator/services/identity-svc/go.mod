@@ -5,17 +5,20 @@ go 1.22
 toolchain go1.23.4
 
 require (
+	connectrpc.com/connect v1.16.2
 	github.com/caarlos0/env/v11 v11.2.2
 	github.com/coreos/go-oidc/v3 v3.11.0
 	github.com/go-chi/chi/v5 v5.1.0
 	github.com/golang-jwt/jwt/v5 v5.2.1
 	github.com/google/uuid v1.6.0
+	github.com/iogrid/iogrid/coordinator/internal/pb v0.0.0-00010101000000-000000000000
 	github.com/iogrid/iogrid/coordinator/shared v0.0.0-00010101000000-000000000000
 	github.com/jackc/pgx/v5 v5.7.1
 	github.com/ory/dockertest/v3 v3.12.0
 	github.com/pressly/goose/v3 v3.22.1
 	github.com/redis/go-redis/v9 v9.7.0
 	golang.org/x/oauth2 v0.23.0
+	google.golang.org/protobuf v1.35.1
 )
 
 require (
@@ -81,11 +84,12 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20241007155032-5fefd90f89a9 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20241007155032-5fefd90f89a9 // indirect
 	google.golang.org/grpc v1.67.1 // indirect
-	google.golang.org/protobuf v1.35.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
 
 replace github.com/iogrid/iogrid/coordinator/shared => ../../shared
+
+replace github.com/iogrid/iogrid/coordinator/internal/pb => ../../internal/pb
 
 // go-jose v4.1.4 requires Go 1.24; pin to the last v4.0.x for Go 1.22/1.23 CI.
 replace github.com/go-jose/go-jose/v4 => github.com/go-jose/go-jose/v4 v4.0.5

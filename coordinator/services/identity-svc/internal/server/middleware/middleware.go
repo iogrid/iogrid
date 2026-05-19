@@ -76,6 +76,18 @@ func AuthedClaims(ctx context.Context) (*tokens.AccessClaims, bool) {
 	return v, ok
 }
 
+// WithAuthedUser is a test-only helper for handlers that need to assert
+// the authed-user path without spinning up a JWT signer. Production
+// code reaches this state via VerifyBearer above.
+func WithAuthedUser(ctx context.Context, id uuid.UUID) context.Context {
+	return context.WithValue(ctx, ctxUserID, id)
+}
+
+// WithAuthedClaims is the claims counterpart for WithAuthedUser.
+func WithAuthedClaims(ctx context.Context, claims *tokens.AccessClaims) context.Context {
+	return context.WithValue(ctx, ctxClaims, claims)
+}
+
 // RequireStepUp rejects requests whose token doesn't carry the step_up
 // flag. Used by payout-change / merge / account-delete endpoints in
 // other services that import this package.

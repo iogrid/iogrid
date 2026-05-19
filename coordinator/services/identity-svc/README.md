@@ -39,6 +39,15 @@ Tokens:
 | DELETE | `/v1/sessions/{id}`                   | bearer      | Revokes one session                      |
 | GET    | `/v1/users/{id}`                      | bearer      | Returns user + identifiers               |
 | PATCH  | `/v1/users/{id}`                      | bearer      | Updates the caller's own profile         |
+| GET    | `/v1/workspaces/`                     | bearer      | Lists workspaces the caller belongs to   |
+| POST   | `/v1/workspaces/`                     | bearer      | Creates a workspace owned by caller      |
+| GET    | `/v1/workspaces/{id}`                 | bearer      | Returns one workspace + caller role      |
+| PATCH  | `/v1/workspaces/{id}`                 | bearer      | Renames or re-plans (OWNER/ADMIN)        |
+| DELETE | `/v1/workspaces/{id}`                 | bearer+step-up | Soft-deletes (OWNER only)             |
+| GET    | `/v1/workspaces/{id}/members`         | bearer      | Lists members of the workspace           |
+| POST   | `/v1/workspaces/{id}/members`         | bearer      | Adds a member (or pending invite)        |
+| PATCH  | `/v1/workspaces/{id}/members/{userID}`| bearer      | Changes a member's role (OWNER/ADMIN)    |
+| DELETE | `/v1/workspaces/{id}/members/{userID}`| bearer      | Removes a member                         |
 | POST   | `/v1/auth/siws/start`                 | bearer? *   | Issues a Sign-In-With-Solana challenge   |
 | POST   | `/v1/auth/siws/complete`              | bearer? *   | Verifies signature, binds wallet         |
 | GET    | `/v1/wallets/`                        | bearer      | Lists wallets bound to caller            |
@@ -48,6 +57,52 @@ Tokens:
 caller's user_id is locked to the bearer principal. When absent and
 `create_if_missing=true`, Complete mints a fresh User whose only
 identifier is the signed wallet and returns a regular AuthBundle.
+
+Plus the Connect-RPC handler at `/iogrid.identity.v1.WorkspaceService/*`
+for service-to-service calls (gateway-bff, billing-svc).
+
+## Workspace bounded-context
+
+Every paid resource in iogrid (subscription, API keys, workloads, audit
+log) is owned by a **Workspace**, not by a User directly. The Workspace
+join lets one human belong to many tenants (think Slack workspaces) and
+matches Stripe's "customer" granularity.
+
+On first authentication identity-svc auto-mints a **personal workspace**
+for the user with the user as `OWNER`. The user can rename it, invite
+collaborators, upgrade the plan, or create additional workspaces from
+the management plane.
+
+### Schema
+
+* `workspaces` — `owner_user_id` (FK), `name`, `plan`, `billing_customer_id_stripe`
+* `workspace_members` — `(workspace_id, user_id)` PK, `role`
+* `workspace_invites` — pending invites for not-yet-signed-up emails
+
+The `plan` and `role` columns are TEXT (not pg enums) so adding a new
+tier in proto doesn't require a schema migration.
+
+### Roles
+
+Ordered most → least privileged: `OWNER > ADMIN > BILLING_ONLY ≈ READ_ONLY`.
+
+* `OWNER`        — every operation incl. plan change + workspace delete
+* `ADMIN`        — add/remove members, rename, change plan
+* `BILLING_ONLY` — view + change payment methods; no workload visibility
+* `READ_ONLY`    — view-only
+
+A workspace MUST always have exactly one OWNER. The store layer blocks
+the last-owner removal/demotion; promotion to OWNER goes through a
+separate transfer-ownership flow (out of scope for issue #146).
+
+### Pending invites
+
+`AddMember` with an unknown email creates a row in `workspace_invites`
+instead of `workspace_members`. The invite is consumed automatically on
+the invitee's first sign-in via `ConsumeInvitesForEmail`, which the
+auth flow calls inside the same transaction that mints the new User.
+This is how a workspace OWNER can pre-provision a team before the team
+has accounts.
 
 ## Environment
 

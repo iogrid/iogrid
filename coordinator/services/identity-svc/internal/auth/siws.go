@@ -189,6 +189,13 @@ func (s *Service) CompleteSiwsBinding(ctx context.Context, userID uuid.UUID, wal
 			}
 			bindUser = u
 			result.NewUser = true
+			// Auto-create a personal workspace for the brand-new
+			// wallet-only user. Same rationale as the magic-link /
+			// Google flows: every paid resource is workspace-scoped,
+			// so a workspace-less user can't transact (#146).
+			if _, err := s.Store.EnsurePersonalWorkspace(ctx, tx, u); err != nil {
+				return fmt.Errorf("siws: ensure personal workspace: %w", err)
+			}
 		}
 
 		ident := &store.Identifier{
