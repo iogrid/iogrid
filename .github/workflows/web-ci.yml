@@ -52,6 +52,7 @@ jobs:
           # only reads them at request-time so the build still completes.
           AUTH_SECRET: ci-placeholder-not-used-at-build-time
           NEXTAUTH_URL: http://localhost:3000
+          NEXT_PUBLIC_API_BASE_URL: https://api.iogrid.org
 
       - name: Unit tests
         run: pnpm test
@@ -101,3 +102,5 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=web
           cache-to: type=gha,scope=web,mode=max
+          build-args: |
+            NEXT_PUBLIC_API_BASE_URL=https://api.iogrid.org

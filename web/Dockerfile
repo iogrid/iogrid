@@ -13,6 +13,12 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
+# NEXT_PUBLIC_* are inlined into the client bundle at `next build` time;
+# runtime env injection via the k8s Deployment is too late for the JS
+# served to browsers. Default to the production gateway so `pnpm build`
+# in CI ships a bundle that talks to api.iogrid.org out of the box.
+ARG NEXT_PUBLIC_API_BASE_URL=https://api.iogrid.org
+ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
 RUN pnpm build
 
 # ---------- runtime ----------

@@ -19,6 +19,12 @@
 // Accept either env name — the original code expected
 // NEXT_PUBLIC_GATEWAY_URL, but Phase 0 web Secret ships
 // NEXT_PUBLIC_API_BASE_URL. Honour whichever is set.
+//
+// NEXT_PUBLIC_* are inlined at `next build` time, so the production
+// browser bundle must be built with NEXT_PUBLIC_API_BASE_URL set in CI.
+// The dev fallback only fires when neither var is present (local pnpm
+// dev). Production builds are pinned to https://api.iogrid.org via the
+// Dockerfile ARG.
 const DEFAULT_BASE_URL =
   process.env.NEXT_PUBLIC_GATEWAY_URL ??
   process.env.NEXT_PUBLIC_API_BASE_URL ??
