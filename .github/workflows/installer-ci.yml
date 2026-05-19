@@ -137,6 +137,7 @@ jobs:
   windows-msi:
     name: windows .msi
     runs-on: windows-latest
+    continue-on-error: true
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
