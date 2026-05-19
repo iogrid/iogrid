@@ -98,32 +98,39 @@ export function OnboardingWizard({ token }: { token: string }) {
 
   function onSubmit() {
     setError(null);
-    startSubmitting(async () => {
-      try {
-        const res = await fetch("/api/onboard/complete", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ token, defaults }),
-        });
-        if (!res.ok) {
-          const body = (await res.json().catch(() => ({}))) as {
-            message?: string;
-          };
-          setError(body.message ?? `Submission failed (status ${res.status}).`);
-          return;
+    // useTransition's callback must be synchronous (its return type is
+    // void). We fire-and-forget the async work inside; setError/setStep
+    // are the only state we need to flush.
+    startSubmitting(() => {
+      void (async () => {
+        try {
+          const res = await fetch("/api/onboard/complete", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ token, defaults }),
+          });
+          if (!res.ok) {
+            const body = (await res.json().catch(() => ({}))) as {
+              message?: string;
+            };
+            setError(
+              body.message ?? `Submission failed (status ${res.status}).`,
+            );
+            return;
+          }
+          setStep(4);
+          // Brief celebration, then hand off to the provider dashboard.
+          setTimeout(() => {
+            router.push("/provide");
+          }, 2500);
+        } catch (err) {
+          setError(
+            err instanceof Error
+              ? `Network error: ${err.message}`
+              : "Network error during submission",
+          );
         }
-        setStep(4);
-        // Brief celebration, then hand off to the provider dashboard.
-        setTimeout(() => {
-          router.push("/provide");
-        }, 2500);
-      } catch (err) {
-        setError(
-          err instanceof Error
-            ? `Network error: ${err.message}`
-            : "Network error during submission",
-        );
-      }
+      })();
     });
   }
 

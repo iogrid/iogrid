@@ -31,6 +31,10 @@ type API struct {
 	Clients     *clients.Set
 	Logger      *slog.Logger
 	APIKeyStore APIKeyStore
+	// OnboardStore backs the daemon-onboarding handshake handlers in
+	// onboard.go. Optional — when nil the onboarding endpoints respond
+	// 503 onboard_store_unavailable. Override with WithOnboardStore.
+	OnboardStore OnboardStore
 	// VPNGateway is the HTTP proxy to the consumer-VPN microservice.
 	// Optional — when nil the /api/v1/vpn/config-for-platform endpoint
 	// responds 503 vpn_gateway_unavailable.
