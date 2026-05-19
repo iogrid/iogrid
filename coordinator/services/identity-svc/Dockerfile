@@ -7,7 +7,8 @@
 #
 # The container preserves the repo layout under /src so the per-service
 # go.mod 'replace github.com/iogrid/iogrid/coordinator/shared => ../../shared'
-# resolves against the in-tree shared module.
+# (and ../../internal/pb for the generated Connect-RPC stubs) resolves
+# against the in-tree modules.
 FROM --platform=$BUILDPLATFORM golang:1.23-bookworm AS builder
 
 ARG TARGETOS=linux
@@ -15,8 +16,12 @@ ARG TARGETARCH=amd64
 
 WORKDIR /src
 
-# Copy the shared module first so layer caching survives service-only edits.
+# Copy the shared + generated-pb modules first so layer caching survives
+# service-only edits. identity-svc's go.mod has relative `replace`
+# directives pointing at ../../shared and ../../internal/pb for the
+# WorkspaceService Connect-RPC stubs (#146).
 COPY coordinator/shared /src/coordinator/shared
+COPY coordinator/internal /src/coordinator/internal
 COPY coordinator/services/identity-svc /src/coordinator/services/identity-svc
 
 WORKDIR /src/coordinator/services/identity-svc
