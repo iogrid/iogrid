@@ -37,16 +37,27 @@ type Connection struct {
 	// listener; for daemons running on routable hosts it's the
 	// daemon's WireGuard / public listener.
 	//
-	// May be empty during pure-store unit tests — see follow-up #(TBD)
-	// for the workloads-svc TCP forwarder implementation.
+	// Wired by the TCP forwarder once a listener is up (issue #222).
+	// May be empty during pure-store unit tests.
 	EndpointHint string
 	// SessionTokenSeed is an opaque short-lived string passed to the
 	// proxy-gateway alongside the chosen provider; the daemon checks
 	// it on accept. Same caveat as EndpointHint — may be empty until
 	// the dispatch JWT minting flow lands.
 	SessionTokenSeed string
-	connectedAt      time.Time
-	disconnected     chan struct{}
+	// SendTunnelOpen pushes a TunnelOpen frame down the bidi stream,
+	// instructing the daemon to dial `targetHostPort` and start
+	// pumping bytes tagged with `attemptID`. The forwarder calls this
+	// when proxy-gateway hands it a new TCP connection.
+	SendTunnelOpen func(attemptID, targetHostPort string) error
+	// SendTunnelData pushes a TunnelData frame (raw bytes) down the
+	// bidi stream for an already-opened tunnel.
+	SendTunnelData func(attemptID string, payload []byte) error
+	// SendTunnelClose pushes a TunnelClose frame down the stream;
+	// `reason` is empty for a clean EOF.
+	SendTunnelClose func(attemptID, reason string) error
+	connectedAt     time.Time
+	disconnected    chan struct{}
 }
 
 // Assignment is what we push down the stream. The dispatcher.D registers
@@ -67,6 +78,15 @@ type Assignment struct {
 	Deadline     time.Time
 }
 
+// TunnelSink is what the forwarder gives the dispatcher so daemon-side
+// TunnelData / TunnelClose frames can be delivered back to the right TCP
+// socket. Per-attempt; registered when the forwarder accepts an inbound
+// proxy-gateway connection and torn down when that connection ends.
+type TunnelSink interface {
+	OnTunnelData(payload []byte)
+	OnTunnelClose(reason string)
+}
+
 // D is the dispatcher. Safe for concurrent use.
 type D struct {
 	Store     store.Store
@@ -75,6 +95,9 @@ type D struct {
 
 	mu          sync.RWMutex
 	connections map[string]*Connection
+
+	tunMu   sync.RWMutex
+	tunnels map[string]TunnelSink
 
 	attemptTimeout time.Duration
 }
@@ -89,8 +112,76 @@ func New(s store.Store, log *slog.Logger) *D {
 		Scheduler:      scheduler.New(),
 		Log:            log,
 		connections:    make(map[string]*Connection),
+		tunnels:        make(map[string]TunnelSink),
 		attemptTimeout: DefaultAttemptTimeout,
 	}
+}
+
+// RegisterTunnel binds an attempt id to a TunnelSink. The forwarder calls
+// this on accept, and the dispatch handler routes inbound TunnelData /
+// TunnelClose frames through the sink. Overwrites any existing sink for
+// the same attempt id (last-writer-wins; only one in-flight forwarder
+// connection per attempt).
+func (d *D) RegisterTunnel(attemptID string, sink TunnelSink) {
+	d.tunMu.Lock()
+	defer d.tunMu.Unlock()
+	d.tunnels[attemptID] = sink
+}
+
+// UnregisterTunnel removes the sink for an attempt id; safe to call
+// multiple times.
+func (d *D) UnregisterTunnel(attemptID string) {
+	d.tunMu.Lock()
+	defer d.tunMu.Unlock()
+	delete(d.tunnels, attemptID)
+}
+
+// DeliverTunnelData fans daemon-side bytes back into the forwarder. The
+// dispatch handler calls this on every inbound TunnelData frame. Returns
+// false if no sink is registered (unknown / closed attempt).
+func (d *D) DeliverTunnelData(attemptID string, payload []byte) bool {
+	d.tunMu.RLock()
+	sink, ok := d.tunnels[attemptID]
+	d.tunMu.RUnlock()
+	if !ok {
+		return false
+	}
+	sink.OnTunnelData(payload)
+	return true
+}
+
+// DeliverTunnelClose fans a daemon-side TunnelClose into the forwarder.
+// Returns false if no sink is registered.
+func (d *D) DeliverTunnelClose(attemptID, reason string) bool {
+	d.tunMu.RLock()
+	sink, ok := d.tunnels[attemptID]
+	d.tunMu.RUnlock()
+	if !ok {
+		return false
+	}
+	sink.OnTunnelClose(reason)
+	return true
+}
+
+// ConnectionByProviderID returns the live Connection for the given
+// provider id, or nil if not connected. Callers must NOT mutate the
+// returned struct's internal fields; only the Send* hooks are safe to
+// invoke concurrently.
+func (d *D) ConnectionByProviderID(providerID string) *Connection {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.connections[providerID]
+}
+
+// LookupAssignmentProvider returns the provider id that owns a given
+// attempt id, or "" if the attempt is unknown. Used by the forwarder to
+// resolve attempt id → daemon stream.
+func (d *D) LookupAssignmentProvider(ctx context.Context, attemptID string) string {
+	a, err := d.Store.GetAssignment(ctx, attemptID)
+	if err != nil || a == nil {
+		return ""
+	}
+	return a.ProviderID
 }
 
 // Register adds a daemon to the live registry. Returns the channel the

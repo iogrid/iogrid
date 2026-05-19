@@ -93,6 +93,11 @@ func (h *DispatchHandler) Dispatch(
 	// Register with the dispatcher. The Send hook converts the
 	// dispatcher's internal Assignment struct into the wire frame.
 	var sendMu sync.Mutex
+	sendFrame := func(f *workloadsv1.DispatchFrame) error {
+		sendMu.Lock()
+		defer sendMu.Unlock()
+		return stream.Send(f)
+	}
 	conn := &dispatcher.Connection{
 		ProviderID:   providerID,
 		EndpointHint: h.ProviderEndpointTemplate,
@@ -103,18 +108,46 @@ func (h *DispatchHandler) Dispatch(
 			SupportedTypes: capabilityTypesFromHello(dh),
 		},
 		Send: func(a *dispatcher.Assignment) error {
-			sendMu.Lock()
-			defer sendMu.Unlock()
 			w, err := h.Store.GetWorkload(ctx, a.WorkloadID)
 			if err != nil {
 				return err
 			}
-			return stream.Send(&workloadsv1.DispatchFrame{
+			return sendFrame(&workloadsv1.DispatchFrame{
 				Frame: &workloadsv1.DispatchFrame_Assignment{
 					Assignment: &workloadsv1.WorkloadAssignment{
 						Workload:  workloadToProto(w),
 						AttemptId: uuidProto(a.ID),
 						Deadline:  timestamppb.New(a.Deadline),
+					},
+				},
+			})
+		},
+		SendTunnelOpen: func(attemptID, targetHostPort string) error {
+			return sendFrame(&workloadsv1.DispatchFrame{
+				Frame: &workloadsv1.DispatchFrame_TunnelOpen{
+					TunnelOpen: &workloadsv1.TunnelOpen{
+						AttemptId:      uuidProto(attemptID),
+						TargetHostPort: targetHostPort,
+					},
+				},
+			})
+		},
+		SendTunnelData: func(attemptID string, payload []byte) error {
+			return sendFrame(&workloadsv1.DispatchFrame{
+				Frame: &workloadsv1.DispatchFrame_TunnelData{
+					TunnelData: &workloadsv1.TunnelData{
+						AttemptId: uuidProto(attemptID),
+						Payload:   payload,
+					},
+				},
+			})
+		},
+		SendTunnelClose: func(attemptID, reason string) error {
+			return sendFrame(&workloadsv1.DispatchFrame{
+				Frame: &workloadsv1.DispatchFrame_TunnelClose{
+					TunnelClose: &workloadsv1.TunnelClose{
+						AttemptId: uuidProto(attemptID),
+						Error:     reason,
 					},
 				},
 			})
@@ -154,6 +187,26 @@ func (h *DispatchHandler) Dispatch(
 			}
 		case f.GetPing() != nil:
 			// daemon liveness — no-op (otelhttp records the rtt).
+		case f.GetTunnelData() != nil:
+			td := f.GetTunnelData()
+			aid := uuidString(td.GetAttemptId())
+			if aid == "" {
+				continue
+			}
+			if !h.Dispatcher.DeliverTunnelData(aid, td.GetPayload()) {
+				// No live forwarder bound — the proxy-gateway side
+				// already closed. Drop the bytes (the daemon will
+				// see TunnelClose on its next read attempt).
+				h.Log.Debug("tunnel_data for unknown attempt",
+					slog.String("attempt_id", aid))
+			}
+		case f.GetTunnelClose() != nil:
+			tc := f.GetTunnelClose()
+			aid := uuidString(tc.GetAttemptId())
+			if aid == "" {
+				continue
+			}
+			h.Dispatcher.DeliverTunnelClose(aid, tc.GetError())
 		case f.GetDrain():
 			h.Log.Info("daemon requested drain",
 				slog.String("provider_id", providerID))
