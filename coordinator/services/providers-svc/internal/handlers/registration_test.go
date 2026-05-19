@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 
@@ -166,6 +167,60 @@ func TestUpdateHostInfo_AfterPair(t *testing.T) {
 	}
 	if resp.Msg.Provider.HostInfo.GetCpuLogicalCores() != 16 {
 		t.Fatalf("update did not persist")
+	}
+}
+
+func TestIssuePairingToken_HappyPath(t *testing.T) {
+	h := newTestHandler(t)
+	ctx := context.Background()
+	resp, err := h.IssuePairingToken(ctx, connect.NewRequest(&providersv1.IssuePairingTokenRequest{
+		OwnerUserId: &commonv1.UUID{Value: "owner-iss-1"},
+		TtlSeconds:  120,
+	}))
+	if err != nil {
+		t.Fatalf("IssuePairingToken: %v", err)
+	}
+	if resp.Msg.GetPairingToken() == "" {
+		t.Fatalf("expected non-empty token")
+	}
+	if !resp.Msg.GetExpiresAt().IsValid() {
+		t.Fatalf("expected expires_at populated")
+	}
+	// Round-trip: the token must be consumable and resolve to owner-iss-1.
+	pt, err := h.Store.ConsumePairingToken(ctx, resp.Msg.GetPairingToken())
+	if err != nil {
+		t.Fatalf("consume: %v", err)
+	}
+	if pt.OwnerUserID != "owner-iss-1" {
+		t.Fatalf("owner mismatch: %q", pt.OwnerUserID)
+	}
+}
+
+func TestIssuePairingToken_MissingOwner(t *testing.T) {
+	h := newTestHandler(t)
+	_, err := h.IssuePairingToken(context.Background(), connect.NewRequest(&providersv1.IssuePairingTokenRequest{}))
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	var ce *connect.Error
+	if !errorAs(err, &ce) || ce.Code() != connect.CodeInvalidArgument {
+		t.Fatalf("expected InvalidArgument, got %v", err)
+	}
+}
+
+func TestIssuePairingToken_ZeroTTLDefaults(t *testing.T) {
+	h := newTestHandler(t)
+	ctx := context.Background()
+	resp, err := h.IssuePairingToken(ctx, connect.NewRequest(&providersv1.IssuePairingTokenRequest{
+		OwnerUserId: &commonv1.UUID{Value: "owner-d"},
+	}))
+	if err != nil {
+		t.Fatalf("IssuePairingToken: %v", err)
+	}
+	// Default = 10 minutes; allow a generous skew window.
+	delta := resp.Msg.GetExpiresAt().AsTime().Sub(time.Now())
+	if delta < 9*time.Minute || delta > 11*time.Minute {
+		t.Fatalf("default TTL out of range: %v", delta)
 	}
 }
 
