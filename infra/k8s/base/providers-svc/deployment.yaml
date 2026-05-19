@@ -69,6 +69,12 @@ spec:
             - secretRef:
                 name: providers-svc-secrets
                 optional: true
+            # CNPG Postgres connection — carries DATABASE_URL. Without
+            # this, providers-svc falls back to the in-memory store and
+            # loses every paired daemon on pod restart (issue #242).
+            - secretRef:
+                name: iogrid-database
+                optional: true
           resources:
             requests:
               cpu: 100m

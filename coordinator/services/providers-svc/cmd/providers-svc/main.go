@@ -7,6 +7,13 @@
 // internal/server. Structured logging (slog/JSON), OpenTelemetry tracing
 // (OTLP/gRPC), and graceful shutdown on SIGINT/SIGTERM are wired up by the
 // shared bootstrap package.
+//
+// Store selection
+//
+// When DATABASE_URL is set (production / cluster), we open a pgxpool, run
+// embedded goose migrations, and use the Postgres-backed store. When it is
+// empty we keep the in-memory store — unit tests and local dev have no DB
+// dependency.
 package main
 
 import (
@@ -15,8 +22,10 @@ import (
 	"os"
 
 	"github.com/iogrid/iogrid/coordinator/services/providers-svc/internal/ca"
+	pdb "github.com/iogrid/iogrid/coordinator/services/providers-svc/internal/db"
 	"github.com/iogrid/iogrid/coordinator/services/providers-svc/internal/server"
 	"github.com/iogrid/iogrid/coordinator/services/providers-svc/internal/store"
+	"github.com/iogrid/iogrid/coordinator/shared/db"
 	"github.com/iogrid/iogrid/coordinator/shared/health"
 	"github.com/iogrid/iogrid/coordinator/shared/log"
 	"github.com/iogrid/iogrid/coordinator/shared/otel"
@@ -47,23 +56,48 @@ func main() {
 	}()
 
 	hr := health.New()
-	hr.MarkReady()
 
-	// In-memory store + in-memory CA for now. The pg-backed store lives
-	// behind the `postgres` build tag — see internal/db/migrations.
-	memStore := store.NewInMemory()
+	// --- Store selection --------------------------------------------------
+	// DATABASE_URL set → Postgres-backed store + embedded migrations.
+	// DATABASE_URL empty → in-memory store (unit tests, local dev).
+	var st store.Store
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL != "" {
+		pool, err := db.NewPool(ctx, db.Config{URL: databaseURL})
+		if err != nil {
+			logger.Error("db pool failed", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+		defer pool.Close()
+		hr.AddProbe("db", db.PingProbe(pool))
+
+		logger.Info("running migrations", slog.String("backend", "postgres"))
+		if err := pdb.Apply(ctx, databaseURL); err != nil {
+			logger.Error("db migrations failed", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+		st = store.NewPostgres(pool)
+		logger.Info("providers store ready", slog.String("store", "postgres"))
+	} else {
+		st = store.NewInMemory()
+		logger.Warn("providers store ready", slog.String("store", "memory"),
+			slog.String("impact", "paired daemons are LOST on pod restart; set DATABASE_URL for prod"))
+	}
+
 	internalCA, err := ca.NewInMemory()
 	if err != nil {
 		logger.Error("ca bootstrap failed", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
 
+	hr.MarkReady()
+
 	if err := sharedserver.Run(ctx, sharedserver.Options{
 		ServiceName: serviceName,
 		Logger:      logger,
 		Health:      hr,
 		Mount: server.Mount(server.Deps{
-			Store: memStore,
+			Store: st,
 			CA:    internalCA,
 			Log:   logger,
 		}),
