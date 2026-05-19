@@ -2,6 +2,9 @@
 # workloads-svc — schedules customer workloads (proxy/docker/gpu/ios-build) onto providers.
 # Ingress: gateway-bff (customer API), build-gateway (iOS builds), proxy-gateway (proxy sessions).
 # Egress: Postgres, Redis, NATS, providers-svc (peer call), antiabuse-svc (pre-flight).
+#
+# Kept as L3/L4 defense-in-depth alongside ./ciliumnetworkpolicy.yaml
+# (issue #35 — Cilium SPIFFE-style service mTLS).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

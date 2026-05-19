@@ -2,6 +2,9 @@
 # gateway-bff — Backend-For-Frontend for app.iogrid.org (Next.js web).
 # Ingress: from Gateway (api.iogrid.org) and from web pods (server-side RSC calls).
 # Egress: all internal microservices (it's the front-door orchestrator), Redis (session cache), NATS.
+#
+# Kept as L3/L4 defense-in-depth alongside ./ciliumnetworkpolicy.yaml
+# (issue #35 — Cilium SPIFFE-style service mTLS).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

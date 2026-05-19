@@ -1,4 +1,7 @@
 ---
+# Kept as L3/L4 defense-in-depth alongside ./ciliumnetworkpolicy.yaml
+# (issue #35 — Cilium SPIFFE-style service mTLS).
+#
 # proxy-gateway — raw-TLS-passthrough data plane for proxy.iogrid.org.
 # Ingress: Gateway-system (TLS passthrough), customer TCP traffic.
 # Egress: providers-svc (route to daemon stream), antiabuse-svc (pre-flight), telemetry-svc (flow events),

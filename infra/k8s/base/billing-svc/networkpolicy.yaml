@@ -2,6 +2,9 @@
 # billing-svc — Stripe Connect (provider payouts) + Stripe Subscriptions (customer billing) + usage metering.
 # Ingress: gateway-bff (customer billing UI), workloads-svc (usage events), providers-svc (provider earnings).
 # Egress: Postgres, Redis, NATS, external HTTPS (api.stripe.com).
+#
+# Kept as L3/L4 defense-in-depth alongside ./ciliumnetworkpolicy.yaml
+# (issue #35 — Cilium SPIFFE-style service mTLS).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

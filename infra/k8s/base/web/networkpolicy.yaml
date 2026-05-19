@@ -1,4 +1,7 @@
 ---
+# Kept as L3/L4 defense-in-depth alongside ./ciliumnetworkpolicy.yaml
+# (issue #35 — Cilium SPIFFE-style service mTLS).
+#
 # web — Next.js 15 RSC frontend for app.iogrid.org.
 # Ingress: from Gateway (app.iogrid.org).
 # Egress: gateway-bff (server-side data fetching from RSC), telemetry-svc (RUM).

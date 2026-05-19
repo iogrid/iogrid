@@ -1,0 +1,99 @@
+---
+# Redis CiliumNetworkPolicy — SPIFFE-style mutual auth.
+# Companion to the NetworkPolicy embedded in redis.yaml (issue #35).
+#
+# Every iogrid microservice that talks to Redis is itself a SPIFFE
+# workload, so we can require mutual auth on the client port (6379).
+# The gossip port (16379) stays peer-to-peer between Redis pods —
+# Redis itself does not speak SPIFFE on cluster gossip, so we leave
+# that on the L3/L4 NetworkPolicy and do NOT require auth here.
+#
+# See docs/SECURITY-mTLS.md.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: redis-mtls
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/part-of: iogrid
+    iogrid.org/policy-class: spiffe-mtls
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+  ingress:
+    # Any iogrid microservice client → Redis :6379 with SPIFFE auth.
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/part-of: iogrid
+            io.kubernetes.pod.namespace: iogrid
+      authentication:
+        mode: required
+      toPorts:
+        - ports:
+            - port: "6379"
+              protocol: TCP
+    # Redis cluster gossip between Redis pods — peer-to-peer, no
+    # SPIFFE handshake (Redis cluster bus does not honour it).
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: redis
+            io.kubernetes.pod.namespace: iogrid
+      toPorts:
+        - ports:
+            - port: "6379"
+              protocol: TCP
+            - port: "16379"
+              protocol: TCP
+---
+# NATS JetStream CiliumNetworkPolicy — SPIFFE-style mutual auth.
+# Companion to the NetworkPolicy embedded in nats.yaml (issue #35).
+#
+# Same posture as Redis: clients ARE SPIFFE workloads, so :4222
+# requires auth; cluster :6222 is peer-to-peer; metrics/monitor
+# from the monitoring namespace stays unauth'd.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: nats-mtls
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: nats
+    app.kubernetes.io/part-of: iogrid
+    iogrid.org/policy-class: spiffe-mtls
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: nats
+  ingress:
+    # Any iogrid microservice client → NATS :4222 with SPIFFE auth.
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/part-of: iogrid
+            io.kubernetes.pod.namespace: iogrid
+      authentication:
+        mode: required
+      toPorts:
+        - ports:
+            - port: "4222"
+              protocol: TCP
+    # NATS cluster bus between NATS pods — peer-to-peer, no auth.
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: nats
+            io.kubernetes.pod.namespace: iogrid
+      toPorts:
+        - ports:
+            - port: "6222"
+              protocol: TCP
+    # /metrics + /healthz from monitoring — different trust domain.
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: monitoring
+      toPorts:
+        - ports:
+            - port: "7777"
+              protocol: TCP
+            - port: "8222"
+              protocol: TCP

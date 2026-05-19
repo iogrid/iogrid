@@ -65,6 +65,9 @@ jobs:
           kubectl apply --server-side -f https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/v0.78.2/example/prometheus-operator-crd/monitoring.coreos.com_prometheusrules.yaml
           kubectl apply --server-side -f https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/v0.78.2/example/prometheus-operator-crd/monitoring.coreos.com_servicemonitors.yaml
           kubectl apply --server-side -f https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/v0.78.2/example/prometheus-operator-crd/monitoring.coreos.com_podmonitors.yaml
+          # Cilium CRDs (CiliumNetworkPolicy) — needed for issue #35 SPIFFE
+          # mutual-auth policies to resolve kind→resource mappings.
+          kubectl apply --server-side -f https://raw.githubusercontent.com/cilium/cilium/v1.16.3/pkg/k8s/apis/cilium.io/client/crds/v2/ciliumnetworkpolicies.yaml || true
           # Wait briefly for API discovery to refresh
           sleep 5
           kubectl api-resources | grep -E "(tlsroutes|certificates|clusters.postgresql|kustomizations.kustomize.toolkit|prometheusrules|servicemonitors)" || true
@@ -101,13 +104,13 @@ jobs:
           # Ignore missing CRD schemas for CNPG / Gateway-API / cert-manager / Flux —
           # those are validated via their own controllers at apply time.
           kubeval --strict --ignore-missing-schemas \
-            --skip-kinds Cluster,Certificate,ClusterIssuer,Gateway,HTTPRoute,TLSRoute,ReferenceGrant,GitRepository,Kustomization,PrometheusRule,ServiceMonitor,PodMonitor \
+            --skip-kinds Cluster,Certificate,ClusterIssuer,Gateway,HTTPRoute,TLSRoute,ReferenceGrant,GitRepository,Kustomization,PrometheusRule,ServiceMonitor,PodMonitor,CiliumNetworkPolicy \
             /tmp/staging.yaml
 
       - name: kubeval prod
         run: |
           kubeval --strict --ignore-missing-schemas \
-            --skip-kinds Cluster,Certificate,ClusterIssuer,Gateway,HTTPRoute,TLSRoute,ReferenceGrant,GitRepository,Kustomization,PrometheusRule,ServiceMonitor,PodMonitor \
+            --skip-kinds Cluster,Certificate,ClusterIssuer,Gateway,HTTPRoute,TLSRoute,ReferenceGrant,GitRepository,Kustomization,PrometheusRule,ServiceMonitor,PodMonitor,CiliumNetworkPolicy \
             /tmp/prod.yaml
 
       - name: kubectl dry-run dev

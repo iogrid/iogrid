@@ -1,0 +1,79 @@
+---
+# telemetry-svc CiliumNetworkPolicy — SPIFFE-style mutual auth.
+# Companion to networkpolicy.yaml (issue #35).
+#
+# telemetry-svc has TWO ingress flavours:
+#   * Control-surface :8080 RPCs from sibling iogrid services — these
+#     CAN and SHOULD use SPIFFE mutual auth.
+#   * OTLP receivers :4317/:4318 from EVERY iogrid pod (including
+#     services that boot before they've negotiated a SPIFFE identity)
+#     — these stay on the L3/L4 NetworkPolicy and DO NOT require
+#     mutual auth. Forcing SPIFFE on OTLP would break the bootstrap
+#     story for any new service that emits telemetry before its
+#     SPIRE entry has propagated.
+#
+# See docs/SECURITY-mTLS.md.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: telemetry-svc-mtls
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: telemetry-svc
+    app.kubernetes.io/part-of: iogrid
+    iogrid.org/policy-class: spiffe-mtls
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: telemetry-svc
+  ingress:
+    # Control-surface :8080 RPCs — SPIFFE mutual auth required.
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: proxy-gateway
+            io.kubernetes.pod.namespace: iogrid
+        - matchLabels:
+            app.kubernetes.io/name: gateway-bff
+            io.kubernetes.pod.namespace: iogrid
+        - matchLabels:
+            app.kubernetes.io/name: workloads-svc
+            io.kubernetes.pod.namespace: iogrid
+        - matchLabels:
+            app.kubernetes.io/name: build-gateway
+            io.kubernetes.pod.namespace: iogrid
+      authentication:
+        mode: required
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # Public /status from the iogrid Gateway — different trust domain,
+    # no SPIFFE auth.
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: iogrid-system
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # /metrics scrape — different trust domain.
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: monitoring
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+            - port: "8888"
+              protocol: TCP
+    # OTLP receivers — every iogrid pod, NO auth (bootstrap path).
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/part-of: iogrid
+            io.kubernetes.pod.namespace: iogrid
+      toPorts:
+        - ports:
+            - port: "4317"
+              protocol: TCP
+            - port: "4318"
+              protocol: TCP

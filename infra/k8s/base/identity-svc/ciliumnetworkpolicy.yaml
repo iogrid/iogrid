@@ -1,0 +1,51 @@
+---
+# identity-svc CiliumNetworkPolicy — SPIFFE-style mutual auth.
+#
+# Companion to networkpolicy.yaml (issue #35 / PR for SPIFFE mTLS).
+# The plain k8s NetworkPolicy stays as defense-in-depth (L3/L4 only).
+# This CNP adds:
+#   * Identity-aware selectors via Cilium endpoint labels (matches the
+#     pod's ServiceAccount, which maps 1:1 to a SPIFFE ID under
+#     spiffe://iogrid/ns/iogrid/sa/<serviceAccount>).
+#   * `authentication.mode: required` on every ingress rule, which
+#     forces Cilium to terminate a SPIRE-backed mTLS handshake between
+#     the source and destination pods before the L7 (gRPC :8080) path
+#     opens. Without auth the connection is dropped pre-handshake.
+#
+# See docs/SECURITY-mTLS.md for the identity model.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: identity-svc-mtls
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: identity-svc
+    app.kubernetes.io/part-of: iogrid
+    iogrid.org/policy-class: spiffe-mtls
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: identity-svc
+  ingress:
+    # gateway-bff is the only iogrid peer that talks to identity-svc.
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: gateway-bff
+            io.kubernetes.pod.namespace: iogrid
+      authentication:
+        mode: required
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # Prometheus scrape from the monitoring namespace — left unauth'd
+    # since the scrape job runs in a different trust domain (mothership
+    # observability stack, not an iogrid SPIFFE workload). Plain
+    # NetworkPolicy still gates this at L3/L4.
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: monitoring
+      toPorts:
+        - ports:
+            - port: "9090"
+              protocol: TCP

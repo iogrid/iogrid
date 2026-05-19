@@ -1,4 +1,7 @@
 ---
+# Kept as L3/L4 defense-in-depth alongside ./ciliumnetworkpolicy.yaml
+# (issue #35 — Cilium SPIFFE-style service mTLS).
+#
 # build-gateway — entry for customer iOS-build submissions on build.iogrid.org.
 # Ingress: from Gateway (build.iogrid.org).
 # Egress: workloads-svc (dispatch to Mac providers), antiabuse-svc, identity-svc (auth),

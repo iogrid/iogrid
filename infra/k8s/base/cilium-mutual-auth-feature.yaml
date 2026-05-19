@@ -1,0 +1,53 @@
+---
+# Cluster-wide Cilium feature flag: enable SPIFFE-style mutual
+# authentication.
+#
+# Issue #35 — Cilium SPIFFE-style service mTLS.
+#
+# Cilium 1.14+ ships a built-in SPIRE server (`cilium-spire-server`)
+# and a per-node SPIRE agent that mints workload SVIDs. When
+# `auth.mutual.spire.enabled: true` is set on a node's Cilium agent
+# config, the cilium-cli `cilium config view` shows:
+#
+#   mutual-auth-spiffe-enabled    true
+#   spire-server-address          spire-server.cilium-spire.svc:8081
+#
+# This file is the Helm/Flux-mode declarative knob that we ship in the
+# base manifests so the cluster operator (mothership Flux) can pick it
+# up without having to remember to bake the flag into the Cilium
+# values.yaml manually. It targets the Cilium operator config map
+# the same way `cilium.io/v2alpha1 CiliumConfig` would, but uses the
+# upstream-stable ConfigMap shape that works with both the Cilium
+# Helm chart and the Cilium Cluster Mesh operator.
+#
+# The actual Cilium agent rollout that picks this up is owned by the
+# `iogrid-ops` repo (its `apps/cilium/values.yaml` references this
+# ConfigMap as an extra-config source). See docs/SECURITY-mTLS.md.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cilium-mutual-auth-feature
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: cilium-feature
+    iogrid.org/policy-class: spiffe-mtls
+data:
+  # Cilium agent flags — these are merged into the agent ConfigMap by
+  # the Helm chart when `extraConfigMap.name=cilium-mutual-auth-feature`.
+  mutual-auth-spiffe-enabled: "true"
+  spire-server-address: "spire-server.cilium-spire.svc:8081"
+  spire-agent-socket: "/run/spire/sockets/agent.sock"
+  # The trust domain MUST match the SPIFFE IDs used in the policy
+  # files (spiffe://iogrid/ns/<ns>/sa/<sa>). The Cilium SPIRE server
+  # is bootstrapped with this trust domain by the iogrid-ops chart.
+  mesh-auth-spiffe-trust-domain: "iogrid"
+  # Connection timeout for the SPIRE-backed handshake — short enough
+  # that a misconfigured peer fails fast rather than wedging the
+  # caller's RPC budget.
+  mesh-auth-mutual-connect-timeout: "5s"
+  # Cilium will keep an authenticated session "warm" between two
+  # endpoints for 5 minutes before re-handshaking. Shorter values
+  # increase SPIRE load; longer values delay revocation propagation.
+  mesh-auth-mutual-listener-port: "4250"
+  mesh-auth-gc-interval: "5m"

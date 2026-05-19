@@ -1,0 +1,46 @@
+---
+# proxy-gateway CiliumNetworkPolicy — SPIFFE-style mutual auth.
+# Companion to networkpolicy.yaml (issue #35).
+#
+# proxy-gateway terminates raw customer TLS at :8443/:1080 from the
+# public Gateway — that hop is NOT SPIFFE-authenticated (the source
+# is the end customer, not a workload). The CNP below adds SPIFFE
+# mutual auth for the (currently empty, but reserved) internal
+# control-surface and metrics scrape paths so that any future
+# iogrid → proxy-gateway RPC inherits the same posture as the rest
+# of the mesh.
+#
+# See docs/SECURITY-mTLS.md.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: proxy-gateway-mtls
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: proxy-gateway
+    app.kubernetes.io/part-of: iogrid
+    iogrid.org/policy-class: spiffe-mtls
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: proxy-gateway
+  ingress:
+    # Public Gateway → proxy data plane (TCP :8443 TLS passthrough +
+    # :1080 SOCKS5) — different trust domain, no SPIFFE auth.
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: gateway-system
+      toPorts:
+        - ports:
+            - port: "8443"
+              protocol: TCP
+            - port: "1080"
+              protocol: TCP
+    # Prometheus scrape — different trust domain.
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: monitoring
+      toPorts:
+        - ports:
+            - port: "9090"
+              protocol: TCP

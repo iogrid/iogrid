@@ -174,6 +174,8 @@ spec:
         storageClassName: local-path
 ---
 # NetworkPolicy for redis pods — accept from iogrid microservices only.
+# Kept as L3/L4 defense-in-depth alongside ../data/ciliumnetworkpolicy.yaml
+# (issue #35 — Cilium SPIFFE-style service mTLS).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
