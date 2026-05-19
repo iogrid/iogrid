@@ -4,9 +4,9 @@ import { Hero } from "@/components/Hero";
 import { FeatureGrid } from "@/components/FeatureGrid";
 
 export const metadata: Metadata = {
-  title: "Docker compute — run containers on idle home hardware",
+  title: "Docker compute — run containers on idle home hardware at $0.018/vCPU-hour",
   description:
-    "OCI containers on gVisor-isolated Linux + Mac providers. $0.018 per vCPU-hour. Cheaper than spot, no AWS lock-in.",
+    "OCI containers on gVisor-isolated Linux and Mac providers at $0.018 per vCPU-hour. Cheaper than AWS spot, no datacenter lock-in, per-second billing after first minute.",
 };
 
 export default function ComputePage() {
@@ -17,9 +17,10 @@ export default function ComputePage() {
         title="Containers on idle hardware. Cheaper than spot."
         subtitle={
           <>
-            Submit any OCI image. We dispatch it to a Linux or Mac provider with
-            free capacity, kernel-isolated via gVisor or Kata. Bring your image,
-            your inputs, your outputs. We bring the iron.
+            Submit any OCI image. We dispatch it to a Linux or Mac provider
+            with free capacity, kernel-isolated via gVisor or Kata.{" "}
+            <strong>$0.018 / vCPU-hour</strong> beats AWS spot, no lock-in.
+            Bring your image, your inputs, your outputs. We bring the iron.
           </>
         }
         primaryCta={{ href: "/pricing", label: "Start at $0.018 / vCPU-hour" }}

@@ -21,7 +21,8 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://iogrid.org";
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
-    default: "iogrid — the transparent mesh network for bandwidth, compute, GPU, and iOS builds",
+    default:
+      "iogrid — the transparent mesh network for bandwidth, compute, GPU, and iOS builds",
     template: "%s · iogrid",
   },
   description:
@@ -81,6 +82,66 @@ export const viewport: Viewport = {
   initialScale: 1,
 };
 
+const organizationJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  name: "iogrid",
+  url: SITE_URL,
+  logo: `${SITE_URL}/favicon.svg`,
+  description:
+    "Transparent mesh network for residential bandwidth, Docker compute, GPU inference, and iOS-build CI. Every byte categorized, every provider in control.",
+  sameAs: [
+    "https://github.com/iogrid",
+    "https://docs.iogrid.org",
+    "https://status.iogrid.org",
+  ],
+  contactPoint: [
+    {
+      "@type": "ContactPoint",
+      contactType: "customer support",
+      url: `${SITE_URL}/about`,
+      availableLanguage: ["English"],
+    },
+  ],
+};
+
+const breadcrumbJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  itemListElement: [
+    {
+      "@type": "ListItem",
+      position: 1,
+      name: "Home",
+      item: SITE_URL,
+    },
+    {
+      "@type": "ListItem",
+      position: 2,
+      name: "Products",
+      item: `${SITE_URL}/proxy`,
+    },
+    {
+      "@type": "ListItem",
+      position: 3,
+      name: "Pricing",
+      item: `${SITE_URL}/pricing`,
+    },
+    {
+      "@type": "ListItem",
+      position: 4,
+      name: "Earn with iogrid",
+      item: `${SITE_URL}/providers`,
+    },
+    {
+      "@type": "ListItem",
+      position: 5,
+      name: "Blog",
+      item: `${SITE_URL}/blog`,
+    },
+  ],
+};
+
 export default function RootLayout({
   children,
 }: {
@@ -88,6 +149,20 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable}`}>
+      <head>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify(organizationJsonLd),
+          }}
+        />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify(breadcrumbJsonLd),
+          }}
+        />
+      </head>
       <body className="min-h-screen font-sans antialiased">
         <a
           href="#main"

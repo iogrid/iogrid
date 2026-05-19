@@ -5,9 +5,9 @@ import { FeatureGrid } from "@/components/FeatureGrid";
 import { TransparencyDemoEmbed } from "@/components/TransparencyDemoEmbed";
 
 export const metadata: Metadata = {
-  title: "Bandwidth proxy — residential IPs with cryptographic audit",
+  title: "Bandwidth proxy — residential IPs at $0.40/GB with cryptographic audit",
   description:
-    "Residential proxy at $0.40 per GB with per-byte category labels in your audit log. Geo-targeted, session-sticky, 195+ countries.",
+    "Residential proxy at $0.40/GB — roughly 10x cheaper than Bright Data's $4-8/GB enterprise. Per-byte category labels, live audit log, 195+ countries, p95 under 600ms.",
 };
 
 export default function ProxyPage() {
@@ -18,9 +18,10 @@ export default function ProxyPage() {
         title="Residential IPs. Cryptographic audit."
         subtitle={
           <>
-            Same coverage as Bright Data. Roughly a third of the price. Plus a
-            live audit log of every byte categorized by purpose — so when your
-            scraper hits a wall, you have receipts.
+            Same coverage as Bright Data. <strong>$0.40 / GB versus their
+            $4&ndash;$8</strong>. Plus a live audit log of every byte
+            categorized by purpose &mdash; so when your scraper hits a wall,
+            you have receipts.
           </>
         }
         primaryCta={{ href: "/pricing", label: "Start at $0.40 / GB" }}
@@ -93,6 +94,34 @@ export default function ProxyPage() {
       </section>
 
       <section className="container-page py-16">
+        <div className="mx-auto max-w-3xl">
+          <h2 className="h-section text-neutral-900">
+            Customer validation
+          </h2>
+          <figure className="mt-6 rounded-2xl border border-neutral-200 bg-white p-8">
+            <blockquote className="text-lg leading-7 text-neutral-700">
+              &ldquo;Dynolabs vCard&rsquo;s LinkedIn import success rate went
+              from <strong className="text-neutral-900">0% on datacenter IPs
+              to 90%+ through iogrid residential</strong>. Per-profile cost
+              dropped from Proxycurl&rsquo;s $0.49 to $0.02 &mdash; a 24x
+              reduction at our enrichment volume. We are the iogrid Phase 0
+              first customer.&rdquo;
+            </blockquote>
+            <figcaption className="mt-4 text-sm text-neutral-500">
+              &mdash; Dynolabs vCard (
+              <Link
+                href="/blog/gridfish-from-day-one-to-tge"
+                className="text-primary-600 underline"
+              >
+                first customer write-up
+              </Link>
+              )
+            </figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section className="container-page py-16">
         <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-8 text-center md:p-12">
           <h2 className="h-section text-neutral-900">
             Ready to switch from Bright Data?
@@ -100,7 +129,8 @@ export default function ProxyPage() {
           <p className="mx-auto mt-4 max-w-2xl text-lead">
             We&rsquo;ll mirror your current setup, run a side-by-side for 30
             days, and you keep whichever is faster + cheaper. Most teams pick
-            us. No commitment, no claw-back.
+            us. <strong>p95 latency under 600ms, $0.40 / GB list, 195+
+            countries.</strong> No commitment, no claw-back.
           </p>
           <Link href="/pricing" className="btn-primary mt-8">
             See pricing &amp; start

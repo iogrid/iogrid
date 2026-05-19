@@ -5,9 +5,9 @@ import { InstallButtons } from "@/components/InstallButtons";
 import { TransparencyDemoEmbed } from "@/components/TransparencyDemoEmbed";
 
 export const metadata: Metadata = {
-  title: "Earn with iogrid — put your idle hardware to work",
+  title: "Earn with iogrid — up to $260/month per Mac across four workloads",
   description:
-    "Share bandwidth, compute, GPU, or Mac CI time. See every byte in real time. Get paid in cash, free VPN, $GRID, or charity match.",
+    "Share bandwidth, Docker, GPU, or iOS-build CI from idle hardware. Single Mac with bandwidth + Xcode CI earns ~$145/mo (15x Honeygain). Cash, free VPN, $GRID, or charity.",
 };
 
 export default function ProvidersPage() {
