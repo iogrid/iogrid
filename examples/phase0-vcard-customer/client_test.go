@@ -232,7 +232,7 @@ func TestProxyClient_TLSWrappedSOCKS5(t *testing.T) {
 	gateAddr := ln.Addr().String()
 
 	var wg sync.WaitGroup
-	done := make(chan struct{})
+	done := make(chan struct{}, 4)
 	go func() {
 		for {
 			c, err := ln.Accept()
@@ -285,7 +285,6 @@ func TestProxyClient_TLSWrappedSOCKS5(t *testing.T) {
 		},
 		ForceAttemptHTTP2: false,
 	}
-	hc := &http.Client{Timeout: cfg.Timeout, Transport: tr}
 
 	// 4. Rewrite the LinkedIn URL to the destination server (we want
 	//    SOCKS5 + tunnelling exercised, but the URL host has to match
