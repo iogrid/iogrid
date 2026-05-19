@@ -5,14 +5,17 @@ go 1.22
 toolchain go1.23.4
 
 require (
+	connectrpc.com/connect v1.18.1
 	github.com/blocto/solana-go-sdk v1.30.0
 	github.com/go-chi/chi/v5 v5.1.0
 	github.com/google/uuid v1.6.0
+	github.com/iogrid/iogrid/coordinator/internal/pb v0.0.0-00010101000000-000000000000
 	github.com/iogrid/iogrid/coordinator/shared v0.0.0-00010101000000-000000000000
 	github.com/jackc/pgx/v5 v5.7.1
 	github.com/jung-kurt/gofpdf v1.16.2
 	github.com/nats-io/nats.go v1.37.0
 	github.com/stripe/stripe-go/v79 v79.12.0
+	google.golang.org/protobuf v1.35.1
 )
 
 require (
@@ -56,7 +59,8 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20241007155032-5fefd90f89a9 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20241007155032-5fefd90f89a9 // indirect
 	google.golang.org/grpc v1.67.1 // indirect
-	google.golang.org/protobuf v1.35.1 // indirect
 )
 
 replace github.com/iogrid/iogrid/coordinator/shared => ../../shared
+
+replace github.com/iogrid/iogrid/coordinator/internal/pb => ../../internal/pb
