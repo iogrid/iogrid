@@ -17,6 +17,8 @@ resources:
 
 # Common labels stamped on every resource — picks up in the audit log,
 # in NetworkPolicy selectors, and in Prometheus relabel rules.
-commonLabels:
-  app.kubernetes.io/name: vcard-linkedin-enrich
-  app.kubernetes.io/part-of: iogrid-phase0
+labels:
+  - pairs:
+      app.kubernetes.io/name: vcard-linkedin-enrich
+      app.kubernetes.io/part-of: iogrid-phase0
+    includeSelectors: true
