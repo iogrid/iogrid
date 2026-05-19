@@ -19,18 +19,21 @@ jobs:
   e2e:
     name: Playwright E2E flows
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: web
     env:
       NEXT_TELEMETRY_DISABLED: "1"
-      # NextAuth boot-time env. The dev server will start; specific
-      # sign-in flows are stubbed (they only render the form, never
-      # contact real Google / SMTP).
+      # NextAuth boot-time env. The production server will start;
+      # specific sign-in flows are stubbed (they only render the form,
+      # never contact real Google / SMTP).
       AUTH_SECRET: ci-placeholder-auth-secret-do-not-use-in-prod
       NEXTAUTH_URL: http://localhost:3000
-      EMAIL_SERVER: smtp://localhost:1025
+      EMAIL_SERVER_HOST: localhost
+      EMAIL_SERVER_PORT: "1025"
+      EMAIL_SERVER_USER: test
+      EMAIL_SERVER_PASSWORD: test
       EMAIL_FROM: noreply@iogrid.test
       # Restrict to the chromium project on CI — Firefox/WebKit fan-out
       # triples runtime for marginal coverage gain; we keep them for

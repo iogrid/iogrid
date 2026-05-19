@@ -18,7 +18,7 @@ import { test, expect } from "@playwright/test";
  * flow breaks for end users; this spec is the canary.
  */
 test.describe("/install + proxy onboarding surface", () => {
-  test("install page lists Mac / Win / Linux with curl snippets", async ({
+  test("install page lists Mac / Win / Linux platform sections", async ({
     page,
   }) => {
     await page.goto("/install", { waitUntil: "domcontentloaded" });
@@ -27,14 +27,38 @@ test.describe("/install + proxy onboarding surface", () => {
       page.getByRole("heading", { name: /install iogrid/i, level: 1 }),
     ).toBeVisible();
 
-    // Every supported platform label must appear somewhere on the page.
-    for (const label of [/mac/i, /windows/i, /linux/i]) {
-      await expect(page.getByText(label).first()).toBeVisible();
+    // Each platform renders an h2 heading.
+    for (const label of [/macos/i, /windows/i, /linux/i]) {
+      await expect(
+        page.getByRole("heading", { name: label, level: 2 }).first(),
+      ).toBeVisible();
     }
 
-    // Mac curl snippet — the canonical paste-into-terminal command.
+    // Mac curl snippet — text is server-rendered inside a closed
+    // <details> element. Expand the "Prefer the terminal?" summary
+    // for the macOS section, then assert the snippet becomes visible.
+    const macSection = page.locator("#mac");
+    const macSummary = macSection.getByText(/prefer the terminal\?/i).first();
+    await macSummary.click();
     await expect(
-      page.getByText(/curl -fsSL https:\/\/iogrid\.org\/install\/mac \| sh/),
+      macSection.getByText(
+        /curl -fsSL https:\/\/iogrid\.org\/install\/mac \| sh/,
+      ),
+    ).toBeVisible();
+  });
+
+  test("install page lists signed-package download links", async ({ page }) => {
+    await page.goto("/install", { waitUntil: "domcontentloaded" });
+
+    // At least one .pkg, one .msi, and one .deb anchor exist.
+    await expect(
+      page.locator('a[href*=".pkg"]').first(),
+    ).toBeVisible();
+    await expect(
+      page.locator('a[href*=".msi"]').first(),
+    ).toBeVisible();
+    await expect(
+      page.locator('a[href*=".deb"]').first(),
     ).toBeVisible();
   });
 
@@ -43,9 +67,8 @@ test.describe("/install + proxy onboarding surface", () => {
   }) => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
 
-    const vpnLink = page.getByRole("link", { name: /^vpn$/i }).first();
+    const vpnLink = page.locator('a[href="/vpn"]').first();
     await expect(vpnLink).toBeVisible();
-    await expect(vpnLink).toHaveAttribute("href", "/vpn");
 
     await vpnLink.click();
     await expect(page).toHaveURL(/\/vpn$/);

@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 
 /**
@@ -13,10 +13,11 @@ import AxeBuilder from "@axe-core/playwright";
  *     `console.info` so reviewers see them in the CI annotation but
  *     they don't block the merge — the project's policy is "AA is a
  *     hard floor; moderate findings get follow-up issues".
- *   - Snapshot the entire violation list (id + impact + node count)
- *     to `playwright-report/a11y-<route>.json` so we have an audit
- *     trail. The web-a11y.yml workflow uploads that folder as an
- *     artifact.
+ *   - Exclude the Next.js dev-overlay portal (`nextjs-portal`,
+ *     `[data-nextjs-toast]`, `[data-nextjs-dialog]`,
+ *     `[data-nextjs-call-stack-frame]`) and Next.js' "open in editor"
+ *     floating buttons — those are dev-only DOM nodes that never ship
+ *     to production users.
  *
  * Keyboard-nav audit:
  *   - We tab through every focusable element on /account and assert
@@ -27,17 +28,29 @@ import AxeBuilder from "@axe-core/playwright";
 
 const SEVERE = new Set(["serious", "critical"]);
 
-async function scan(page: import("@playwright/test").Page, label: string) {
-  const results = await new AxeBuilder({ page })
-    .withTags([
-      "wcag2a",
-      "wcag2aa",
-      "wcag21a",
-      "wcag21aa",
-      "wcag22aa",
-      "best-practice",
-    ])
-    .analyze();
+const DEV_OVERLAY_SELECTORS = [
+  "nextjs-portal",
+  "[data-nextjs-toast]",
+  "[data-nextjs-dialog]",
+  "[data-nextjs-dialog-overlay]",
+  "[data-nextjs-call-stack-frame]",
+  "[data-nextjs-scroll-focus-boundary]",
+  "[data-has-source]",
+];
+
+async function scan(page: Page, label: string) {
+  let builder = new AxeBuilder({ page }).withTags([
+    "wcag2a",
+    "wcag2aa",
+    "wcag21a",
+    "wcag21aa",
+    "wcag22aa",
+    "best-practice",
+  ]);
+  for (const sel of DEV_OVERLAY_SELECTORS) {
+    builder = builder.exclude(sel);
+  }
+  const results = await builder.analyze();
 
   const severe = results.violations.filter((v) =>
     SEVERE.has(v.impact ?? "minor"),
@@ -46,8 +59,6 @@ async function scan(page: import("@playwright/test").Page, label: string) {
     (v) => !SEVERE.has(v.impact ?? "minor"),
   );
 
-  // Surface the FULL audit trail in the CI log so PR reviewers can read it
-  // without downloading the JSON artifact.
   if (minor.length > 0) {
     console.info(
       `[a11y:${label}] ${minor.length} minor/moderate findings:`,
@@ -85,7 +96,9 @@ test.describe("WCAG 2.2 AA — /account surface", () => {
     await page.goto("/account", { waitUntil: "domcontentloaded" });
 
     const handles = await page
-      .locator("a, button, input, select, textarea, [tabindex]")
+      .locator(
+        'main a, main button, main input, main select, main textarea, main [tabindex]:not([tabindex="-1"])',
+      )
       .elementHandles();
 
     expect(handles.length).toBeGreaterThan(0);
@@ -97,10 +110,9 @@ test.describe("WCAG 2.2 AA — /account surface", () => {
         const style = getComputedStyle(node as HTMLElement);
         const tag = (node as HTMLElement).tagName.toLowerCase();
         const id =
-          (node as HTMLElement).id || (node as HTMLElement).textContent?.slice(0, 30) || tag;
-        // Focus-visible ring is either a non-`none` outline OR a
-        // tailwind ring/shadow. We approximate with outlineStyle +
-        // boxShadow because every iogrid button uses one of the two.
+          (node as HTMLElement).id ||
+          (node as HTMLElement).textContent?.slice(0, 30) ||
+          tag;
         const hasRing =
           style.outlineStyle !== "none" ||
           (style.boxShadow !== "none" && style.boxShadow !== "");

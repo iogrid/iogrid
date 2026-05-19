@@ -5,29 +5,32 @@ import { defineConfig, devices } from "@playwright/test";
  *
  * Three test trees are wired:
  *   - tests/                    — placeholder smoke specs (string-only,
- *                                 always green, run in every project).
- *   - tests/e2e/                — real end-to-end flows that boot
- *                                 `pnpm dev` against the built Next.js
- *                                 server, exercise the routing/nav, and
- *                                 walk pages that only require server
- *                                 components (no live backend needed).
+ *                                 always green, kept for the legacy
+ *                                 web-ci pipeline).
+ *   - tests/e2e/                — real end-to-end flows that boot the
+ *                                 built Next.js server, exercise the
+ *                                 routing/nav, and walk pages that only
+ *                                 require server components (no live
+ *                                 backend needed).
  *   - tests/a11y/               — axe-core WCAG 2.2 AA scans. Severity
  *                                 >= "serious" fails the run. Keyboard
  *                                 navigation order is asserted alongside.
  *
- * The dev server is booted via Playwright's `webServer`. We use
- * `pnpm dev` instead of `pnpm build && pnpm start` because:
- *   - the test target is reachability + a11y + nav contract, not
- *     production bundle sizes (covered by `pnpm build` in web-ci).
- *   - dev mode warms in ~6s on github-hosted runners; production
- *     mode takes 45-90s (next build) for negligible test value.
+ * Production-mode server (`pnpm build && pnpm start`) — NOT `pnpm dev`.
+ * The dev mode injects the Next.js dev-overlay portal (a floating
+ * "open in editor" panel with `tabindex="10"` + `nextjs-portal` root)
+ * which trips multiple axe rules (`tabindex`, `aria-allowed-attr`)
+ * and shifts the keyboard-nav order. It also pulls nodemailer into
+ * the edge runtime on first navigation, throwing a hard error on
+ * /provide. Production builds strip the overlay entirely.
  *
- * Env wiring (also documented in .env.example and the web-e2e workflow):
+ * Env wiring (also documented in the web-e2e / web-a11y workflows):
  *   AUTH_SECRET                  any 32B string; required by NextAuth at boot
  *   NEXTAUTH_URL                 http://localhost:3000
- *   EMAIL_SERVER                 a stub SMTP URL (smtp://localhost:1025) so
- *                                NextAuth's nodemailer provider initialises
- *                                without contacting real Stalwart.
+ *   EMAIL_SERVER_HOST/PORT/USER/PASSWORD
+ *                                stub SMTP creds so NextAuth's nodemailer
+ *                                provider initialises without contacting
+ *                                real Stalwart.
  *   EMAIL_FROM                   any address; never actually sent.
  */
 export default defineConfig({
@@ -55,10 +58,14 @@ export default defineConfig({
   webServer: process.env.PLAYWRIGHT_SKIP_WEBSERVER
     ? undefined
     : {
-        command: "pnpm dev",
+        // Production build + start. Build runs once; reuseExistingServer
+        // makes local re-runs cheap.
+        command:
+          process.env.PLAYWRIGHT_WEB_COMMAND ??
+          "pnpm build && pnpm start -p 3000",
         url: "http://localhost:3000",
         reuseExistingServer: !process.env.CI,
-        timeout: 120_000,
+        timeout: 240_000,
         stdout: "pipe",
         stderr: "pipe",
         env: {
@@ -67,10 +74,13 @@ export default defineConfig({
             process.env.AUTH_SECRET ??
             "ci-placeholder-auth-secret-do-not-use-in-prod",
           NEXTAUTH_URL: "http://localhost:3000",
-          EMAIL_SERVER:
-            process.env.EMAIL_SERVER ?? "smtp://localhost:1025",
-          EMAIL_FROM:
-            process.env.EMAIL_FROM ?? "noreply@iogrid.test",
+          // NextAuth nodemailer provider expects the *_HOST/_PORT family.
+          EMAIL_SERVER_HOST: process.env.EMAIL_SERVER_HOST ?? "localhost",
+          EMAIL_SERVER_PORT: process.env.EMAIL_SERVER_PORT ?? "1025",
+          EMAIL_SERVER_USER: process.env.EMAIL_SERVER_USER ?? "test",
+          EMAIL_SERVER_PASSWORD:
+            process.env.EMAIL_SERVER_PASSWORD ?? "test",
+          EMAIL_FROM: process.env.EMAIL_FROM ?? "noreply@iogrid.test",
         },
       },
   projects: [

@@ -1,97 +1,74 @@
 import { test, expect } from "@playwright/test";
 
 /**
- * E2E — customer surface: workspace overview + API-key page navigation.
+ * E2E — protected-route surface + customer/provider portal contract.
  *
- * The /customer routes do NOT require an authenticated NextAuth
- * session at the moment (they live behind workspace-id local storage
- * for the BFF, but the page chrome itself is publicly renderable for
- * marketing reasons). When auth is later added (#3 EPIC), this spec
- * gains a session-cookie injection step before navigation.
+ * The `/provide`, `/customer`, and `/admin` route prefixes are
+ * protected by `src/middleware.ts`. Unauthenticated users get a 307
+ * to `/account?callbackUrl=<original>`. The contract we own:
  *
- * Today we assert:
- *   - /customer renders the workspace badge + nav links.
- *   - The "API keys" nav entry routes to /customer/api-keys.
- *   - The API-keys panel shows the "select workspace first" empty
- *     state when no workspace is in localStorage (the canonical
- *     un-onboarded experience).
+ *   1. The middleware actually fires — visiting `/customer` without a
+ *      session redirects to /account with callbackUrl preserved.
+ *   2. /customer/api-keys (deeper path) also redirects.
+ *   3. After login, the post-redirect contract is to land back on
+ *      callbackUrl (not exercised here — we have no real OAuth
+ *      session in CI, and stubbing NextAuth's JWT flow is out of
+ *      scope for this PR).
+ *
+ * Real authenticated walkthroughs of the customer overview + API-key
+ * issue flow live in the follow-up PR (#3 EPIC) once the
+ * mock-session-cookie helper is added.
  */
-test.describe("Customer workspace surface", () => {
-  test("/customer overview renders the portal shell", async ({ page }) => {
-    await page.goto("/customer", { waitUntil: "domcontentloaded" });
-
-    // Portal badge: small uppercase label above the page title.
-    await expect(page.getByText(/^Customer$/)).toBeVisible();
-
-    // Page heading.
-    await expect(
-      page.getByRole("heading", { name: /workspace/i, level: 1 }),
-    ).toBeVisible();
-
-    // Nav must include every customer sub-route.
-    const expectedNav = [
-      { name: /overview/i, href: "/customer" },
-      { name: /workloads/i, href: "/customer/workloads" },
-      { name: /api keys/i, href: "/customer/api-keys" },
-      { name: /usage/i, href: "/customer/usage" },
-      { name: /billing/i, href: "/customer/billing" },
-    ];
-    for (const item of expectedNav) {
-      const link = page.getByRole("link", { name: item.name }).first();
-      await expect(link).toBeVisible();
-      await expect(link).toHaveAttribute("href", item.href);
-    }
-  });
-
-  test("nav click routes /customer -> /customer/api-keys", async ({ page }) => {
-    await page.goto("/customer", { waitUntil: "domcontentloaded" });
-
-    await page.getByRole("link", { name: /api keys/i }).first().click();
-
-    await expect(page).toHaveURL(/\/customer\/api-keys/);
-    await expect(
-      page.getByRole("heading", { name: /api keys/i, level: 1 }),
-    ).toBeVisible();
-  });
-
-  test("/customer/api-keys shows the workspace-selection empty state", async ({
+test.describe("Protected portal surfaces — middleware redirects", () => {
+  test("/customer redirects unauthenticated → /account?callbackUrl=/customer", async ({
     page,
   }) => {
-    // Ensure no workspace is preselected.
-    await page.addInitScript(() => {
-      localStorage.removeItem("iogrid_workspace_id");
-    });
+    await page.goto("/customer", { waitUntil: "domcontentloaded" });
 
-    await page.goto("/customer/api-keys", { waitUntil: "domcontentloaded" });
+    await expect(page).toHaveURL(/\/account\?callbackUrl=%2Fcustomer$/);
 
-    // The panel renders an amber callout when no workspace is in scope.
-    const callout = page.getByText(
-      /select a workspace on the\s+overview tab/i,
-    );
-    await expect(callout).toBeVisible();
+    // Landed on the sign-in panel.
+    await expect(
+      page.getByRole("heading", { name: /sign in to iogrid/i }),
+    ).toBeVisible();
   });
 
-  test("provider portal — /provide renders Install CTA + provider nav", async ({
+  test("/customer/api-keys deep-link preserves callbackUrl through redirect", async ({
+    page,
+  }) => {
+    await page.goto("/customer/api-keys", { waitUntil: "domcontentloaded" });
+
+    await expect(page).toHaveURL(
+      /\/account\?callbackUrl=%2Fcustomer%2Fapi-keys$/,
+    );
+  });
+
+  test("/provide redirects unauthenticated → /account?callbackUrl=/provide", async ({
     page,
   }) => {
     await page.goto("/provide", { waitUntil: "domcontentloaded" });
 
-    await expect(
-      page.getByRole("heading", { name: /provider overview/i, level: 1 }),
-    ).toBeVisible();
+    await expect(page).toHaveURL(/\/account\?callbackUrl=%2Fprovide$/);
+  });
+
+  test("/admin redirects unauthenticated", async ({ page }) => {
+    await page.goto("/admin", { waitUntil: "domcontentloaded" });
+    await expect(page).toHaveURL(/\/account/);
+  });
+});
+
+test.describe("Public marketing routes", () => {
+  test("homepage renders nav links to every portal", async ({ page }) => {
+    await page.goto("/", { waitUntil: "domcontentloaded" });
 
     await expect(
-      page.getByRole("link", { name: /install the daemon/i }),
+      page.getByRole("heading", {
+        name: /distributed compute mesh/i,
+        level: 1,
+      }),
     ).toBeVisible();
 
-    // Every provider sub-route must be reachable from the nav.
-    for (const href of [
-      "/provide",
-      "/provide/earnings",
-      "/provide/schedule",
-      "/provide/staking",
-      "/provide/audit",
-    ]) {
+    for (const href of ["/provide", "/customer", "/vpn", "/account"]) {
       await expect(page.locator(`a[href="${href}"]`).first()).toBeVisible();
     }
   });
