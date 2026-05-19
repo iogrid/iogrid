@@ -349,14 +349,16 @@ mod tests {
 
     #[test]
     fn pick_upgrade_skips_when_current_is_latest() {
-        let pick = pick_upgrade(&good_manifest(), "9.9.9").unwrap();
+        let m = good_manifest();
+        let pick = pick_upgrade(&m, "9.9.9").unwrap();
         assert!(pick.is_none());
     }
 
     #[test]
     fn pick_upgrade_skips_when_under_min_supported() {
         // good_manifest has min_supported_from=0.1.0; we're on 0.0.1.
-        let pick = pick_upgrade(&good_manifest(), "0.0.1").unwrap();
+        let m = good_manifest();
+        let pick = pick_upgrade(&m, "0.0.1").unwrap();
         assert!(pick.is_none());
     }
 

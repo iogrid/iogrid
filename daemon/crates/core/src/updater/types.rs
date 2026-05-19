@@ -172,19 +172,31 @@ pub struct ManifestSignature {
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum UpdateOutcome {
     /// Manifest says current is latest.
-    UpToDate { current: String },
+    UpToDate {
+        /// Daemon's current version at the time of the poll.
+        current: String,
+    },
     /// Daemon refused to apply (disabled by config, no compatible
     /// artifact, etc.). `reason` is human-readable.
-    Skipped { reason: String },
+    Skipped {
+        /// Human-readable reason the daemon skipped this poll.
+        reason: String,
+    },
     /// A pending update has been staged at `<install>/iogridd.new`.
     /// The wrapper / supervisor will replace + restart on next stop.
     Staged {
+        /// Version the daemon was running when the update was staged.
         from: String,
+        /// Version the staged binary will become after replacement.
         to: String,
+        /// Absolute path the new binary was staged at.
         path: String,
     },
     /// Manifest fetch / verify failed. `error` is the underlying string.
-    Failed { error: String },
+    Failed {
+        /// Underlying error text (network, parse, signature, etc.).
+        error: String,
+    },
 }
 
 /// One row in the update-history ledger surfaced to the web UI.

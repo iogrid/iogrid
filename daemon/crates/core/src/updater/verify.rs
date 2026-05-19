@@ -46,7 +46,12 @@ pub enum VerifyError {
     BadSignature,
     /// The binary's SHA-256 didn't match the manifest's declared hash.
     #[error("SHA-256 mismatch: manifest={manifest}, blob={actual}")]
-    HashMismatch { manifest: String, actual: String },
+    HashMismatch {
+        /// SHA-256 the manifest declares for this artifact.
+        manifest: String,
+        /// SHA-256 actually observed on the downloaded bytes.
+        actual: String,
+    },
     /// JSON re-serialisation of the manifest for signing failed.
     #[error("could not canonicalise manifest for signing: {0}")]
     Canonicalise(String),
