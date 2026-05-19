@@ -27,11 +27,26 @@ const DefaultAttemptTimeout = 60 * time.Second
 
 // Connection is the live bidi-stream handle for one connected daemon.
 type Connection struct {
-	ProviderID   string
-	Send         func(assignment *Assignment) error
-	Snapshot     scheduler.ProviderSnapshot
-	connectedAt  time.Time
-	disconnected chan struct{}
+	ProviderID string
+	Send       func(assignment *Assignment) error
+	Snapshot   scheduler.ProviderSnapshot
+	// EndpointHint is the publicly-reachable address (host:port) the
+	// proxy-gateway should dial to forward customer bytes to this
+	// provider. For NAT'd daemons (founder Mac) this is set by
+	// workloads-svc to its own TCP-over-DispatchFrame forwarder
+	// listener; for daemons running on routable hosts it's the
+	// daemon's WireGuard / public listener.
+	//
+	// May be empty during pure-store unit tests — see follow-up #(TBD)
+	// for the workloads-svc TCP forwarder implementation.
+	EndpointHint string
+	// SessionTokenSeed is an opaque short-lived string passed to the
+	// proxy-gateway alongside the chosen provider; the daemon checks
+	// it on accept. Same caveat as EndpointHint — may be empty until
+	// the dispatch JWT minting flow lands.
+	SessionTokenSeed string
+	connectedAt      time.Time
+	disconnected     chan struct{}
 }
 
 // Assignment is what we push down the stream. The dispatcher.D registers
@@ -41,7 +56,15 @@ type Assignment struct {
 	ID         string
 	WorkloadID string
 	ProviderID string
-	Deadline   time.Time
+	// Endpoint mirrors Connection.EndpointHint into the assignment so
+	// callers of TryAssign (submission handler) can populate the
+	// dispatched_provider_endpoint label without holding the dispatcher
+	// lock again.
+	Endpoint string
+	// SessionToken mirrors Connection.SessionTokenSeed into the
+	// assignment for the same reason.
+	SessionToken string
+	Deadline     time.Time
 }
 
 // D is the dispatcher. Safe for concurrent use.
@@ -136,10 +159,12 @@ func (d *D) TryAssign(ctx context.Context, w *store.Workload) (*Assignment, erro
 		}
 
 		attempt := &Assignment{
-			ID:         uuid.NewString(),
-			WorkloadID: w.ID,
-			ProviderID: cand.ProviderID,
-			Deadline:   time.Now().Add(d.attemptTimeout),
+			ID:           uuid.NewString(),
+			WorkloadID:   w.ID,
+			ProviderID:   cand.ProviderID,
+			Endpoint:     conn.EndpointHint,
+			SessionToken: conn.SessionTokenSeed,
+			Deadline:     time.Now().Add(d.attemptTimeout),
 		}
 		_ = d.Store.CreateAssignment(ctx, &store.Assignment{
 			ID:           attempt.ID,

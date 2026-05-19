@@ -9,6 +9,7 @@ import (
 	commonv1 "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/common/v1"
 	workloadsv1 "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/workloads/v1"
 	"github.com/iogrid/iogrid/coordinator/services/workloads-svc/internal/dispatcher"
+	"github.com/iogrid/iogrid/coordinator/services/workloads-svc/internal/scheduler"
 	"github.com/iogrid/iogrid/coordinator/services/workloads-svc/internal/store"
 )
 
@@ -103,6 +104,65 @@ func TestListWorkloads_FilterByWorkspace(t *testing.T) {
 	}
 	if len(resp.Msg.Workloads) != 2 {
 		t.Fatalf("expected 2, got %d", len(resp.Msg.Workloads))
+	}
+}
+
+// When a daemon is registered with an EndpointHint, the SubmitWorkload
+// response must surface the chosen provider + endpoint via the workload
+// labels so the proxy-gateway's ConnectDispatcher can build its
+// dispatch.Assignment. This is the fix for #217 — without these labels
+// the proxy falls back to DEV_PROVIDER_ENDPOINT and the founder-Mac
+// smoke is blocked.
+func TestSubmitWorkload_LabelsCarryDispatchEndpoint(t *testing.T) {
+	s := store.NewInMemory()
+	d := dispatcher.New(s, nil)
+	h := NewSubmissionHandler(s, d, nil)
+
+	// Register a fake daemon whose Send always succeeds and which
+	// advertises a public endpoint via EndpointHint.
+	d.Register(&dispatcher.Connection{
+		ProviderID:       "11111111-1111-1111-1111-111111111111",
+		EndpointHint:     "workloads-svc.iogrid.svc.cluster.local:9090",
+		SessionTokenSeed: "tok-abc",
+		Snapshot: scheduler.ProviderSnapshot{
+			ID: "11111111-1111-1111-1111-111111111111", Status: "active",
+			State:             "SCHEDULER_STATE_ACTIVE",
+			SupportedTypes:    []string{"bandwidth"},
+			RegionSlug:        "us-east-1",
+			AllowedCategories: []string{"e_commerce"},
+		},
+		Send: func(_ *dispatcher.Assignment) error { return nil },
+	})
+
+	resp, err := h.SubmitWorkload(context.Background(), connect.NewRequest(&workloadsv1.SubmitWorkloadRequest{
+		Workload: &workloadsv1.Workload{
+			WorkspaceId: &commonv1.UUID{Value: "ws-1"},
+			Type:        commonv1.WorkloadType_WORKLOAD_TYPE_BANDWIDTH,
+			Payload: &workloadsv1.Workload_Bandwidth{Bandwidth: &workloadsv1.BandwidthRequest{
+				TargetUrl:       "https://example.com/feed",
+				Category:        "e_commerce",
+				PreferredRegion: &commonv1.Region{Slug: "us-east-1"},
+			}},
+		},
+	}))
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	labels := resp.Msg.GetWorkload().GetLabels()
+	if labels == nil {
+		t.Fatalf("expected response labels populated")
+	}
+	if got := labels["dispatched_provider_id"]; got != "11111111-1111-1111-1111-111111111111" {
+		t.Fatalf("dispatched_provider_id=%q", got)
+	}
+	if got := labels["dispatched_provider_endpoint"]; got != "workloads-svc.iogrid.svc.cluster.local:9090" {
+		t.Fatalf("dispatched_provider_endpoint=%q", got)
+	}
+	if got := labels["dispatched_session_token"]; got != "tok-abc" {
+		t.Fatalf("dispatched_session_token=%q", got)
+	}
+	if labels["dispatched_attempt_id"] == "" {
+		t.Fatalf("dispatched_attempt_id empty")
 	}
 }
 

@@ -27,6 +27,11 @@ type Deps struct {
 	Store      store.Store
 	Dispatcher *dispatcher.D
 	Log        *slog.Logger
+	// ProviderEndpointTemplate is the host:port advertised to the
+	// proxy-gateway as the dial target for any connected daemon's
+	// traffic — wired through to DispatchHandler.ProviderEndpointTemplate.
+	// Empty == feature off (proxy-gateway uses its dev pool).
+	ProviderEndpointTemplate string
 }
 
 // Mount attaches the workloads-svc routes onto the shared chi router. Called by main()
@@ -40,6 +45,7 @@ func Mount(deps Deps) func(chi.Router) {
 
 		sub := handlers.NewSubmissionHandler(deps.Store, deps.Dispatcher, deps.Log)
 		disp := handlers.NewDispatchHandler(deps.Store, deps.Dispatcher, deps.Log)
+		disp.ProviderEndpointTemplate = deps.ProviderEndpointTemplate
 
 		for _, mount := range []func() (string, http.Handler){
 			func() (string, http.Handler) { return workloadsv1connect.NewWorkloadSubmissionServiceHandler(sub) },

@@ -27,6 +27,18 @@ type DispatchHandler struct {
 	Store      store.Store
 	Dispatcher *dispatcher.D
 	Log        *slog.Logger
+	// ProviderEndpointTemplate is the host:port the proxy-gateway dials
+	// to forward customer bytes to *any* daemon connected via this
+	// workloads-svc replica. In the Phase 0 NAT-bound layout every
+	// daemon's traffic is tunnelled through this single workloads-svc
+	// listener (the TCP-over-DispatchFrame forwarder); the per-daemon
+	// stream is selected internally by attempt id.
+	//
+	// Wired from the WORKLOADS_SVC_PROVIDER_ENDPOINT env var by the
+	// service's main.go. Empty == "no provider endpoint advertised";
+	// proxy-gateway will then fall back to its DEV_PROVIDER_ENDPOINT
+	// static pool.
+	ProviderEndpointTemplate string
 }
 
 // NewDispatchHandler wires the deps.
@@ -82,7 +94,8 @@ func (h *DispatchHandler) Dispatch(
 	// dispatcher's internal Assignment struct into the wire frame.
 	var sendMu sync.Mutex
 	conn := &dispatcher.Connection{
-		ProviderID: providerID,
+		ProviderID:   providerID,
+		EndpointHint: h.ProviderEndpointTemplate,
 		Snapshot: scheduler.ProviderSnapshot{
 			ID:             providerID,
 			Status:         "active",

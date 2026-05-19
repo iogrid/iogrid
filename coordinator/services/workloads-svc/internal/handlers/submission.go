@@ -68,18 +68,41 @@ func (h *SubmissionHandler) SubmitWorkload(
 	// dispatcher updates the workload to REJECTED but submission is still
 	// reported as successful — the caller already has the id and can
 	// resubmit when capacity returns.
+	var attempt *dispatcher.Assignment
 	if h.Dispatcher != nil {
-		if _, err := h.Dispatcher.TryAssign(ctx, w); err != nil {
+		a, err := h.Dispatcher.TryAssign(ctx, w)
+		if err != nil {
 			h.Log.Info("dispatcher could not place workload yet",
 				slog.String("workload_id", w.ID),
 				slog.String("error", err.Error()))
+		} else {
+			attempt = a
 		}
 	}
 	// Refresh from store so the returned status reflects post-dispatch.
 	if got, err := h.Store.GetWorkload(ctx, w.ID); err == nil {
 		w = got
 	}
-	return connect.NewResponse(&workloadsv1.SubmitWorkloadResponse{Workload: workloadToProto(w)}), nil
+	out := workloadToProto(w)
+	// When dispatch picked a provider, mirror the choice onto the
+	// response Workload.Labels map — proxy-gateway's ConnectDispatcher
+	// reads these keys to build the *dispatch.Assignment* it returns to
+	// the SOCKS5 / HTTP-CONNECT acceptor. Without this contract the
+	// proxy sees an empty assignment and falls back to ErrNoEligibleProvider.
+	if attempt != nil {
+		if out.Labels == nil {
+			out.Labels = map[string]string{}
+		}
+		out.Labels["dispatched_provider_id"] = attempt.ProviderID
+		out.Labels["dispatched_attempt_id"] = attempt.ID
+		if attempt.Endpoint != "" {
+			out.Labels["dispatched_provider_endpoint"] = attempt.Endpoint
+		}
+		if attempt.SessionToken != "" {
+			out.Labels["dispatched_session_token"] = attempt.SessionToken
+		}
+	}
+	return connect.NewResponse(&workloadsv1.SubmitWorkloadResponse{Workload: out}), nil
 }
 
 func (h *SubmissionHandler) GetWorkload(
