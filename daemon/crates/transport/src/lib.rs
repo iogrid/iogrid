@@ -44,6 +44,38 @@ use tonic::transport::{Channel as TonicChannel, ClientTlsConfig, Endpoint, Ident
 
 use pb::workloads::v1::workload_dispatch_service_client::WorkloadDispatchServiceClient;
 
+/// Format a `std::error::Error` together with every nested
+/// `source()` cause as a single human-readable string, joined by `" → "`.
+///
+/// tonic 0.12's `tonic::transport::Error::Display` is the literal string
+/// `"transport error"` — every interesting detail (hyper / h2 / rustls)
+/// lives inside `source()`. The standard `e.to_string()` map drops the
+/// chain entirely and operators see only `"transport error"` in WARN
+/// lines, which is unactionable.
+///
+/// This helper walks the chain via `std::error::Error::source()` and
+/// concatenates each layer's `Display`. The output looks like:
+///
+/// ```text
+/// transport error → connection error → invalid peer certificate: UnknownIssuer
+/// ```
+///
+/// See issue #243 — opaque "transport error" on coordinator dial.
+pub fn display_error_chain(err: &(dyn std::error::Error + 'static)) -> String {
+    let mut out = err.to_string();
+    let mut source = err.source();
+    while let Some(s) = source {
+        let next = s.to_string();
+        // Skip duplicate frames (some wrappers re-emit the inner Display).
+        if !next.is_empty() && !out.ends_with(&next) {
+            out.push_str(" → ");
+            out.push_str(&next);
+        }
+        source = s.source();
+    }
+    out
+}
+
 /// All errors the transport layer surfaces upward.
 #[derive(Debug, Error)]
 pub enum TransportError {
@@ -281,17 +313,40 @@ impl Channel {
             tls = tls.ca_certificate(tonic::transport::Certificate::from_pem(ca));
         }
         let ep = Endpoint::from_shared(self.cfg.coordinator_url.clone())
-            .map_err(|e| TransportError::InvalidUrl(e.to_string()))?
+            .map_err(|e| TransportError::InvalidUrl(display_error_chain(&e)))?
             .tls_config(tls)
-            .map_err(|e| TransportError::TlsError(e.to_string()))?
+            .map_err(|e| {
+                let chain = display_error_chain(&e);
+                // Emit the full chain at WARN once per attempt so the
+                // operator sees the actual rustls/webpki cause, not just
+                // the opaque "transport error" Display.
+                tracing::warn!(
+                    coordinator = %self.cfg.coordinator_url,
+                    error.cause = %chain,
+                    "tls_config rejected — full error chain"
+                );
+                TransportError::TlsError(chain)
+            })?
             .timeout(Duration::from_secs(10))
             .tcp_keepalive(Some(Duration::from_secs(30)))
             .http2_keep_alive_interval(Duration::from_secs(15))
             .keep_alive_while_idle(true);
-        let ch = ep
-            .connect()
-            .await
-            .map_err(|e| TransportError::Unreachable(e.to_string()))?;
+        let ch = ep.connect().await.map_err(|e| {
+            let chain = display_error_chain(&e);
+            // CRITICAL: tonic::transport::Error's Display is the literal
+            // string "transport error". The actual cause (DNS, TCP, TLS
+            // handshake, ALPN, h2 settings) lives in `source()`. Emit the
+            // walked chain at WARN so operators can see the real failure
+            // mode and so the supervisor's reconnect-loop warn line
+            // (which formats `TransportError` via Display) carries the
+            // chain into TransportError::Unreachable(chain).
+            tracing::warn!(
+                coordinator = %self.cfg.coordinator_url,
+                error.cause = %chain,
+                "coordinator connect failed — full error chain"
+            );
+            TransportError::Unreachable(chain)
+        })?;
         self.channel = Some(ch);
         self.state = ClientState::Connected;
         tracing::info!(
@@ -580,10 +635,9 @@ async fn run_dispatch_stream(
         .map_err(|_| TransportError::Unreachable("hello channel closed before send".into()))?;
 
     let req_stream = ReceiverStream::new(req_rx);
-    let resp = client
-        .dispatch(req_stream)
-        .await
-        .map_err(|s| TransportError::Unreachable(format!("dispatch RPC: {s}")))?;
+    let resp = client.dispatch(req_stream).await.map_err(|s| {
+        TransportError::Unreachable(format!("dispatch RPC: {}", display_error_chain(&s)))
+    })?;
     let mut resp_stream = resp.into_inner();
 
     // Wait up to 10 s for the CoordinatorHello ack.
@@ -594,7 +648,12 @@ async fn run_dispatch_stream(
                 "stream closed before coordinator-hello".into(),
             ))
         }
-        Ok(Err(s)) => return Err(TransportError::Unreachable(format!("recv error: {s}"))),
+        Ok(Err(s)) => {
+            return Err(TransportError::Unreachable(format!(
+                "recv error: {}",
+                display_error_chain(&s)
+            )))
+        }
         Err(_) => {
             return Err(TransportError::Unreachable(
                 "timed out waiting for coordinator-hello (10s)".into(),
@@ -642,7 +701,8 @@ async fn run_dispatch_stream(
                     }
                     Err(s) => {
                         return Err(TransportError::Unreachable(format!(
-                            "dispatch stream recv: {s}"
+                            "dispatch stream recv: {}",
+                            display_error_chain(&s)
                         )));
                     }
                 }
@@ -683,6 +743,107 @@ mod parking_lot_compat {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ---- display_error_chain (issue #243) ----------------------------------
+
+    /// Synthetic two-level error: outer `Display` is intentionally opaque,
+    /// inner carries the real cause — mirrors how `tonic::transport::Error`
+    /// behaves in production.
+    #[derive(Debug)]
+    struct OuterErr(InnerErr);
+    #[derive(Debug)]
+    struct InnerErr(String);
+
+    impl std::fmt::Display for OuterErr {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            // Deliberately opaque, like tonic's "transport error".
+            write!(f, "transport error")
+        }
+    }
+    impl std::fmt::Display for InnerErr {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}", self.0)
+        }
+    }
+    impl std::error::Error for OuterErr {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            Some(&self.0)
+        }
+    }
+    impl std::error::Error for InnerErr {}
+
+    #[test]
+    fn display_error_chain_walks_source() {
+        let err = OuterErr(InnerErr("invalid peer certificate: UnknownIssuer".into()));
+        let s = display_error_chain(&err);
+        assert!(
+            s.contains("transport error"),
+            "expected outer Display, got: {s}"
+        );
+        assert!(
+            s.contains("invalid peer certificate: UnknownIssuer"),
+            "expected inner cause in chain, got: {s}"
+        );
+        assert!(
+            s.contains(" → "),
+            "expected ' → ' separator between layers, got: {s}"
+        );
+    }
+
+    #[test]
+    fn display_error_chain_handles_leaf_with_no_source() {
+        let err = InnerErr("dns error: nodename nor servname provided".into());
+        let s = display_error_chain(&err);
+        assert_eq!(s, "dns error: nodename nor servname provided");
+        // No separator added when there's only one layer.
+        assert!(!s.contains(" → "));
+    }
+
+    #[test]
+    fn display_error_chain_dedupes_repeated_layers() {
+        // Some wrappers re-emit the inner Display — we shouldn't print
+        // the same string twice in a row.
+        #[derive(Debug)]
+        struct Wrap(InnerErr);
+        impl std::fmt::Display for Wrap {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                // Same string as inner.
+                write!(f, "{}", self.0)
+            }
+        }
+        impl std::error::Error for Wrap {
+            fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+                Some(&self.0)
+            }
+        }
+        let err = Wrap(InnerErr("same".into()));
+        let s = display_error_chain(&err);
+        // Should not be "same → same".
+        assert_eq!(s, "same", "expected dedup, got: {s}");
+    }
+
+    #[test]
+    fn display_error_chain_with_io_error_wrap() {
+        // Real-world shape: std::io::Error wrapped in a higher-level error.
+        let io = std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "tcp connect");
+        // Wrap once for two-layer chain.
+        #[derive(Debug)]
+        struct W(std::io::Error);
+        impl std::fmt::Display for W {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "channel build failed")
+            }
+        }
+        impl std::error::Error for W {
+            fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+                Some(&self.0)
+            }
+        }
+        let chain = display_error_chain(&W(io));
+        assert!(chain.starts_with("channel build failed"));
+        assert!(chain.contains("tcp connect"));
+        assert!(chain.contains(" → "));
+    }
 
     #[test]
     fn default_config_uses_iogrid_dir() {
