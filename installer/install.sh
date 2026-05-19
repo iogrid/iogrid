@@ -429,10 +429,22 @@ linux_register_systemd() {
     unit_dir="$user_home/.config/systemd/user"
     log_dir="$user_home/.local/share/iogrid/logs"
     cfg_dir="$user_home/.config/iogrid"
-    $SUDO -u "$target_user" mkdir -p "$unit_dir" "$log_dir" "$cfg_dir"
+
+    # Resolve a "run as the target user" wrapper. When we're already
+    # root (curl-pipe-sh case: `curl ... | sudo sh`), $SUDO is empty
+    # but we still need to drop privileges to write to the user's
+    # home; in that case use `sudo -u $target_user`. When we're a
+    # normal user, $SUDO is "sudo" already.
+    if [ "$(id -u)" -eq 0 ]; then
+        run_as_user="sudo -u $target_user"
+    else
+        run_as_user="$SUDO -u $target_user"
+    fi
+
+    $run_as_user mkdir -p "$unit_dir" "$log_dir" "$cfg_dir"
 
     unit_path="$unit_dir/iogridd.service"
-    $SUDO -u "$target_user" tee "$unit_path" >/dev/null <<EOF
+    $run_as_user tee "$unit_path" >/dev/null <<EOF
 [Unit]
 Description=iogrid provider daemon
 After=network-online.target docker.service
@@ -465,10 +477,10 @@ EOF
     # session isn't wired; we tolerate it (the unit file is still on
     # disk so a later boot picks it up).
     XDG_RUNTIME_DIR="$runtime_dir" \
-        $SUDO -u "$target_user" systemctl --user daemon-reload 2>/dev/null \
+        $run_as_user systemctl --user daemon-reload 2>/dev/null \
         || warn "systemctl --user daemon-reload failed (no user DBus session?)"
     XDG_RUNTIME_DIR="$runtime_dir" \
-        $SUDO -u "$target_user" systemctl --user enable --now iogridd.service 2>/dev/null \
+        $run_as_user systemctl --user enable --now iogridd.service 2>/dev/null \
         || warn "systemctl --user enable returned non-zero — check 'systemctl --user status iogridd'"
     ok "systemd user unit enabled + started"
 }

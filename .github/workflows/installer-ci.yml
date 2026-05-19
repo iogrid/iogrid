@@ -102,8 +102,16 @@ jobs:
           restore-keys: |
             cargo-registry-${{ runner.os }}-
 
-      - name: rustup add target
-        run: rustup target add ${{ matrix.target }}
+      - name: rustup add target (via daemon's pinned toolchain)
+        # rust-toolchain.toml pins daemon to 1.95.0. We must add the target
+        # to THAT toolchain, not the system default; otherwise cargo
+        # auto-installs 1.95.0 at build time but std for our cross target
+        # is on the wrong toolchain. `cd daemon` first to activate the
+        # pinned toolchain, then add the target.
+        run: |
+          cd daemon
+          rustup show active-toolchain
+          rustup target add ${{ matrix.target }}
 
       - name: Build iogridd (${{ matrix.target }})
         working-directory: daemon
@@ -206,8 +214,16 @@ jobs:
             daemon/target
           key: daemon-${{ matrix.target }}-${{ hashFiles('daemon/Cargo.toml', 'daemon/crates/**/Cargo.toml') }}
 
-      - name: rustup add target
-        run: rustup target add ${{ matrix.target }}
+      - name: rustup add target (via daemon's pinned toolchain)
+        # rust-toolchain.toml pins daemon to 1.95.0. We must add the target
+        # to THAT toolchain, not the system default; otherwise cargo
+        # auto-installs 1.95.0 at build time but std for our cross target
+        # is on the wrong toolchain. `cd daemon` first to activate the
+        # pinned toolchain, then add the target.
+        run: |
+          cd daemon
+          rustup show active-toolchain
+          rustup target add ${{ matrix.target }}
 
       - name: Install aarch64-linux-gnu cross-linker
         if: matrix.cross
