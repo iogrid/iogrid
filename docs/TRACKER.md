@@ -4,18 +4,19 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-19T15:30:00Z` |
+| Last refreshed | `2026-05-19T20:55:00Z` |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
-| Merged PRs | **70** since project bootstrap |
-| Open PRs | 2 (#221 + #222 in flight — agents) |
-| Open issues | **4** (#79 Phase 2, #215 vCard, #221 bidi pump, #222 TCP forwarder) |
+| Merged PRs | **75** since project bootstrap (+5 this session: #238, #245, #246, #247, #249) |
+| Open PRs | 1 (#250 daemon hickory regression fix-of-fix, agent in flight) |
+| Open issues | **4** (#79 macOS upgrade, #215 vCard smoke, #248 daemon transport meta-ticket, #250 hickory WARN spam) |
 | EPIC closure | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 17 / 17 closed by audit |
 | Phase 0 browser login | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> **`https://app.iogrid.org/account`** — NextAuth + Stalwart magic-link, verification tokens persisted in CNPG `web` DB |
 | Phase 0 mothership | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> 6 services + CNPG + 5 IngressRoutes (app/api/proxy/releases/v1-auth) + 2 Let's Encrypt certs all Running |
 | Phase 0 daemon | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> `iogridd 0.1.0` paired (`6f84c7fb-...`), running under `io.iogrid.daemon` LaunchAgent (auto-restart + auto-start on Mac login), permissive Phase-0 caps persisted in `config.toml` |
 | Phase 0 admin role | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> `emrah.baysal@openova.io` = `{admin, founder}` in identity DB + web DB; `IOGRID_ADMIN_EMAILS` allowlist in edge middleware ([PR #223](https://github.com/iogrid/iogrid/pull/223)); `hatice.yildiz@openova.io` = regular user |
 | Phase 0 installers | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> [`v0.1.0-phase0`](https://github.com/iogrid/iogrid/releases/tag/v0.1.0-phase0) GH Release with 9 artifacts (macOS .pkg arm64+amd64, Windows .msi, Linux .deb/.rpm/.apk × 2 arch). `releases.iogrid.org`/`updates.iogrid.org` DNS + LE cert + Traefik redirect middlewares wired — **`https://releases.iogrid.org/latest/iogrid-darwin-arm64.pkg` downloads 2.12 MB xar archive** |
-| Phase 0 vCard smoke | <img alt="IN_FLIGHT" src="https://img.shields.io/badge/-IN__FLIGHT-bf8700?style=flat-square" /> Daemon transport stage 1 shipped ([PR #220](https://github.com/iogrid/iogrid/pull/220)); follow-ups #221 (tonic bidi pump) + #222 (TCP-over-frame forwarder) in flight via parallel agents |
+| Phase 0 vCard smoke | <img alt="IN_FLIGHT" src="https://img.shields.io/badge/-IN__FLIGHT-bf8700?style=flat-square" /> Daemon transport diagnosed end-to-end: cert/key match (#236) ✅, providers-svc Postgres-backed (#247) ✅, web↔bff auth bridge (#238 + #245) ✅, BUT mTLS bidi dial still fails — first the opaque `transport error` (#243 unwrapped → DNS-task cancellation #248), then hickory-resolver swap (#249) introduced WARN flood (#250). Fix-of-fix in flight |
+| Phase 0 admin UI | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> `/admin/providers` shows paired daemon record for `emrah.baysal` — verified live via Playwright, record survives `providers-svc` pod restart (Postgres-backed via #247). Screenshots in repo root: `admin-providers-emrah-WORKING.png`, `admin-providers-postgres-persisted.png` |
 
 **Legend:** <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> done · <img alt="IN_FLIGHT" src="https://img.shields.io/badge/-IN__FLIGHT-bf8700?style=flat-square" /> work in progress · <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> open · <img alt="DEFERRED" src="https://img.shields.io/badge/-DEFERRED-6e7781?style=flat-square" /> deferred · <img alt="BLOCKED" src="https://img.shields.io/badge/-BLOCKED-8250df?style=flat-square" /> blocked on founder action
 
