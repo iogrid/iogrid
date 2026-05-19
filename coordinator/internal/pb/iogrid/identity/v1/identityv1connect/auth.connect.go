@@ -69,6 +69,18 @@ const (
 	// AuthServiceCompleteStepUpProcedure is the fully-qualified name of the AuthService's
 	// CompleteStepUp RPC.
 	AuthServiceCompleteStepUpProcedure = "/iogrid.identity.v1.AuthService/CompleteStepUp"
+	// AuthServiceStartSiwsBindingProcedure is the fully-qualified name of the AuthService's
+	// StartSiwsBinding RPC.
+	AuthServiceStartSiwsBindingProcedure = "/iogrid.identity.v1.AuthService/StartSiwsBinding"
+	// AuthServiceCompleteSiwsBindingProcedure is the fully-qualified name of the AuthService's
+	// CompleteSiwsBinding RPC.
+	AuthServiceCompleteSiwsBindingProcedure = "/iogrid.identity.v1.AuthService/CompleteSiwsBinding"
+	// AuthServiceListBoundWalletsProcedure is the fully-qualified name of the AuthService's
+	// ListBoundWallets RPC.
+	AuthServiceListBoundWalletsProcedure = "/iogrid.identity.v1.AuthService/ListBoundWallets"
+	// AuthServiceUnbindWalletProcedure is the fully-qualified name of the AuthService's UnbindWallet
+	// RPC.
+	AuthServiceUnbindWalletProcedure = "/iogrid.identity.v1.AuthService/UnbindWallet"
 )
 
 // These variables are the protoreflect.Descriptor objects for the RPCs defined in this package.
@@ -84,6 +96,10 @@ var (
 	authServiceRevokeSessionMethodDescriptor        = authServiceServiceDescriptor.Methods().ByName("RevokeSession")
 	authServiceRequestStepUpMethodDescriptor        = authServiceServiceDescriptor.Methods().ByName("RequestStepUp")
 	authServiceCompleteStepUpMethodDescriptor       = authServiceServiceDescriptor.Methods().ByName("CompleteStepUp")
+	authServiceStartSiwsBindingMethodDescriptor     = authServiceServiceDescriptor.Methods().ByName("StartSiwsBinding")
+	authServiceCompleteSiwsBindingMethodDescriptor  = authServiceServiceDescriptor.Methods().ByName("CompleteSiwsBinding")
+	authServiceListBoundWalletsMethodDescriptor     = authServiceServiceDescriptor.Methods().ByName("ListBoundWallets")
+	authServiceUnbindWalletMethodDescriptor         = authServiceServiceDescriptor.Methods().ByName("UnbindWallet")
 )
 
 // AuthServiceClient is a client for the iogrid.identity.v1.AuthService service.
@@ -102,6 +118,11 @@ type AuthServiceClient interface {
 	// Step-up authority for privileged operations.
 	RequestStepUp(context.Context, *connect.Request[v1.RequestStepUpRequest]) (*connect.Response[v1.RequestStepUpResponse], error)
 	CompleteStepUp(context.Context, *connect.Request[v1.CompleteStepUpRequest]) (*connect.Response[v1.CompleteStepUpResponse], error)
+	// Sign-In-With-Solana wallet binding.
+	StartSiwsBinding(context.Context, *connect.Request[v1.StartSiwsBindingRequest]) (*connect.Response[v1.StartSiwsBindingResponse], error)
+	CompleteSiwsBinding(context.Context, *connect.Request[v1.CompleteSiwsBindingRequest]) (*connect.Response[v1.CompleteSiwsBindingResponse], error)
+	ListBoundWallets(context.Context, *connect.Request[v1.ListBoundWalletsRequest]) (*connect.Response[v1.ListBoundWalletsResponse], error)
+	UnbindWallet(context.Context, *connect.Request[v1.UnbindWalletRequest]) (*connect.Response[v1.UnbindWalletResponse], error)
 }
 
 // NewAuthServiceClient constructs a client for the iogrid.identity.v1.AuthService service. By
@@ -174,6 +195,30 @@ func NewAuthServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(authServiceCompleteStepUpMethodDescriptor),
 			connect.WithClientOptions(opts...),
 		),
+		startSiwsBinding: connect.NewClient[v1.StartSiwsBindingRequest, v1.StartSiwsBindingResponse](
+			httpClient,
+			baseURL+AuthServiceStartSiwsBindingProcedure,
+			connect.WithSchema(authServiceStartSiwsBindingMethodDescriptor),
+			connect.WithClientOptions(opts...),
+		),
+		completeSiwsBinding: connect.NewClient[v1.CompleteSiwsBindingRequest, v1.CompleteSiwsBindingResponse](
+			httpClient,
+			baseURL+AuthServiceCompleteSiwsBindingProcedure,
+			connect.WithSchema(authServiceCompleteSiwsBindingMethodDescriptor),
+			connect.WithClientOptions(opts...),
+		),
+		listBoundWallets: connect.NewClient[v1.ListBoundWalletsRequest, v1.ListBoundWalletsResponse](
+			httpClient,
+			baseURL+AuthServiceListBoundWalletsProcedure,
+			connect.WithSchema(authServiceListBoundWalletsMethodDescriptor),
+			connect.WithClientOptions(opts...),
+		),
+		unbindWallet: connect.NewClient[v1.UnbindWalletRequest, v1.UnbindWalletResponse](
+			httpClient,
+			baseURL+AuthServiceUnbindWalletProcedure,
+			connect.WithSchema(authServiceUnbindWalletMethodDescriptor),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -189,6 +234,10 @@ type authServiceClient struct {
 	revokeSession        *connect.Client[v1.RevokeSessionRequest, v1.RevokeSessionResponse]
 	requestStepUp        *connect.Client[v1.RequestStepUpRequest, v1.RequestStepUpResponse]
 	completeStepUp       *connect.Client[v1.CompleteStepUpRequest, v1.CompleteStepUpResponse]
+	startSiwsBinding     *connect.Client[v1.StartSiwsBindingRequest, v1.StartSiwsBindingResponse]
+	completeSiwsBinding  *connect.Client[v1.CompleteSiwsBindingRequest, v1.CompleteSiwsBindingResponse]
+	listBoundWallets     *connect.Client[v1.ListBoundWalletsRequest, v1.ListBoundWalletsResponse]
+	unbindWallet         *connect.Client[v1.UnbindWalletRequest, v1.UnbindWalletResponse]
 }
 
 // StartGoogleSignIn calls iogrid.identity.v1.AuthService.StartGoogleSignIn.
@@ -241,6 +290,26 @@ func (c *authServiceClient) CompleteStepUp(ctx context.Context, req *connect.Req
 	return c.completeStepUp.CallUnary(ctx, req)
 }
 
+// StartSiwsBinding calls iogrid.identity.v1.AuthService.StartSiwsBinding.
+func (c *authServiceClient) StartSiwsBinding(ctx context.Context, req *connect.Request[v1.StartSiwsBindingRequest]) (*connect.Response[v1.StartSiwsBindingResponse], error) {
+	return c.startSiwsBinding.CallUnary(ctx, req)
+}
+
+// CompleteSiwsBinding calls iogrid.identity.v1.AuthService.CompleteSiwsBinding.
+func (c *authServiceClient) CompleteSiwsBinding(ctx context.Context, req *connect.Request[v1.CompleteSiwsBindingRequest]) (*connect.Response[v1.CompleteSiwsBindingResponse], error) {
+	return c.completeSiwsBinding.CallUnary(ctx, req)
+}
+
+// ListBoundWallets calls iogrid.identity.v1.AuthService.ListBoundWallets.
+func (c *authServiceClient) ListBoundWallets(ctx context.Context, req *connect.Request[v1.ListBoundWalletsRequest]) (*connect.Response[v1.ListBoundWalletsResponse], error) {
+	return c.listBoundWallets.CallUnary(ctx, req)
+}
+
+// UnbindWallet calls iogrid.identity.v1.AuthService.UnbindWallet.
+func (c *authServiceClient) UnbindWallet(ctx context.Context, req *connect.Request[v1.UnbindWalletRequest]) (*connect.Response[v1.UnbindWalletResponse], error) {
+	return c.unbindWallet.CallUnary(ctx, req)
+}
+
 // AuthServiceHandler is an implementation of the iogrid.identity.v1.AuthService service.
 type AuthServiceHandler interface {
 	// Google OAuth.
@@ -257,6 +326,11 @@ type AuthServiceHandler interface {
 	// Step-up authority for privileged operations.
 	RequestStepUp(context.Context, *connect.Request[v1.RequestStepUpRequest]) (*connect.Response[v1.RequestStepUpResponse], error)
 	CompleteStepUp(context.Context, *connect.Request[v1.CompleteStepUpRequest]) (*connect.Response[v1.CompleteStepUpResponse], error)
+	// Sign-In-With-Solana wallet binding.
+	StartSiwsBinding(context.Context, *connect.Request[v1.StartSiwsBindingRequest]) (*connect.Response[v1.StartSiwsBindingResponse], error)
+	CompleteSiwsBinding(context.Context, *connect.Request[v1.CompleteSiwsBindingRequest]) (*connect.Response[v1.CompleteSiwsBindingResponse], error)
+	ListBoundWallets(context.Context, *connect.Request[v1.ListBoundWalletsRequest]) (*connect.Response[v1.ListBoundWalletsResponse], error)
+	UnbindWallet(context.Context, *connect.Request[v1.UnbindWalletRequest]) (*connect.Response[v1.UnbindWalletResponse], error)
 }
 
 // NewAuthServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -325,6 +399,30 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(authServiceCompleteStepUpMethodDescriptor),
 		connect.WithHandlerOptions(opts...),
 	)
+	authServiceStartSiwsBindingHandler := connect.NewUnaryHandler(
+		AuthServiceStartSiwsBindingProcedure,
+		svc.StartSiwsBinding,
+		connect.WithSchema(authServiceStartSiwsBindingMethodDescriptor),
+		connect.WithHandlerOptions(opts...),
+	)
+	authServiceCompleteSiwsBindingHandler := connect.NewUnaryHandler(
+		AuthServiceCompleteSiwsBindingProcedure,
+		svc.CompleteSiwsBinding,
+		connect.WithSchema(authServiceCompleteSiwsBindingMethodDescriptor),
+		connect.WithHandlerOptions(opts...),
+	)
+	authServiceListBoundWalletsHandler := connect.NewUnaryHandler(
+		AuthServiceListBoundWalletsProcedure,
+		svc.ListBoundWallets,
+		connect.WithSchema(authServiceListBoundWalletsMethodDescriptor),
+		connect.WithHandlerOptions(opts...),
+	)
+	authServiceUnbindWalletHandler := connect.NewUnaryHandler(
+		AuthServiceUnbindWalletProcedure,
+		svc.UnbindWallet,
+		connect.WithSchema(authServiceUnbindWalletMethodDescriptor),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/iogrid.identity.v1.AuthService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AuthServiceStartGoogleSignInProcedure:
@@ -347,6 +445,14 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 			authServiceRequestStepUpHandler.ServeHTTP(w, r)
 		case AuthServiceCompleteStepUpProcedure:
 			authServiceCompleteStepUpHandler.ServeHTTP(w, r)
+		case AuthServiceStartSiwsBindingProcedure:
+			authServiceStartSiwsBindingHandler.ServeHTTP(w, r)
+		case AuthServiceCompleteSiwsBindingProcedure:
+			authServiceCompleteSiwsBindingHandler.ServeHTTP(w, r)
+		case AuthServiceListBoundWalletsProcedure:
+			authServiceListBoundWalletsHandler.ServeHTTP(w, r)
+		case AuthServiceUnbindWalletProcedure:
+			authServiceUnbindWalletHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -394,4 +500,20 @@ func (UnimplementedAuthServiceHandler) RequestStepUp(context.Context, *connect.R
 
 func (UnimplementedAuthServiceHandler) CompleteStepUp(context.Context, *connect.Request[v1.CompleteStepUpRequest]) (*connect.Response[v1.CompleteStepUpResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iogrid.identity.v1.AuthService.CompleteStepUp is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) StartSiwsBinding(context.Context, *connect.Request[v1.StartSiwsBindingRequest]) (*connect.Response[v1.StartSiwsBindingResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iogrid.identity.v1.AuthService.StartSiwsBinding is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) CompleteSiwsBinding(context.Context, *connect.Request[v1.CompleteSiwsBindingRequest]) (*connect.Response[v1.CompleteSiwsBindingResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iogrid.identity.v1.AuthService.CompleteSiwsBinding is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) ListBoundWallets(context.Context, *connect.Request[v1.ListBoundWalletsRequest]) (*connect.Response[v1.ListBoundWalletsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iogrid.identity.v1.AuthService.ListBoundWallets is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) UnbindWallet(context.Context, *connect.Request[v1.UnbindWalletRequest]) (*connect.Response[v1.UnbindWalletResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iogrid.identity.v1.AuthService.UnbindWallet is not implemented"))
 }

@@ -96,6 +96,38 @@ func TestUpdateUser_RejectsCrossUser(t *testing.T) {
 	}
 }
 
+// SIWS wallet endpoints — sanity checks at the route layer. End-to-end
+// behaviour lives in internal/auth/siws_integration_test.go (requires
+// dockertest Postgres).
+
+func TestWallets_List_RequiresBearer(t *testing.T) {
+	api := New(nil, nil, nil)
+	r := chi.NewRouter()
+	api.Mount(r)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/wallets/", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestWallets_Unbind_RequiresBearer(t *testing.T) {
+	api := New(nil, nil, nil)
+	r := chi.NewRouter()
+	api.Mount(r)
+
+	req := httptest.NewRequest(http.MethodDelete, "/v1/wallets/SomeBase58Addr", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
 func TestRequestMagicLink_RejectsMalformedBody(t *testing.T) {
 	api := New(nil, nil, nil)
 	r := chi.NewRouter()

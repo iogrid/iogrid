@@ -167,16 +167,24 @@ func NewSignerFromKeys(priv *rsa.PrivateKey, keyID, issuer string, audience []st
 // AccessClaims is the structured payload for our RS256 access token.
 // Mirrors the JwtClaims proto so downstream services can deserialize
 // uniformly.
+//
+// SolanaAddresses carries the base58-encoded Solana wallets bound to
+// this user via SIWS. Downstream services (billing-svc payout queue,
+// providers-svc payout routing) read the claim directly to avoid a
+// round-trip to identity-svc on every authenticated request.
 type AccessClaims struct {
 	jwt.RegisteredClaims
-	Identifiers  []string `json:"identifiers,omitempty"`
-	PrimaryEmail string   `json:"primary_email,omitempty"`
-	Roles        []string `json:"roles,omitempty"`
-	StepUp       bool     `json:"step_up,omitempty"`
+	Identifiers     []string `json:"identifiers,omitempty"`
+	PrimaryEmail    string   `json:"primary_email,omitempty"`
+	Roles           []string `json:"roles,omitempty"`
+	StepUp          bool     `json:"step_up,omitempty"`
+	SolanaAddresses []string `json:"solana_addresses,omitempty"`
 }
 
 // IssueAccessToken signs a fresh access token for the given user/session.
-func (s *Signer) IssueAccessToken(userID, sessionID uuid.UUID, primaryEmail string, roles, identifiers []string, stepUp bool) (string, time.Time, error) {
+// solanaAddresses carries the base58-encoded Solana wallets bound to
+// the user via SIWS (see internal/siws/); pass nil when none are bound.
+func (s *Signer) IssueAccessToken(userID, sessionID uuid.UUID, primaryEmail string, roles, identifiers []string, stepUp bool, solanaAddresses []string) (string, time.Time, error) {
 	now := time.Now().UTC()
 	exp := now.Add(s.ttlAccess)
 	claims := AccessClaims{
@@ -188,10 +196,11 @@ func (s *Signer) IssueAccessToken(userID, sessionID uuid.UUID, primaryEmail stri
 			ExpiresAt: jwt.NewNumericDate(exp),
 			ID:        sessionID.String(),
 		},
-		Identifiers:  identifiers,
-		PrimaryEmail: primaryEmail,
-		Roles:        roles,
-		StepUp:       stepUp,
+		Identifiers:     identifiers,
+		PrimaryEmail:    primaryEmail,
+		Roles:           roles,
+		StepUp:          stepUp,
+		SolanaAddresses: solanaAddresses,
 	}
 	t := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	t.Header["kid"] = s.keyID

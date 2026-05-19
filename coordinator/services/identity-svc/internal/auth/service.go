@@ -24,6 +24,7 @@ import (
 	"github.com/iogrid/iogrid/coordinator/services/identity-svc/internal/mail"
 	"github.com/iogrid/iogrid/coordinator/services/identity-svc/internal/oauth/google"
 	"github.com/iogrid/iogrid/coordinator/services/identity-svc/internal/ratelimit"
+	"github.com/iogrid/iogrid/coordinator/services/identity-svc/internal/siws"
 	"github.com/iogrid/iogrid/coordinator/services/identity-svc/internal/store"
 	"github.com/iogrid/iogrid/coordinator/services/identity-svc/internal/tokens"
 )
@@ -46,6 +47,11 @@ type Service struct {
 	StepUpTTL                 time.Duration
 	MagicLinkPerEmailPerHour  int
 	MagicLinkPerIPPerHour     int
+
+	// SiwsChallenges persists outstanding SIWS challenges with a 5-minute
+	// TTL. Production wires the Redis-backed implementation; dev / tests
+	// fall back to an in-memory store on first use.
+	SiwsChallenges siws.ChallengeStore
 }
 
 // Options bundles the constructor inputs.
@@ -496,7 +502,9 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string, req *http.Re
 			return err
 		}
 		access, accessExp, err := s.Signer.IssueAccessToken(user.ID, sess.ID, user.PrimaryEmail,
-			user.Roles, identifierKindsToStrings(identifiers), sess.StepUpUntil != nil && sess.StepUpUntil.After(time.Now()))
+			user.Roles, identifierKindsToStrings(identifiers),
+			sess.StepUpUntil != nil && sess.StepUpUntil.After(time.Now()),
+			solanaAddressesFrom(identifiers))
 		if err != nil {
 			return err
 		}
@@ -611,7 +619,8 @@ func (s *Service) issueBundleTx(ctx context.Context, tx pgx.Tx, user *store.User
 		return nil, err
 	}
 	access, accessExp, err := s.Signer.IssueAccessToken(user.ID, sess.ID, user.PrimaryEmail,
-		user.Roles, identifierKindsToStrings(identifiers), false)
+		user.Roles, identifierKindsToStrings(identifiers), false,
+		solanaAddressesFrom(identifiers))
 	if err != nil {
 		return nil, err
 	}
@@ -707,6 +716,21 @@ func identifierKindsToStrings(idents []store.Identifier) []string {
 	out := make([]string, 0, len(idents))
 	for _, i := range idents {
 		out = append(out, string(i.Kind))
+	}
+	return out
+}
+
+// solanaAddressesFrom extracts the base58 addresses of every KindSolana
+// identifier in the slice. Returns nil (not an empty slice) when none
+// exist so the JWT claim is omitted by `omitempty` rather than encoded
+// as an empty array — downstream JS / Go deserializers handle nil
+// uniformly but `[]` triggers a "no wallet" branch in some clients.
+func solanaAddressesFrom(idents []store.Identifier) []string {
+	var out []string
+	for _, i := range idents {
+		if i.Kind == store.KindSolana && i.Subject != "" {
+			out = append(out, i.Subject)
+		}
 	}
 	return out
 }

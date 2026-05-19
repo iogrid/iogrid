@@ -247,6 +247,77 @@ func (s *Store) TouchIdentifier(ctx context.Context, q Querier, id uuid.UUID) er
 	return err
 }
 
+// FindIdentifierBySubjectAndUser is FindIdentifierBySubject scoped to a
+// specific user. Used by SIWS unbind so we can confirm the wallet belongs
+// to the caller before deletion. Returns ErrNotFound when no row matches.
+func (s *Store) FindIdentifierBySubjectAndUser(ctx context.Context, q Querier, kind IdentifierKind, subject string, userID uuid.UUID) (*Identifier, error) {
+	if q == nil {
+		q = s.Pool
+	}
+	i := &Identifier{}
+	var email *string
+	err := q.QueryRow(ctx, `
+		SELECT id, user_id, kind, subject, email, verified, hosted_domain, created_at, last_used_at
+		  FROM identifiers
+		 WHERE kind = $1 AND subject = $2 AND user_id = $3`, kind, subject, userID).
+		Scan(&i.ID, &i.UserID, &i.Kind, &i.Subject, &email, &i.Verified, &i.HostedDomain, &i.CreatedAt, &i.LastUsedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if email != nil {
+		i.Email = *email
+	}
+	return i, nil
+}
+
+// ListIdentifiersForUserByKind returns every identifier of a single kind
+// bound to the user. SIWS callers narrow to KindSolana to list the
+// wallets attached to a provider; the kind argument keeps a single
+// SELECT path for any future per-kind enumeration.
+func (s *Store) ListIdentifiersForUserByKind(ctx context.Context, q Querier, userID uuid.UUID, kind IdentifierKind) ([]Identifier, error) {
+	if q == nil {
+		q = s.Pool
+	}
+	rows, err := q.Query(ctx, `
+		SELECT id, user_id, kind, subject, COALESCE(email, ''), verified, hosted_domain, created_at, last_used_at
+		  FROM identifiers
+		 WHERE user_id = $1 AND kind = $2
+		 ORDER BY created_at`, userID, kind)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Identifier
+	for rows.Next() {
+		var i Identifier
+		if err := rows.Scan(&i.ID, &i.UserID, &i.Kind, &i.Subject, &i.Email, &i.Verified, &i.HostedDomain, &i.CreatedAt, &i.LastUsedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, i)
+	}
+	return out, rows.Err()
+}
+
+// DeleteIdentifier removes a single identifier by primary key. Used by
+// SIWS Unbind. Returns ErrNotFound when the row does not exist (caller
+// converts to a 404 / "not bound").
+func (s *Store) DeleteIdentifier(ctx context.Context, q Querier, id uuid.UUID) error {
+	if q == nil {
+		q = s.Pool
+	}
+	tag, err := q.Exec(ctx, `DELETE FROM identifiers WHERE id = $1`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // ReassignIdentifiers moves every identifier from fromUser → toUser. Used
 // during merge so the source user can be soft-deleted afterwards.
 func (s *Store) ReassignIdentifiers(ctx context.Context, q Querier, fromUser, toUser uuid.UUID) error {

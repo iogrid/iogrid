@@ -31,6 +31,7 @@ import (
 	"github.com/iogrid/iogrid/coordinator/services/identity-svc/internal/ratelimit"
 	"github.com/iogrid/iogrid/coordinator/services/identity-svc/internal/server"
 	"github.com/iogrid/iogrid/coordinator/services/identity-svc/internal/server/handlers"
+	"github.com/iogrid/iogrid/coordinator/services/identity-svc/internal/siws"
 	"github.com/iogrid/iogrid/coordinator/services/identity-svc/internal/store"
 	"github.com/iogrid/iogrid/coordinator/services/identity-svc/internal/tokens"
 	"github.com/iogrid/iogrid/coordinator/shared/db"
@@ -182,6 +183,18 @@ func main() {
 		MagicLinkPerEmailPerHour: cfg.MagicLinkPerEmailPerHour,
 		MagicLinkPerIPPerHour:    cfg.MagicLinkPerIPPerHour,
 	})
+
+	// --- SIWS challenge store --------------------------------------
+	// Production wiring: Redis-backed, keyed by wallet address with a
+	// 5-minute TTL. When Redis is unavailable the in-memory fallback
+	// kicks in via Service.challenges() — single-pod dev only.
+	if redisClient != nil {
+		authSvc.WithSiwsChallenges(&siws.RedisChallengeStore{Client: redisClient})
+	} else {
+		authSvc.WithSiwsChallenges(siws.NewMemoryChallengeStore())
+		logger.Warn("siws: redis unavailable; using in-memory challenge store (single-pod dev only)")
+	}
+
 	api := handlers.New(authSvc, st, logger)
 	wsHandler := handlers.NewWorkspaceHandler(st)
 

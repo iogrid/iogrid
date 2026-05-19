@@ -62,7 +62,7 @@ func TestSigner_RoundTrip(t *testing.T) {
 	userID := uuid.New()
 	sessionID := uuid.New()
 	tok, exp, err := signer.IssueAccessToken(userID, sessionID, "alice@example.com",
-		[]string{"USER_ROLE_PROVIDER"}, []string{"google"}, false)
+		[]string{"USER_ROLE_PROVIDER"}, []string{"google"}, false, nil)
 	if err != nil {
 		t.Fatalf("IssueAccessToken: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestSigner_RoundTrip(t *testing.T) {
 
 func TestSigner_VerifyRejectsTampered(t *testing.T) {
 	signer := freshSigner(t)
-	tok, _, _ := signer.IssueAccessToken(uuid.New(), uuid.New(), "x@x.x", nil, nil, false)
+	tok, _, _ := signer.IssueAccessToken(uuid.New(), uuid.New(), "x@x.x", nil, nil, false, nil)
 	// Flip a byte in the payload section.
 	bad := tok[:len(tok)-5] + "AAAAA"
 	if _, err := signer.Verify(bad); err == nil {
@@ -133,7 +133,7 @@ func TestEnsureAutogenKeypair_WritesUsableKeys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSigner against autogen keypair: %v", err)
 	}
-	tok, _, err := signer.IssueAccessToken(uuid.New(), uuid.New(), "x@x.x", nil, nil, false)
+	tok, _, err := signer.IssueAccessToken(uuid.New(), uuid.New(), "x@x.x", nil, nil, false, nil)
 	if err != nil {
 		t.Fatalf("IssueAccessToken: %v", err)
 	}

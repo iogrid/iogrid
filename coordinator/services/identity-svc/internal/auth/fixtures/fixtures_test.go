@@ -29,7 +29,7 @@ func TestFixtureKeypair_RoundTripsThroughSigner(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSigner against committed fixture: %v", err)
 	}
-	tok, _, err := signer.IssueAccessToken(uuid.New(), uuid.New(), "dev@iogrid.org", nil, nil, false)
+	tok, _, err := signer.IssueAccessToken(uuid.New(), uuid.New(), "dev@iogrid.org", nil, nil, false, nil)
 	if err != nil {
 		t.Fatalf("IssueAccessToken: %v", err)
 	}

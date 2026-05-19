@@ -19,6 +19,9 @@ const (
 	KindMagicLink IdentifierKind = "magic_link"
 	KindApple     IdentifierKind = "apple"
 	KindGitHub    IdentifierKind = "github"
+	// KindSolana represents a Sign-In-With-Solana wallet binding; the
+	// identifier's subject holds the base58-encoded ed25519 pubkey.
+	KindSolana IdentifierKind = "solana"
 )
 
 // MagicLinkIntent matches the Postgres magic_link_intent enum. signin
