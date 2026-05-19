@@ -64,9 +64,12 @@ if (-not $wix) { throw "WiX 4 toolset not found. Install with: dotnet tool insta
 Write-Host "Using WiX: $($wix.Path)"
 
 Section "Add WiX extensions"
-# These are idempotent; ignore non-zero exit (e.g. "already installed").
-wix extension add -g WixToolset.UI.wixext 2>$null
-wix extension add -g WixToolset.Util.wixext 2>$null
+# Idempotent; ignore non-zero exit (e.g. "already installed"). Pin to
+# 4.0.6 to avoid pulling WiX 5+ which now requires accepting the
+# Open Source Maintenance Fee EULA on every invocation (incompatible
+# with unattended CI). 4.0.x is the last fully MIT-licensed line.
+wix extension add -g WixToolset.UI.wixext/4.0.6 2>$null
+wix extension add -g WixToolset.Util.wixext/4.0.6 2>$null
 
 Section "Build .msi"
 New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
