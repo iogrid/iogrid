@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { posts } from "@/content/posts";
+import { BlogList } from "@/components/BlogList";
 
 export const metadata: Metadata = {
   title: "Blog",
@@ -11,21 +11,14 @@ export const metadata: Metadata = {
   },
 };
 
-interface BlogIndexProps {
-  searchParams?: Promise<{ tag?: string }>;
-}
-
-export default async function BlogIndexPage({ searchParams }: BlogIndexProps) {
-  const params = (await searchParams) ?? {};
-  const activeTag = params.tag?.toLowerCase();
-
-  const allTags = Array.from(
-    new Set(posts.flatMap((p) => p.tags.map((t) => t.toLowerCase())))
-  ).sort();
-
-  const visiblePosts = activeTag
-    ? posts.filter((p) => p.tags.map((t) => t.toLowerCase()).includes(activeTag))
-    : posts;
+export default function BlogIndexPage() {
+  const summaries = posts.map((p) => ({
+    slug: p.slug,
+    title: p.title,
+    description: p.description,
+    date: p.date,
+    tags: p.tags,
+  }));
 
   return (
     <section className="container-page py-16">
@@ -37,78 +30,7 @@ export default async function BlogIndexPage({ searchParams }: BlogIndexProps) {
         </p>
       </header>
 
-      <nav
-        aria-label="Filter posts by tag"
-        className="mx-auto mt-10 flex max-w-4xl flex-wrap justify-center gap-2"
-      >
-        <Link
-          href="/blog"
-          className={`rounded-full px-4 py-1.5 text-sm font-semibold transition ${
-            !activeTag
-              ? "bg-primary-500 text-white"
-              : "border border-neutral-200 bg-white text-neutral-700 hover:border-primary-500 hover:text-primary-600"
-          }`}
-        >
-          All ({posts.length})
-        </Link>
-        {allTags.map((tag) => {
-          const count = posts.filter((p) =>
-            p.tags.map((t) => t.toLowerCase()).includes(tag)
-          ).length;
-          const active = activeTag === tag;
-          return (
-            <Link
-              key={tag}
-              href={`/blog?tag=${encodeURIComponent(tag)}`}
-              className={`rounded-full px-4 py-1.5 text-sm font-semibold transition ${
-                active
-                  ? "bg-primary-500 text-white"
-                  : "border border-neutral-200 bg-white text-neutral-700 hover:border-primary-500 hover:text-primary-600"
-              }`}
-              aria-current={active ? "page" : undefined}
-            >
-              {tag} ({count})
-            </Link>
-          );
-        })}
-      </nav>
-
-      <div className="mx-auto mt-12 grid max-w-4xl gap-6">
-        {visiblePosts.map((post) => (
-          <article key={post.slug} className="card">
-            <div className="flex flex-wrap items-center gap-2 text-xs text-neutral-500">
-              <time dateTime={post.date} className="font-tabular">
-                {post.date}
-              </time>
-              {post.tags.map((t) => (
-                <span key={t} className="pill">
-                  {t}
-                </span>
-              ))}
-            </div>
-            <h2 className="h-card mt-3 text-neutral-900">
-              <Link
-                href={`/blog/${post.slug}`}
-                className="hover:text-primary-600"
-              >
-                {post.title}
-              </Link>
-            </h2>
-            <p className="mt-2 text-sm text-neutral-600">{post.description}</p>
-            <Link
-              href={`/blog/${post.slug}`}
-              className="mt-4 inline-block text-sm font-semibold text-primary-600 hover:underline"
-            >
-              Read post &rarr;
-            </Link>
-          </article>
-        ))}
-        {visiblePosts.length === 0 ? (
-          <p className="text-center text-sm text-neutral-500">
-            No posts in this tag yet. <Link href="/blog" className="underline">See all</Link>.
-          </p>
-        ) : null}
-      </div>
+      <BlogList posts={summaries} />
 
       <aside
         aria-labelledby="newsletter-heading"
