@@ -4,12 +4,12 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-19T07:00:00Z` |
+| Last refreshed | `2026-05-19T07:30:00Z` |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
-| Merged PRs | **45** since project bootstrap |
+| Merged PRs | **47** since project bootstrap |
 | Open PRs | 0 |
-| Open issues | **22** (5 EPICs + 17 sub-issues / chores) |
-| EPIC closure | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 18 / 26 closed = **69%** |
+| Open issues | **19** (5 EPICs + 17 sub-issues / chores) |
+| EPIC closure | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 19 / 26 closed = **73%** |
 
 **Legend:** <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> done · <img alt="IN_FLIGHT" src="https://img.shields.io/badge/-IN__FLIGHT-bf8700?style=flat-square" /> work in progress · <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> open · <img alt="DEFERRED" src="https://img.shields.io/badge/-DEFERRED-6e7781?style=flat-square" /> deferred · <img alt="BLOCKED" src="https://img.shields.io/badge/-BLOCKED-8250df?style=flat-square" /> blocked on founder action
 
@@ -235,4 +235,4 @@ Automation follow-up: [bin/refresh-tracker.sh](https://github.com/iogrid/iogrid/
 
 ---
 
-*Generated `2026-05-19T07:00:00Z`. Refresh manually or via TBD `bin/refresh-tracker.sh`.*
+*Generated `2026-05-19T07:30:00Z`. Refresh manually or via TBD `bin/refresh-tracker.sh`.*
