@@ -61,6 +61,28 @@ func TestLoad_Overrides(t *testing.T) {
 	}
 }
 
+func TestLoad_BlockDomains_ParsedFromCSV(t *testing.T) {
+	t.Setenv("BLOCK_DOMAINS", "malware.test, KNOWN-bad.test ,*.evil.example")
+	c := Load()
+	want := []string{"malware.test", "known-bad.test", "*.evil.example"}
+	if len(c.BlockDomains) != len(want) {
+		t.Fatalf("BlockDomains = %v, want %v", c.BlockDomains, want)
+	}
+	for i, w := range want {
+		if c.BlockDomains[i] != w {
+			t.Errorf("BlockDomains[%d] = %q, want %q", i, c.BlockDomains[i], w)
+		}
+	}
+}
+
+func TestLoad_BlockDomains_EmptyByDefault(t *testing.T) {
+	t.Setenv("BLOCK_DOMAINS", "")
+	c := Load()
+	if len(c.BlockDomains) != 0 {
+		t.Errorf("BlockDomains default = %v, want empty", c.BlockDomains)
+	}
+}
+
 func TestLoad_InvalidNumbersFallBack(t *testing.T) {
 	t.Setenv("DEFAULT_CUSTOMER_RPS", "garbage")
 	t.Setenv("PHISHTANK_REFRESH", "notADuration")

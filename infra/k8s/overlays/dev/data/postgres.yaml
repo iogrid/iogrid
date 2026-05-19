@@ -1,0 +1,157 @@
+# Plain Postgres 16 — single replica, emptyDir storage, no replication.
+# Replaces the CNPG-managed `Cluster/iogrid-pg` from infra/k8s/base/data/.
+#
+# Per-service databases (identity, providers, workloads, antiabuse,
+# billing, telemetry) are created at startup via the
+# postgres-init-sql ConfigMap mounted at /docker-entrypoint-initdb.d.
+# That's the same surface CNPG would have used via `postInitApplicationSQL`,
+# minus the operator dependency.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init-sql
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: database
+data:
+  001-databases.sql: |
+    CREATE DATABASE identity;
+    CREATE DATABASE providers;
+    CREATE DATABASE workloads;
+    CREATE DATABASE antiabuse;
+    CREATE DATABASE billing;
+    CREATE DATABASE telemetry;
+    CREATE ROLE identity_user LOGIN PASSWORD 'identity_user';
+    CREATE ROLE providers_user LOGIN PASSWORD 'providers_user';
+    CREATE ROLE workloads_user LOGIN PASSWORD 'workloads_user';
+    CREATE ROLE antiabuse_user LOGIN PASSWORD 'antiabuse_user';
+    CREATE ROLE billing_user LOGIN PASSWORD 'billing_user';
+    CREATE ROLE telemetry_user LOGIN PASSWORD 'telemetry_user';
+    GRANT ALL PRIVILEGES ON DATABASE identity TO identity_user;
+    GRANT ALL PRIVILEGES ON DATABASE providers TO providers_user;
+    GRANT ALL PRIVILEGES ON DATABASE workloads TO workloads_user;
+    GRANT ALL PRIVILEGES ON DATABASE antiabuse TO antiabuse_user;
+    GRANT ALL PRIVILEGES ON DATABASE billing TO billing_user;
+    GRANT ALL PRIVILEGES ON DATABASE telemetry TO telemetry_user;
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-credentials
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: iogrid
+type: Opaque
+stringData:
+  POSTGRES_PASSWORD: devsecret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: iogrid-pg-rw
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: database
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: postgres
+  ports:
+    - name: tcp
+      port: 5432
+      targetPort: 5432
+---
+# Convenience alias matching the e2e harness manifests.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: database
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: postgres
+  ports:
+    - name: tcp
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: database
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres
+        app.kubernetes.io/part-of: iogrid
+        app.kubernetes.io/component: database
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              value: postgres
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - containerPort: 5432
+              name: tcp
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: init-sql
+              mountPath: /docker-entrypoint-initdb.d
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: init-sql
+          configMap:
+            name: postgres-init-sql

@@ -3,6 +3,8 @@ package tokens
 import (
 	"crypto/rand"
 	"crypto/rsa"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -89,6 +91,75 @@ func TestSigner_VerifyRejectsTampered(t *testing.T) {
 	bad := tok[:len(tok)-5] + "AAAAA"
 	if _, err := signer.Verify(bad); err == nil {
 		t.Fatalf("Verify accepted tampered token")
+	}
+}
+
+func TestEnsureAutogenKeypair_WritesUsableKeys(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "jwt-keys")
+
+	privPath, pubPath, err := EnsureAutogenKeypair(dir)
+	if err != nil {
+		t.Fatalf("EnsureAutogenKeypair: %v", err)
+	}
+	if privPath == "" || pubPath == "" {
+		t.Fatalf("EnsureAutogenKeypair returned empty paths: %q, %q", privPath, pubPath)
+	}
+
+	// Both files exist, PEM-shaped, correct mode.
+	privBytes, err := os.ReadFile(privPath)
+	if err != nil {
+		t.Fatalf("read priv: %v", err)
+	}
+	if !strings.Contains(string(privBytes), "PRIVATE KEY") {
+		t.Errorf("priv PEM missing header: %q", privBytes[:60])
+	}
+	pubBytes, err := os.ReadFile(pubPath)
+	if err != nil {
+		t.Fatalf("read pub: %v", err)
+	}
+	if !strings.Contains(string(pubBytes), "PUBLIC KEY") {
+		t.Errorf("pub PEM missing header: %q", pubBytes[:60])
+	}
+
+	// NewSigner against the autogen paths round-trips a token.
+	signer, err := NewSigner(SignerConfig{
+		PrivateKeyPath: privPath,
+		PublicKeyPath:  pubPath,
+		KeyID:          "autogen",
+		Issuer:         "https://test.iogrid.org",
+		Audience:       []string{"gateway-bff"},
+		AccessTokenTTL: 5 * time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("NewSigner against autogen keypair: %v", err)
+	}
+	tok, _, err := signer.IssueAccessToken(uuid.New(), uuid.New(), "x@x.x", nil, nil, false)
+	if err != nil {
+		t.Fatalf("IssueAccessToken: %v", err)
+	}
+	if _, err := signer.Verify(tok); err != nil {
+		t.Fatalf("Verify against autogen keypair: %v", err)
+	}
+}
+
+func TestEnsureAutogenKeypair_RegeneratesOnEachCall(t *testing.T) {
+	// Each call writes a fresh keypair — verifies we don't accidentally
+	// hand back stale keys when the autogen dir already has files.
+	dir := t.TempDir()
+	priv1, _, err := EnsureAutogenKeypair(dir)
+	if err != nil {
+		t.Fatalf("first call: %v", err)
+	}
+	bytes1, _ := os.ReadFile(priv1)
+
+	priv2, _, err := EnsureAutogenKeypair(dir)
+	if err != nil {
+		t.Fatalf("second call: %v", err)
+	}
+	bytes2, _ := os.ReadFile(priv2)
+
+	if string(bytes1) == string(bytes2) {
+		t.Errorf("EnsureAutogenKeypair returned identical private key on second call — autogen must be ephemeral")
 	}
 }
 

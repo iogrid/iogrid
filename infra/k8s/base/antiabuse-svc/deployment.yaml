@@ -62,6 +62,12 @@ spec:
               value: info
             - name: SERVICE_NAME
               value: antiabuse-svc
+            # BLOCK_DOMAINS — comma-separated deny-list (glob patterns OK).
+            # Empty by default; staging / e2e overlays prepopulate
+            # known-bad fixtures, prod sources the live list from
+            # antiabuse-svc-config (DB-backed loader in Phase 1).
+            - name: BLOCK_DOMAINS
+              value: ""
           envFrom:
             - configMapRef:
                 name: antiabuse-svc-config

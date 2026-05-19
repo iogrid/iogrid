@@ -79,6 +79,12 @@ services:
     image:
       repository: antiabuse-svc
       tag: latest
+    # Operator deny-list (BLOCK_DOMAINS). Empty by default; staging /
+    # e2e overlays pre-seed known-bad fixtures here, prod sources from
+    # the DB-backed loader (issue #72).
+    env:
+      - name: BLOCK_DOMAINS
+        value: ""
   billing-svc:
     image:
       repository: billing-svc

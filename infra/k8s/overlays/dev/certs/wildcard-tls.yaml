@@ -1,0 +1,267 @@
+# Static self-signed wildcard TLS — replaces the cert-manager Certificate
+# refs from infra/k8s/base/certs/. Valid 10 years from 2026-05-19; covers
+# the *.iogrid.local hostnames the dev overlay uses (since the base
+# *.iogrid.org names need real DNS + LE HTTP-01).
+#
+# Same Secret is referenced by app-iogrid-org-tls, api-iogrid-org-tls,
+# build-iogrid-org-tls, proxy-iogrid-org-tls so the Gateway / HTTPRoute /
+# TLSRoute resources resolve. Gateway / HTTPRoute / TLSRoute themselves
+# are still removed by the dev overlay (kind has no Gateway-API
+# controller); these Secrets stick around so ingress-nginx-based Ingress
+# rules in dev can mount them.
+#
+# DO NOT use this keypair in any environment that anyone outside the
+# kind cluster boundary can reach. It is checked in to git, public, and
+# unsigned. Real environments use cert-manager + Let's Encrypt.
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-iogrid-org-tls
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/part-of: iogrid
+    iogrid.org/environment: dev
+type: kubernetes.io/tls
+stringData:
+  tls.crt: |
+    -----BEGIN CERTIFICATE-----
+    MIIDoTCCAomgAwIBAgIUc4o0YMp4PvMoeg8Jcj28trVdfpgwDQYJKoZIhvcNAQEL
+    BQAwGTEXMBUGA1UEAwwOKi5pb2dyaWQubG9jYWwwHhcNMjYwNTE5MDA1OTM0WhcN
+    MzYwNTE2MDA1OTM0WjAZMRcwFQYDVQQDDA4qLmlvZ3JpZC5sb2NhbDCCASIwDQYJ
+    KoZIhvcNAQEBBQADggEPADCCAQoCggEBALU2FW9Fi2RWSOMyKyFrWeOzz4y5oy/P
+    SmMuRGbcS2OpZaLVHNZsec+1Wpr41eESndegyZrX2kidpZBS60Mk9VwlGpyhmBjl
+    QyTkJOPdqeOWkEhyqnKl83kh038aCqd1QZW6dtF0OE+0UBL+3uEYefr7ACcaQ38w
+    m1nMMRSroBPW7V8h8mdtkGdpVjvzhdgm2eCsl6wiMj0yqBVq575j8UHxNGb4Ao1G
+    nKlsoecbet2LaD9KvxHHCxclF/CQWv4XZBUQ21k/h7Sa5xGdwIabqVbcLvsMClgt
+    wOIl+2lu9AqUd241XnAKLwghHrh1mvqCc+LQsu8lXaqc7KJocObYpiMCAwEAAaOB
+    4DCB3TAdBgNVHQ4EFgQUlM6M7Fi+TtxEpCW9p7rChXt3r/UwHwYDVR0jBBgwFoAU
+    lM6M7Fi+TtxEpCW9p7rChXt3r/UwDwYDVR0TAQH/BAUwAwEB/zCBiQYDVR0RBIGB
+    MH+CDiouaW9ncmlkLmxvY2Fsggxpb2dyaWQubG9jYWyCEyouc3ZjLmNsdXN0ZXIu
+    bG9jYWyCEGFwcC5pb2dyaWQubG9jYWyCEGFwaS5pb2dyaWQubG9jYWyCEmJ1aWxk
+    LmlvZ3JpZC5sb2NhbIIScHJveHkuaW9ncmlkLmxvY2FsMA0GCSqGSIb3DQEBCwUA
+    A4IBAQCrgTPMXyHHcj8OgRBG1e+mwN2X8arqaJmZp85ja1fgz2+lbm7MbglnbPvm
+    fD2bZmXOZj9oNdC29zTGclE/I2VclyaVDwVjmS8TwglolVliu3rlvzk3cgS8mFkK
+    w/M0h4dtuwlv4CtTVPRkU79QB70Li9rSME9douzXcdwO3igj4Lb7kXm3vDFtC+oH
+    9ch/bJYyCWMP00/iVfEc+6i1degC/4fDGgUpWArgorvA5LVLW4AKAEfCgQFU4G0g
+    mVRvyttTcCT4evVVBDVFCmeG9fyVwMaaNJIO4553/CR7VmZXhBsT30HGjN28+PQQ
+    I7XzZaAvbVYU7d/maq1/G0yzwTBF
+    -----END CERTIFICATE-----
+  tls.key: |
+    -----BEGIN PRIVATE KEY-----
+    MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC1NhVvRYtkVkjj
+    Misha1njs8+MuaMvz0pjLkRm3EtjqWWi1RzWbHnPtVqa+NXhEp3XoMma19pInaWQ
+    UutDJPVcJRqcoZgY5UMk5CTj3anjlpBIcqpypfN5IdN/GgqndUGVunbRdDhPtFAS
+    /t7hGHn6+wAnGkN/MJtZzDEUq6AT1u1fIfJnbZBnaVY784XYJtngrJesIjI9MqgV
+    aue+Y/FB8TRm+AKNRpypbKHnG3rdi2g/Sr8RxwsXJRfwkFr+F2QVENtZP4e0mucR
+    ncCGm6lW3C77DApYLcDiJftpbvQKlHduNV5wCi8IIR64dZr6gnPi0LLvJV2qnOyi
+    aHDm2KYjAgMBAAECggEAAwcbnxnuZQwNdXsekF5osyiv/nNOXSrUYs9svNOHCngi
+    /ycaqUVI3uYKkceBBvhBNYZXNbnDzwBG8SAuIGCgfuJ7WVMnsYCzV7fo0fsZh0fA
+    SywS7DJJmeRFoYKJ5797KkSxfKOhOPPl93iee9QD5Go1Xf4VCgMgZoT3EH+dJEYr
+    I972EKH/rbZA+KygGzjF0wVQjfpyQyGxWPKieyv4HzCI6+syLhbd8iD9H6jR5ZKi
+    lPTlxLtMnwuxkKXos1MoeF82xiIdQjnDotsqMA5ggoKVCKhvyex9V9FaQk02wc7x
+    p8mDjqEMvk/lMhUNcDM++AhrncxxR1CuCt8URaNQXQKBgQD6q5Kcr/W9gTcNK8ru
+    Fct89gP3H7mpkH3oYZTdH+A3ZzkOQ996cqOAiu2a7AzhcMiDU2BDK6CAGRslo4KE
+    oDsDi8gMHiuNdKGaG8FrTWJKsm8hupIzn/XVYsR2sznSkHm+GwsrciLWVE6ANa5v
+    xZgsSbBd9iKfzVt4YNqhKCdMDQKBgQC5EHAYUhLzZtaktmPvtvlm4lI/jzgW+cmj
+    dadLqYZyMhFyDNNMD3XMJiMoVpuuT/y4RmgaEwsuEj5IaOiKID3TAYM14aAzjEQO
+    FrLFKnxwfIcH1G4AI0ExNeNF+KRmDeG9Lan85f5hwIxcBWC+cuRRTrETn4eaPD+0
+    yRColdO+7wKBgQC2WrJhgjBHGAUwc7dA1GIgGehwkofCLvcpYjOlWVcHdvQuyHl+
+    3n7LOEX5+da0+hMkVjclJkuwZJM3ImgEi3vi7IEvL5OHaF1XevGOWdEzffMSmmNZ
+    Yvi3rw41O9TItYmbHplVlcZ6HQKuil7HuPsm3MSM1k4B6qasP+lMa6WK0QKBgQCE
+    WtxAmJpTGA6U+JjavXr7eQunx28vB3CNhjyi4Vh1XZeagM+xizENU407cU2gSjaN
+    OFWFqG8LgSKoONduygZNXbyQkZA4ra2SgetTFcKv1G/iSqxtTsl2P3sO9PfmwTDc
+    UsdLRtY65TG9Ml9xdcwS1nvQc/zQcxyA2Hggih9JYwKBgGFVJpaYf5D5XHYxbH5Y
+    BK1f4XHD8XQhbSjMElGY5p/DdwaWUxr+3qAS8lAFAY0M2JYEFZIKaMGtzs6J2Eo2
+    BS0LpPierUt/u+p7FFsgGRzftH7zC+8NeQogJROI8KF0CAy4VxVpHPcbwdrMd6oD
+    vEtFd1IrtcV5CRaGoqDD6/3V
+    -----END PRIVATE KEY-----
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: api-iogrid-org-tls
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/part-of: iogrid
+    iogrid.org/environment: dev
+type: kubernetes.io/tls
+stringData:
+  tls.crt: |
+    -----BEGIN CERTIFICATE-----
+    MIIDoTCCAomgAwIBAgIUc4o0YMp4PvMoeg8Jcj28trVdfpgwDQYJKoZIhvcNAQEL
+    BQAwGTEXMBUGA1UEAwwOKi5pb2dyaWQubG9jYWwwHhcNMjYwNTE5MDA1OTM0WhcN
+    MzYwNTE2MDA1OTM0WjAZMRcwFQYDVQQDDA4qLmlvZ3JpZC5sb2NhbDCCASIwDQYJ
+    KoZIhvcNAQEBBQADggEPADCCAQoCggEBALU2FW9Fi2RWSOMyKyFrWeOzz4y5oy/P
+    SmMuRGbcS2OpZaLVHNZsec+1Wpr41eESndegyZrX2kidpZBS60Mk9VwlGpyhmBjl
+    QyTkJOPdqeOWkEhyqnKl83kh038aCqd1QZW6dtF0OE+0UBL+3uEYefr7ACcaQ38w
+    m1nMMRSroBPW7V8h8mdtkGdpVjvzhdgm2eCsl6wiMj0yqBVq575j8UHxNGb4Ao1G
+    nKlsoecbet2LaD9KvxHHCxclF/CQWv4XZBUQ21k/h7Sa5xGdwIabqVbcLvsMClgt
+    wOIl+2lu9AqUd241XnAKLwghHrh1mvqCc+LQsu8lXaqc7KJocObYpiMCAwEAAaOB
+    4DCB3TAdBgNVHQ4EFgQUlM6M7Fi+TtxEpCW9p7rChXt3r/UwHwYDVR0jBBgwFoAU
+    lM6M7Fi+TtxEpCW9p7rChXt3r/UwDwYDVR0TAQH/BAUwAwEB/zCBiQYDVR0RBIGB
+    MH+CDiouaW9ncmlkLmxvY2Fsggxpb2dyaWQubG9jYWyCEyouc3ZjLmNsdXN0ZXIu
+    bG9jYWyCEGFwcC5pb2dyaWQubG9jYWyCEGFwaS5pb2dyaWQubG9jYWyCEmJ1aWxk
+    LmlvZ3JpZC5sb2NhbIIScHJveHkuaW9ncmlkLmxvY2FsMA0GCSqGSIb3DQEBCwUA
+    A4IBAQCrgTPMXyHHcj8OgRBG1e+mwN2X8arqaJmZp85ja1fgz2+lbm7MbglnbPvm
+    fD2bZmXOZj9oNdC29zTGclE/I2VclyaVDwVjmS8TwglolVliu3rlvzk3cgS8mFkK
+    w/M0h4dtuwlv4CtTVPRkU79QB70Li9rSME9douzXcdwO3igj4Lb7kXm3vDFtC+oH
+    9ch/bJYyCWMP00/iVfEc+6i1degC/4fDGgUpWArgorvA5LVLW4AKAEfCgQFU4G0g
+    mVRvyttTcCT4evVVBDVFCmeG9fyVwMaaNJIO4553/CR7VmZXhBsT30HGjN28+PQQ
+    I7XzZaAvbVYU7d/maq1/G0yzwTBF
+    -----END CERTIFICATE-----
+  tls.key: |
+    -----BEGIN PRIVATE KEY-----
+    MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC1NhVvRYtkVkjj
+    Misha1njs8+MuaMvz0pjLkRm3EtjqWWi1RzWbHnPtVqa+NXhEp3XoMma19pInaWQ
+    UutDJPVcJRqcoZgY5UMk5CTj3anjlpBIcqpypfN5IdN/GgqndUGVunbRdDhPtFAS
+    /t7hGHn6+wAnGkN/MJtZzDEUq6AT1u1fIfJnbZBnaVY784XYJtngrJesIjI9MqgV
+    aue+Y/FB8TRm+AKNRpypbKHnG3rdi2g/Sr8RxwsXJRfwkFr+F2QVENtZP4e0mucR
+    ncCGm6lW3C77DApYLcDiJftpbvQKlHduNV5wCi8IIR64dZr6gnPi0LLvJV2qnOyi
+    aHDm2KYjAgMBAAECggEAAwcbnxnuZQwNdXsekF5osyiv/nNOXSrUYs9svNOHCngi
+    /ycaqUVI3uYKkceBBvhBNYZXNbnDzwBG8SAuIGCgfuJ7WVMnsYCzV7fo0fsZh0fA
+    SywS7DJJmeRFoYKJ5797KkSxfKOhOPPl93iee9QD5Go1Xf4VCgMgZoT3EH+dJEYr
+    I972EKH/rbZA+KygGzjF0wVQjfpyQyGxWPKieyv4HzCI6+syLhbd8iD9H6jR5ZKi
+    lPTlxLtMnwuxkKXos1MoeF82xiIdQjnDotsqMA5ggoKVCKhvyex9V9FaQk02wc7x
+    p8mDjqEMvk/lMhUNcDM++AhrncxxR1CuCt8URaNQXQKBgQD6q5Kcr/W9gTcNK8ru
+    Fct89gP3H7mpkH3oYZTdH+A3ZzkOQ996cqOAiu2a7AzhcMiDU2BDK6CAGRslo4KE
+    oDsDi8gMHiuNdKGaG8FrTWJKsm8hupIzn/XVYsR2sznSkHm+GwsrciLWVE6ANa5v
+    xZgsSbBd9iKfzVt4YNqhKCdMDQKBgQC5EHAYUhLzZtaktmPvtvlm4lI/jzgW+cmj
+    dadLqYZyMhFyDNNMD3XMJiMoVpuuT/y4RmgaEwsuEj5IaOiKID3TAYM14aAzjEQO
+    FrLFKnxwfIcH1G4AI0ExNeNF+KRmDeG9Lan85f5hwIxcBWC+cuRRTrETn4eaPD+0
+    yRColdO+7wKBgQC2WrJhgjBHGAUwc7dA1GIgGehwkofCLvcpYjOlWVcHdvQuyHl+
+    3n7LOEX5+da0+hMkVjclJkuwZJM3ImgEi3vi7IEvL5OHaF1XevGOWdEzffMSmmNZ
+    Yvi3rw41O9TItYmbHplVlcZ6HQKuil7HuPsm3MSM1k4B6qasP+lMa6WK0QKBgQCE
+    WtxAmJpTGA6U+JjavXr7eQunx28vB3CNhjyi4Vh1XZeagM+xizENU407cU2gSjaN
+    OFWFqG8LgSKoONduygZNXbyQkZA4ra2SgetTFcKv1G/iSqxtTsl2P3sO9PfmwTDc
+    UsdLRtY65TG9Ml9xdcwS1nvQc/zQcxyA2Hggih9JYwKBgGFVJpaYf5D5XHYxbH5Y
+    BK1f4XHD8XQhbSjMElGY5p/DdwaWUxr+3qAS8lAFAY0M2JYEFZIKaMGtzs6J2Eo2
+    BS0LpPierUt/u+p7FFsgGRzftH7zC+8NeQogJROI8KF0CAy4VxVpHPcbwdrMd6oD
+    vEtFd1IrtcV5CRaGoqDD6/3V
+    -----END PRIVATE KEY-----
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: build-iogrid-org-tls
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/part-of: iogrid
+    iogrid.org/environment: dev
+type: kubernetes.io/tls
+stringData:
+  tls.crt: |
+    -----BEGIN CERTIFICATE-----
+    MIIDoTCCAomgAwIBAgIUc4o0YMp4PvMoeg8Jcj28trVdfpgwDQYJKoZIhvcNAQEL
+    BQAwGTEXMBUGA1UEAwwOKi5pb2dyaWQubG9jYWwwHhcNMjYwNTE5MDA1OTM0WhcN
+    MzYwNTE2MDA1OTM0WjAZMRcwFQYDVQQDDA4qLmlvZ3JpZC5sb2NhbDCCASIwDQYJ
+    KoZIhvcNAQEBBQADggEPADCCAQoCggEBALU2FW9Fi2RWSOMyKyFrWeOzz4y5oy/P
+    SmMuRGbcS2OpZaLVHNZsec+1Wpr41eESndegyZrX2kidpZBS60Mk9VwlGpyhmBjl
+    QyTkJOPdqeOWkEhyqnKl83kh038aCqd1QZW6dtF0OE+0UBL+3uEYefr7ACcaQ38w
+    m1nMMRSroBPW7V8h8mdtkGdpVjvzhdgm2eCsl6wiMj0yqBVq575j8UHxNGb4Ao1G
+    nKlsoecbet2LaD9KvxHHCxclF/CQWv4XZBUQ21k/h7Sa5xGdwIabqVbcLvsMClgt
+    wOIl+2lu9AqUd241XnAKLwghHrh1mvqCc+LQsu8lXaqc7KJocObYpiMCAwEAAaOB
+    4DCB3TAdBgNVHQ4EFgQUlM6M7Fi+TtxEpCW9p7rChXt3r/UwHwYDVR0jBBgwFoAU
+    lM6M7Fi+TtxEpCW9p7rChXt3r/UwDwYDVR0TAQH/BAUwAwEB/zCBiQYDVR0RBIGB
+    MH+CDiouaW9ncmlkLmxvY2Fsggxpb2dyaWQubG9jYWyCEyouc3ZjLmNsdXN0ZXIu
+    bG9jYWyCEGFwcC5pb2dyaWQubG9jYWyCEGFwaS5pb2dyaWQubG9jYWyCEmJ1aWxk
+    LmlvZ3JpZC5sb2NhbIIScHJveHkuaW9ncmlkLmxvY2FsMA0GCSqGSIb3DQEBCwUA
+    A4IBAQCrgTPMXyHHcj8OgRBG1e+mwN2X8arqaJmZp85ja1fgz2+lbm7MbglnbPvm
+    fD2bZmXOZj9oNdC29zTGclE/I2VclyaVDwVjmS8TwglolVliu3rlvzk3cgS8mFkK
+    w/M0h4dtuwlv4CtTVPRkU79QB70Li9rSME9douzXcdwO3igj4Lb7kXm3vDFtC+oH
+    9ch/bJYyCWMP00/iVfEc+6i1degC/4fDGgUpWArgorvA5LVLW4AKAEfCgQFU4G0g
+    mVRvyttTcCT4evVVBDVFCmeG9fyVwMaaNJIO4553/CR7VmZXhBsT30HGjN28+PQQ
+    I7XzZaAvbVYU7d/maq1/G0yzwTBF
+    -----END CERTIFICATE-----
+  tls.key: |
+    -----BEGIN PRIVATE KEY-----
+    MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC1NhVvRYtkVkjj
+    Misha1njs8+MuaMvz0pjLkRm3EtjqWWi1RzWbHnPtVqa+NXhEp3XoMma19pInaWQ
+    UutDJPVcJRqcoZgY5UMk5CTj3anjlpBIcqpypfN5IdN/GgqndUGVunbRdDhPtFAS
+    /t7hGHn6+wAnGkN/MJtZzDEUq6AT1u1fIfJnbZBnaVY784XYJtngrJesIjI9MqgV
+    aue+Y/FB8TRm+AKNRpypbKHnG3rdi2g/Sr8RxwsXJRfwkFr+F2QVENtZP4e0mucR
+    ncCGm6lW3C77DApYLcDiJftpbvQKlHduNV5wCi8IIR64dZr6gnPi0LLvJV2qnOyi
+    aHDm2KYjAgMBAAECggEAAwcbnxnuZQwNdXsekF5osyiv/nNOXSrUYs9svNOHCngi
+    /ycaqUVI3uYKkceBBvhBNYZXNbnDzwBG8SAuIGCgfuJ7WVMnsYCzV7fo0fsZh0fA
+    SywS7DJJmeRFoYKJ5797KkSxfKOhOPPl93iee9QD5Go1Xf4VCgMgZoT3EH+dJEYr
+    I972EKH/rbZA+KygGzjF0wVQjfpyQyGxWPKieyv4HzCI6+syLhbd8iD9H6jR5ZKi
+    lPTlxLtMnwuxkKXos1MoeF82xiIdQjnDotsqMA5ggoKVCKhvyex9V9FaQk02wc7x
+    p8mDjqEMvk/lMhUNcDM++AhrncxxR1CuCt8URaNQXQKBgQD6q5Kcr/W9gTcNK8ru
+    Fct89gP3H7mpkH3oYZTdH+A3ZzkOQ996cqOAiu2a7AzhcMiDU2BDK6CAGRslo4KE
+    oDsDi8gMHiuNdKGaG8FrTWJKsm8hupIzn/XVYsR2sznSkHm+GwsrciLWVE6ANa5v
+    xZgsSbBd9iKfzVt4YNqhKCdMDQKBgQC5EHAYUhLzZtaktmPvtvlm4lI/jzgW+cmj
+    dadLqYZyMhFyDNNMD3XMJiMoVpuuT/y4RmgaEwsuEj5IaOiKID3TAYM14aAzjEQO
+    FrLFKnxwfIcH1G4AI0ExNeNF+KRmDeG9Lan85f5hwIxcBWC+cuRRTrETn4eaPD+0
+    yRColdO+7wKBgQC2WrJhgjBHGAUwc7dA1GIgGehwkofCLvcpYjOlWVcHdvQuyHl+
+    3n7LOEX5+da0+hMkVjclJkuwZJM3ImgEi3vi7IEvL5OHaF1XevGOWdEzffMSmmNZ
+    Yvi3rw41O9TItYmbHplVlcZ6HQKuil7HuPsm3MSM1k4B6qasP+lMa6WK0QKBgQCE
+    WtxAmJpTGA6U+JjavXr7eQunx28vB3CNhjyi4Vh1XZeagM+xizENU407cU2gSjaN
+    OFWFqG8LgSKoONduygZNXbyQkZA4ra2SgetTFcKv1G/iSqxtTsl2P3sO9PfmwTDc
+    UsdLRtY65TG9Ml9xdcwS1nvQc/zQcxyA2Hggih9JYwKBgGFVJpaYf5D5XHYxbH5Y
+    BK1f4XHD8XQhbSjMElGY5p/DdwaWUxr+3qAS8lAFAY0M2JYEFZIKaMGtzs6J2Eo2
+    BS0LpPierUt/u+p7FFsgGRzftH7zC+8NeQogJROI8KF0CAy4VxVpHPcbwdrMd6oD
+    vEtFd1IrtcV5CRaGoqDD6/3V
+    -----END PRIVATE KEY-----
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: proxy-iogrid-org-tls
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/part-of: iogrid
+    iogrid.org/environment: dev
+type: kubernetes.io/tls
+stringData:
+  tls.crt: |
+    -----BEGIN CERTIFICATE-----
+    MIIDoTCCAomgAwIBAgIUc4o0YMp4PvMoeg8Jcj28trVdfpgwDQYJKoZIhvcNAQEL
+    BQAwGTEXMBUGA1UEAwwOKi5pb2dyaWQubG9jYWwwHhcNMjYwNTE5MDA1OTM0WhcN
+    MzYwNTE2MDA1OTM0WjAZMRcwFQYDVQQDDA4qLmlvZ3JpZC5sb2NhbDCCASIwDQYJ
+    KoZIhvcNAQEBBQADggEPADCCAQoCggEBALU2FW9Fi2RWSOMyKyFrWeOzz4y5oy/P
+    SmMuRGbcS2OpZaLVHNZsec+1Wpr41eESndegyZrX2kidpZBS60Mk9VwlGpyhmBjl
+    QyTkJOPdqeOWkEhyqnKl83kh038aCqd1QZW6dtF0OE+0UBL+3uEYefr7ACcaQ38w
+    m1nMMRSroBPW7V8h8mdtkGdpVjvzhdgm2eCsl6wiMj0yqBVq575j8UHxNGb4Ao1G
+    nKlsoecbet2LaD9KvxHHCxclF/CQWv4XZBUQ21k/h7Sa5xGdwIabqVbcLvsMClgt
+    wOIl+2lu9AqUd241XnAKLwghHrh1mvqCc+LQsu8lXaqc7KJocObYpiMCAwEAAaOB
+    4DCB3TAdBgNVHQ4EFgQUlM6M7Fi+TtxEpCW9p7rChXt3r/UwHwYDVR0jBBgwFoAU
+    lM6M7Fi+TtxEpCW9p7rChXt3r/UwDwYDVR0TAQH/BAUwAwEB/zCBiQYDVR0RBIGB
+    MH+CDiouaW9ncmlkLmxvY2Fsggxpb2dyaWQubG9jYWyCEyouc3ZjLmNsdXN0ZXIu
+    bG9jYWyCEGFwcC5pb2dyaWQubG9jYWyCEGFwaS5pb2dyaWQubG9jYWyCEmJ1aWxk
+    LmlvZ3JpZC5sb2NhbIIScHJveHkuaW9ncmlkLmxvY2FsMA0GCSqGSIb3DQEBCwUA
+    A4IBAQCrgTPMXyHHcj8OgRBG1e+mwN2X8arqaJmZp85ja1fgz2+lbm7MbglnbPvm
+    fD2bZmXOZj9oNdC29zTGclE/I2VclyaVDwVjmS8TwglolVliu3rlvzk3cgS8mFkK
+    w/M0h4dtuwlv4CtTVPRkU79QB70Li9rSME9douzXcdwO3igj4Lb7kXm3vDFtC+oH
+    9ch/bJYyCWMP00/iVfEc+6i1degC/4fDGgUpWArgorvA5LVLW4AKAEfCgQFU4G0g
+    mVRvyttTcCT4evVVBDVFCmeG9fyVwMaaNJIO4553/CR7VmZXhBsT30HGjN28+PQQ
+    I7XzZaAvbVYU7d/maq1/G0yzwTBF
+    -----END CERTIFICATE-----
+  tls.key: |
+    -----BEGIN PRIVATE KEY-----
+    MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC1NhVvRYtkVkjj
+    Misha1njs8+MuaMvz0pjLkRm3EtjqWWi1RzWbHnPtVqa+NXhEp3XoMma19pInaWQ
+    UutDJPVcJRqcoZgY5UMk5CTj3anjlpBIcqpypfN5IdN/GgqndUGVunbRdDhPtFAS
+    /t7hGHn6+wAnGkN/MJtZzDEUq6AT1u1fIfJnbZBnaVY784XYJtngrJesIjI9MqgV
+    aue+Y/FB8TRm+AKNRpypbKHnG3rdi2g/Sr8RxwsXJRfwkFr+F2QVENtZP4e0mucR
+    ncCGm6lW3C77DApYLcDiJftpbvQKlHduNV5wCi8IIR64dZr6gnPi0LLvJV2qnOyi
+    aHDm2KYjAgMBAAECggEAAwcbnxnuZQwNdXsekF5osyiv/nNOXSrUYs9svNOHCngi
+    /ycaqUVI3uYKkceBBvhBNYZXNbnDzwBG8SAuIGCgfuJ7WVMnsYCzV7fo0fsZh0fA
+    SywS7DJJmeRFoYKJ5797KkSxfKOhOPPl93iee9QD5Go1Xf4VCgMgZoT3EH+dJEYr
+    I972EKH/rbZA+KygGzjF0wVQjfpyQyGxWPKieyv4HzCI6+syLhbd8iD9H6jR5ZKi
+    lPTlxLtMnwuxkKXos1MoeF82xiIdQjnDotsqMA5ggoKVCKhvyex9V9FaQk02wc7x
+    p8mDjqEMvk/lMhUNcDM++AhrncxxR1CuCt8URaNQXQKBgQD6q5Kcr/W9gTcNK8ru
+    Fct89gP3H7mpkH3oYZTdH+A3ZzkOQ996cqOAiu2a7AzhcMiDU2BDK6CAGRslo4KE
+    oDsDi8gMHiuNdKGaG8FrTWJKsm8hupIzn/XVYsR2sznSkHm+GwsrciLWVE6ANa5v
+    xZgsSbBd9iKfzVt4YNqhKCdMDQKBgQC5EHAYUhLzZtaktmPvtvlm4lI/jzgW+cmj
+    dadLqYZyMhFyDNNMD3XMJiMoVpuuT/y4RmgaEwsuEj5IaOiKID3TAYM14aAzjEQO
+    FrLFKnxwfIcH1G4AI0ExNeNF+KRmDeG9Lan85f5hwIxcBWC+cuRRTrETn4eaPD+0
+    yRColdO+7wKBgQC2WrJhgjBHGAUwc7dA1GIgGehwkofCLvcpYjOlWVcHdvQuyHl+
+    3n7LOEX5+da0+hMkVjclJkuwZJM3ImgEi3vi7IEvL5OHaF1XevGOWdEzffMSmmNZ
+    Yvi3rw41O9TItYmbHplVlcZ6HQKuil7HuPsm3MSM1k4B6qasP+lMa6WK0QKBgQCE
+    WtxAmJpTGA6U+JjavXr7eQunx28vB3CNhjyi4Vh1XZeagM+xizENU407cU2gSjaN
+    OFWFqG8LgSKoONduygZNXbyQkZA4ra2SgetTFcKv1G/iSqxtTsl2P3sO9PfmwTDc
+    UsdLRtY65TG9Ml9xdcwS1nvQc/zQcxyA2Hggih9JYwKBgGFVJpaYf5D5XHYxbH5Y
+    BK1f4XHD8XQhbSjMElGY5p/DdwaWUxr+3qAS8lAFAY0M2JYEFZIKaMGtzs6J2Eo2
+    BS0LpPierUt/u+p7FFsgGRzftH7zC+8NeQogJROI8KF0CAy4VxVpHPcbwdrMd6oD
+    vEtFd1IrtcV5CRaGoqDD6/3V
+    -----END PRIVATE KEY-----

@@ -38,6 +38,15 @@ type Config struct {
 	RefreshTokenTTL   time.Duration `env:"REFRESH_TOKEN_TTL"   envDefault:"720h"` // 30 days
 	StepUpTTL         time.Duration `env:"STEP_UP_TTL"         envDefault:"5m"`
 
+	// JWTKeypairAutogen enables an ephemeral keypair-generate-at-boot
+	// path for dev / e2e. When true the binary mints a fresh RSA-2048
+	// keypair, writes both PEM files under JWTAutogenDir, logs a loud
+	// warning, and overrides JWT{Private,Public}KeyPath. Tokens do not
+	// survive pod restart; verifiers that cached the previous public
+	// key reject them. NEVER set in prod.
+	JWTKeypairAutogen bool   `env:"JWT_KEYPAIR_AUTOGEN" envDefault:"false"`
+	JWTAutogenDir     string `env:"JWT_AUTOGEN_DIR"     envDefault:"/tmp/jwt-keys"`
+
 	// --- SMTP (Stalwart) ------------------------------------------------
 	SMTPHost     string `env:"SMTP_HOST"     envDefault:"mail.openova.io"`
 	SMTPPort     int    `env:"SMTP_PORT"     envDefault:"587"`
