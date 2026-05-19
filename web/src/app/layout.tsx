@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Toaster } from "sonner";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -14,7 +15,13 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="min-h-screen antialiased">{children}</body>
+      <body className="min-h-screen antialiased">
+        {children}
+        {/* Sonner toast container — every mutation (block category, save
+           schedule, create API key, ...) routes through `toast.*` so we
+           can swap implementations without touching call sites. */}
+        <Toaster richColors closeButton position="top-right" />
+      </body>
     </html>
   );
 }

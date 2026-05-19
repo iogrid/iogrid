@@ -1,21 +1,64 @@
-import Link from "next/link";
+import { PortalShell } from "@/components/layout/portal-shell";
+import { ADMIN_NAV } from "@/app/admin/nav";
 
-export default function AdminPage() {
+export const metadata = { title: "Admin — iogrid" };
+
+/**
+ * /admin — staff console root. Gated by middleware (auth) and by the
+ * BFF's RequireRole("ADMIN") on every sub-call. Server Component; only
+ * the per-sub-route panels need client interactivity.
+ */
+export default function AdminOverviewPage() {
   return (
-    <main className="mx-auto max-w-6xl px-6 py-12">
-      <Link href="/" className="text-sm text-zinc-500 hover:underline">
-        ← Home
-      </Link>
-      <h1 className="mt-6 text-3xl font-bold">Admin console</h1>
-      <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-        Operator-only views: scheduling debug, fleet health, abuse review,
-        feature flags. Gated by the <code>admin</code> role on the user
-        identity.
-      </p>
-
-      <div className="mt-10 rounded-lg border border-amber-300 bg-amber-50 p-5 text-sm text-amber-900">
-        Stub view — wired in a follow-up PR.
+    <PortalShell
+      badge="Admin"
+      title="Staff console"
+      subtitle="Abuse review, KYC, provider audits, billing operations."
+      nav={ADMIN_NAV}
+      activeHref="/admin"
+    >
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <Tile
+          href="/admin/abuse"
+          title="Abuse queue"
+          description="Yellow-flagged events awaiting reviewer decision."
+        />
+        <Tile
+          href="/admin/customers"
+          title="Customers"
+          description="KYC submissions, sanctions screening, business verification."
+        />
+        <Tile
+          href="/admin/providers"
+          title="Providers"
+          description="Audit any provider's transparency feed for compliance."
+        />
       </div>
-    </main>
+      <p className="mt-6 text-xs text-zinc-500">
+        Access to these pages is gated by the <code>is_admin</code> JWT claim
+        — even with the route open in your browser, every action is
+        independently authorised by the gateway-bff RequireRole middleware.
+      </p>
+    </PortalShell>
+  );
+}
+
+function Tile({
+  href,
+  title,
+  description,
+}: {
+  href: string;
+  title: string;
+  description: string;
+}) {
+  return (
+    <a
+      href={href}
+      className="rounded-md border border-zinc-200 bg-white p-4 transition-colors hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900"
+    >
+      <p className="text-sm font-medium">{title}</p>
+      <p className="mt-1 text-xs text-zinc-500">{description}</p>
+    </a>
   );
 }
