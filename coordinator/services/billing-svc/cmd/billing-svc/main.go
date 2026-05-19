@@ -81,6 +81,12 @@ func main() {
 		logger.Error("solana setup failed (continuing in stub mode)",
 			slog.String("error", err.Error()))
 	}
+	// In-process daily cron (off by default; on when DAILY_PAYOUT_ENABLED=true).
+	// Production deployments typically use the k8s CronJob from the chart;
+	// the in-process loop is for single-binary dev / Phase-0 demos.
+	if solSvc != nil {
+		solSvc.StartDailyCron(ctx)
+	}
 
 	// Tax generator — always available; no external deps.
 	taxGen := tax.New(st)
