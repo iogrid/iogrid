@@ -994,9 +994,7 @@ mod tests {
         // it run briefly, then aborting the JoinHandle. The expected
         // post-condition is that the abort completes cleanly and no
         // panic / poisoned-mutex / dangling-task remains.
-        use hickory_resolver::config::{
-            NameServerConfig, Protocol, ResolverConfig, ResolverOpts,
-        };
+        use hickory_resolver::config::{NameServerConfig, Protocol, ResolverConfig, ResolverOpts};
         use hickory_resolver::TokioAsyncResolver;
         let mut cfg = ResolverConfig::new();
         cfg.add_name_server(NameServerConfig {
