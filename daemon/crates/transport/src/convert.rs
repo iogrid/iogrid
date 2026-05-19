@@ -242,5 +242,14 @@ pub fn frame_from_pb(pb: wlv1::DispatchFrame) -> Option<DispatchFrame> {
             at_rfc3339: ts_to_rfc3339(&Some(p)),
         },
         Frame::Drain(_) => DispatchFrame::Drain,
+        // PR #228 added 3 tunnel-byte-pipe variants (TunnelOpen / TunnelData
+        // / TunnelClose) for the NAT'd-daemon byte-forwarding path. The
+        // daemon-side handler (and the corresponding DispatchFrame enum
+        // arms) are tracked in #215 / future PR. For now we drop them so
+        // the bidi pump keeps running; workloads-svc will see no response
+        // and close the tunnel cleanly.
+        Frame::TunnelOpen(_) | Frame::TunnelData(_) | Frame::TunnelClose(_) => {
+            return None;
+        }
     })
 }
