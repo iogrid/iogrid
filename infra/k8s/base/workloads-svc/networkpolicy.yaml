@@ -34,6 +34,21 @@ spec:
       ports:
         - protocol: TCP
           port: 8080
+    # Traefik in kube-system is the active /api gateway while iogrid co-resides
+    # on the OpenOva mothership (see infra/k8s/gateways/gateway.yaml header — the
+    # Gateway object is the source-of-truth intent; a Traefik IngressRoute shim
+    # is the live edge today). When the mothership cuts over to Cilium Gateway
+    # this allowance becomes a no-op since Cilium Gateway pods don't match it.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - protocol: TCP
+          port: 8080
     - from:
         - namespaceSelector:
             matchLabels:
