@@ -41,8 +41,13 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
 
-# gRPC + HTTP
-tonic = { version = "0.12", features = ["tls"] }
+# gRPC + HTTP. We MUST include `tls-roots` — without it, tonic's
+# rustls ClientConfig has an empty root cert store and rejects every
+# server certificate it sees, surfacing as
+#   tls configuration failed: transport error
+# at the very first reconnect. Phase 0 ships against Let's Encrypt
+# (ISRG Root X1) so we want webpki-roots in the channel.
+tonic = { version = "0.12", features = ["tls", "tls-roots"] }
 tonic-build = "0.12"
 prost = "0.13"
 prost-types = "0.13"
