@@ -61,6 +61,7 @@ jobs:
           test -d out
           test -f out/index.html
           test -f out/pricing/index.html
+          test -f out/status/index.html
           test -f out/sitemap.xml
           test -f out/robots.txt
           echo "Files in out/:"
@@ -106,6 +107,7 @@ jobs:
             --url=http://localhost:8080/providers/ \
             --url=http://localhost:8080/token/ \
             --url=http://localhost:8080/about/ \
+            --url=http://localhost:8080/status/ \
             --numberOfRuns=1 \
             --settings.preset=desktop \
             --settings.chromeFlags="--no-sandbox --headless=new"

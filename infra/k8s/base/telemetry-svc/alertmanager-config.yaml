@@ -1,0 +1,159 @@
+# Alertmanager routing for the iogrid SLO + anti-abuse alert tree.
+#
+# This file is the source-of-truth for telemetry-svc's alert routing.
+# Two consumers reference it:
+#
+#   1. The mothership's central Alertmanager (deployed under monitoring/
+#      on the bastion's k3s) ingests this as a per-tenant route block.
+#      Flux mounts it via the `alertmanager-config` operator CRD.
+#
+#   2. The bp-prometheus-stack chart in iogrid-ops sets `alertmanager.
+#      additionalRouteConfigsFromKey` to this ConfigMap key so a
+#      sovereign Prometheus per-tenant scrape also delivers here.
+#
+# The route tree is intentionally MINIMAL:
+#
+#   - severity=page  → on-call rotation (PagerDuty webhook + email + #incidents Slack)
+#   - severity=warn  → ticket queue (#warnings Slack + email)
+#   - category=abuse → out-of-band split into the abuse-team channel
+#
+# Secrets (webhook URLs, SMTP creds, PagerDuty integration keys) are
+# pulled from a separate SealedSecret named `alertmanager-secrets` in
+# the iogrid namespace. They are referenced here via $-templated env
+# substitution, which the operator resolves at template time. NEVER
+# commit a real secret value to this file.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-routes
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: telemetry-svc
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: alerting
+data:
+  # YAML routed into the parent Alertmanager via the
+  # `additionalRouteConfigs` mechanism. The top-level route here is
+  # actually a CHILD route attached to the mothership tree on
+  # `tenant=iogrid`.
+  iogrid-routes.yaml: |
+    route:
+      # Match every alert this telemetry-svc ships out.
+      matchers:
+        - tenant="iogrid"
+      group_by: ["alertname", "service", "severity"]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      receiver: iogrid-default
+      routes:
+        # --- Anti-abuse spike fan-out ---------------------------------
+        # Anti-abuse alerts go to a dedicated channel — they often
+        # warrant urgent moderation action even if not SLO-burning.
+        - matchers:
+            - category="abuse"
+          receiver: iogrid-abuse
+          continue: false
+
+        # --- Page tier ------------------------------------------------
+        # `severity=page` is reserved for 14x burn-rate alerts (1h / 5m
+        # window) and synthetic-probe DOWN alerts. PagerDuty wakes the
+        # on-call.
+        - matchers:
+            - severity="page"
+          receiver: iogrid-page
+          continue: true   # Also fall through to default so Slack
+                            # mirrors the page.
+
+        # --- Warn tier ------------------------------------------------
+        # `severity=warn` is the 2x burn-rate alerts (1d / 2h) and
+        # capacity warnings — files a ticket, doesn't page.
+        - matchers:
+            - severity="warn"
+          receiver: iogrid-warn
+
+    receivers:
+      # Default catch-all — Slack + email digest.
+      - name: iogrid-default
+        slack_configs:
+          - send_resolved: true
+            channel: "#iogrid-alerts"
+            api_url_file: /etc/alertmanager/secrets/slack-default-webhook
+            title: '[iogrid] {{ .CommonLabels.alertname }}'
+            text: |-
+              {{ range .Alerts -}}
+              *Service:* {{ .Labels.service }}
+              *Severity:* {{ .Labels.severity }}
+              *Summary:* {{ .Annotations.summary }}
+              *Runbook:* {{ .Annotations.runbook_url }}
+              {{ end }}
+        email_configs:
+          - send_resolved: true
+            to: "ops@iogrid.org"
+            from: "alerts@iogrid.org"
+            smarthost: "mail.openova.io:587"
+            auth_username: "alerts@iogrid.org"
+            auth_password_file: /etc/alertmanager/secrets/smtp-password
+            require_tls: true
+
+      # Page tier — PagerDuty + on-call channel.
+      - name: iogrid-page
+        pagerduty_configs:
+          - send_resolved: true
+            routing_key_file: /etc/alertmanager/secrets/pagerduty-iogrid-routing-key
+            severity: "critical"
+            description: |
+              [PAGE] {{ .CommonLabels.alertname }} ({{ .CommonLabels.service }})
+        slack_configs:
+          - send_resolved: true
+            channel: "#iogrid-incidents"
+            api_url_file: /etc/alertmanager/secrets/slack-incidents-webhook
+            color: "danger"
+            title: "[PAGE] {{ .CommonLabels.alertname }}"
+            text: |-
+              {{ range .Alerts -}}
+              *Service:* {{ .Labels.service }}
+              *Description:* {{ .Annotations.description }}
+              *Burn rate:* {{ .Annotations.burn_rate }}
+              *Runbook:* {{ .Annotations.runbook_url }}
+              {{ end }}
+
+      # Warn tier — ticket queue (Slack only, no page).
+      - name: iogrid-warn
+        slack_configs:
+          - send_resolved: true
+            channel: "#iogrid-warnings"
+            api_url_file: /etc/alertmanager/secrets/slack-warnings-webhook
+            color: "warning"
+            title: "[WARN] {{ .CommonLabels.alertname }}"
+            text: |-
+              {{ range .Alerts -}}
+              *Service:* {{ .Labels.service }}
+              *Summary:* {{ .Annotations.summary }}
+              *Runbook:* {{ .Annotations.runbook_url }}
+              {{ end }}
+
+      # Abuse fan-out — separate moderation team.
+      - name: iogrid-abuse
+        slack_configs:
+          - send_resolved: true
+            channel: "#iogrid-abuse-team"
+            api_url_file: /etc/alertmanager/secrets/slack-abuse-webhook
+            color: "warning"
+            title: "[ABUSE] {{ .CommonLabels.alertname }}"
+            text: |-
+              {{ range .Alerts -}}
+              *Spike kind:* {{ .Labels.spike_kind }}
+              *Magnitude:* {{ .Annotations.magnitude }}
+              *Top offenders:* {{ .Annotations.top_offenders }}
+              *Runbook:* {{ .Annotations.runbook_url }}
+              {{ end }}
+
+    # Inhibition rules — suppress lower-severity alerts when a higher
+    # one is already firing for the same service. Prevents a page
+    # spawning a warn duplicate for the operator to triage.
+    inhibit_rules:
+      - source_matchers: [severity="page"]
+        target_matchers: [severity="warn"]
+        equal: [service]

@@ -96,6 +96,18 @@ type Config struct {
 	// written. Default /etc/otelcol/config.yaml — k8s ConfigMap mounts
 	// here.
 	CollectorConfigPath string
+
+	// DatabaseURL is the Postgres connection string for the incidents
+	// /subscriptions/uptime ledger powering status.iogrid.org. Empty
+	// disables the Postgres backend; the status page falls back to an
+	// in-memory store so the public /status/* endpoints still respond
+	// (just with no operator-curated incidents).
+	DatabaseURL string
+
+	// AdminToken gates the mutating /status/incidents/* routes. Empty
+	// disables those routes entirely (they return 503). Set via a
+	// Sealed Secret in prod, rotated quarterly.
+	AdminToken string
 }
 
 // Load reads the environment and returns a populated Config.
@@ -123,6 +135,8 @@ func Load() Config {
 		SLODir:                     getenv("SLO_DIR", "./slo"),
 		PrometheusScrapeNamespaces: csv(getenv("PROM_SCRAPE_NAMESPACES", "iogrid")),
 		CollectorConfigPath:        getenv("COLLECTOR_CONFIG_PATH", "/etc/otelcol/config.yaml"),
+		DatabaseURL:                os.Getenv("DATABASE_URL"),
+		AdminToken:                 os.Getenv("ADMIN_TOKEN"),
 	}
 }
 

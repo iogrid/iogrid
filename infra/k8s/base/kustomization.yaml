@@ -12,6 +12,7 @@ resources:
   - antiabuse-svc
   - billing-svc
   - telemetry-svc
+  - grafana
   - gateway-bff
   - proxy-gateway
   - vpn-gateway

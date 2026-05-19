@@ -23,8 +23,10 @@ import (
 
 	"github.com/iogrid/iogrid/coordinator/services/telemetry-svc/internal/collector"
 	"github.com/iogrid/iogrid/coordinator/services/telemetry-svc/internal/config"
+	"github.com/iogrid/iogrid/coordinator/services/telemetry-svc/internal/incidents"
 	"github.com/iogrid/iogrid/coordinator/services/telemetry-svc/internal/server"
 	"github.com/iogrid/iogrid/coordinator/services/telemetry-svc/internal/slo"
+	shareddb "github.com/iogrid/iogrid/coordinator/shared/db"
 	"github.com/iogrid/iogrid/coordinator/shared/health"
 	"github.com/iogrid/iogrid/coordinator/shared/log"
 	"github.com/iogrid/iogrid/coordinator/shared/otel"
@@ -93,9 +95,39 @@ func main() {
 	}()
 
 	hr := health.New()
+
+	// Incidents/subscriptions/uptime ledger powering status.iogrid.org.
+	// DATABASE_URL is OPTIONAL — when unset we fall back to an in-memory
+	// store so the public /status endpoints still respond. Production
+	// Pods get a Sealed Secret with the CNPG conn string and the
+	// Postgres backend lights up automatically.
+	var incidentStore incidents.Store
+	if cfg.DatabaseURL != "" {
+		pool, err := shareddb.NewPool(ctx, shareddb.Config{URL: cfg.DatabaseURL})
+		if err != nil {
+			logger.Warn("db pool failed; falling back to in-memory incident store",
+				slog.String("error", err.Error()))
+			incidentStore = incidents.NewInMemory()
+		} else {
+			defer pool.Close()
+			if err := incidents.Apply(ctx, cfg.DatabaseURL); err != nil {
+				logger.Warn("incident migrations failed; falling back to in-memory",
+					slog.String("error", err.Error()))
+				incidentStore = incidents.NewInMemory()
+			} else {
+				incidentStore = incidents.NewPostgres(pool)
+				hr.AddProbe("db", shareddb.PingProbe(pool))
+				logger.Info("incident store wired (postgres)")
+			}
+		}
+	} else {
+		incidentStore = incidents.NewInMemory()
+		logger.Info("incident store wired (in-memory — DATABASE_URL not set)")
+	}
+
 	hr.MarkReady()
 
-	deps := server.Deps{Cfg: cfg, Cat: cat}
+	deps := server.Deps{Cfg: cfg, Cat: cat, Store: incidentStore}
 
 	if err := sharedserver.Run(ctx, sharedserver.Options{
 		ServiceName: serviceName,

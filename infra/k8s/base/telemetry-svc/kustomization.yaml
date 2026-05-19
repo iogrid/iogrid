@@ -9,6 +9,7 @@ resources:
   - configmap.yaml
   - servicemonitor.yaml
   - prometheusrules.yaml
+  - alertmanager-config.yaml
   - grafana-dashboards-kustomization.yaml
 
 # The assets under ./assets/{slo,dashboards} are SYNCED COPIES of the

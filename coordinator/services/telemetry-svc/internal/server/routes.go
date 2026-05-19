@@ -21,6 +21,7 @@ import (
 
 	"github.com/iogrid/iogrid/coordinator/services/telemetry-svc/internal/collector"
 	"github.com/iogrid/iogrid/coordinator/services/telemetry-svc/internal/config"
+	"github.com/iogrid/iogrid/coordinator/services/telemetry-svc/internal/incidents"
 	"github.com/iogrid/iogrid/coordinator/services/telemetry-svc/internal/slo"
 	"github.com/iogrid/iogrid/coordinator/services/telemetry-svc/internal/status"
 )
@@ -28,17 +29,42 @@ import (
 // Deps carries the long-lived objects the handlers need. main() builds
 // one of these at boot and passes it to MountFunc.
 type Deps struct {
-	Cfg config.Config
-	Cat *slo.Catalogue
+	Cfg   config.Config
+	Cat   *slo.Catalogue
+	Store incidents.Store
 }
 
 // MountFunc returns a chi.Mount-compatible callback closed over Deps.
 // Kept separate from a top-level Mount() so main() can wire dependencies
 // without globals.
+//
+// A nil Deps.Store is replaced with an in-memory fallback so tests and
+// the local-dev binary keep working without a Postgres backend wired up.
 func MountFunc(d Deps) func(chi.Router) {
+	if d.Store == nil {
+		d.Store = incidents.NewInMemory()
+	}
 	return func(r chi.Router) {
-		// Public status page feed.
+		// Public status page feed (legacy, kept for the existing
+		// status.iogrid.org JSON contract). Mounted at /status as well
+		// as nested under the /status/* tree for completeness.
 		r.Get("/status", status.Handler(d.Cat, d.Cfg))
+
+		// New /status/* tree powering the redesigned page.
+		r.Route("/status/", func(r chi.Router) {
+			// Public reads.
+			r.Get("/posture", status.PostureHandler(d.Cat, d.Store, d.Cfg))
+			r.Get("/uptime", status.UptimeHandler(d.Store))
+			// Subscribe is publicly POSTable (with per-IP rate-limit).
+			r.Post("/subscribe", status.SubscribeHandler(d.Store))
+
+			// Admin mutations.
+			r.Group(func(r chi.Router) {
+				r.Use(status.AdminAuth(d.Cfg.AdminToken))
+				r.Post("/incidents", status.CreateIncidentHandler(d.Store))
+				r.Post("/incidents/{id}/updates", status.AppendIncidentUpdateHandler(d.Store))
+			})
+		})
 
 		// Service-discovery probe used by gateway-bff.
 		r.Route("/v1", func(r chi.Router) {

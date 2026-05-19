@@ -1,0 +1,15 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Mothership-Grafana provisioning helpers.
+#
+# The actual dashboard ConfigMaps live under
+# infra/k8s/base/telemetry-svc/ — they are owned by telemetry-svc since
+# their JSON is generated from the SLO catalogue. This kustomization
+# only ships the auxiliary Folder + DataSource pieces that the mothership
+# kiwigrid sidecar needs.
+resources:
+  - folder-config.yaml
+  - datasource-iogrid-mimir.yaml
+
+namespace: iogrid

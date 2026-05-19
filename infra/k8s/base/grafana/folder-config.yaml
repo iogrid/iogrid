@@ -1,0 +1,22 @@
+# Tells the mothership Grafana sidecar to file every iogrid-labelled
+# dashboard under a single "iogrid" folder. Without this, our six
+# dashboards would clutter the cluster-wide "General" folder.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-folder-iogrid
+  namespace: iogrid
+  labels:
+    grafana_folder: "1"
+    app.kubernetes.io/name: telemetry-svc
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: grafana-folder
+  annotations:
+    grafana-folder-name: "iogrid"
+data:
+  iogrid.json: |
+    {
+      "title": "iogrid",
+      "uid": "iogrid-folder",
+      "type": "folder"
+    }
