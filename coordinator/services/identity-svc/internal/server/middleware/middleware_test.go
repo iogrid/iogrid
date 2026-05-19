@@ -40,7 +40,7 @@ func TestVerifyBearer_NoHeader_PassesThroughUnauthed(t *testing.T) {
 func TestVerifyBearer_ValidToken_SetsUser(t *testing.T) {
 	signer := freshSigner(t)
 	uid := uuid.New()
-	tok, _, _ := signer.IssueAccessToken(uid, uuid.New(), "x@x.x", nil, nil, false)
+	tok, _, _ := signer.IssueAccessToken(uid, uuid.New(), "x@x.x", nil, nil, false, nil)
 
 	called := false
 	h := VerifyBearer(signer)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

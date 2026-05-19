@@ -39,6 +39,15 @@ Tokens:
 | DELETE | `/v1/sessions/{id}`                   | bearer      | Revokes one session                      |
 | GET    | `/v1/users/{id}`                      | bearer      | Returns user + identifiers               |
 | PATCH  | `/v1/users/{id}`                      | bearer      | Updates the caller's own profile         |
+| POST   | `/v1/auth/siws/start`                 | bearer? *   | Issues a Sign-In-With-Solana challenge   |
+| POST   | `/v1/auth/siws/complete`              | bearer? *   | Verifies signature, binds wallet         |
+| GET    | `/v1/wallets/`                        | bearer      | Lists wallets bound to caller            |
+| DELETE | `/v1/wallets/{address}`               | bearer      | Removes one wallet binding               |
+
+\* SIWS endpoints accept an optional bearer token — when present, the
+caller's user_id is locked to the bearer principal. When absent and
+`create_if_missing=true`, Complete mints a fresh User whose only
+identifier is the signed wallet and returns a regular AuthBundle.
 
 ## Environment
 
@@ -205,6 +214,95 @@ on magic-link redemption (email=W):
 
 Audit row format: `merge_audit (primary_user_id, merged_user_id, reason,
 matched_email, matched_via, merged_at)`.
+
+## Sign-In-With-Solana (SIWS) wallet binding
+
+Providers must bind one or more Solana wallets to their User before they
+can receive native `$GRID` payouts (see `docs/TOKENOMICS.md` "Provider
+payout flow"). identity-svc implements the standard SIWS pattern:
+
+```
+1) POST /v1/auth/siws/start { user_id?, wallet_address }
+     server:
+       - validates wallet_address (base58, 32 bytes)
+       - mints a 32-byte random nonce
+       - composes the canonical SIWS message:
+           "iogrid.org wants you to sign in with your Solana account: <addr>
+           
+           Nonce: <hex>"
+       - persists { wallet_address: { nonce, message, user_id, expires_at } }
+         in Redis with a 5-minute TTL
+       - returns { challenge: <message>, expires_at }
+
+2) browser:
+       - sends `challenge` to Phantom / Solflare / Backpack via
+         signMessage(bytes)
+       - wallet ed25519-signs the UTF-8 bytes
+       - base58-encodes the signature
+
+3) POST /v1/auth/siws/complete { user_id?, wallet_address, signature, create_if_missing? }
+     server (inside a single Postgres tx):
+       - GETDEL the challenge from Redis (single-use, replay-proof)
+       - ed25519.Verify(decode(wallet_address), challenge_bytes, decode(signature))
+       - if wallet_address is already bound to another user → reject
+       - if user_id present → attach (kind=solana, subject=address) to that user
+       - if user_id empty AND create_if_missing → mint a fresh User with
+         role=PROVIDER, attach the wallet, return a full AuthBundle
+       - subsequent JWTs minted for this user carry
+         `solana_addresses: [<addr>, ...]` so downstream services
+         (billing-svc payout queue, providers-svc routing) can resolve
+         the payout target without round-tripping
+```
+
+### Verification approach
+
+We use stdlib `crypto/ed25519` over the raw UTF-8 message bytes — the
+same payload Phantom / Solflare's `signMessage` RPC operates on. There
+is no transaction envelope, no domain-separator prepend; the wallet sees
+the exact human-readable string in its confirmation modal and the
+server runs `ed25519.Verify` on the same bytes. Base58 decoding for
+addresses + signatures comes from `github.com/mr-tron/base58` (already
+in use by billing-svc).
+
+### Replay defence
+
+- Challenges live in Redis keyed by wallet address with a 5-minute TTL.
+- Complete uses Redis `GETDEL` so a successful verification atomically
+  consumes the challenge — a stolen signature cannot be re-presented.
+- A new Start for the same wallet overwrites the previous nonce, so a
+  user retry never leaves a stale challenge dangling.
+
+### Wallet binding model
+
+- A wallet (kind=`solana`, subject=base58 pubkey) is stored as a regular
+  Identifier row — the partial UNIQUE INDEX `identifiers_kind_subject_uniq`
+  enforces "one Solana wallet belongs to one User at a time".
+- One User may bind multiple wallets (a provider running fleets across
+  several hardware sites might want one address per location for tax
+  / accounting separation).
+- Unbind hard-deletes the Identifier row. JWTs minted before the unbind
+  retain the address in their `solana_addresses` claim until the access
+  token expires (15 min) — downstream services that gate payouts on the
+  current binding state must re-fetch the user's wallets on the
+  privileged path (`GET /v1/wallets/`), NOT trust the cached claim.
+
+### Auto-binding on first Solana auth
+
+A provider who connects a Solana wallet before completing any other
+sign-in can call:
+
+```
+POST /v1/auth/siws/start    { wallet_address }                        // no user_id
+POST /v1/auth/siws/complete { wallet_address, signature,
+                              create_if_missing: true }
+→ { binding: {...}, new_user: true, bundle: { access_token, ... } }
+```
+
+This mints a fresh User (role=PROVIDER) with the wallet as its only
+identifier and returns a full sign-in AuthBundle in the same response —
+the same shape returned by the Google / magic-link flows. The User can
+later attach a Google or magic-link identifier from `/v1/users/{id}` to
+recover access if the wallet is lost.
 
 ## Schema
 

@@ -35,6 +35,10 @@ message JwtClaims {
   // True when the underlying credential was minted in the last 5 minutes
   // and the request requires step-up authority.
   bool step_up = 8;
+  // Base58-encoded Solana addresses bound to the user via SIWS. Downstream
+  // services (billing-svc payout queue, providers-svc payout routing) read
+  // this claim instead of round-tripping to identity-svc on every request.
+  repeated string solana_addresses = 9;
 }
 
 // Session is the server-side refresh-token record. Exposed so users can
@@ -151,6 +155,95 @@ message RevokeSessionRequest {
 }
 message RevokeSessionResponse {}
 
+// --- Sign-In-With-Solana (SIWS) wallet binding ----------------------------
+//
+// Providers must bind one or more Solana wallets to their User record so
+// $GRID payouts (see docs/TOKENOMICS.md "Provider payout flow") can be
+// routed on-chain. Wallet binding follows the SIWS pattern:
+//
+//   1. StartSiwsBinding — server returns a 32-byte nonce + the canonical
+//      SIWS message ("iogrid.org wants you to sign in with your Solana
+//      account: <address>\n\nNonce: <hex>"). Challenge is stored in Redis
+//      with a 5-minute TTL.
+//   2. Browser asks the connected wallet (Phantom / Solflare / Backpack)
+//      to ed25519-sign the message bytes.
+//   3. CompleteSiwsBinding — caller submits (address, signature). Server
+//      verifies the signature against the address pubkey (base58 →
+//      ed25519.PublicKey), deletes the challenge from Redis (nonce is
+//      one-use), and inserts an Identifier row (kind="solana",
+//      subject=base58(pubkey)).
+//
+// First-time Solana sign-in optionally creates a fresh User in the same
+// flow (`create_if_missing`), so a provider who connects a wallet before
+// any other identifier can complete onboarding in one step.
+
+// WalletBinding describes one Solana wallet attached to a User.
+message WalletBinding {
+  iogrid.common.v1.UUID id = 1;
+  iogrid.common.v1.UUID user_id = 2;
+  // Base58-encoded Solana public key (32 raw bytes). Stable; one row per
+  // (user_id, address).
+  string address = 3;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp last_used_at = 5;
+}
+
+message StartSiwsBindingRequest {
+  // The User the wallet should bind to. When the caller has no User yet
+  // (first-time Solana sign-in) leave empty AND set create_if_missing on
+  // the Complete call.
+  iogrid.common.v1.UUID user_id = 1;
+  // Base58-encoded Solana wallet pubkey the provider intends to bind.
+  string wallet_address = 2;
+}
+message StartSiwsBindingResponse {
+  // The exact message bytes the wallet must sign. Format matches the
+  // SIWS spec so Phantom / Solflare / Backpack render a recognisable
+  // signature prompt.
+  string challenge = 1;
+  // Server-side TTL on the nonce; client must complete within this
+  // window before the challenge is auto-expired.
+  google.protobuf.Timestamp expires_at = 2;
+}
+
+message CompleteSiwsBindingRequest {
+  // Same user_id passed to StartSiwsBinding (or empty if creating one).
+  iogrid.common.v1.UUID user_id = 1;
+  // Base58-encoded Solana wallet pubkey.
+  string wallet_address = 2;
+  // Base58-encoded ed25519 signature produced by the wallet over the
+  // challenge bytes from StartSiwsBindingResponse.
+  string signature = 3;
+  // When true and user_id is empty, the server creates a fresh User
+  // whose only identifier is this wallet. PROVIDER role is added by
+  // default; the caller can flip to CUSTOMER post-onboarding.
+  bool create_if_missing = 4;
+}
+message CompleteSiwsBindingResponse {
+  // The wallet binding that now exists.
+  WalletBinding binding = 1;
+  // True when this completion created a brand-new User.
+  bool new_user = 2;
+  // Auth bundle when a fresh User was created (or when the caller passed
+  // no bearer token and the signature itself authenticates the request);
+  // null when the wallet was simply added to an already-authenticated
+  // User.
+  AuthBundle bundle = 3;
+}
+
+message ListBoundWalletsRequest {
+  iogrid.common.v1.UUID user_id = 1;
+}
+message ListBoundWalletsResponse {
+  repeated WalletBinding bindings = 1;
+}
+
+message UnbindWalletRequest {
+  iogrid.common.v1.UUID user_id = 1;
+  string wallet_address = 2;
+}
+message UnbindWalletResponse {}
+
 // --- Step-up auth (for privileged operations) -----------------------------
 
 // StepUpReason flags what the user is about to do — drives UX copy.
@@ -204,4 +297,10 @@ service AuthService {
   // Step-up authority for privileged operations.
   rpc RequestStepUp(RequestStepUpRequest) returns (RequestStepUpResponse);
   rpc CompleteStepUp(CompleteStepUpRequest) returns (CompleteStepUpResponse);
+
+  // Sign-In-With-Solana wallet binding.
+  rpc StartSiwsBinding(StartSiwsBindingRequest) returns (StartSiwsBindingResponse);
+  rpc CompleteSiwsBinding(CompleteSiwsBindingRequest) returns (CompleteSiwsBindingResponse);
+  rpc ListBoundWallets(ListBoundWalletsRequest) returns (ListBoundWalletsResponse);
+  rpc UnbindWallet(UnbindWalletRequest) returns (UnbindWalletResponse);
 }

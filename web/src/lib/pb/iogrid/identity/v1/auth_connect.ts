@@ -10,7 +10,7 @@
 /* eslint-disable */
 // @ts-nocheck
 
-import { CompleteGoogleSignInRequest, CompleteGoogleSignInResponse, CompleteMagicLinkRequest, CompleteMagicLinkResponse, CompleteStepUpRequest, CompleteStepUpResponse, ListSessionsRequest, ListSessionsResponse, RefreshTokenRequest, RefreshTokenResponse, RequestMagicLinkRequest, RequestMagicLinkResponse, RequestStepUpRequest, RequestStepUpResponse, RevokeSessionRequest, RevokeSessionResponse, SignOutRequest, SignOutResponse, StartGoogleSignInRequest, StartGoogleSignInResponse } from "./auth_pbjs";
+import { CompleteGoogleSignInRequest, CompleteGoogleSignInResponse, CompleteMagicLinkRequest, CompleteMagicLinkResponse, CompleteSiwsBindingRequest, CompleteSiwsBindingResponse, CompleteStepUpRequest, CompleteStepUpResponse, ListBoundWalletsRequest, ListBoundWalletsResponse, ListSessionsRequest, ListSessionsResponse, RefreshTokenRequest, RefreshTokenResponse, RequestMagicLinkRequest, RequestMagicLinkResponse, RequestStepUpRequest, RequestStepUpResponse, RevokeSessionRequest, RevokeSessionResponse, SignOutRequest, SignOutResponse, StartGoogleSignInRequest, StartGoogleSignInResponse, StartSiwsBindingRequest, StartSiwsBindingResponse, UnbindWalletRequest, UnbindWalletResponse } from "./auth_pbjs";
 import { MethodKind } from "@bufbuild/protobuf";
 
 /**
@@ -118,6 +118,44 @@ export const AuthService = {
       name: "CompleteStepUp",
       I: CompleteStepUpRequest,
       O: CompleteStepUpResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * Sign-In-With-Solana wallet binding.
+     *
+     * @generated from rpc iogrid.identity.v1.AuthService.StartSiwsBinding
+     */
+    startSiwsBinding: {
+      name: "StartSiwsBinding",
+      I: StartSiwsBindingRequest,
+      O: StartSiwsBindingResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * @generated from rpc iogrid.identity.v1.AuthService.CompleteSiwsBinding
+     */
+    completeSiwsBinding: {
+      name: "CompleteSiwsBinding",
+      I: CompleteSiwsBindingRequest,
+      O: CompleteSiwsBindingResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * @generated from rpc iogrid.identity.v1.AuthService.ListBoundWallets
+     */
+    listBoundWallets: {
+      name: "ListBoundWallets",
+      I: ListBoundWalletsRequest,
+      O: ListBoundWalletsResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * @generated from rpc iogrid.identity.v1.AuthService.UnbindWallet
+     */
+    unbindWallet: {
+      name: "UnbindWallet",
+      I: UnbindWalletRequest,
+      O: UnbindWalletResponse,
       kind: MethodKind.Unary,
     },
   }

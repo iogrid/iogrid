@@ -16,8 +16,8 @@ syntax = "proto3";
 package iogrid.billing.v1;
 
 import "google/protobuf/timestamp.proto";
-import "iogrid/common/v1/types.proto";
 import "iogrid/billing/v1/subscription.proto";
+import "iogrid/common/v1/types.proto";
 
 option go_package = "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/billing/v1;billingv1";
 
