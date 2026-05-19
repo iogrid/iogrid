@@ -47,7 +47,6 @@ tempfile = "3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 iogrid-platform-mac = { workspace = true }
-iogrid-workload-ios = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 iogrid-platform-linux = { workspace = true }
