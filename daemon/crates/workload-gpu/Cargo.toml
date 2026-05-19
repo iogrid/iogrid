@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "iogridd GPU workload runner — NVML on Linux/Windows, Metal/MLX on macOS."
+description = "iogridd GPU workload runner — NVIDIA Container Toolkit on Linux/Windows, MLX/Metal on macOS."
 
 [lib]
 name = "iogrid_workload_gpu"
@@ -14,8 +14,14 @@ path = "src/lib.rs"
 
 [features]
 default = []
-# Real NVML / MLX bindings only behind `gpu-real`.
-gpu-real = []
+# Real GPU backends. On Linux/Windows this routes through bollard's
+# `host_config.runtime = "nvidia"` (NVIDIA Container Toolkit); on macOS this
+# would link the MLX Rust bindings when those compile cleanly on CI.
+gpu-real = ["dep:bollard", "dep:futures-util"]
+# Opt-in to compile the MLX FFI bridge. Off by default because the upstream
+# `mlx-rs` crate does not yet build on every macOS CI runner (Apple Silicon
+# + xcodebuild + MLX wheel availability). The CUDA path stays usable.
+gpu-mlx = []
 
 [dependencies]
 tokio = { workspace = true }
@@ -25,3 +31,8 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 serde = { workspace = true }
 uuid = { workspace = true }
+
+iogrid-workload-docker = { workspace = true }
+
+bollard = { workspace = true, optional = true }
+futures-util = { version = "0.3", optional = true }

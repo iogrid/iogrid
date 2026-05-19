@@ -18,6 +18,8 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+pub mod workloads;
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -28,9 +30,11 @@ use tokio::task::JoinSet;
 pub use iogrid_anti_abuse::{Filter, InMemoryFilter, RulesetSnapshot};
 pub use iogrid_scheduler::{PauseReason as SchedPauseReason, SchedulerConfig, SchedulerHandle};
 pub use iogrid_transport::ConnectConfig as TransportConfig;
+pub use iogrid_transport::DispatchFrame;
 pub use iogrid_ui_bridge::{
     AuditEvent, BridgeState, DaemonStateView, EarningsView, PairHandler, PairRequest, PairResponse,
 };
+pub use workloads::{ActiveAssignment, ActiveRegistry, WorkloadRouter, WorkloadRouterRunners};
 
 /// Top-level supervisor state. Mirrors the public dashboard chip in the web UI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -194,6 +198,7 @@ pub struct Supervisor {
     scheduler: SchedulerHandle,
     filter: Arc<InMemoryFilter>,
     bridge: BridgeState,
+    runners: WorkloadRouterRunners,
 }
 
 impl std::fmt::Debug for Supervisor {
@@ -209,6 +214,12 @@ impl std::fmt::Debug for Supervisor {
 impl Supervisor {
     /// Build a supervisor with the supplied config.
     pub fn new(config: DaemonConfig) -> Self {
+        Self::with_runners(config, WorkloadRouterRunners::scaffold())
+    }
+
+    /// Build a supervisor wired against a specific runner trio (used by
+    /// tests + future `*-real` feature flags).
+    pub fn with_runners(config: DaemonConfig, runners: WorkloadRouterRunners) -> Self {
         let scheduler = SchedulerHandle::new(config.scheduler());
         let filter = Arc::new(InMemoryFilter::new());
         let bridge = BridgeState::default()
@@ -226,6 +237,7 @@ impl Supervisor {
             scheduler,
             filter,
             bridge,
+            runners,
         }
     }
 
@@ -319,10 +331,57 @@ impl Supervisor {
             Ok(())
         });
 
+        // Workload dispatch router — in-process loopback for now (the
+        // transport crate's real bidi gRPC pump lands in a follow-up PR).
+        // We construct both halves of the loopback channel so that the
+        // pause-watcher task can drive synthetic revokes when the scheduler
+        // flips to Paused and so the unit tests of this crate can swap in
+        // a mock coordinator side.
+        let (mut daemon_side, _coord_side) = iogrid_transport::dispatch_loopback();
+        let router = Arc::new(WorkloadRouter::new(
+            self.runners.clone(),
+            daemon_side.tx.clone(),
+            self.scheduler.clone(),
+        ));
+        let router_for_dispatch = router.clone();
+        tasks.spawn(async move {
+            while let Some(frame) = daemon_side.rx.recv().await {
+                router_for_dispatch.handle(frame).await;
+            }
+            Ok(())
+        });
+
+        // Scheduler-pause watcher — if scheduler flips to Paused, revoke
+        // every in-flight assignment (the supervisor's contract per
+        // docs/TECH.md § Workload acceptance).
+        let scheduler_for_watch = self.scheduler.clone();
+        let router_for_watch = router.clone();
+        tasks.spawn(async move {
+            let mut last_active = matches!(
+                scheduler_for_watch.refresh(),
+                iogrid_scheduler::State::Active
+            );
+            let mut ticker = tokio::time::interval(Duration::from_secs(1));
+            loop {
+                ticker.tick().await;
+                let now_active = matches!(
+                    scheduler_for_watch.refresh(),
+                    iogrid_scheduler::State::Active
+                );
+                if last_active && !now_active {
+                    tracing::info!("scheduler flipped to paused — revoking active workloads");
+                    router_for_watch.revoke_all("scheduler_paused").await;
+                }
+                last_active = now_active;
+            }
+        });
+
         // Block on Ctrl+C / SIGTERM. We don't kill in-flight workloads —
         // the JoinSet drains on drop and tasks see the cancellation token.
         wait_for_shutdown().await;
         tracing::info!("iogridd shutdown requested");
+        // Best-effort: cancel everything still in-flight.
+        router.revoke_all("daemon_shutdown").await;
         tasks.shutdown().await;
         Ok(())
     }

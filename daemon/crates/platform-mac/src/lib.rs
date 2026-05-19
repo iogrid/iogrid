@@ -94,6 +94,40 @@ pub const fn is_supported() -> bool {
     cfg!(target_os = "macos")
 }
 
+/// Detect the host macOS major version (e.g. `15` for Sequoia, `14` for
+/// Sonoma). Shells out to `sw_vers -productVersion` and parses the first
+/// dotted component. Returns `None` if `sw_vers` is unavailable or the
+/// output cannot be parsed (this also happens on non-macOS targets, where
+/// the function unconditionally returns `None`).
+///
+/// Used by the iOS-build workload runner (Tart requires Sequoia or newer)
+/// and by the supervisor's eligible-workload-types advertisement.
+pub fn macos_major_version() -> Option<u32> {
+    #[cfg(target_os = "macos")]
+    {
+        let out = std::process::Command::new("sw_vers")
+            .arg("-productVersion")
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        let s = String::from_utf8_lossy(&out.stdout);
+        let first = s.trim().split('.').next()?;
+        first.parse::<u32>().ok()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
+
+/// `true` if the host is macOS 15 Sequoia or newer (the minimum required for
+/// Xcode 26 / iOS 18 SDK / Tart's macOS-15 base images).
+pub fn supports_ios_build() -> bool {
+    matches!(macos_major_version(), Some(v) if v >= 15)
+}
+
 /// Resolve `$HOME` → LaunchAgent plist absolute path.
 pub fn launch_agent_path() -> Option<PathBuf> {
     let home = std::env::var_os("HOME").map(PathBuf::from)?;
@@ -198,6 +232,30 @@ mod tests {
             hex_sha256(b"abc"),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
+    }
+
+    #[test]
+    fn macos_major_version_matches_target() {
+        let v = macos_major_version();
+        #[cfg(not(target_os = "macos"))]
+        assert!(v.is_none());
+        #[cfg(target_os = "macos")]
+        {
+            // On macOS we should get *some* number; nothing we can assert
+            // beyond "parses to u32".
+            assert!(v.is_some());
+        }
+    }
+
+    #[test]
+    fn supports_ios_build_matches_target() {
+        // On non-mac always false; on mac follows macos_major_version().
+        #[cfg(not(target_os = "macos"))]
+        assert!(!supports_ios_build());
+        #[cfg(target_os = "macos")]
+        {
+            let _ = supports_ios_build();
+        }
     }
 
     #[test]

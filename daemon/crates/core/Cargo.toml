@@ -36,6 +36,9 @@ iogrid-routing = { workspace = true }
 iogrid-anti-abuse = { workspace = true }
 iogrid-scheduler = { workspace = true }
 iogrid-ui-bridge = { workspace = true }
+iogrid-workload-docker = { workspace = true }
+iogrid-workload-gpu = { workspace = true }
+iogrid-workload-ios = { workspace = true }
 clap = { version = "4", features = ["derive", "env"] }
 futures = { workspace = true }
 

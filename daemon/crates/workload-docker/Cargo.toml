@@ -16,7 +16,10 @@ path = "src/lib.rs"
 default = []
 # Pull in bollard only when building the real runner. Scaffold keeps `cargo
 # check` light.
-docker-real = ["dep:bollard"]
+docker-real = ["dep:bollard", "dep:futures"]
+# Run the live host-Docker integration test. Skipped unless explicitly
+# enabled (and a Docker daemon is reachable).
+integration-docker = ["docker-real"]
 
 [dependencies]
 tokio = { workspace = true }
@@ -25,6 +28,10 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 uuid = { workspace = true }
 
+iogrid-anti-abuse = { workspace = true }
+
 bollard = { workspace = true, optional = true }
+futures = { workspace = true, optional = true }
