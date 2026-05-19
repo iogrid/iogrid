@@ -4,15 +4,16 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-19T15:15:00Z` |
+| Last refreshed | `2026-05-19T14:42:00Z` |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
-| Merged PRs | **66** since project bootstrap |
+| Merged PRs | **67** since project bootstrap |
 | Open PRs | **0** |
-| Open issues | **4** (all founder-action or post-Phase-0 scope) |
+| Open issues | **3** ([#79](https://github.com/iogrid/iogrid/issues/79) Phase 2, [#215](https://github.com/iogrid/iogrid/issues/215) vCard smoke, [#217](https://github.com/iogrid/iogrid/issues/217) daemon transport wiring) |
 | EPIC closure | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 17 / 17 closed by audit |
-| Phase 0 runtime | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> `app.iogrid.org` + `api.iogrid.org` serving on Let's Encrypt — **founder can log in via magic-link right now** |
-| Provider proxy | <img alt="IN_FLIGHT" src="https://img.shields.io/badge/-IN__FLIGHT-bf8700?style=flat-square" /> SOCKS5 on `proxy.iogrid.org:443` next — pending proxy-gateway deploy + IngressRouteTCP |
-| Daemon-on-Mac | <img alt="OPEN" src="https://img.shields.io/badge/-PENDING-cf222e?style=flat-square" /> install via `installer/macos/install-iogridd.sh` once iogridd binary is released — pending `iogridd` GH release artifact |
+| Phase 0 browser login | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> **`https://app.iogrid.org/account`** → enter email → real "Sign in to app.iogrid.org" magic-link arrives, verification token persisted in `web` DB (PR #216 NextAuth Drizzle adapter) |
+| Phase 0 mothership | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> 6 services running in `iogrid` ns: web + gateway-bff + identity-svc + proxy-gateway + providers-svc + workloads-svc + CNPG + 4 IngressRoutes + LE cert |
+| Phase 0 daemon | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> `iogridd 0.1.0` on founder Mac, paired (provider_id `6f84c7fb-...`), running, unpaused via UI bridge config POST |
+| Phase 0 vCard smoke | <img alt="IN_FLIGHT" src="https://img.shields.io/badge/-IN__FLIGHT-bf8700?style=flat-square" /> SOCKS5 auth + dispatch wired; daemon outbound transport stream stubbed with loopback ([#217](https://github.com/iogrid/iogrid/issues/217)) — last gap for the end-to-end LinkedIn fetch |
 
 **Legend:** <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> done · <img alt="IN_FLIGHT" src="https://img.shields.io/badge/-IN__FLIGHT-bf8700?style=flat-square" /> work in progress · <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> open · <img alt="DEFERRED" src="https://img.shields.io/badge/-DEFERRED-6e7781?style=flat-square" /> deferred · <img alt="BLOCKED" src="https://img.shields.io/badge/-BLOCKED-8250df?style=flat-square" /> blocked on founder action
 
@@ -24,16 +25,17 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 |---|---|---|---|
 | 1 | Customer signup + workspace + API key | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | [PR #164](https://github.com/iogrid/iogrid/pull/164), [#165](https://github.com/iogrid/iogrid/pull/165) |
 | 2 | Rust daemon **code** shipped (PR #135) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | [PR #135](https://github.com/iogrid/iogrid/pull/135) — code only; see row 2b |
-| 2b | Rust daemon **installed + running** on founder's Mac | <img alt="OPEN" src="https://img.shields.io/badge/-PENDING-cf222e?style=flat-square" /> | Installer + LaunchAgent shipped in [PR #207](https://github.com/iogrid/iogrid/pull/207); iogridd binary not yet released to GH Releases |
+| 2b | Rust daemon **installed + running** on founder's Mac | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> | `iogridd 0.1.0` at `~/bin/iogridd` (aarch64-darwin from daemon-ci artifact 26081462042), paired via real coordinator flow, running with `state: active` |
 | 3 | SOCKS5 entry **code** for `proxy.iogrid.org:443` (PR #132) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | [PR #132](https://github.com/iogrid/iogrid/pull/132) — code only; see row 3b |
-| 3b | SOCKS5 entry **live** on `proxy.iogrid.org:443` | <img alt="IN_FLIGHT" src="https://img.shields.io/badge/-IN__FLIGHT-bf8700?style=flat-square" /> | proxy-gateway deploy + Traefik IngressRouteTCP — in flight this cycle |
+| 3b | SOCKS5 entry **live** on `proxy.iogrid.org:443` | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> | proxy-gateway in `iogrid` ns + Traefik `IngressRouteTCP` with SNI; SOCKS5 USERPASS auth verified end-to-end with Phase 0 DEV_API_KEYS |
 | 4 | DNS for `iogrid.org` zone | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | [PR #114](https://github.com/iogrid/iogrid/pull/114) — verified `api/app/proxy.iogrid.org` → 45.151.123.50 |
 | 5 | Anti-abuse pre-flight (PhotoDNA + PhishTank + GSB) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | [PR #171](https://github.com/iogrid/iogrid/pull/171) |
 | 6 | E2E kind smoke suite | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | [PR #150](https://github.com/iogrid/iogrid/pull/150) |
-| 7 | Live deploy to mothership k8s | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> | `iogrid` namespace: CNPG + identity-svc + gateway-bff + web Running; Traefik IngressRoutes + LE cert active |
-| 7a | Public login URL | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> | **`https://app.iogrid.org/`** — Next.js plane with NextAuth magic-link via Stalwart SMTP |
-| 7b | Public API URL | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> | **`https://api.iogrid.org/healthz`** — gateway-bff |
-| 8 | First real LinkedIn fetch via iogrid proxy | <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> | Blocked behind row 2b (daemon install on Mac) + row 3b (proxy-gateway live) |
+| 7 | Live deploy to mothership k8s | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> | `iogrid` namespace: CNPG + 6 services + 4 IngressRoutes + LE cert all Running |
+| 7a | Public browser login | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> | **`https://app.iogrid.org/account`** — NextAuth Drizzle adapter ([PR #216](https://github.com/iogrid/iogrid/pull/216)), real magic-link email "Sign in to app.iogrid.org" delivered from `hatice.yildiz@openova.io` via Stalwart STARTTLS:587, verification token persisted in `web` DB |
+| 7b | Public API URL | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> | **`https://api.iogrid.org/healthz`** — gateway-bff; **`https://api.iogrid.org/v1/auth/magic-link/{request,complete}`** — identity-svc direct (mints RS256 JWT, creates user row) |
+| 7c | Provider pair flow | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> | Connect-RPC `IssuePairingToken` → `iogridd pair <token>` → mTLS bundle written, `provider_id` registered ([#214](https://github.com/iogrid/iogrid/issues/214)) |
+| 8 | First real LinkedIn fetch via iogrid proxy | <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> | Auth + dispatch wired; last gap is daemon transport stream ([#217](https://github.com/iogrid/iogrid/issues/217)) — daemon-core uses loopback shim instead of real `Channel::connect` to workloads-svc |
 
 ---
 
