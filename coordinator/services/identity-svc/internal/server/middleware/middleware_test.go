@@ -83,3 +83,92 @@ func TestRequireStepUp_RequiresFlag(t *testing.T) {
 		t.Fatalf("expected 403, got %d", rec.Code)
 	}
 }
+
+// --- BFF service-token bypass (#232) -------------------------------------
+//
+// These cover the Phase 0 stop-gap in VerifyBearer that lets the Next.js
+// BFF assert a user identity on behalf of an authenticated browser
+// session that does not yet hold a real identity-svc JWT. End state:
+// the bypass is removed once the NextAuth→identity-svc token exchange
+// ships.
+
+func TestVerifyBearer_ServiceToken_SetsUserFromHeader(t *testing.T) {
+	signer := freshSigner(t)
+	t.Setenv("IOGRID_SERVICE_TOKEN", "shh-secret")
+	uid := uuid.New()
+
+	var seen uuid.UUID
+	var sawClaims bool
+	h := VerifyBearer(signer)(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		id, ok := AuthedUser(r.Context())
+		if !ok {
+			t.Fatalf("expected authed user via service-token path")
+		}
+		seen = id
+		_, sawClaims = AuthedClaims(r.Context())
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer shh-secret")
+	req.Header.Set("X-Iogrid-User-Id", uid.String())
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if seen != uid {
+		t.Fatalf("user id mismatch: got %s want %s", seen, uid)
+	}
+	// Step-up must NOT be claimable via the service-token path.
+	if sawClaims {
+		t.Fatalf("service-token path must not synthesize JWT claims")
+	}
+}
+
+func TestVerifyBearer_ServiceToken_BadHeaderRejected(t *testing.T) {
+	signer := freshSigner(t)
+	t.Setenv("IOGRID_SERVICE_TOKEN", "shh-secret")
+
+	h := VerifyBearer(signer)(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		if _, ok := AuthedUser(r.Context()); ok {
+			t.Errorf("malformed X-Iogrid-User-Id must not authenticate")
+		}
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer shh-secret")
+	req.Header.Set("X-Iogrid-User-Id", "not-a-uuid")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+}
+
+func TestVerifyBearer_ServiceToken_DisabledWhenEnvUnset(t *testing.T) {
+	signer := freshSigner(t)
+	t.Setenv("IOGRID_SERVICE_TOKEN", "")
+	uid := uuid.New()
+
+	h := VerifyBearer(signer)(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		if _, ok := AuthedUser(r.Context()); ok {
+			t.Errorf("service-token bypass must be disabled when env unset")
+		}
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer anything")
+	req.Header.Set("X-Iogrid-User-Id", uid.String())
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+}
+
+func TestVerifyBearer_ServiceToken_WrongSecretFallsThroughToJWT(t *testing.T) {
+	signer := freshSigner(t)
+	t.Setenv("IOGRID_SERVICE_TOKEN", "shh-secret")
+	uid := uuid.New()
+
+	h := VerifyBearer(signer)(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		// Wrong secret — falls through to signer.Verify which rejects
+		// the opaque token. Final state: no authed user.
+		if _, ok := AuthedUser(r.Context()); ok {
+			t.Errorf("wrong secret must not authenticate")
+		}
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer wrong-secret")
+	req.Header.Set("X-Iogrid-User-Id", uid.String())
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+}

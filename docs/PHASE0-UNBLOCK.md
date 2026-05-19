@@ -136,6 +136,64 @@ openssl s_client -servername api.iogrid.org -connect api.iogrid.org:443 </dev/nu
 # expect: a real Let's Encrypt cert, NOT "CN = TRAEFIK DEFAULT CERT"
 ```
 
+### Step 4c. identity-svc service-token + workspace bootstrap (#232)
+
+The customer dashboard's first-login workspace auto-create
+(`/api/customer/workspaces/init`, see `web/src/app/api/customer/`)
+proxies into identity-svc using a shared service-token + the
+`X-Iogrid-User-Id` header. To enable it on the cluster:
+
+1. Mint a service token (random 32B) and store it in a sealed
+   Secret mounted into BOTH the `web` Deployment and the
+   `identity-svc` Deployment as `IOGRID_SERVICE_TOKEN`:
+
+   ```bash
+   tok=$(openssl rand -hex 32)
+   kubectl -n iogrid create secret generic iogrid-bff-service-token \
+     --from-literal=IOGRID_SERVICE_TOKEN="$tok" \
+     --dry-run=client -o yaml | kubeseal -o yaml > sealed.yaml
+   ```
+
+2. Add an envFrom secretRef on both Deployments. The `web` Deployment
+   ALSO needs `IOGRID_IDENTITY_SVC_URL=http://identity-svc:8080` so the
+   BFF knows where to dial.
+
+3. Apply a Traefik IngressRoute exposing the identity-svc JSON
+   surface at `api.iogrid.org/v1/workspaces` (the BFF dials in-cluster
+   so this is only needed if you want to expose Connect-RPC to
+   browsers later — Phase 0 doesn't):
+
+   ```yaml
+   apiVersion: traefik.io/v1alpha1
+   kind: IngressRoute
+   metadata:
+     name: api-iogrid-org-identity
+     namespace: iogrid
+   spec:
+     entryPoints: [websecure]
+     routes:
+       # JSON surface (eventually for direct browser calls).
+       - match: Host(`api.iogrid.org`) && PathPrefix(`/v1/workspaces`)
+         kind: Rule
+         services:
+           - name: identity-svc
+             port: 8080
+       # Connect-RPC surface — h2c so HTTP/2 cleartext is bridged.
+       - match: Host(`api.iogrid.org`) && PathPrefix(`/iogrid.identity.v1.`)
+         kind: Rule
+         services:
+           - name: identity-svc
+             port: 8080
+             scheme: h2c
+     tls:
+       certResolver: letsencrypt
+   ```
+
+4. Until both Secrets are populated AND `IOGRID_IDENTITY_SVC_URL` is
+   set on `web`, the init route returns HTTP 503 and the dashboard
+   falls back to the collapsed paste-UUID escape hatch — users are
+   degraded but not blocked.
+
 ---
 
 ## Layer 1 unblock — install iogridd on the founder's Mac
