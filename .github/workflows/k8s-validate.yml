@@ -74,6 +74,11 @@ jobs:
           kustomize build infra/k8s/base > /tmp/base.yaml
           wc -l /tmp/base.yaml
 
+      - name: kustomize build overlays/dev
+        run: |
+          kustomize build infra/k8s/overlays/dev > /tmp/dev.yaml
+          wc -l /tmp/dev.yaml
+
       - name: kustomize build overlays/staging
         run: |
           kustomize build infra/k8s/overlays/staging > /tmp/staging.yaml
@@ -83,6 +88,13 @@ jobs:
         run: |
           kustomize build infra/k8s/overlays/prod > /tmp/prod.yaml
           wc -l /tmp/prod.yaml
+
+      - name: kubeval dev
+        run: |
+          # The dev overlay deletes every operator-coupled resource so
+          # kubeval doesn't need the --skip-kinds list (still keep
+          # --ignore-missing-schemas for safety).
+          kubeval --strict --ignore-missing-schemas /tmp/dev.yaml
 
       - name: kubeval staging
         run: |
@@ -97,6 +109,12 @@ jobs:
           kubeval --strict --ignore-missing-schemas \
             --skip-kinds Cluster,Certificate,ClusterIssuer,Gateway,HTTPRoute,TLSRoute,ReferenceGrant,GitRepository,Kustomization,PrometheusRule,ServiceMonitor,PodMonitor \
             /tmp/prod.yaml
+
+      - name: kubectl dry-run dev
+        run: |
+          # The dev overlay needs no CRDs but client-side dry-run still
+          # exercises the namespace and PSS label transforms.
+          kubectl apply --dry-run=client -f /tmp/dev.yaml
 
       - name: kubectl dry-run staging
         run: |

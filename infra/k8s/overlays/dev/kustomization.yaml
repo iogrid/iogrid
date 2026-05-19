@@ -1,0 +1,205 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# ---------------------------------------------------------------------------
+# Dev overlay — kind-runnable, ZERO operator prerequisites.
+#
+# Use this overlay to bring the iogrid base manifests up on a vanilla kind
+# cluster without first installing CNPG, Cilium, cert-manager,
+# sealed-secrets, or prometheus-operator. The overlay:
+#
+#   1. REMOVES every base resource that needs an out-of-cluster operator:
+#        - CNPG Cluster/iogrid-pg                 (postgresql.cnpg.io/v1)
+#        - cert-manager Certificate + ClusterIssuer
+#        - Gateway-API Gateway + HTTPRoute + TLSRoute + ReferenceGrant
+#        - prometheus-operator ServiceMonitor + PrometheusRule
+#      All are deleted via strategic-merge `$patch: delete` so the rest
+#      of base/ keeps working (Deployments, Services, NetworkPolicy, HPA,
+#      ConfigMap, namespace, etc.).
+#
+#   2. STRIPS the Cilium policy-cluster label off the `iogrid` namespace
+#      (kindnet ignores it; the label only matters when a Cilium agent
+#      enforces clustermesh policy).
+#
+#   3. ADDS lightweight stand-ins:
+#        - data/postgres.yaml      — plain Postgres 16 StatefulSet +
+#          per-service DBs via /docker-entrypoint-initdb.d ConfigMap
+#        - certs/wildcard-tls.yaml — static self-signed `*.iogrid.local`
+#          wildcard Secret for each Certificate the base referenced
+#          (placed in the iogrid namespace so an ingress-nginx Ingress
+#           in dev can mount them without a separate gateway-system NS)
+#
+# Bring-up:
+#   kind create cluster --name iogrid-dev
+#   kubectl apply --server-side -f https://kubernetes.io/...   # (no extra CRDs)
+#   kubectl apply -k infra/k8s/overlays/dev
+#
+# Compared to e2e/, the dev overlay is the long-form path that exercises
+# the same Deployments / Services / NetworkPolicies prod ships with;
+# e2e/ is the smoke-only path that wires up faster fixtures.
+# ---------------------------------------------------------------------------
+
+resources:
+  - ../../base
+  - data/postgres.yaml
+  - certs/wildcard-tls.yaml
+
+namespace: iogrid
+
+commonAnnotations:
+  iogrid.org/environment: dev
+
+# --- Deletions ----------------------------------------------------------------
+# Strategic-merge `$patch: delete` removes the operator-coupled base
+# resources. kustomize requires both the target selector AND the
+# `$patch: delete` body for the deletion to take effect.
+patches:
+  # CNPG Cluster — replaced by data/postgres.yaml (plain StatefulSet).
+  - target:
+      group: postgresql.cnpg.io
+      version: v1
+      kind: Cluster
+      name: iogrid-pg
+    patch: |-
+      $patch: delete
+      apiVersion: postgresql.cnpg.io/v1
+      kind: Cluster
+      metadata:
+        name: iogrid-pg
+        namespace: iogrid
+
+  # cert-manager Certificate resources — replaced by static Secrets in
+  # certs/wildcard-tls.yaml.
+  - target:
+      group: cert-manager.io
+      version: v1
+      kind: Certificate
+    patch: |-
+      $patch: delete
+      apiVersion: cert-manager.io/v1
+      kind: Certificate
+      metadata:
+        name: PLACEHOLDER
+
+  # cert-manager ClusterIssuer — not needed in dev.
+  - target:
+      group: cert-manager.io
+      version: v1
+      kind: ClusterIssuer
+    patch: |-
+      $patch: delete
+      apiVersion: cert-manager.io/v1
+      kind: ClusterIssuer
+      metadata:
+        name: PLACEHOLDER
+
+  # Gateway-API Gateway — kind has no Gateway-API controller installed.
+  - target:
+      group: gateway.networking.k8s.io
+      version: v1
+      kind: Gateway
+    patch: |-
+      $patch: delete
+      apiVersion: gateway.networking.k8s.io/v1
+      kind: Gateway
+      metadata:
+        name: PLACEHOLDER
+
+  # Gateway-API HTTPRoute — same reason.
+  - target:
+      group: gateway.networking.k8s.io
+      version: v1
+      kind: HTTPRoute
+    patch: |-
+      $patch: delete
+      apiVersion: gateway.networking.k8s.io/v1
+      kind: HTTPRoute
+      metadata:
+        name: PLACEHOLDER
+
+  # Gateway-API TLSRoute (experimental channel) — same reason.
+  - target:
+      group: gateway.networking.k8s.io
+      kind: TLSRoute
+    patch: |-
+      $patch: delete
+      apiVersion: gateway.networking.k8s.io/v1alpha2
+      kind: TLSRoute
+      metadata:
+        name: PLACEHOLDER
+
+  # Gateway-API ReferenceGrant — same reason.
+  - target:
+      group: gateway.networking.k8s.io
+      kind: ReferenceGrant
+    patch: |-
+      $patch: delete
+      apiVersion: gateway.networking.k8s.io/v1beta1
+      kind: ReferenceGrant
+      metadata:
+        name: PLACEHOLDER
+
+  # prometheus-operator ServiceMonitor — no operator in kind.
+  - target:
+      group: monitoring.coreos.com
+      kind: ServiceMonitor
+    patch: |-
+      $patch: delete
+      apiVersion: monitoring.coreos.com/v1
+      kind: ServiceMonitor
+      metadata:
+        name: PLACEHOLDER
+
+  # prometheus-operator PrometheusRule — no operator in kind.
+  - target:
+      group: monitoring.coreos.com
+      kind: PrometheusRule
+    patch: |-
+      $patch: delete
+      apiVersion: monitoring.coreos.com/v1
+      kind: PrometheusRule
+      metadata:
+        name: PLACEHOLDER
+
+  # Strip Cilium policy-cluster label from the namespace (kindnet
+  # ignores it but kubeval / strict admission may complain on labels
+  # the controller cannot honour).
+  - target:
+      kind: Namespace
+      name: iogrid
+    patch: |-
+      - op: remove
+        path: /metadata/labels/io.cilium.k8s.policy.cluster
+      # PSS — kind's apiserver enforces `restricted` strictly. The
+      # services pin runAsNonRoot etc. but the e2e/dev story is more
+      # convenient with `baseline` since some sidecars (postgres
+      # init, etc.) don't ship the full pod-security profile.
+      - op: replace
+        path: /metadata/labels/pod-security.kubernetes.io~1enforce
+        value: baseline
+      - op: replace
+        path: /metadata/labels/pod-security.kubernetes.io~1audit
+        value: baseline
+      - op: replace
+        path: /metadata/labels/pod-security.kubernetes.io~1warn
+        value: baseline
+
+  # Drop replica counts to 1 across the board — dev clusters have no
+  # spare capacity and we don't exercise multi-replica behaviour here.
+  - target:
+      kind: Deployment
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+
+  # Disable HPAs — they don't make sense at replicas=1 and clutter the
+  # `kubectl get` output.
+  - target:
+      kind: HorizontalPodAutoscaler
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 1
+      - op: replace
+        path: /spec/maxReplicas
+        value: 1
