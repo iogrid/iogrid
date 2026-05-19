@@ -278,14 +278,11 @@ mod tart_impl {
                         after_secs: w.boot_timeout_secs,
                     });
                 }
-                match self.tart_capture(["ip", &vm]).await {
-                    Ok((0, out)) => {
-                        let trimmed = String::from_utf8_lossy(&out).trim().to_string();
-                        if !trimmed.is_empty() {
-                            break trimmed;
-                        }
+                if let Ok((0, out)) = self.tart_capture(["ip", &vm]).await {
+                    let trimmed = String::from_utf8_lossy(&out).trim().to_string();
+                    if !trimmed.is_empty() {
+                        break trimmed;
                     }
-                    _ => {}
                 }
                 tokio::time::sleep(Duration::from_secs(2)).await;
             };
@@ -417,29 +414,32 @@ mod tart_impl {
             let mut stderr = child.stderr.take().expect("piped stderr");
             let cap: usize = 1_048_576;
             let mut logs = Vec::with_capacity(8192);
-            let mut buf = [0u8; 4096];
-            loop {
+            let mut out_buf = [0u8; 4096];
+            let mut err_buf = [0u8; 4096];
+            let mut out_done = false;
+            let mut err_done = false;
+            while !(out_done && err_done) {
                 tokio::select! {
-                    n = stdout.read(&mut buf) => {
+                    n = stdout.read(&mut out_buf), if !out_done => {
                         match n {
-                            Ok(0) => break,
+                            Ok(0) => out_done = true,
                             Ok(n) => {
                                 if logs.len() + n <= cap {
-                                    logs.extend_from_slice(&buf[..n]);
+                                    logs.extend_from_slice(&out_buf[..n]);
                                 }
                             }
-                            Err(_) => break,
+                            Err(_) => out_done = true,
                         }
                     }
-                    n = stderr.read(&mut buf) => {
+                    n = stderr.read(&mut err_buf), if !err_done => {
                         match n {
-                            Ok(0) => break,
+                            Ok(0) => err_done = true,
                             Ok(n) => {
                                 if logs.len() + n <= cap {
-                                    logs.extend_from_slice(&buf[..n]);
+                                    logs.extend_from_slice(&err_buf[..n]);
                                 }
                             }
-                            Err(_) => break,
+                            Err(_) => err_done = true,
                         }
                     }
                 }
