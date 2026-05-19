@@ -18,9 +18,9 @@ WORKDIR /src
 # Copy the shared + generated-pb modules first so layer caching survives
 # service-only edits. The billing-svc go.mod has relative `replace`
 # directives pointing at ../../shared and ../../internal/pb for the
-# Connect-RPC stubs.
+# Connect-RPC stubs (ApiKeyService, SubscriptionService, PayoutService).
 COPY coordinator/shared /src/coordinator/shared
-COPY coordinator/internal /src/coordinator/internal
+COPY coordinator/internal/pb /src/coordinator/internal/pb
 COPY coordinator/services/billing-svc /src/coordinator/services/billing-svc
 
 WORKDIR /src/coordinator/services/billing-svc
