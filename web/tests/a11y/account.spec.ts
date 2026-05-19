@@ -95,30 +95,42 @@ test.describe("WCAG 2.2 AA — /account surface", () => {
   }) => {
     await page.goto("/account", { waitUntil: "domcontentloaded" });
 
+    // Restrict to user-visible focusables. Server Action `<form>`s inject
+    // up to 10 hidden `<input>`s per form for the action-id payload —
+    // they are not focusable by keyboard users and would skew the audit.
     const handles = await page
       .locator(
-        'main a, main button, main input, main select, main textarea, main [tabindex]:not([tabindex="-1"])',
+        'main a:visible, main button:visible, main input:visible:not([type="hidden"]), main select:visible, main textarea:visible, main [tabindex]:visible:not([tabindex="-1"])',
       )
       .elementHandles();
 
-    expect(handles.length).toBeGreaterThan(0);
+    expect(
+      handles.length,
+      "Expected at least one keyboard-focusable element in main",
+    ).toBeGreaterThan(0);
 
     const offenders: string[] = [];
     for (const el of handles) {
       await el.focus().catch(() => undefined);
       const info = await el.evaluate((node) => {
-        const style = getComputedStyle(node as HTMLElement);
-        const tag = (node as HTMLElement).tagName.toLowerCase();
-        const id =
-          (node as HTMLElement).id ||
-          (node as HTMLElement).textContent?.slice(0, 30) ||
-          tag;
-        const hasRing =
+        const html = node as HTMLElement;
+        // Only audit elements that the user can actually focus with Tab.
+        if (html.tabIndex < 0) return null;
+        const style = getComputedStyle(html);
+        // Ignore zero-size shadows so we don't double-count `box-shadow:
+        // 0 0 0 0 rgba(...)` placeholders that some libraries inject.
+        const ring =
           style.outlineStyle !== "none" ||
-          (style.boxShadow !== "none" && style.boxShadow !== "");
-        return { tag, id, hasRing };
+          (style.boxShadow && style.boxShadow !== "none");
+        const tag = html.tagName.toLowerCase();
+        const id =
+          html.id ||
+          html.getAttribute("name") ||
+          html.textContent?.trim().slice(0, 30) ||
+          tag;
+        return { tag, id, hasRing: !!ring };
       });
-      if (!info.hasRing) offenders.push(`${info.tag}#${info.id}`);
+      if (info && !info.hasRing) offenders.push(`${info.tag}#${info.id}`);
     }
 
     expect(
