@@ -118,3 +118,10 @@ web/playwright-report/
 web/test-results/
 web/storybook-static/
 web/*.tsbuildinfo
+
+# Local Playwright/Claude artefacts (bastion-only)
+.claude/
+.playwright-mcp/
+bastion.key
+bastion.pub
+*.png
