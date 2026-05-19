@@ -35,32 +35,27 @@ type MountConfig struct {
 // so handlers can read the authed user from context.
 func MountFunc(cfg MountConfig) func(r chi.Router) {
 	return func(r chi.Router) {
-		r.Use(authmw.VerifyBearer(cfg.Signer))
-		cfg.API.Mount(r)
-		if cfg.Workspace != nil {
-			// JSON tree mounted under /v1/workspaces (mirror of the
-			// existing /v1/users, /v1/sessions trees).
-			r.Route("/v1", func(r chi.Router) {
-				cfg.Workspace.MountWorkspaceJSON(r)
-			})
-			// Connect-RPC handler — gateway-bff + billing-svc call
-			// here with the generated stubs.
-			path, hh := identityv1connect.NewWorkspaceServiceHandler(cfg.Workspace)
-			r.Mount(path, hh)
-		}
-		if cfg.Identity != nil {
-			// JSON twin under /v1/users/{userID}/(identifiers/{id}|"")
-			// so curl callers + e2e suites can exercise the same logic
-			// without the Connect envelope.
-			r.Route("/v1", func(r chi.Router) {
-				cfg.Identity.MountIdentityJSON(r)
-			})
-			// Connect-RPC handler — gateway-bff calls
-			// IdentityService.{RemoveIdentifier,DeleteAccount} here.
-			// Unimplemented stubs still answer the un-wired RPCs with
-			// CodeUnimplemented (deliberate; tracked in EPIC #3).
-			path, hh := identityv1connect.NewIdentityServiceHandler(cfg.Identity)
-			r.Mount(path, hh)
-		}
+		// shared bootstrap mounts /healthz, /readyz, /metrics before
+		// calling MountFunc, so we cannot `r.Use(...)` on the parent —
+		// chi rejects middleware additions once routes are present.
+		// Scope the bearer middleware to a Group sub-router instead.
+		r.Group(func(r chi.Router) {
+			r.Use(authmw.VerifyBearer(cfg.Signer))
+			cfg.API.Mount(r)
+			if cfg.Workspace != nil {
+				r.Route("/v1", func(r chi.Router) {
+					cfg.Workspace.MountWorkspaceJSON(r)
+				})
+				path, hh := identityv1connect.NewWorkspaceServiceHandler(cfg.Workspace)
+				r.Mount(path, hh)
+			}
+			if cfg.Identity != nil {
+				r.Route("/v1", func(r chi.Router) {
+					cfg.Identity.MountIdentityJSON(r)
+				})
+				path, hh := identityv1connect.NewIdentityServiceHandler(cfg.Identity)
+				r.Mount(path, hh)
+			}
+		})
 	}
 }
