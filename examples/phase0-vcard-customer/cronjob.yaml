@@ -1,0 +1,91 @@
+# Phase 0 reference deployment — vCard LinkedIn enrichment as a CronJob.
+#
+# Fires every 6 hours, reads a list of LinkedIn vanities from a ConfigMap,
+# enriches each via iogrid bandwidth proxy, and POSTs the results to a
+# webhook (typically vcard-api's /v1/enrich/import endpoint).
+#
+# Apply:
+#   kubectl create namespace vcard-enrich
+#   kubectl create secret generic iogrid-creds \
+#     -n vcard-enrich \
+#     --from-literal=api-key=ig_live_xxxx \
+#     --from-literal=workspace=vcard-prod
+#   kubectl apply -k examples/phase0-vcard-customer
+#
+# The CronJob runs as a single-shot Pod per vanity — fan-out is done by
+# the controlling Job's parallelism setting, not by this binary.
+
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: vcard-linkedin-enrich
+  namespace: vcard-enrich
+  labels:
+    app.kubernetes.io/name: vcard-linkedin-enrich
+    app.kubernetes.io/component: customer-demo
+    app.kubernetes.io/part-of: iogrid-phase0
+spec:
+  # Every 6 hours. Single replica, no overlap.
+  schedule: "0 */6 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      # Allow up to 4 parallel pods — the iogrid scheduler picks distinct
+      # provider IPs per session so the residential pool gets exercised.
+      parallelism: 4
+      completions: 4
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: vcard-linkedin-enrich
+        spec:
+          restartPolicy: OnFailure
+          # No special service account — the demo only egresses to
+          # the iogrid proxy + posts back to the customer webhook.
+          containers:
+            - name: enrich
+              image: ghcr.io/iogrid/example-vcard-enrich:latest
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: IOGRID_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: iogrid-creds
+                      key: api-key
+                - name: IOGRID_WORKSPACE
+                  valueFrom:
+                    secretKeyRef:
+                      name: iogrid-creds
+                      key: workspace
+                - name: PROXY_URL
+                  value: proxy.iogrid.org:443
+              args:
+                # The Job controller substitutes ${VANITY} via downward-API
+                # injection in the customer's overlay; the reference value
+                # below is a smoke-test vanity that always exists.
+                - "-vanity"
+                - "$(VANITY)"
+                - "-timeout"
+                - "10s"
+              resources:
+                # 64 MiB ceiling — the binary holds ~30 MiB RSS in steady
+                # state, comfortable headroom even with a 4 MiB body cap.
+                requests:
+                  cpu: 50m
+                  memory: 32Mi
+                limits:
+                  cpu: 200m
+                  memory: 64Mi
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 65532
+                readOnlyRootFilesystem: true
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+                seccompProfile:
+                  type: RuntimeDefault

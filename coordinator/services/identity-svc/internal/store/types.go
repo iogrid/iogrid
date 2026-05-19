@@ -97,3 +97,70 @@ type MergeAudit struct {
 	MatchedVia    string
 	MergedAt      time.Time
 }
+
+// --- Workspace bounded context -------------------------------------------
+
+// WorkspacePlan is the string form of the proto WorkspacePlan enum. We
+// store as TEXT so the proto enum is the source of truth (adding a tier
+// doesn't require a migration). Handlers validate user input against
+// these constants.
+type WorkspacePlan string
+
+const (
+	PlanFree       WorkspacePlan = "FREE"
+	PlanStarter    WorkspacePlan = "STARTER"
+	PlanGrowth     WorkspacePlan = "GROWTH"
+	PlanEnterprise WorkspacePlan = "ENTERPRISE"
+)
+
+// Role is the per-membership role. Ordered by rank — higher rank can
+// always do what a lower rank can (read implies nothing, OWNER implies
+// ADMIN implies the rest).
+type Role string
+
+const (
+	RoleOwner       Role = "OWNER"
+	RoleAdmin       Role = "ADMIN"
+	RoleBillingOnly Role = "BILLING_ONLY"
+	RoleReadOnly    Role = "READ_ONLY"
+)
+
+// Workspace mirrors one row in workspaces.
+type Workspace struct {
+	ID                      uuid.UUID
+	OwnerUserID             uuid.UUID
+	Name                    string
+	Plan                    WorkspacePlan
+	BillingCustomerIDStripe string
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
+	DeletedAt               *time.Time
+}
+
+// WorkspaceMember mirrors one row in workspace_members.
+type WorkspaceMember struct {
+	WorkspaceID uuid.UUID
+	UserID      uuid.UUID
+	Role        Role
+	JoinedAt    time.Time
+}
+
+// WorkspaceMemberDetail is a join of WorkspaceMember with the underlying
+// User for the "Members" list in the management plane.
+type WorkspaceMemberDetail struct {
+	Member       WorkspaceMember
+	PrimaryEmail string
+	DisplayName  string
+}
+
+// WorkspaceInvite represents a pending invitation for an email that
+// hasn't signed up yet. Consumed when the invitee redeems a magic-link.
+type WorkspaceInvite struct {
+	ID           uuid.UUID
+	WorkspaceID  uuid.UUID
+	InviteeEmail string
+	Role         Role
+	InvitedBy    uuid.UUID
+	CreatedAt    time.Time
+	ConsumedAt   *time.Time
+}

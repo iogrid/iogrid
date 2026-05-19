@@ -94,6 +94,61 @@ export default function LandingPage() {
       <ComparisonTable />
 
       <section className="container-page py-16">
+        <div className="mx-auto max-w-4xl">
+          <div className="rounded-2xl border border-neutral-200 bg-white p-8 shadow-sm md:p-12">
+            <span className="pill bg-primary-50 text-primary-700">
+              First customer
+            </span>
+            <h2 className="h-section mt-4 text-neutral-900">
+              Dynolabs vCard fixed its contact-enrichment import
+              from 0% to &gt;90% — and pays ~10× less than Proxycurl.
+            </h2>
+            <p className="mt-4 text-lead">
+              vCard&rsquo;s LinkedIn-profile lookups used to hit datacenter-IP
+              rate limits and silently return empty. Routing the same fetch
+              through iogrid&rsquo;s residential-bandwidth mesh restored the
+              field — name, title, company come back end-to-end at p95 ≈ 600 ms.
+              vCard is OpenOva&rsquo;s contacts app and the canonical Phase 0
+              internal customer.
+            </p>
+            <ul className="mt-6 grid gap-4 text-sm text-neutral-700 md:grid-cols-3">
+              <li className="rounded-lg bg-neutral-50 p-4">
+                <strong className="block text-neutral-900">~$0.30 / GB</strong>
+                vs. Proxycurl&rsquo;s $0.49 / call — roughly 10× cheaper at
+                vCard&rsquo;s expected volume.
+              </li>
+              <li className="rounded-lg bg-neutral-50 p-4">
+                <strong className="block text-neutral-900">p95 ≈ 600 ms</strong>
+                vs. ~1 s for incumbent LinkedIn-enrichment SaaS.
+              </li>
+              <li className="rounded-lg bg-neutral-50 p-4">
+                <strong className="block text-neutral-900">Customer-controlled ToS</strong>
+                You own destination headers + posture, same model as
+                Bright Data / Oxylabs.
+              </li>
+            </ul>
+            <p className="mt-6 text-sm text-neutral-500">
+              See the runnable demo at{" "}
+              <a
+                href="https://github.com/iogrid/iogrid/tree/main/examples/phase0-vcard-customer"
+                className="font-medium text-primary-700 hover:underline"
+              >
+                examples/phase0-vcard-customer
+              </a>{" "}
+              or the full walkthrough in{" "}
+              <a
+                href="https://github.com/iogrid/iogrid/blob/main/docs/PHASE0_FIRST_CUSTOMER.md"
+                className="font-medium text-primary-700 hover:underline"
+              >
+                docs/PHASE0_FIRST_CUSTOMER.md
+              </a>
+              .
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section className="container-page py-16">
         <div className="mx-auto max-w-3xl text-center">
           <h2 className="h-section text-neutral-900">Install in two minutes.</h2>
           <p className="mt-4 text-lead">

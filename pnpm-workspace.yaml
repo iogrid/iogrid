@@ -3,3 +3,8 @@ packages:
   - "marketing"
   - "docs-site"
   - "sdks/typescript"
+
+# Note: workspace-wide pnpm overrides live in the root /package.json
+# under `pnpm.overrides` (see PR #160 for rationale). Repeating them
+# here would conflict with the package.json copy — pnpm honours one
+# location only.

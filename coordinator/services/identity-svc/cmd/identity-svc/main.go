@@ -196,6 +196,7 @@ func main() {
 	}
 
 	api := handlers.New(authSvc, st, logger)
+	wsHandler := handlers.NewWorkspaceHandler(st)
 
 	// --- background: session cleanup ---------------------------------
 	cleanupCtx, cancelCleanup := context.WithCancel(ctx)
@@ -209,7 +210,7 @@ func main() {
 		Logger:      logger,
 		Health:      hr,
 		ListenAddr:  cfg.ListenAddr,
-		Mount:       server.MountFunc(server.MountConfig{API: api, Signer: signer}),
+		Mount:       server.MountFunc(server.MountConfig{API: api, Workspace: wsHandler, Signer: signer}),
 	}); err != nil {
 		logger.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)

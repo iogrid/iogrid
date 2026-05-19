@@ -1,0 +1,22 @@
+# Kustomize overlay for the Phase 0 vCard LinkedIn-enrichment demo.
+#
+# Apply with:
+#   kubectl create namespace vcard-enrich
+#   kubectl create secret generic iogrid-creds -n vcard-enrich \
+#     --from-literal=api-key=ig_live_xxxx \
+#     --from-literal=workspace=vcard-prod
+#   kubectl apply -k examples/phase0-vcard-customer
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: vcard-enrich
+
+resources:
+  - cronjob.yaml
+
+# Common labels stamped on every resource — picks up in the audit log,
+# in NetworkPolicy selectors, and in Prometheus relabel rules.
+commonLabels:
+  app.kubernetes.io/name: vcard-linkedin-enrich
+  app.kubernetes.io/part-of: iogrid-phase0

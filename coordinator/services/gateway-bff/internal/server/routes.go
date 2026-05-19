@@ -51,6 +51,10 @@ type Deps struct {
 	// configured with the same secret). When empty the endpoint
 	// relies on NetworkPolicy + in-cluster trust.
 	TransparencyPublishToken string
+	// Workspaces is the optional client over identity-svc's
+	// WorkspaceService. When nil the /api/v1/workspaces tree returns
+	// 503 — useful in dev environments where identity-svc isn't up.
+	Workspaces handlers.WorkspaceClient
 }
 
 // Mount builds the routes from the supplied Deps. Pass the returned
@@ -67,6 +71,13 @@ func Mount(deps Deps) func(chi.Router) {
 		// the dev-mode boot path. Production main.go can override
 		// with a Redis/DB-backed implementation.
 		api.Transparency = handlers.NewMemoryTransparencyStore()
+	}
+	api.Workspaces = deps.Workspaces
+	// Phase 0: default to an in-memory customer-onboard store so
+	// POST /api/v1/onboard/customer works end-to-end without further
+	// wiring. Phase 1 swaps this for the identity-svc-backed impl.
+	if api.CustomerOnboardStore == nil {
+		api.CustomerOnboardStore = handlers.NewMemoryCustomerOnboardStore()
 	}
 
 	return func(r chi.Router) {
@@ -105,6 +116,16 @@ func Mount(deps Deps) func(chi.Router) {
 				r.Post("/sign-in/magic/complete", api.CompleteMagicLink)
 				r.Post("/sign-out", api.SignOut)
 				r.Get("/sessions", api.ListSessions)
+
+				// Auto-update operator surface (#59).
+				r.Route("/updates", func(r chi.Router) {
+					r.Use(auth.RequireAuth)
+					r.Get("/", api.GetUpdates)
+					r.Post("/preferences", api.SaveUpdatePreferences)
+					r.Post("/check", api.TriggerUpdateCheck)
+					r.Post("/apply", api.ApplyPendingUpdate)
+					r.Post("/rollback", api.RollbackUpdate)
+				})
 			})
 
 			// /onboard ----------------------------------------------------
@@ -112,11 +133,17 @@ func Mount(deps Deps) func(chi.Router) {
 			// browser user to be signed in; /poll is called by the daemon
 			// itself (no Bearer token — proof-of-liveness via the daemon
 			// pubkey it includes in the body). EPIC #5.
+			//
+			// /customer is the self-service B2B customer signup endpoint —
+			// docs/ROADMAP.md Phase 0 deliverable B. Reserves a workspace
+			// handle + mints the first API key + returns the proxy entry
+			// point. Plaintext API key returned ONCE.
 			r.Route("/onboard", func(r chi.Router) {
 				r.Group(func(r chi.Router) {
 					r.Use(auth.RequireAuth)
 					r.Post("/start", api.StartOnboard)
 					r.Post("/complete", api.CompleteOnboard)
+					r.Post("/customer", api.OnboardCustomer)
 				})
 				r.Post("/poll", api.PollOnboard)
 			})
@@ -167,6 +194,22 @@ func Mount(deps Deps) func(chi.Router) {
 					})
 				}
 				r.Post("/publish", api.PublishTransparencyReport)
+			})
+
+			// /workspaces ---------------------------------------------
+			// Workspace bounded-context (#146). Auth-required; proxies
+			// to identity-svc WorkspaceService.
+			r.Route("/workspaces", func(r chi.Router) {
+				r.Use(auth.RequireAuth)
+				r.Get("/", api.ListWorkspaces)
+				r.Post("/", api.CreateWorkspace)
+				r.Get("/{id}", api.GetWorkspace)
+				r.Patch("/{id}", api.UpdateWorkspace)
+				r.Delete("/{id}", api.DeleteWorkspace)
+				r.Get("/{id}/members", api.ListMembers)
+				r.Post("/{id}/members", api.AddMember)
+				r.Patch("/{id}/members/{userID}", api.UpdateMemberRole)
+				r.Delete("/{id}/members/{userID}", api.RemoveMember)
 			})
 
 			// /vpn --------------------------------------------------------

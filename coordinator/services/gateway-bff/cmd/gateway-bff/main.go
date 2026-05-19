@@ -112,6 +112,7 @@ func main() {
 		AnonLimiter:              anonLim,
 		Logger:                   logger,
 		VPNGateway:               vpnProxy,
+		Workspaces:               clientSet.Workspaces,
 		Transparency:             transparencyStore,
 		TransparencyPublishToken: os.Getenv("TRANSPARENCY_PUBLISH_TOKEN"),
 	}
