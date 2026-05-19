@@ -53,6 +53,10 @@ type API struct {
 	// initialised on first request via ensureUpdatesStore. Issue #59.
 	updates     *updatesStore
 	updatesOnce sync.Once
+	// OffRamp is the thin HTTP proxy to billing-svc's /v1/offramp/*
+	// surface. Optional — when nil the /api/v1/offramp/* + the
+	// /api/v1/webhooks/offramp/* routes respond 503.
+	OffRamp *OffRampProxy
 }
 
 // New constructs an API. logger defaults to slog.Default(). store

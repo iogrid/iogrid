@@ -97,6 +97,12 @@ func main() {
 		vpnProxy = handlers.NewVPNGatewayProxy(cfg.VPNGatewayURL)
 	}
 
+	// Off-ramp HTTP proxy → billing-svc /v1/offramp/* (issue #167/#169/#170).
+	var offRampProxy *handlers.OffRampProxy
+	if cfg.BillingSvcURL != "" {
+		offRampProxy = handlers.NewOffRampProxy(cfg.BillingSvcURL, httpClient)
+	}
+
 	deps := server.Deps{
 		Config:        cfg,
 		Clients:       clientSet,
@@ -107,6 +113,7 @@ func main() {
 		Logger:        logger,
 		VPNGateway:    vpnProxy,
 		Workspaces:    clientSet.Workspaces,
+		OffRamp:       offRampProxy,
 	}
 
 	if err := sharedserver.Run(ctx, sharedserver.Options{

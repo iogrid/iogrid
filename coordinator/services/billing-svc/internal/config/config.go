@@ -68,6 +68,27 @@ type Config struct {
 	// DailyPayoutEnabled — when true, the in-process daily cron is started
 	// (rather than relying on an external k8s CronJob). Default false.
 	DailyPayoutEnabled bool
+
+	// --- Off-ramp adapters (issue #167 / #169 / #170) --------------------
+	//
+	// OffRampProviders is the comma-separated list of provider names to
+	// register at boot. Order matters — the web UI displays providers in
+	// this order, so put the default real implementation first.
+	//   "moonpay,sociable-cash,coinbase"
+	// Empty disables the /api/v1/offramp/* routes (they return 503).
+	OffRampProviders []string
+
+	// MoonPay — default real off-ramp implementation. See
+	// internal/offramp/moonpay.
+	MoonPayAPIKey        string
+	MoonPayWebhookSecret string
+	MoonPayBaseURL       string
+
+	// Sociable Cash — documented contract stub; the real adapter is
+	// implemented in the sociable-cloud/cash repo and replaces this
+	// package's body without changing the offramp.Provider interface.
+	CashWebhookSecret string
+	CashBaseURL       string
 }
 
 // Defaults applied when env vars are empty.
@@ -103,6 +124,13 @@ func Load() (*Config, error) {
 		SquadsMultisigPubkey:  os.Getenv("SQUADS_MULTISIG_PUBKEY"),
 		DailyPayoutCron:       getenv("DAILY_PAYOUT_CRON", defaultDailyPayoutCron),
 		DailyPayoutEnabled:    getenvBool("DAILY_PAYOUT_ENABLED", false),
+
+		OffRampProviders:     splitCSV(os.Getenv("OFFRAMP_PROVIDERS")),
+		MoonPayAPIKey:        os.Getenv("MOONPAY_API_KEY"),
+		MoonPayWebhookSecret: os.Getenv("MOONPAY_WEBHOOK_SECRET"),
+		MoonPayBaseURL:       os.Getenv("MOONPAY_BASE_URL"),
+		CashWebhookSecret:    os.Getenv("CASH_WEBHOOK_SECRET"),
+		CashBaseURL:          os.Getenv("CASH_BASE_URL"),
 	}
 
 	// Required for any real Stripe operation. Skipped silently if the
@@ -174,6 +202,24 @@ func loadPriceIDs() map[string]string {
 	for _, tier := range []string{"PAYG", "STARTER", "GROWTH", "ENTERPRISE"} {
 		if v := os.Getenv("STRIPE_PRICE_" + tier); v != "" {
 			out[tier] = v
+		}
+	}
+	return out
+}
+
+// splitCSV splits a comma-separated env value into trimmed,
+// case-folded entries. "moonpay, Sociable-Cash" → ["moonpay","sociable-cash"].
+func splitCSV(v string) []string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return nil
+	}
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.ToLower(strings.TrimSpace(p))
+		if p != "" {
+			out = append(out, p)
 		}
 	}
 	return out
