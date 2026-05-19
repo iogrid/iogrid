@@ -43,6 +43,10 @@ sha2 = "0.10"
 base64 = "0.22"
 semver = { version = "1", features = ["serde"] }
 ureq = { version = "2.10", default-features = false, features = ["tls"] }
+# rustls — main.rs calls CryptoProvider::install_default() at startup
+# to avoid the "Could not automatically determine the process-level
+# CryptoProvider from Rustls crate features" panic.
+rustls = { workspace = true }
 
 iogrid-transport = { workspace = true }
 iogrid-routing = { workspace = true }

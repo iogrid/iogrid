@@ -65,6 +65,18 @@ enum Cmd {
 #[tokio::main]
 async fn main() -> Result<()> {
     init_tracing();
+    // rustls 0.23 no longer auto-selects a CryptoProvider — it requires the
+    // process to install one explicitly. Both `ring` and `aws-lc-rs` are
+    // valid; we pin `ring` to match the dev-loop story (no system libcrypto
+    // dependency) + because tokio-rustls in our deps already pulls it in.
+    // Without this, every TLS handshake (live dispatch + auto-update fetch)
+    // panics with "Could not automatically determine the process-level
+    // CryptoProvider from Rustls crate features".
+    if rustls::crypto::CryptoProvider::get_default().is_none() {
+        rustls::crypto::ring::default_provider()
+            .install_default()
+            .expect("rustls: failed to install default CryptoProvider");
+    }
     let cli = Cli::parse();
     let state_dir = cli.state_dir.unwrap_or_else(default_state_dir);
 
