@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  iogrid Phase 0 reverse-SSH tunnel (Mac -> bastion).
+
+  This LaunchAgent runs autossh under the installing user's GUI session
+  and exposes the Mac's sshd back to the bastion at port 2223 via a
+  reverse forward over a hardened SSH tunnel.
+
+  Phase 0 use case: lets the bastion-side automation (Claude Code agents,
+  founder support tooling) reach the founder's Mac to drive vCard /
+  desktop integration work without exposing the Mac's sshd to the
+  public internet.
+
+  Hardening summary:
+    - autossh -M 0 (no monitor port — rely on ServerAlive*).
+    - ServerAliveInterval=30 + ServerAliveCountMax=3 => 90s dead-peer
+      detection, then autossh respawns ssh.
+    - ExitOnForwardFailure=yes — if the remote port is already bound
+      (e.g. stale tunnel) we exit immediately rather than running a
+      half-broken session; autossh retries with backoff.
+    - StrictHostKeyChecking=yes + dedicated UserKnownHostsFile pinned
+      under ~/.iogrid/ — guarantees we only connect to the real bastion.
+    - IdentitiesOnly=yes — never offer agent-forwarded keys; only the
+      pinned ~/.iogrid/id_ed25519 may authenticate.
+    - KeepAlive=true + ThrottleInterval=15 — launchd respawns autossh if
+      it ever exits, but no faster than 15s (avoids hammering the bastion
+      if the network is in a flap).
+
+  Paths intentionally absolute (Homebrew arm64 default + ~/.iogrid/):
+  to install on Intel Macs, change /opt/homebrew/bin/autossh to
+  /usr/local/bin/autossh.
+
+  See docs/PHASE0-SETUP.md for the full setup walkthrough (generating
+  the keypair, copying the public key to the bastion, etc.).
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>org.iogrid.tunnel</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/autossh</string>
+    <string>-M</string><string>0</string>
+    <string>-N</string>
+    <string>-i</string><string>__USER_HOME__/.iogrid/id_ed25519</string>
+    <string>-o</string><string>ExitOnForwardFailure=yes</string>
+    <string>-o</string><string>ServerAliveInterval=30</string>
+    <string>-o</string><string>ServerAliveCountMax=3</string>
+    <string>-o</string><string>TCPKeepAlive=yes</string>
+    <string>-o</string><string>StrictHostKeyChecking=yes</string>
+    <string>-o</string><string>UserKnownHostsFile=__USER_HOME__/.iogrid/known_hosts</string>
+    <string>-o</string><string>IdentitiesOnly=yes</string>
+    <string>-R</string><string>__REMOTE_PORT__:localhost:22</string>
+    <string>__BASTION_USER__@__BASTION_HOST__</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>15</integer>
+  <key>StandardOutPath</key><string>__USER_HOME__/.iogrid/autossh.log</string>
+  <key>StandardErrorPath</key><string>__USER_HOME__/.iogrid/autossh.err</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>AUTOSSH_GATETIME</key><string>30</string>
+    <key>AUTOSSH_POLL</key><string>60</string>
+    <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+</dict>
+</plist>
