@@ -16,8 +16,13 @@
  *   3. nothing — the gateway falls through to its anonymous limiter.
  */
 
+// Accept either env name — the original code expected
+// NEXT_PUBLIC_GATEWAY_URL, but Phase 0 web Secret ships
+// NEXT_PUBLIC_API_BASE_URL. Honour whichever is set.
 const DEFAULT_BASE_URL =
-  process.env.NEXT_PUBLIC_GATEWAY_URL ?? "http://localhost:8090";
+  process.env.NEXT_PUBLIC_GATEWAY_URL ??
+  process.env.NEXT_PUBLIC_API_BASE_URL ??
+  "http://localhost:8090";
 
 export interface ApiClientOptions {
   baseUrl?: string;
@@ -46,7 +51,12 @@ export class ApiClient {
   constructor(opts: ApiClientOptions = {}) {
     this.baseUrl = (opts.baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, "");
     this.token = opts.token;
-    this.fetcher = opts.fetcher ?? fetch;
+    // BUG: assigning `fetch` to an instance property loses its `this`
+    // binding to `Window` / `WorkerGlobalScope`. Calling
+    // `this.fetcher(url, opts)` then throws
+    //   TypeError: Failed to execute 'fetch' on 'Window': Illegal invocation
+    // Fix: bind to globalThis so the runtime can call it stand-alone.
+    this.fetcher = opts.fetcher ?? fetch.bind(globalThis);
   }
 
   private headers(extra?: HeadersInit): HeadersInit {
