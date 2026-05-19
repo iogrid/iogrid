@@ -728,8 +728,8 @@ pub async fn pre_resolve_addr(
     if !coordinator_url.starts_with("https://") {
         return Err(TransportError::InvalidUrl(coordinator_url.to_string()));
     }
-    let parsed = url::Url::parse(coordinator_url)
-        .map_err(|e| TransportError::InvalidUrl(e.to_string()))?;
+    let parsed =
+        url::Url::parse(coordinator_url).map_err(|e| TransportError::InvalidUrl(e.to_string()))?;
     let host = parsed
         .host_str()
         .ok_or_else(|| TransportError::InvalidUrl("coordinator URL has no host".into()))?
@@ -1357,7 +1357,9 @@ mod tests {
 
     #[tokio::test]
     async fn pre_resolve_addr_rejects_plaintext_url() {
-        let err = pre_resolve_addr("http://insecure.example").await.unwrap_err();
+        let err = pre_resolve_addr("http://insecure.example")
+            .await
+            .unwrap_err();
         assert!(
             matches!(err, TransportError::InvalidUrl(_)),
             "expected InvalidUrl, got {err:?}"
@@ -1427,9 +1429,7 @@ mod tests {
             b"-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n",
         )
         .unwrap();
-        let arc = Arc::new(RwLock::new(
-            "127.0.0.1:1".parse::<SocketAddr>().unwrap(),
-        ));
+        let arc = Arc::new(RwLock::new("127.0.0.1:1".parse::<SocketAddr>().unwrap()));
         let cfg = ConnectConfig {
             coordinator_url: "https://this-host-must-not-exist-253.invalid:443".into(),
             cert_pem: cert,

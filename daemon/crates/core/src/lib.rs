@@ -406,8 +406,7 @@ impl Supervisor {
                 // heartbeat + ruleset become real gRPC streams the
                 // permit prevents three parallel connect attempts
                 // racing through the same blocking-getaddrinfo pool.
-                connect_cfg.connect_semaphore =
-                    Some(Arc::new(tokio::sync::Semaphore::new(1)));
+                connect_cfg.connect_semaphore = Some(Arc::new(tokio::sync::Semaphore::new(1)));
 
                 let hello = iogrid_transport::DispatchHello {
                     provider_id: self.config.provider_id.clone(),
