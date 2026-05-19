@@ -1,0 +1,80 @@
+name: example-vcard-ci
+
+# CI for the Phase 0 vCard LinkedIn-enrichment customer demo.
+# See docs/PHASE0_FIRST_CUSTOMER.md + examples/phase0-vcard-customer/README.md.
+#
+# - vet + test + build the Go client
+# - build the demo Docker image (no push — Phase 1 will push to ghcr.io)
+# - CI tests run -dry-run mode only; we DO NOT scrape LinkedIn from CI
+#   (see README.md's "LinkedIn ToS / scraping gray area" section).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "examples/phase0-vcard-customer/**"
+      - ".github/workflows/example-vcard-ci.yml"
+  pull_request:
+    paths:
+      - "examples/phase0-vcard-customer/**"
+      - ".github/workflows/example-vcard-ci.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: example-vcard-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Go (vet / test / build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache-dependency-path: examples/phase0-vcard-customer/go.sum
+
+      - name: go vet
+        working-directory: examples/phase0-vcard-customer
+        run: go vet ./...
+
+      - name: go test
+        working-directory: examples/phase0-vcard-customer
+        run: go test -race -count=1 ./...
+
+      - name: go build
+        working-directory: examples/phase0-vcard-customer
+        run: go build -o /tmp/vcard-enrich ./...
+
+      - name: dry-run smoke
+        working-directory: examples/phase0-vcard-customer
+        run: |
+          /tmp/vcard-enrich -dry-run -vanity satyanadella | tee /tmp/result.json
+          grep -q '"name":"Satya Nadella"' /tmp/result.json
+          grep -q '"proxy_used":false' /tmp/result.json
+          grep -q '"provider_country":"FIXTURE"' /tmp/result.json
+
+  docker:
+    name: Docker build (no push)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: go
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: examples/phase0-vcard-customer
+          file: examples/phase0-vcard-customer/Dockerfile
+          push: false
+          tags: vcard-enrich:ci
+          cache-from: type=gha,scope=example-vcard
+          cache-to: type=gha,scope=example-vcard,mode=max

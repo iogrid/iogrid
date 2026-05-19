@@ -57,6 +57,12 @@ func Mount(deps Deps) func(chi.Router) {
 	api := handlers.New(deps.Clients, deps.APIKeyStore, deps.Logger)
 	api.VPNGateway = deps.VPNGateway
 	api.Workspaces = deps.Workspaces
+	// Phase 0: default to an in-memory customer-onboard store so
+	// POST /api/v1/onboard/customer works end-to-end without further
+	// wiring. Phase 1 swaps this for the identity-svc-backed impl.
+	if api.CustomerOnboardStore == nil {
+		api.CustomerOnboardStore = handlers.NewMemoryCustomerOnboardStore()
+	}
 
 	return func(r chi.Router) {
 		// Index lives under /v1 for symmetry with the other services
@@ -94,11 +100,17 @@ func Mount(deps Deps) func(chi.Router) {
 			// browser user to be signed in; /poll is called by the daemon
 			// itself (no Bearer token — proof-of-liveness via the daemon
 			// pubkey it includes in the body). EPIC #5.
+			//
+			// /customer is the self-service B2B customer signup endpoint —
+			// docs/ROADMAP.md Phase 0 deliverable B. Reserves a workspace
+			// handle + mints the first API key + returns the proxy entry
+			// point. Plaintext API key returned ONCE.
 			r.Route("/onboard", func(r chi.Router) {
 				r.Group(func(r chi.Router) {
 					r.Use(auth.RequireAuth)
 					r.Post("/start", api.StartOnboard)
 					r.Post("/complete", api.CompleteOnboard)
+					r.Post("/customer", api.OnboardCustomer)
 				})
 				r.Post("/poll", api.PollOnboard)
 			})

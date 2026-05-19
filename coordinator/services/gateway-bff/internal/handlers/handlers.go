@@ -35,6 +35,11 @@ type API struct {
 	// onboard.go. Optional — when nil the onboarding endpoints respond
 	// 503 onboard_store_unavailable. Override with WithOnboardStore.
 	OnboardStore OnboardStore
+	// CustomerOnboardStore backs POST /api/v1/onboard/customer (self-service
+	// B2B signup). Optional — when nil the endpoint responds 503
+	// customer_onboard_store_unavailable. Override with
+	// WithCustomerOnboardStore. Phase 0 deliverable B per docs/ROADMAP.md.
+	CustomerOnboardStore CustomerOnboardStore
 	// VPNGateway is the HTTP proxy to the consumer-VPN microservice.
 	// Optional — when nil the /api/v1/vpn/config-for-platform endpoint
 	// responds 503 vpn_gateway_unavailable.
