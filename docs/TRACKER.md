@@ -42,7 +42,9 @@ flowchart LR
   classDef deferred fill:#6e7781,stroke:#4f555c,color:#fff,stroke-width:2px
   classDef blocked  fill:#8250df,stroke:#5e1ed1,color:#fff,stroke-width:2px
 
-  %% ============= CORE PLATFORM EPICS =============
+
+
+  %% CORE PLATFORM EPICS
   E1["EPIC 1 Rust provider daemon"]:::flight
   E2["EPIC 2 Go coordinator microservices"]:::done
   E3["EPIC 3 Next.js 15 web plane"]:::flight
@@ -52,12 +54,16 @@ flowchart LR
   E7["EPIC 7 Anti-abuse pre-flight"]:::open
   E73["EPIC 73 Infra k8s+Flux GitOps"]:::done
 
-  %% ============= PRODUCT EPICS =============
+
+
+  %% PRODUCT EPICS
   E74["EPIC 74 Customer API + OpenAPI + SDKs"]:::done
   E75["EPIC 75 Consumer VPN gateway"]:::done
   E76["EPIC 76 Observability + SLOs"]:::done
 
-  %% ============= TOKEN + BRAND EPICS =============
+
+
+  %% TOKEN + BRAND EPICS
   E77["EPIC 77 Brand identity + marketing"]:::flight
   E78["EPIC 78 Legal scaffolding drafts"]:::done
   E87["EPIC 87 \$GRID Solana token + 5 programs"]:::flight
@@ -66,7 +72,9 @@ flowchart LR
   E150["EPIC 150 E2E kind smoke harness"]:::done
   E167["EPIC 167 Sociable Cash off-ramp partner"]:::flight
 
-  %% ============= EPIC DEPENDENCIES =============
+
+
+  %% EPIC DEPENDENCIES
   E2 --> E73
   E2 --> E74
   E3 --> E4
@@ -82,7 +90,9 @@ flowchart LR
   E150 --> E2
   E150 --> E1
 
-  %% ============= STILL-OPEN SUB-ISSUES =============
+
+
+  %% STILL-OPEN SUB-ISSUES
   %% Lane A — \$GRID TGE prerequisites
   I104["104 Reg-D/Reg-S pre-TGE raise optional"]:::deferred
   I105["105 Quarterly token-holder transparency report"]:::open
@@ -117,37 +127,36 @@ flowchart LR
   E5 --> I80
   E1 --> I79
 
-  %% ============= CLICK MAPPINGS =============
-  click E1   "https://github.com/iogrid/iogrid/issues/1"
-  click E2   "https://github.com/iogrid/iogrid/issues/2"
-  click E3   "https://github.com/iogrid/iogrid/issues/3"
-  click E4   "https://github.com/iogrid/iogrid/issues/4"
-  click E5   "https://github.com/iogrid/iogrid/issues/5"
-  click E6   "https://github.com/iogrid/iogrid/issues/6"
-  click E7   "https://github.com/iogrid/iogrid/issues/7"
-  click E73  "https://github.com/iogrid/iogrid/issues/73"
-  click E74  "https://github.com/iogrid/iogrid/issues/74"
-  click E75  "https://github.com/iogrid/iogrid/issues/75"
-  click E76  "https://github.com/iogrid/iogrid/issues/76"
-  click E77  "https://github.com/iogrid/iogrid/issues/77"
-  click E78  "https://github.com/iogrid/iogrid/issues/78"
-  click E87  "https://github.com/iogrid/iogrid/issues/87"
+  click E1 "https://github.com/iogrid/iogrid/issues/1"
+  click E2 "https://github.com/iogrid/iogrid/issues/2"
+  click E3 "https://github.com/iogrid/iogrid/issues/3"
+  click E4 "https://github.com/iogrid/iogrid/issues/4"
+  click E5 "https://github.com/iogrid/iogrid/issues/5"
+  click E6 "https://github.com/iogrid/iogrid/issues/6"
+  click E7 "https://github.com/iogrid/iogrid/issues/7"
+  click E73 "https://github.com/iogrid/iogrid/issues/73"
+  click E74 "https://github.com/iogrid/iogrid/issues/74"
+  click E75 "https://github.com/iogrid/iogrid/issues/75"
+  click E76 "https://github.com/iogrid/iogrid/issues/76"
+  click E77 "https://github.com/iogrid/iogrid/issues/77"
+  click E78 "https://github.com/iogrid/iogrid/issues/78"
+  click E87 "https://github.com/iogrid/iogrid/issues/87"
   click E106 "https://github.com/iogrid/iogrid/issues/106"
   click E115 "https://github.com/iogrid/iogrid/issues/115"
   click E150 "https://github.com/iogrid/iogrid/issues/150"
   click E167 "https://github.com/iogrid/iogrid/issues/167"
-  click I35  "https://github.com/iogrid/iogrid/issues/35"
-  click I79  "https://github.com/iogrid/iogrid/issues/79"
-  click I80  "https://github.com/iogrid/iogrid/issues/80"
-  click I81  "https://github.com/iogrid/iogrid/issues/81"
-  click I82  "https://github.com/iogrid/iogrid/issues/82"
+  click I35 "https://github.com/iogrid/iogrid/issues/35"
+  click I79 "https://github.com/iogrid/iogrid/issues/79"
+  click I80 "https://github.com/iogrid/iogrid/issues/80"
+  click I81 "https://github.com/iogrid/iogrid/issues/81"
+  click I82 "https://github.com/iogrid/iogrid/issues/82"
   click I104 "https://github.com/iogrid/iogrid/issues/104"
   click I105 "https://github.com/iogrid/iogrid/issues/105"
   click I142 "https://github.com/iogrid/iogrid/issues/142"
   click I158 "https://github.com/iogrid/iogrid/issues/158"
   click I168 "https://github.com/iogrid/iogrid/issues/168"
   click I172 "https://github.com/iogrid/iogrid/issues/172"
-  click I3a  "https://github.com/iogrid/iogrid/issues/3"
+  click I3a "https://github.com/iogrid/iogrid/issues/3"
 ```
 
 ### Concrete gaps inside the still-open EPICs (audit findings, 2026-05-19)
