@@ -37,6 +37,8 @@
     "storybook-static",
     "playwright-report",
     "test-results",
-    "tests/**/*.spec.ts"
+    "tests/**/*.spec.ts",
+    "src/**/*.stories.tsx",
+    ".storybook"
   ]
 }

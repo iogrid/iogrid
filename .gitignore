@@ -105,6 +105,16 @@ sdks/java/.gradle/
 sdks/java/build/
 sdks/java/out/
 
-# pnpm hoists workspace deps to the repo root.
-/node_modules/
-
+# Web (Next.js management plane) — safety net on top of web/.gitignore.
+# pnpm install at the repo root hoists shared deps into the root
+# node_modules/ (covered above) and writes a single pnpm-lock.yaml at
+# the root. Neither belongs in git — CI installs fresh and per-app
+# Docker images use their own copies.
+web/node_modules/
+web/.next/
+web/out/
+web/coverage/
+web/playwright-report/
+web/test-results/
+web/storybook-static/
+web/*.tsbuildinfo

@@ -1,36 +1,65 @@
-import Link from "next/link";
+import { auth, signIn } from "@/lib/auth";
+import { PortalShell } from "@/components/layout/portal-shell";
+import { ACCOUNT_NAV } from "@/app/account/nav";
+import { ProfileCard } from "./profile-card";
+import { SignInPanel } from "./sign-in";
 
-export default function AccountPage() {
+export const metadata = { title: "Account — iogrid" };
+
+/**
+ * /account — gateway for the identity surface.
+ *
+ *   - Unauthenticated: render the sign-in panel (Google OAuth + magic link).
+ *   - Authenticated: render the profile card + section nav.
+ *
+ * NextAuth v5's `auth()` works inside a Server Component, so the
+ * branching happens on the server and we never ship the sign-in form
+ * to authenticated users.
+ */
+export default async function AccountPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ callbackUrl?: string }>;
+}) {
+  const session = await auth();
+  const { callbackUrl } = await searchParams;
+
+  if (!session?.user) {
+    async function signInWithGoogle() {
+      "use server";
+      await signIn("google", { redirectTo: callbackUrl ?? "/" });
+    }
+    async function signInWithEmail(formData: FormData) {
+      "use server";
+      const email = String(formData.get("email") ?? "");
+      if (!email) return;
+      await signIn("nodemailer", {
+        email,
+        redirectTo: callbackUrl ?? "/",
+      });
+    }
+    return (
+      <SignInPanel
+        signInWithGoogle={signInWithGoogle}
+        signInWithEmail={signInWithEmail}
+        callbackUrl={callbackUrl}
+      />
+    );
+  }
+
   return (
-    <main className="mx-auto max-w-md px-6 py-16">
-      <Link href="/" className="text-sm text-zinc-500 hover:underline">
-        ← Back
-      </Link>
-      <h1 className="mt-6 text-3xl font-bold">Sign in to iogrid</h1>
-      <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-        One account for both providing and consuming compute. Sign in with
-        Google or email — your role (provider / customer / both) is chosen
-        after first login.
-      </p>
-
-      <div className="mt-8 space-y-3">
-        <button
-          type="button"
-          className="w-full rounded-md border border-zinc-300 px-4 py-3 text-sm font-medium hover:bg-zinc-50"
-        >
-          Continue with Google
-        </button>
-        <button
-          type="button"
-          className="w-full rounded-md border border-zinc-300 px-4 py-3 text-sm font-medium hover:bg-zinc-50"
-        >
-          Continue with email
-        </button>
-      </div>
-
-      <p className="mt-6 text-xs text-zinc-500">
-        By continuing you agree to the iogrid Terms and Acceptable Use Policy.
-      </p>
-    </main>
+    <PortalShell
+      badge="Account"
+      title="Profile"
+      subtitle="The identity used for both the provider and customer sides of iogrid."
+      nav={ACCOUNT_NAV}
+      activeHref="/account"
+    >
+      <ProfileCard
+        name={session.user.name ?? ""}
+        email={session.user.email ?? ""}
+        image={session.user.image ?? null}
+      />
+    </PortalShell>
   );
 }
