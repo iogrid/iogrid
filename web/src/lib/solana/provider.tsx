@@ -24,11 +24,15 @@ import {
 } from "@solana/wallet-adapter-react";
 import { WalletModalProvider } from "@solana/wallet-adapter-react-ui";
 import type { Adapter } from "@solana/wallet-adapter-base";
-import {
-  PhantomWalletAdapter,
-  SolflareWalletAdapter,
-  TrustWalletAdapter,
-} from "@solana/wallet-adapter-wallets";
+// Adapters are imported from their individual packages rather than
+// from the `@solana/wallet-adapter-wallets` umbrella because the
+// umbrella pulls every adapter — including Ledger's `usb@2.x` native
+// addon — which fails the Docker `node:22-alpine` build (no Python /
+// build-essential available). Backpack, Glow, and other Wallet
+// Standard wallets still register automatically via the standard.
+import { PhantomWalletAdapter } from "@solana/wallet-adapter-phantom";
+import { SolflareWalletAdapter } from "@solana/wallet-adapter-solflare";
+import { TrustWalletAdapter } from "@solana/wallet-adapter-trust";
 
 import { SOLANA_RPC_URL } from "./config";
 
