@@ -1,0 +1,112 @@
+// Customer API keys + validation.
+//
+// API keys are the credential customers present to the proxy-gateway
+// (SOCKS5 RFC 1929 password / HTTP CONNECT Proxy-Authorization) and to
+// the build-gateway (Authorization: Bearer). billing-svc is the source
+// of truth: keys are scoped to a workspace, carry a subscription tier
+// (which gates rate-limit ceilings + allowed_categories), and may be
+// individually revoked without affecting the workspace.
+//
+// proxy-gateway + build-gateway call ValidateApiKey on every connection
+// (cached locally for ~5 minutes — see proxy-gateway internal/auth).
+// Mint/list/revoke calls are routed via gateway-bff after bearer-auth
+// against the BFF session.
+syntax = "proto3";
+
+package iogrid.billing.v1;
+
+import "google/protobuf/timestamp.proto";
+import "iogrid/common/v1/types.proto";
+import "iogrid/billing/v1/subscription.proto";
+
+option go_package = "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/billing/v1;billingv1";
+
+// ApiKey is the redacted record returned by Create/List. The secret
+// material is only exposed once, on Create, via plaintext_key.
+message ApiKey {
+  iogrid.common.v1.UUID id = 1;
+  iogrid.common.v1.UUID workspace_id = 2;
+  // Free-form label the customer assigned, e.g. "prod-scraper".
+  string label = 3;
+  // Last 4 chars of the plaintext key — safe to display in the UI.
+  string last_four = 4;
+  // SubscriptionTier inherited from the workspace at the moment of
+  // validation. Cached on the key for fast validation.
+  SubscriptionTier tier = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp last_used_at = 7;
+  // Set when the key was revoked; nil when active.
+  google.protobuf.Timestamp revoked_at = 8;
+}
+
+// --- RPCs -----------------------------------------------------------------
+
+message CreateApiKeyRequest {
+  iogrid.common.v1.UUID workspace_id = 1;
+  string label = 2;
+}
+message CreateApiKeyResponse {
+  ApiKey api_key = 1;
+  // The plaintext token. NEVER returned again after Create.
+  string plaintext_key = 2;
+}
+
+message ListApiKeysRequest {
+  iogrid.common.v1.UUID workspace_id = 1;
+  iogrid.common.v1.PageRequest page = 2;
+}
+message ListApiKeysResponse {
+  repeated ApiKey api_keys = 1;
+  iogrid.common.v1.PageResponse page = 2;
+}
+
+message RevokeApiKeyRequest {
+  iogrid.common.v1.UUID id = 1;
+}
+message RevokeApiKeyResponse {
+  ApiKey api_key = 1;
+}
+
+// ValidateApiKeyRequest is the hot-path call from proxy-gateway +
+// build-gateway. It carries only the plaintext key — billing-svc looks
+// up the cached hash and answers in O(1).
+message ValidateApiKeyRequest {
+  string api_key = 1;
+}
+
+// ValidateApiKeyResponse resolves the key to a workspace + tier. The
+// fields here are exactly the surface auth.Customer in proxy-gateway
+// needs — keep them in sync.
+message ValidateApiKeyResponse {
+  // True iff the key matches a row AND that row is not revoked AND
+  // the owning workspace's subscription is not suspended.
+  bool valid = 1;
+  iogrid.common.v1.UUID workspace_id = 2;
+  // CustomerID — convenience alias for the workspace owner; the audit
+  // log primary key in proxy-gateway uses this.
+  iogrid.common.v1.UUID customer_id = 3;
+  SubscriptionTier tier = 4;
+  // Opt-in workload categories the customer's contract permits.
+  repeated string allowed_categories = 5;
+  // Optional preferred provider region; empty means "any".
+  string geo_target = 6;
+  // KYC gate for high-risk destinations (banking, government).
+  bool kyc_verified = 7;
+  // True iff the workspace is suspended (billing past-due, AUP, etc.).
+  // The proxy returns "workspace suspended" to the caller; the key
+  // itself may still be technically valid.
+  bool suspended = 8;
+  // Server clock at resolution; the proxy uses this to drive cache TTL.
+  google.protobuf.Timestamp resolved_at = 9;
+}
+
+// ApiKeyService is the wire contract for issuance + validation of
+// customer API keys. proxy-gateway + build-gateway are validate-only
+// callers; gateway-bff calls Create/List/Revoke on behalf of authed
+// users.
+service ApiKeyService {
+  rpc CreateApiKey(CreateApiKeyRequest) returns (CreateApiKeyResponse);
+  rpc ListApiKeys(ListApiKeysRequest) returns (ListApiKeysResponse);
+  rpc RevokeApiKey(RevokeApiKeyRequest) returns (RevokeApiKeyResponse);
+  rpc ValidateApiKey(ValidateApiKeyRequest) returns (ValidateApiKeyResponse);
+}
