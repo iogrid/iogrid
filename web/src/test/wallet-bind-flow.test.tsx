@@ -99,11 +99,14 @@ describe("WalletBindFlow", () => {
     });
     // The signature is base58 of [1,2,3,4]
     expect(captured).not.toBeNull();
-    expect((captured as { walletAddress: string }).walletAddress).toBe(
-      PUBKEY.toBase58(),
-    );
-    expect((captured as { nonce: string }).nonce).toBe("n");
-    expect((captured as { signature: string }).signature).toMatch(/^[A-HJ-NP-Za-km-z1-9]+$/);
+    const c = captured as unknown as {
+      walletAddress: string;
+      nonce: string;
+      signature: string;
+    };
+    expect(c.walletAddress).toBe(PUBKEY.toBase58());
+    expect(c.nonce).toBe("n");
+    expect(c.signature).toMatch(/^[A-HJ-NP-Za-km-z1-9]+$/);
   });
 
   it("surfaces an error if the start-binding call fails", async () => {
