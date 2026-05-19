@@ -51,6 +51,25 @@ pnpm install
 pnpm dev
 ```
 
+### Optional: bun for faster local installs
+
+`bun` is supported as a faster alternative to `pnpm` for local dev installs.
+The Homebrew-core `bun` formula was removed upstream; install via the
+official `oven-sh/bun` tap (or the curl installer):
+
+```bash
+# macOS / Linux (Homebrew) — tap-first, the bare formula no longer resolves
+brew tap oven-sh/bun
+brew install bun
+
+# Alternative: official installer
+curl -fsSL https://bun.sh/install | bash
+```
+
+Then `bun install && bun run dev` works in place of the pnpm commands. CI
+and the committed `pnpm-lock.yaml` remain the source of truth — bun is a
+local-dev convenience only, not a release path.
+
 ## Quality gates
 
 ```bash
