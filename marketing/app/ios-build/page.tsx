@@ -4,9 +4,9 @@ import { Hero } from "@/components/Hero";
 import { FeatureGrid } from "@/components/FeatureGrid";
 
 export const metadata: Metadata = {
-  title: "iOS build CI — pay-per-minute Mac builds at $0.04 / min",
+  title: "iOS build CI — pay-per-minute Mac builds at $0.04 / Xcode-minute",
   description:
-    "Half the price of GitHub Actions Mac. No 24-hour leases like AWS EC2 Mac. Ephemeral Tart-spawned VMs on home Mac hardware.",
+    "iOS CI at $0.04/Xcode-minute — 50% under GitHub Actions Mac ($0.08), no 24-hour lease floor like AWS EC2 Mac ($26). Ephemeral Tart VMs on M-series home Macs.",
 };
 
 export default function IOSBuildPage() {
@@ -129,6 +129,23 @@ export default function IOSBuildPage() {
       </section>
 
       <section className="container-page py-16">
+        <div className="mx-auto max-w-3xl">
+          <h2 className="h-section text-neutral-900">The deep dive</h2>
+          <p className="mt-4 text-neutral-700">
+            Why home Macs work for CI, how Tart isolation protects providers,
+            and the per-Xcode-minute math at indie and enterprise scale &mdash;
+            our blog post walks the whole story.
+          </p>
+          <Link
+            href="/blog/ios-ci-50-percent-cheaper"
+            className="mt-4 inline-block text-sm font-semibold text-primary-600 hover:underline"
+          >
+            Read &ldquo;iOS CI is 50% cheaper on home Macs&rdquo; &rarr;
+          </Link>
+        </div>
+      </section>
+
+      <section className="container-page py-16">
         <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-8 text-center md:p-12">
           <h2 className="h-section text-neutral-900">
             Already using GitHub Actions Mac?
@@ -138,10 +155,11 @@ export default function IOSBuildPage() {
             <code className="mx-1 rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-sm text-neutral-700">
               iogrid-mac
             </code>
-            picks up jobs from your existing workflow.
+            picks up jobs from your existing workflow. <strong>Half the
+            price, no minimum, same Apple Silicon.</strong>
           </p>
           <Link href="/pricing" className="btn-primary mt-8">
-            Get started
+            Get started at $0.04 / Xcode-min
           </Link>
         </div>
       </section>

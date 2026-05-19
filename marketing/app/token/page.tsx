@@ -4,9 +4,9 @@ import { Hero } from "@/components/Hero";
 import { FeatureGrid } from "@/components/FeatureGrid";
 
 export const metadata: Metadata = {
-  title: "$GRID — the network's unit of work",
+  title: "$GRID — the network's unit of work, DEX-first on Solana",
   description:
-    "$GRID is iogrid's utility token. It pays providers, buys services at 20% off, and votes on routing parameters. We do not promise price appreciation.",
+    "$GRID is iogrid's Solana SPL utility token. Pays providers, 20% customer discount on payments, governance votes. Raydium CLMM launch, no IEO. Not an investment promise.",
 };
 
 export default function TokenPage() {

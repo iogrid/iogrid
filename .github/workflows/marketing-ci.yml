@@ -89,7 +89,11 @@ jobs:
 
       - name: Serve and run Lighthouse CI
         run: |
-          npm install -g @lhci/cli@0.14.x http-server
+          # GHA Ubuntu 24.04 runners deny symlinks into /usr/local/share/man.
+          # http-server's postinstall tries to symlink its man page there and
+          # the whole `npm install -g` aborts with EACCES, preventing Lighthouse
+          # from ever running. --ignore-scripts skips that step.
+          sudo npm install -g --ignore-scripts @lhci/cli@0.14.x http-server
           cd marketing
           http-server out -p 8080 -s &
           SERVER_PID=$!
