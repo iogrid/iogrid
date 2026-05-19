@@ -73,7 +73,9 @@ pub enum GpuError {
         found: String,
     },
     /// An MLX assignment is missing its [`MlxSpec`] payload.
-    #[error("mlx workload {id} missing MlxSpec (model_name / vram_gb_required / batch_size / prompt)")]
+    #[error(
+        "mlx workload {id} missing MlxSpec (model_name / vram_gb_required / batch_size / prompt)"
+    )]
     MlxSpecMissing {
         /// Workload id.
         id: Uuid,
