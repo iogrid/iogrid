@@ -4,16 +4,18 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-19T14:42:00Z` |
+| Last refreshed | `2026-05-19T15:30:00Z` |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
-| Merged PRs | **67** since project bootstrap |
-| Open PRs | **0** |
-| Open issues | **3** ([#79](https://github.com/iogrid/iogrid/issues/79) Phase 2, [#215](https://github.com/iogrid/iogrid/issues/215) vCard smoke, [#217](https://github.com/iogrid/iogrid/issues/217) daemon transport wiring) |
+| Merged PRs | **70** since project bootstrap |
+| Open PRs | 2 (#221 + #222 in flight — agents) |
+| Open issues | **4** (#79 Phase 2, #215 vCard, #221 bidi pump, #222 TCP forwarder) |
 | EPIC closure | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 17 / 17 closed by audit |
-| Phase 0 browser login | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> **`https://app.iogrid.org/account`** → enter email → real "Sign in to app.iogrid.org" magic-link arrives, verification token persisted in `web` DB (PR #216 NextAuth Drizzle adapter) |
-| Phase 0 mothership | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> 6 services running in `iogrid` ns: web + gateway-bff + identity-svc + proxy-gateway + providers-svc + workloads-svc + CNPG + 4 IngressRoutes + LE cert |
-| Phase 0 daemon | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> `iogridd 0.1.0` on founder Mac, paired (provider_id `6f84c7fb-...`), running, unpaused via UI bridge config POST |
-| Phase 0 vCard smoke | <img alt="IN_FLIGHT" src="https://img.shields.io/badge/-IN__FLIGHT-bf8700?style=flat-square" /> SOCKS5 auth + dispatch wired; daemon outbound transport stream stubbed with loopback ([#217](https://github.com/iogrid/iogrid/issues/217)) — last gap for the end-to-end LinkedIn fetch |
+| Phase 0 browser login | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> **`https://app.iogrid.org/account`** — NextAuth + Stalwart magic-link, verification tokens persisted in CNPG `web` DB |
+| Phase 0 mothership | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> 6 services + CNPG + 5 IngressRoutes (app/api/proxy/releases/v1-auth) + 2 Let's Encrypt certs all Running |
+| Phase 0 daemon | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> `iogridd 0.1.0` paired (`6f84c7fb-...`), running under `io.iogrid.daemon` LaunchAgent (auto-restart + auto-start on Mac login), permissive Phase-0 caps persisted in `config.toml` |
+| Phase 0 admin role | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> `emrah.baysal@openova.io` = `{admin, founder}` in identity DB + web DB; `IOGRID_ADMIN_EMAILS` allowlist in edge middleware ([PR #223](https://github.com/iogrid/iogrid/pull/223)); `hatice.yildiz@openova.io` = regular user |
+| Phase 0 installers | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> [`v0.1.0-phase0`](https://github.com/iogrid/iogrid/releases/tag/v0.1.0-phase0) GH Release with 9 artifacts (macOS .pkg arm64+amd64, Windows .msi, Linux .deb/.rpm/.apk × 2 arch). `releases.iogrid.org`/`updates.iogrid.org` DNS + LE cert + Traefik redirect middlewares wired — **`https://releases.iogrid.org/latest/iogrid-darwin-arm64.pkg` downloads 2.12 MB xar archive** |
+| Phase 0 vCard smoke | <img alt="IN_FLIGHT" src="https://img.shields.io/badge/-IN__FLIGHT-bf8700?style=flat-square" /> Daemon transport stage 1 shipped ([PR #220](https://github.com/iogrid/iogrid/pull/220)); follow-ups #221 (tonic bidi pump) + #222 (TCP-over-frame forwarder) in flight via parallel agents |
 
 **Legend:** <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> done · <img alt="IN_FLIGHT" src="https://img.shields.io/badge/-IN__FLIGHT-bf8700?style=flat-square" /> work in progress · <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> open · <img alt="DEFERRED" src="https://img.shields.io/badge/-DEFERRED-6e7781?style=flat-square" /> deferred · <img alt="BLOCKED" src="https://img.shields.io/badge/-BLOCKED-8250df?style=flat-square" /> blocked on founder action
 

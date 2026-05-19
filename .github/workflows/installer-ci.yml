@@ -186,6 +186,16 @@ jobs:
           rustup show active-toolchain
           rustup target add ${{ matrix.target }}
 
+      - name: Install protoc
+        # daemon/crates/transport/build.rs invokes tonic-build, which
+        # shells out to protoc. installer-ci doesn't pre-install it like
+        # daemon-ci does, so the build aborted with "Could not find
+        # `protoc`" after PR #226 wired the bidi-pump.
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "27.x"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build iogridd (${{ matrix.target }})
         working-directory: daemon
         run: cargo build --release --bin iogridd --target ${{ matrix.target }}
@@ -232,6 +242,12 @@ jobs:
           key: cargo-registry-windows-${{ hashFiles('daemon/Cargo.lock') }}
           restore-keys: |
             cargo-registry-windows-
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "27.x"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build iogridd.exe
         working-directory: daemon

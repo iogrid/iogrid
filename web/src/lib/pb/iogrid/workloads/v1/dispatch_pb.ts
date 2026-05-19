@@ -355,6 +355,154 @@ export class CoordinatorHello extends Message<CoordinatorHello> {
 }
 
 /**
+ * TunnelOpen opens a new TCP-over-DispatchFrame tunnel on the daemon. The
+ * coordinator's workloads-svc forwarder sends this when a proxy-gateway
+ * connection lands; the daemon answers by dialling `target_host_port` on
+ * its own LAN (typically the iogrid-routing SOCKS5 resolver loopback) and
+ * streaming bytes both ways via TunnelData frames keyed by attempt_id.
+ *
+ * @generated from message iogrid.workloads.v1.TunnelOpen
+ */
+export class TunnelOpen extends Message<TunnelOpen> {
+  /**
+   * attempt_id keys the tunnel on both sides — same id used as the
+   * dispatch attempt that selected this daemon.
+   *
+   * @generated from field: iogrid.common.v1.UUID attempt_id = 1;
+   */
+  attemptId?: UUID;
+
+  /**
+   * target_host_port the daemon should dial (e.g. "127.0.0.1:7878").
+   * May be empty: the daemon-side router picks the destination from the
+   * workload context.
+   *
+   * @generated from field: string target_host_port = 2;
+   */
+  targetHostPort = "";
+
+  constructor(data?: PartialMessage<TunnelOpen>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "iogrid.workloads.v1.TunnelOpen";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "attempt_id", kind: "message", T: UUID },
+    { no: 2, name: "target_host_port", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): TunnelOpen {
+    return new TunnelOpen().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): TunnelOpen {
+    return new TunnelOpen().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): TunnelOpen {
+    return new TunnelOpen().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: TunnelOpen | PlainMessage<TunnelOpen> | undefined, b: TunnelOpen | PlainMessage<TunnelOpen> | undefined): boolean {
+    return proto3.util.equals(TunnelOpen, a, b);
+  }
+}
+
+/**
+ * TunnelData carries a single chunk of raw bytes in either direction.
+ * Order is preserved; a stream end is signalled by TunnelClose.
+ *
+ * @generated from message iogrid.workloads.v1.TunnelData
+ */
+export class TunnelData extends Message<TunnelData> {
+  /**
+   * @generated from field: iogrid.common.v1.UUID attempt_id = 1;
+   */
+  attemptId?: UUID;
+
+  /**
+   * @generated from field: bytes payload = 2;
+   */
+  payload = new Uint8Array(0);
+
+  constructor(data?: PartialMessage<TunnelData>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "iogrid.workloads.v1.TunnelData";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "attempt_id", kind: "message", T: UUID },
+    { no: 2, name: "payload", kind: "scalar", T: 12 /* ScalarType.BYTES */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): TunnelData {
+    return new TunnelData().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): TunnelData {
+    return new TunnelData().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): TunnelData {
+    return new TunnelData().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: TunnelData | PlainMessage<TunnelData> | undefined, b: TunnelData | PlainMessage<TunnelData> | undefined): boolean {
+    return proto3.util.equals(TunnelData, a, b);
+  }
+}
+
+/**
+ * TunnelClose terminates a tunnel — either side may send. Optional
+ * `error` for diagnostic; empty means clean EOF.
+ *
+ * @generated from message iogrid.workloads.v1.TunnelClose
+ */
+export class TunnelClose extends Message<TunnelClose> {
+  /**
+   * @generated from field: iogrid.common.v1.UUID attempt_id = 1;
+   */
+  attemptId?: UUID;
+
+  /**
+   * @generated from field: string error = 2;
+   */
+  error = "";
+
+  constructor(data?: PartialMessage<TunnelClose>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "iogrid.workloads.v1.TunnelClose";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "attempt_id", kind: "message", T: UUID },
+    { no: 2, name: "error", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): TunnelClose {
+    return new TunnelClose().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): TunnelClose {
+    return new TunnelClose().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): TunnelClose {
+    return new TunnelClose().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: TunnelClose | PlainMessage<TunnelClose> | undefined, b: TunnelClose | PlainMessage<TunnelClose> | undefined): boolean {
+    return proto3.util.equals(TunnelClose, a, b);
+  }
+}
+
+/**
  * DispatchFrame is the bidi envelope used in the long-lived stream. One
  * of the oneof fields is set per frame.
  *
@@ -413,6 +561,26 @@ export class DispatchFrame extends Message<DispatchFrame> {
      */
     value: boolean;
     case: "drain";
+  } | {
+    /**
+     * TCP-over-DispatchFrame tunnel frames (see issue #222).
+     *
+     * @generated from field: iogrid.workloads.v1.TunnelOpen tunnel_open = 8;
+     */
+    value: TunnelOpen;
+    case: "tunnelOpen";
+  } | {
+    /**
+     * @generated from field: iogrid.workloads.v1.TunnelData tunnel_data = 9;
+     */
+    value: TunnelData;
+    case: "tunnelData";
+  } | {
+    /**
+     * @generated from field: iogrid.workloads.v1.TunnelClose tunnel_close = 10;
+     */
+    value: TunnelClose;
+    case: "tunnelClose";
   } | { case: undefined; value?: undefined } = { case: undefined };
 
   constructor(data?: PartialMessage<DispatchFrame>) {
@@ -430,6 +598,9 @@ export class DispatchFrame extends Message<DispatchFrame> {
     { no: 5, name: "cancel_workload_id", kind: "message", T: UUID, oneof: "frame" },
     { no: 6, name: "ping", kind: "message", T: Timestamp, oneof: "frame" },
     { no: 7, name: "drain", kind: "scalar", T: 8 /* ScalarType.BOOL */, oneof: "frame" },
+    { no: 8, name: "tunnel_open", kind: "message", T: TunnelOpen, oneof: "frame" },
+    { no: 9, name: "tunnel_data", kind: "message", T: TunnelData, oneof: "frame" },
+    { no: 10, name: "tunnel_close", kind: "message", T: TunnelClose, oneof: "frame" },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DispatchFrame {
