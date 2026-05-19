@@ -192,3 +192,91 @@ func TestClaims_HasRole_ShortAndLongForm(t *testing.T) {
 		t.Fatal("unrelated role should not match")
 	}
 }
+
+// TestMiddleware_ServiceTokenShim asserts the issue #237 BFF
+// service-token + X-Iogrid-User-Id header bypass materialises Claims
+// without going through the JWT verifier, and only when the env-var
+// is set + the token matches exactly.
+func TestMiddleware_ServiceTokenShim(t *testing.T) {
+	priv := newTestKey(t)
+	v := &JWTVerifier{Resolver: &StaticKeyResolver{Key: &priv.PublicKey}, Issuer: "iogrid", Audience: "gateway-bff"}
+	mw := Middleware(v, nil)
+
+	uid := uuid.NewString()
+	var gotUID, gotRole string
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, ok := FromContext(r.Context())
+		if !ok {
+			w.WriteHeader(204)
+			return
+		}
+		gotUID = c.UserID().String()
+		if c.IsAdmin() {
+			gotRole = "ADMIN"
+		}
+		w.WriteHeader(200)
+	}))
+
+	// Env unset: shim is dormant. Service-token bearer is treated as a
+	// (bad) JWT and the handler runs anon.
+	t.Setenv(ServiceTokenEnv, "")
+	r := httptest.NewRequest("GET", "/", nil)
+	r.Header.Set("Authorization", "Bearer service-secret-xyz")
+	r.Header.Set(ServiceUserIDHeader, uid)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+	if w.Code != 204 {
+		t.Fatalf("env-off: want 204 anon, got %d", w.Code)
+	}
+
+	// Env set, token matches, valid UUID + roles header: Claims appears.
+	t.Setenv(ServiceTokenEnv, "service-secret-xyz")
+	r2 := httptest.NewRequest("GET", "/", nil)
+	r2.Header.Set("Authorization", "Bearer service-secret-xyz")
+	r2.Header.Set(ServiceUserIDHeader, uid)
+	r2.Header.Set(ServiceUserRolesHeader, "ADMIN, USER")
+	r2.Header.Set(ServiceUserEmailHeader, "ops@iogrid.org")
+	w2 := httptest.NewRecorder()
+	handler.ServeHTTP(w2, r2)
+	if w2.Code != 200 {
+		t.Fatalf("authed shim: want 200, got %d", w2.Code)
+	}
+	if gotUID != uid {
+		t.Fatalf("uid mismatch: got %s, want %s", gotUID, uid)
+	}
+	if gotRole != "ADMIN" {
+		t.Fatal("expected ADMIN role materialised from header")
+	}
+
+	// Env set, token MISMATCH: falls through to JWT verifier (which
+	// fails) → anon. The service header must NOT short-circuit anything.
+	r3 := httptest.NewRequest("GET", "/", nil)
+	r3.Header.Set("Authorization", "Bearer wrong-token")
+	r3.Header.Set(ServiceUserIDHeader, uid)
+	w3 := httptest.NewRecorder()
+	handler.ServeHTTP(w3, r3)
+	if w3.Code != 204 {
+		t.Fatalf("mismatched token: want 204 anon, got %d", w3.Code)
+	}
+
+	// Env set, token matches, but X-Iogrid-User-Id MISSING: fail closed
+	// (anon). The shim must never authenticate without a user id.
+	r4 := httptest.NewRequest("GET", "/", nil)
+	r4.Header.Set("Authorization", "Bearer service-secret-xyz")
+	w4 := httptest.NewRecorder()
+	handler.ServeHTTP(w4, r4)
+	if w4.Code != 204 {
+		t.Fatalf("missing uid header: want 204 anon, got %d", w4.Code)
+	}
+
+	// Env set, token matches, but X-Iogrid-User-Id is malformed:
+	// fail closed (anon) — never trust a non-UUID id.
+	r5 := httptest.NewRequest("GET", "/", nil)
+	r5.Header.Set("Authorization", "Bearer service-secret-xyz")
+	r5.Header.Set(ServiceUserIDHeader, "not-a-uuid")
+	w5 := httptest.NewRecorder()
+	handler.ServeHTTP(w5, r5)
+	if w5.Code != 204 {
+		t.Fatalf("malformed uid: want 204 anon, got %d", w5.Code)
+	}
+}

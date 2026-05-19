@@ -26,6 +26,7 @@ import (
 	"log/slog"
 	"math/big"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -33,6 +34,35 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )
+
+// ServiceTokenEnv names the env-var that, when set, enables the BFF
+// service-token + X-Iogrid-User-Id header bypass below. The env-var
+// holds the shared secret a trusted upstream BFF (the Next.js web
+// plane) must present in its Authorization header to assert a user
+// identity on behalf of a browser session that does not carry an
+// identity-svc JWT.
+//
+// Mirrors the identity-svc shim (PR #233 / issue #232). gateway-bff
+// accepts the same combination so the Next.js Route Handlers can
+// proxy in-browser fetches to /api/v1/* without minting a real JWT.
+// Closes issue #237.
+//
+// When IOGRID_SERVICE_TOKEN is empty (the default), this bypass is a
+// no-op and only real JWT bearers authenticate.
+const ServiceTokenEnv = "IOGRID_SERVICE_TOKEN"
+
+// ServiceUserIDHeader carries the BFF-asserted user UUID.
+const ServiceUserIDHeader = "X-Iogrid-User-Id"
+
+// ServiceUserRolesHeader is a comma-separated list of role strings
+// the upstream BFF wants materialised on the request. Used for
+// /admin/* gated routes — the Next.js BFF reads the NextAuth session
+// (which carries the role claim) and forwards it here.
+const ServiceUserRolesHeader = "X-Iogrid-User-Roles"
+
+// ServiceUserEmailHeader carries the BFF-asserted primary email.
+// Optional — used for logging / audit, not authorisation.
+const ServiceUserEmailHeader = "X-Iogrid-User-Email"
 
 // contextKey is unexported so callers must use FromContext().
 type contextKey struct{}
@@ -376,6 +406,25 @@ func Middleware(v Verifier, logger *slog.Logger) func(http.Handler) http.Handler
 				next.ServeHTTP(w, r)
 				return
 			}
+
+			// BFF service-token shim (issue #237). When the shared
+			// IOGRID_SERVICE_TOKEN env is set and the supplied bearer
+			// matches it, materialise Claims from the
+			// X-Iogrid-User-Id / X-Iogrid-User-Roles / -Email headers.
+			// This lets the Next.js web-plane Route Handlers proxy
+			// browser fetches to /api/v1/* without a real JWT.
+			if svc := os.Getenv(ServiceTokenEnv); svc != "" && tok == svc {
+				if c, ok := claimsFromServiceHeaders(r); ok {
+					next.ServeHTTP(w, r.WithContext(withClaims(r.Context(), c)))
+					return
+				}
+				// Service token matched but header is missing/malformed —
+				// fall through to anon to fail closed (RequireAuth → 401).
+				logger.Debug("service-token presented without valid X-Iogrid-User-Id")
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			claims, err := v.Verify(tok)
 			if err != nil {
 				logger.Debug("jwt rejected", slog.String("error", err.Error()))
@@ -385,6 +434,35 @@ func Middleware(v Verifier, logger *slog.Logger) func(http.Handler) http.Handler
 			next.ServeHTTP(w, r.WithContext(withClaims(r.Context(), claims)))
 		})
 	}
+}
+
+// claimsFromServiceHeaders builds a Claims object from the
+// X-Iogrid-User-* headers. Returns (nil, false) if the user-id header
+// is missing or not a valid UUID — the caller falls through to anon.
+func claimsFromServiceHeaders(r *http.Request) (*Claims, bool) {
+	rawUID := r.Header.Get(ServiceUserIDHeader)
+	if rawUID == "" {
+		return nil, false
+	}
+	uid, err := uuid.Parse(rawUID)
+	if err != nil {
+		return nil, false
+	}
+	c := &Claims{}
+	c.Subject = uid.String()
+	if rawRoles := r.Header.Get(ServiceUserRolesHeader); rawRoles != "" {
+		parts := strings.Split(rawRoles, ",")
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				c.Roles = append(c.Roles, p)
+			}
+		}
+	}
+	if em := r.Header.Get(ServiceUserEmailHeader); em != "" {
+		c.PrimaryEmail = em
+	}
+	return c, true
 }
 
 // RequireAuth rejects requests that do not have a valid Claims in

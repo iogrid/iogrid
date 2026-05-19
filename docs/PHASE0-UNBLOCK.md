@@ -194,6 +194,60 @@ proxies into identity-svc using a shared service-token + the
    falls back to the collapsed paste-UUID escape hatch — users are
    degraded but not blocked.
 
+### Step 4d. Web → gateway-bff auth bridge (#237)
+
+In-browser fetches from `app.iogrid.org` to `api.iogrid.org/api/v1/*`
+were returning HTTP 401 because the web uses NextAuth (cookies) and
+gateway-bff requires an identity-svc Bearer JWT — no bridge existed
+between the two. The fix migrated every `browserApi().get/post(/api/v1/*)`
+call to a same-origin Next.js Route Handler under `web/src/app/api/v1/*`
+that reads the session server-side and forwards to gateway-bff with
+the shared service-token + `X-Iogrid-User-Id` shim.
+
+**Env required on the `web` Deployment**:
+
+| Env var                       | Value (Phase 0)                                           | Purpose                                                                 |
+|-------------------------------|-----------------------------------------------------------|-------------------------------------------------------------------------|
+| `IOGRID_GATEWAY_BFF_URL`      | `http://gateway-bff.iogrid.svc.cluster.local:8080`        | The in-cluster URL of gateway-bff. Each Route Handler dials it.         |
+| `IOGRID_SERVICE_TOKEN`        | random 32-byte hex (same sealed Secret as identity-svc)   | Shared bearer the Route Handlers present to gateway-bff.                |
+| `IOGRID_PROVIDERS_RPC_URL`    | (optional) override for providers-svc Connect-RPC host    | Defaults to `IOGRID_GATEWAY_BFF_URL`. Set this only if providers-svc is fronted on a separate host. |
+
+**Env required on the `gateway-bff` Deployment**:
+
+| Env var                       | Value (Phase 0)                                           | Purpose                                                                 |
+|-------------------------------|-----------------------------------------------------------|-------------------------------------------------------------------------|
+| `IOGRID_SERVICE_TOKEN`        | same value as on `web`                                    | Activates the BFF-side shim in `internal/auth/auth.go`. The middleware materialises a Claims object from the request headers when this env is set AND the supplied bearer equals it. |
+
+**Headers the Route Handler forwards**:
+
+| Header                 | Source (in the web Route Handler)                            |
+|------------------------|--------------------------------------------------------------|
+| `Authorization`        | `Bearer ${IOGRID_SERVICE_TOKEN}`                             |
+| `X-Iogrid-User-Id`     | `session.user.id` (UUID from NextAuth)                       |
+| `X-Iogrid-User-Email`  | `session.user.email`                                         |
+| `X-Iogrid-User-Roles`  | `session.user.roles` (comma-separated), + `ADMIN` for /admin |
+
+When either env is unset on `web` the Route Handler returns 503 and
+the UI surfaces a "BFF not configured" error — no silent 401. When
+unset on `gateway-bff` the shim is dormant and the BFF only accepts
+real JWT bearers (the legacy behaviour).
+
+**Affected client-side paths now routed same-origin**:
+
+- `/api/v1/provide/dashboard` (GET)
+- `/api/v1/provide/schedule` (GET / POST)
+- `/api/v1/provide/earnings` (GET, with `?start=&end=` passthrough)
+- `/api/v1/provide/audit/stream` (GET — SSE pass-through)
+- `/api/v1/admin/abuse-queue` (GET, ADMIN-asserted)
+- `/api/v1/admin/abuse/{id}/resolve` (POST, ADMIN-asserted)
+- `/api/v1/admin/providers/list` (POST — wraps the providers-svc
+  Connect-RPC `ListProviders` so the admin UI no longer needs a
+  direct cross-origin Connect call)
+
+The `browserApi().baseUrl` default is now empty (same-origin) so
+existing callers that template `${browserApi().baseUrl}/api/v1/...`
+continue to work — they just resolve to relative paths.
+
 ---
 
 ## Layer 1 unblock — install iogridd on the founder's Mac

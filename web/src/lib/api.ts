@@ -16,13 +16,19 @@
  *   3. nothing — the gateway falls through to its anonymous limiter.
  */
 
-// Accept either env name — the original code expected
-// NEXT_PUBLIC_GATEWAY_URL, but Phase 0 web Secret ships
-// NEXT_PUBLIC_API_BASE_URL. Honour whichever is set.
+// Default to same-origin so the browser sends the NextAuth cookie on
+// every /api/v1/* fetch and the Next.js Route Handlers at the same
+// origin can read the session + bridge to gateway-bff via the
+// service-token shim (issue #237).
+//
+// The two NEXT_PUBLIC_* env vars are still honoured for tests and for
+// the rare caller that wants to hit a *different* origin directly
+// (e.g. health checks against a remote API). Leave them unset in
+// production to keep all /api/v1/* same-origin.
 const DEFAULT_BASE_URL =
   process.env.NEXT_PUBLIC_GATEWAY_URL ??
   process.env.NEXT_PUBLIC_API_BASE_URL ??
-  "http://localhost:8090";
+  "";
 
 export interface ApiClientOptions {
   baseUrl?: string;
