@@ -194,6 +194,11 @@ func Mount(deps Deps) func(chi.Router) {
 				r.Get("/earnings/summary", api.GetProviderEarningsSummary)
 				r.Get("/payout-method", api.GetProviderPayoutMethod)
 				r.Put("/payout-method", api.SetProviderPayoutMethod)
+				// Per-owner primary-daemon picker (#325). Used by the
+				// schedule editor when the caller owns ≥2 paired
+				// daemons. PUT body: {"provider_id":"<UUID>"} —
+				// providers-svc validates ownership in SQL.
+				r.Put("/primary-provider", api.SetPrimaryProvider)
 			})
 
 			// /customer ---------------------------------------------------

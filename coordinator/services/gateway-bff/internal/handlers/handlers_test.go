@@ -10,9 +10,11 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/iogrid/iogrid/coordinator/services/gateway-bff/internal/auth"
 	"github.com/iogrid/iogrid/coordinator/services/gateway-bff/internal/clients"
@@ -155,7 +157,8 @@ func (m *mockScheduling) GetCurrentState(ctx context.Context, req *providersv1.G
 // mockRegistration backs the ProviderRegistrationService read-side that
 // /provide/* uses to gate by ownership.
 type mockRegistration struct {
-	listProviders func(context.Context, *providersv1.ListProvidersRequest) (*providersv1.ListProvidersResponse, error)
+	listProviders      func(context.Context, *providersv1.ListProvidersRequest) (*providersv1.ListProvidersResponse, error)
+	setPrimaryProvider func(context.Context, *providersv1.SetPrimaryProviderRequest) (*providersv1.SetPrimaryProviderResponse, error)
 }
 
 func (m *mockRegistration) ListProviders(ctx context.Context, req *providersv1.ListProvidersRequest) (*providersv1.ListProvidersResponse, error) {
@@ -163,6 +166,13 @@ func (m *mockRegistration) ListProviders(ctx context.Context, req *providersv1.L
 		return &providersv1.ListProvidersResponse{}, nil
 	}
 	return m.listProviders(ctx, req)
+}
+
+func (m *mockRegistration) SetPrimaryProvider(ctx context.Context, req *providersv1.SetPrimaryProviderRequest) (*providersv1.SetPrimaryProviderResponse, error) {
+	if m.setPrimaryProvider == nil {
+		return &providersv1.SetPrimaryProviderResponse{}, nil
+	}
+	return m.setPrimaryProvider(ctx, req)
 }
 
 // staticRegistration returns a Registration mock that always reports the
@@ -955,5 +965,190 @@ func TestUpstreamErrorMapping_NotFound(t *testing.T) {
 	api.GetMe(w, r)
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("want 500 for non-connect error, got %d", w.Code)
+	}
+}
+
+// --- #325 — primary-provider selection -----------------------------------
+
+// TestResolveOwnedProviderID_PrimaryWinsOverActiveNonPrimary is the
+// direct regression receipt for #325: with two paired daemons, the
+// primary-flagged row MUST be returned even if a non-primary row is
+// ACTIVE and the primary is OFFLINE. Pre-fix the BFF picked "first
+// ACTIVE", so Hatice's manual-test daemon (ACTIVE) shadowed her real
+// Mac (primary, OFFLINE between heartbeats).
+func TestResolveOwnedProviderID_PrimaryWinsOverActiveNonPrimary(t *testing.T) {
+	primary := uuid.NewString()
+	other := uuid.NewString()
+	set := &clients.Set{
+		ProvidersScheduling: &mockScheduling{
+			getConfig: func(_ context.Context, req *providersv1.GetSchedulingConfigRequest) (*providersv1.GetSchedulingConfigResponse, error) {
+				if req.GetProviderId().GetValue() != primary {
+					t.Fatalf("expected primary %s, got %s", primary, req.GetProviderId().GetValue())
+				}
+				return &providersv1.GetSchedulingConfigResponse{}, nil
+			},
+		},
+		ProvidersRegistration: staticRegistration(
+			// Non-primary, ACTIVE, smaller UUID ASC — the pre-#325
+			// pick. The fix must NOT return this one.
+			&providersv1.Provider{
+				Id:          &commonv1.UUID{Value: other},
+				OwnerUserId: &commonv1.UUID{Value: fakeUserID},
+				Status:      providersv1.ProviderStatus_PROVIDER_STATUS_ACTIVE,
+				IsPrimary:   false,
+			},
+			&providersv1.Provider{
+				Id:          &commonv1.UUID{Value: primary},
+				OwnerUserId: &commonv1.UUID{Value: fakeUserID},
+				Status:      providersv1.ProviderStatus_PROVIDER_STATUS_OFFLINE,
+				IsPrimary:   true,
+			},
+		),
+	}
+	api := newAPI(t, set)
+	r := withAuth(httptest.NewRequest(http.MethodGet, "/api/v1/provide/schedule", nil))
+	w := httptest.NewRecorder()
+	api.GetProviderSchedule(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+// TestResolveOwnedProviderID_ExplicitProviderIDOverridesPrimary asserts
+// the ?provider_id= query param still wins (when caller actually owns
+// it). Picker UI relies on this: selecting a non-primary daemon from
+// the dropdown re-fetches with ?provider_id=X.
+func TestResolveOwnedProviderID_ExplicitProviderIDOverridesPrimary(t *testing.T) {
+	primary := uuid.NewString()
+	picked := uuid.NewString()
+	set := &clients.Set{
+		ProvidersScheduling: &mockScheduling{
+			getConfig: func(_ context.Context, req *providersv1.GetSchedulingConfigRequest) (*providersv1.GetSchedulingConfigResponse, error) {
+				if req.GetProviderId().GetValue() != picked {
+					t.Fatalf("expected picked %s (query param), got %s", picked, req.GetProviderId().GetValue())
+				}
+				return &providersv1.GetSchedulingConfigResponse{}, nil
+			},
+		},
+		ProvidersRegistration: staticRegistration(
+			&providersv1.Provider{
+				Id:          &commonv1.UUID{Value: primary},
+				OwnerUserId: &commonv1.UUID{Value: fakeUserID},
+				Status:      providersv1.ProviderStatus_PROVIDER_STATUS_ACTIVE,
+				IsPrimary:   true,
+			},
+			&providersv1.Provider{
+				Id:          &commonv1.UUID{Value: picked},
+				OwnerUserId: &commonv1.UUID{Value: fakeUserID},
+				Status:      providersv1.ProviderStatus_PROVIDER_STATUS_ACTIVE,
+				IsPrimary:   false,
+			},
+		),
+	}
+	api := newAPI(t, set)
+	r := withAuth(httptest.NewRequest(http.MethodGet, "/api/v1/provide/schedule?provider_id="+picked, nil))
+	w := httptest.NewRecorder()
+	api.GetProviderSchedule(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+// TestSortOwnedProviders_Determinism unit-tests the per-owner sort.
+// Pure function — order in MUST be irrelevant to order out.
+func TestSortOwnedProviders_Determinism(t *testing.T) {
+	now := time.Now().UTC()
+	primary := uuid.NewString()
+	freshActive := uuid.NewString()
+	staleActive := uuid.NewString()
+	offline := uuid.NewString()
+	in := []*providersv1.Provider{
+		{Id: &commonv1.UUID{Value: staleActive}, Status: providersv1.ProviderStatus_PROVIDER_STATUS_ACTIVE, LastSeenAt: timestamppb.New(now.Add(-time.Hour))},
+		{Id: &commonv1.UUID{Value: offline}, Status: providersv1.ProviderStatus_PROVIDER_STATUS_OFFLINE, LastSeenAt: timestamppb.New(now)},
+		{Id: &commonv1.UUID{Value: primary}, Status: providersv1.ProviderStatus_PROVIDER_STATUS_OFFLINE, LastSeenAt: timestamppb.New(now.Add(-2 * time.Hour)), IsPrimary: true},
+		{Id: &commonv1.UUID{Value: freshActive}, Status: providersv1.ProviderStatus_PROVIDER_STATUS_ACTIVE, LastSeenAt: timestamppb.New(now)},
+	}
+	out := sortOwnedProviders(in)
+	if out[0].GetId().GetValue() != primary {
+		t.Fatalf("primary must be first, got %s", out[0].GetId().GetValue())
+	}
+	if out[1].GetId().GetValue() != freshActive {
+		t.Fatalf("fresh ACTIVE non-primary must be second, got %s", out[1].GetId().GetValue())
+	}
+	if out[2].GetId().GetValue() != staleActive {
+		t.Fatalf("stale ACTIVE must come before OFFLINE, got %s", out[2].GetId().GetValue())
+	}
+	if out[3].GetId().GetValue() != offline {
+		t.Fatalf("OFFLINE non-primary must be last, got %s", out[3].GetId().GetValue())
+	}
+}
+
+// TestSetPrimaryProvider_RoundTrip exercises the PUT handler end-to-end:
+// validates the body parses, the upstream RPC is called with the
+// authenticated owner_user_id, and the response is forwarded.
+func TestSetPrimaryProvider_RoundTrip(t *testing.T) {
+	pid := uuid.NewString()
+	var seenOwner, seenPID string
+	set := &clients.Set{
+		ProvidersRegistration: &mockRegistration{
+			setPrimaryProvider: func(_ context.Context, req *providersv1.SetPrimaryProviderRequest) (*providersv1.SetPrimaryProviderResponse, error) {
+				seenOwner = req.GetOwnerUserId().GetValue()
+				seenPID = req.GetProviderId().GetValue()
+				return &providersv1.SetPrimaryProviderResponse{
+					Provider: &providersv1.Provider{
+						Id:        &commonv1.UUID{Value: pid},
+						IsPrimary: true,
+					},
+				}, nil
+			},
+		},
+	}
+	api := newAPI(t, set)
+	body, _ := json.Marshal(map[string]string{"provider_id": pid})
+	r := withAuth(httptest.NewRequest(http.MethodPut, "/api/v1/provide/primary-provider", bytes.NewReader(body)))
+	w := httptest.NewRecorder()
+	api.SetPrimaryProvider(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if seenOwner != fakeUserID {
+		t.Fatalf("upstream owner_user_id = %s, want caller %s", seenOwner, fakeUserID)
+	}
+	if seenPID != pid {
+		t.Fatalf("upstream provider_id = %s, want %s", seenPID, pid)
+	}
+}
+
+// TestSetPrimaryProvider_RequiresProviderID rejects requests with an
+// empty body or no provider_id.
+func TestSetPrimaryProvider_RequiresProviderID(t *testing.T) {
+	set := &clients.Set{
+		ProvidersRegistration: &mockRegistration{
+			setPrimaryProvider: func(context.Context, *providersv1.SetPrimaryProviderRequest) (*providersv1.SetPrimaryProviderResponse, error) {
+				t.Fatal("upstream must not be called when provider_id is missing")
+				return nil, nil
+			},
+		},
+	}
+	api := newAPI(t, set)
+	body, _ := json.Marshal(map[string]string{})
+	r := withAuth(httptest.NewRequest(http.MethodPut, "/api/v1/provide/primary-provider", bytes.NewReader(body)))
+	w := httptest.NewRecorder()
+	api.SetPrimaryProvider(w, r)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+// TestSetPrimaryProvider_RequiresAuth makes sure the route refuses
+// unauthenticated callers — same gate as every other /provide/* path.
+func TestSetPrimaryProvider_RequiresAuth(t *testing.T) {
+	api := newAPI(t, &clients.Set{})
+	body, _ := json.Marshal(map[string]string{"provider_id": uuid.NewString()})
+	r := httptest.NewRequest(http.MethodPut, "/api/v1/provide/primary-provider", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	api.SetPrimaryProvider(w, r)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("want 401, got %d", w.Code)
 	}
 }

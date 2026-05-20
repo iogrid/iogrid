@@ -13,6 +13,7 @@ import {
   ProviderEmptyState,
   PROVIDER_EMPTY_SCHEDULE_SUBTITLE,
 } from "@/components/dashboard/provider-empty-state";
+import { PrimaryProviderPicker } from "@/components/dashboard/primary-provider-picker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { browserApi, ApiError } from "@/lib/api";
@@ -21,6 +22,7 @@ import { formatBytes } from "@/lib/format";
 import type {
   GetCurrentStateResponse,
   GetSchedulingConfigResponse,
+  ProviderRef,
   SchedulingConfig,
 } from "@/lib/types";
 
@@ -80,57 +82,102 @@ export function ScheduleEditor() {
   // the "Install daemon" CTA instead of a form they cannot meaningfully
   // submit (the BFF would 403 on POST without an owned provider).
   const [hasProvider, setHasProvider] = React.useState<boolean | null>(null);
+  // Multi-daemon picker state (#325). `providers` mirrors gateway-bff's
+  // ordered list; `selectedProviderId` is the currently-edited daemon's
+  // id (null until first fetch resolves and the BFF default-picks the
+  // primary). `promoting` gates the "Set as primary" buttons while the
+  // PUT is in flight.
+  const [providers, setProviders] = React.useState<ProviderRef[]>([]);
+  const [selectedProviderId, setSelectedProviderId] = React.useState<
+    string | null
+  >(null);
+  const [promoting, setPromoting] = React.useState(false);
+
+  // applyConfigToForm centralises the SchedulingConfig → FormState
+  // mapping so loadSchedule(providerId?) can reuse it after a re-fetch.
+  // Splitting it out also makes the picker-switch flow exhibit identical
+  // populate semantics to the first load (no drift between init paths).
+  const applyConfigToForm = React.useCallback((cfg?: SchedulingConfig) => {
+    if (!cfg) {
+      setForm(DEFAULT_FORM);
+      return;
+    }
+    setForm({
+      ...DEFAULT_FORM,
+      bandwidthCap: cfg.caps?.bandwidthCapGbPerMonth ?? DEFAULT_FORM.bandwidthCap,
+      cpuCap: cfg.caps?.cpuCapPercent ?? DEFAULT_FORM.cpuCap,
+      memoryCap: cfg.caps?.memoryCapPercent ?? DEFAULT_FORM.memoryCap,
+      gpuIdle: cfg.caps?.gpuCapPercentWhenIdle ?? DEFAULT_FORM.gpuIdle,
+      gpuActive: cfg.caps?.gpuCapPercentWhenActive ?? DEFAULT_FORM.gpuActive,
+      idleEnabled: cfg.idle?.enabled ?? DEFAULT_FORM.idleEnabled,
+      idleThreshold:
+        cfg.idle?.idleThresholdSeconds ?? DEFAULT_FORM.idleThreshold,
+      windows: calendarWindowsToBitmasks(cfg.calendar?.windows ?? []),
+      categories:
+        cfg.categoryOptIn?.allowedCategories ?? DEFAULT_FORM.categories,
+      blocklist: (
+        cfg.destinationPolicy?.destinationBlocklist ?? []
+      ).join("\n"),
+      perCustomerMinutes:
+        cfg.destinationPolicy?.perCustomerMinutesCap ??
+        DEFAULT_FORM.perCustomerMinutes,
+      perCustomerEnabled:
+        (cfg.destinationPolicy?.perCustomerMinutesCap ?? 0) > 0,
+      tester: "",
+      timezone: DEFAULT_FORM.timezone,
+    });
+  }, []);
+
+  // loadSchedule fetches /api/v1/provide/schedule (optionally scoped to
+  // a specific provider via ?provider_id=) and updates state. Used both
+  // on initial mount AND when the picker switches daemons. Errors are
+  // toasted but otherwise swallowed so the editor stays mounted —
+  // matches the pre-#325 mount-time behaviour.
+  const loadSchedule = React.useCallback(
+    async (providerId?: string): Promise<GetSchedulingConfigResponse | null> => {
+      try {
+        const api = browserApi();
+        const path = providerId
+          ? `/api/v1/provide/schedule?provider_id=${encodeURIComponent(providerId)}`
+          : "/api/v1/provide/schedule";
+        const cfgRes = await api
+          .get<GetSchedulingConfigResponse>(path)
+          .catch((e: ApiError): GetSchedulingConfigResponse => {
+            if (e.status === 404) return { config: undefined };
+            throw e;
+          });
+        setHasProvider(cfgRes.has_provider === false ? false : true);
+        const list = cfgRes.providers ?? [];
+        setProviders(list);
+        const cfgPid = cfgRes.config?.providerId?.value ?? null;
+        // The BFF's default-pick (primary) is reflected in the returned
+        // config.provider_id when no query param is sent. After an
+        // explicit switch we keep the user's pick; on first load we
+        // adopt whatever the server defaulted to.
+        setSelectedProviderId(providerId ?? cfgPid ?? null);
+        applyConfigToForm(cfgRes.config);
+        return cfgRes;
+      } catch (err) {
+        toast.error(`Couldn't load schedule: ${(err as Error).message}`);
+        return null;
+      }
+    },
+    [applyConfigToForm],
+  );
 
   React.useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const api = browserApi();
-        const [cfgRes, stateRes] = await Promise.all([
-          api
-            .get<GetSchedulingConfigResponse>("/api/v1/provide/schedule")
-            .catch((e: ApiError): GetSchedulingConfigResponse => {
-              if (e.status === 404) return { config: undefined };
-              throw e;
-            }),
+        const [_cfgRes, stateRes] = await Promise.all([
+          loadSchedule(),
           api
             .get<GetCurrentStateResponse>("/api/v1/provide/dashboard")
             .catch(() => null),
         ]);
         if (cancelled) return;
         if (stateRes) setUsage(stateRes);
-        // Treat anything other than an explicit `false` as "has provider"
-        // — covers older BFF builds that didn't emit the flag yet.
-        setHasProvider(cfgRes.has_provider === false ? false : true);
-        const cfg = cfgRes.config;
-        if (cfg) {
-          setForm({
-            ...DEFAULT_FORM,
-            bandwidthCap: cfg.caps?.bandwidthCapGbPerMonth ?? DEFAULT_FORM.bandwidthCap,
-            cpuCap: cfg.caps?.cpuCapPercent ?? DEFAULT_FORM.cpuCap,
-            memoryCap: cfg.caps?.memoryCapPercent ?? DEFAULT_FORM.memoryCap,
-            gpuIdle: cfg.caps?.gpuCapPercentWhenIdle ?? DEFAULT_FORM.gpuIdle,
-            gpuActive: cfg.caps?.gpuCapPercentWhenActive ?? DEFAULT_FORM.gpuActive,
-            idleEnabled: cfg.idle?.enabled ?? DEFAULT_FORM.idleEnabled,
-            idleThreshold:
-              cfg.idle?.idleThresholdSeconds ?? DEFAULT_FORM.idleThreshold,
-            windows: calendarWindowsToBitmasks(cfg.calendar?.windows ?? []),
-            categories:
-              cfg.categoryOptIn?.allowedCategories ?? DEFAULT_FORM.categories,
-            blocklist: (
-              cfg.destinationPolicy?.destinationBlocklist ?? []
-            ).join("\n"),
-            perCustomerMinutes:
-              cfg.destinationPolicy?.perCustomerMinutesCap ??
-              DEFAULT_FORM.perCustomerMinutes,
-            perCustomerEnabled:
-              (cfg.destinationPolicy?.perCustomerMinutesCap ?? 0) > 0,
-            tester: "",
-            timezone: DEFAULT_FORM.timezone,
-          });
-        }
-      } catch (err) {
-        toast.error(`Couldn't load schedule: ${(err as Error).message}`);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -138,7 +185,44 @@ export function ScheduleEditor() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadSchedule]);
+
+  // onPickProvider re-fetches /provide/schedule scoped to the picked
+  // daemon. The form repopulates so the operator immediately sees the
+  // chosen daemon's caps — addresses the original #325 surface bug
+  // ("the editor shows the wrong daemon's schedule").
+  const onPickProvider = React.useCallback(
+    async (providerId: string) => {
+      setSelectedProviderId(providerId);
+      await loadSchedule(providerId);
+    },
+    [loadSchedule],
+  );
+
+  // onPromoteProvider PUTs /provide/primary-provider then reloads so
+  // the badge moves in the picker and the BFF's default-pick changes.
+  // We deliberately keep the operator's current selection so the form
+  // doesn't surprise-switch the daemon they're editing.
+  const onPromoteProvider = React.useCallback(
+    async (providerId: string) => {
+      setPromoting(true);
+      try {
+        await browserApi().put("/api/v1/provide/primary-provider", {
+          provider_id: providerId,
+        });
+        toast.success("Primary daemon updated.");
+        // Re-fetch the providers list (the is_primary flags moved);
+        // preserve the operator's current selection so we don't yank
+        // the form they're mid-edit on.
+        await loadSchedule(selectedProviderId ?? providerId);
+      } catch (err) {
+        toast.error(`Couldn't update primary: ${(err as Error).message}`);
+      } finally {
+        setPromoting(false);
+      }
+    },
+    [loadSchedule, selectedProviderId],
+  );
 
   const onSave = async () => {
     const capsParsed = capsSchema.safeParse({
@@ -161,6 +245,14 @@ export function ScheduleEditor() {
     setSaving(true);
     try {
       const cfg: SchedulingConfig = {
+        // Stamp the currently-selected daemon's id so the save lands on
+        // the right scheduling_configs row. Without this the BFF would
+        // fall through to its default-primary pick and silently
+        // overwrite the wrong daemon's config — re-introducing the
+        // exact wrong-daemon surface #325 closes.
+        providerId: selectedProviderId
+          ? { value: selectedProviderId }
+          : undefined,
         caps: capsParsed.data,
         calendar: {
           windows: bitmasksToCalendarWindows(form.windows, form.timezone),
@@ -219,6 +311,14 @@ export function ScheduleEditor() {
       }}
       className="space-y-8"
     >
+      <PrimaryProviderPicker
+        providers={providers}
+        selectedId={selectedProviderId}
+        onSelect={(id) => void onPickProvider(id)}
+        onPromote={(id) => void onPromoteProvider(id)}
+        promoting={promoting}
+      />
+
       <section aria-labelledby="caps-heading" className="space-y-3">
         <h2 id="caps-heading" className="text-lg font-semibold">
           Resource caps

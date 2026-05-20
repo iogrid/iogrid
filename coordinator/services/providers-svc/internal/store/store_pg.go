@@ -113,7 +113,34 @@ func (p *pgStore) CreateProvider(ctx context.Context, pr *Provider) error {
 		pr.LastSeenAt = pr.RegisteredAt
 	}
 
-	_, err = p.pool.Exec(ctx, `
+	// #325: first row for an owner is auto-promoted to primary so the
+	// single-daemon case (every user except multi-machine power users)
+	// never sees the picker AND /provide/* has a deterministic answer
+	// from the first heartbeat. We compute the flag inside a single
+	// transaction with the INSERT so a concurrent pair for the same
+	// owner cannot race and produce two primaries (the partial unique
+	// index would catch it, but we'd rather not surface 23505 to the
+	// daemon installer).
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // committed below
+
+	if !pr.IsPrimary {
+		// Only auto-promote when the caller hasn't already asked for a
+		// specific value. Lets future call sites (admin import, etc.)
+		// preserve their intent.
+		var count int
+		if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM providers WHERE owner_user_id = $1`, owner).Scan(&count); err != nil {
+			return fmt.Errorf("count owner providers: %w", err)
+		}
+		if count == 0 {
+			pr.IsPrimary = true
+		}
+	}
+
+	_, err = tx.Exec(ctx, `
 		INSERT INTO providers (
 			id, owner_user_id, display_name, status,
 			platform, architecture, os_version, daemon_version,
@@ -122,7 +149,8 @@ func (p *pgStore) CreateProvider(ctx context.Context, pr *Provider) error {
 			public_ip, asn, isp, throughput_mbps, latency_ms,
 			region_slug, region_name, country_code,
 			supported_types, gpu_enabled, ios_build_enabled,
-			public_key, registered_at, last_seen_at
+			public_key, registered_at, last_seen_at,
+			is_primary
 		) VALUES (
 			$1, $2, $3, $4,
 			$5, $6, $7, $8,
@@ -131,7 +159,8 @@ func (p *pgStore) CreateProvider(ctx context.Context, pr *Provider) error {
 			$15, $16, $17, $18, $19,
 			$20, $21, $22,
 			$23, $24, $25,
-			$26, $27, $28
+			$26, $27, $28,
+			$29
 		)`,
 		id, owner, pr.DisplayName, string(pr.Status),
 		nullString(string(pr.HostInfo.Platform)), nullString(pr.HostInfo.Architecture), nullString(pr.HostInfo.OSVersion), nullString(pr.HostInfo.DaemonVersion),
@@ -141,12 +170,16 @@ func (p *pgStore) CreateProvider(ctx context.Context, pr *Provider) error {
 		nullString(pr.NetworkInfo.RegionSlug), nullString(pr.NetworkInfo.RegionName), nullString(pr.NetworkInfo.CountryCode),
 		emptyStrings(pr.Capabilities.SupportedTypes), pr.Capabilities.GPUEnabled, pr.Capabilities.IOSBuildEnabled,
 		pr.PublicKey, pr.RegisteredAt, pr.LastSeenAt,
+		pr.IsPrimary,
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return ErrAlreadyExists
 		}
 		return fmt.Errorf("insert provider: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit insert: %w", err)
 	}
 	return nil
 }
@@ -232,6 +265,7 @@ func scanProvider(row pgx.Row) (*Provider, error) {
 		publicKey            []byte
 		registeredAt         time.Time
 		lastSeenAt           time.Time
+		isPrimary            bool
 	)
 	if err := row.Scan(
 		&id, &owner, &displayName, &status,
@@ -242,6 +276,7 @@ func scanProvider(row pgx.Row) (*Provider, error) {
 		&regionSlug, &regionName, &countryCode,
 		&supportedTypes, &gpuEnabled, &iosBuild,
 		&publicKey, &registeredAt, &lastSeenAt,
+		&isPrimary,
 	); err != nil {
 		return nil, err
 	}
@@ -253,6 +288,7 @@ func scanProvider(row pgx.Row) (*Provider, error) {
 		PublicKey:    publicKey,
 		RegisteredAt: registeredAt,
 		LastSeenAt:   lastSeenAt,
+		IsPrimary:    isPrimary,
 		HostInfo: HostInfo{
 			Platform:        Platform(strPtr(platform)),
 			Architecture:    strPtr(arch),
@@ -292,7 +328,8 @@ const selectProviderCols = `
 	host(public_ip), asn, isp, throughput_mbps, latency_ms,
 	region_slug, region_name, country_code,
 	supported_types, gpu_enabled, ios_build_enabled,
-	public_key, registered_at, last_seen_at`
+	public_key, registered_at, last_seen_at,
+	is_primary`
 
 func (p *pgStore) GetProvider(ctx context.Context, idStr string) (*Provider, error) {
 	id, err := parseUUID("id", idStr)
@@ -369,6 +406,106 @@ func (p *pgStore) ListProviders(ctx context.Context, opts ListOptions) ([]*Provi
 		out = out[:size]
 	}
 	return out, next, nil
+}
+
+// SetPrimaryProvider atomically swaps the per-owner primary flag in one
+// transaction. Caller MUST own providerID — mismatch returns ErrNotFound
+// (the handler turns this into PermissionDenied to avoid leaking
+// existence to non-owners). See #325 for the multi-daemon ownership bug
+// this closes.
+//
+// SQL contract:
+//   1. UPDATE ... SET is_primary=FALSE WHERE owner=$1 AND is_primary
+//      (clears any prior primary for this owner; no-op if none)
+//   2. UPDATE ... SET is_primary=TRUE  WHERE id=$2 AND owner=$1
+//      RETURNING ... (validates ownership in the WHERE clause; 0 rows ⇒
+//      caller doesn't own it ⇒ ErrNotFound)
+// Both run inside one tx so a concurrent SetPrimary for the same owner
+// can't interleave and leave the row with is_primary=false. The partial
+// unique index providers_primary_per_owner is a backstop — but the tx
+// ordering means we never expect it to fire.
+func (p *pgStore) SetPrimaryProvider(ctx context.Context, ownerUserID, providerID string) (*Provider, error) {
+	owner, err := parseUUID("ownerUserID", ownerUserID)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	pid, err := parseUUID("providerID", providerID)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin set-primary tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // committed below
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE providers
+		   SET is_primary = FALSE
+		 WHERE owner_user_id = $1
+		   AND is_primary
+		   AND id <> $2`, owner, pid); err != nil {
+		return nil, fmt.Errorf("clear prior primary: %w", err)
+	}
+
+	tag, err := tx.Exec(ctx, `
+		UPDATE providers
+		   SET is_primary = TRUE
+		 WHERE id = $1
+		   AND owner_user_id = $2`, pid, owner)
+	if err != nil {
+		return nil, fmt.Errorf("set primary: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		// Caller does NOT own this provider id (or the row vanished).
+		return nil, ErrNotFound
+	}
+
+	// Read back the freshly-promoted row via the canonical SELECT — keeps
+	// scanProvider as the single source of truth for column ordering.
+	row := tx.QueryRow(ctx, `SELECT `+selectProviderCols+` FROM providers WHERE id = $1`, pid)
+	prov, err := scanProvider(row)
+	if err != nil {
+		return nil, fmt.Errorf("read back promoted row: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit set-primary: %w", err)
+	}
+	return prov, nil
+}
+
+// SelectProviderForOwner returns the deterministic "which paired daemon
+// answers for this user" pick for /provide/* surfaces. Returns (nil, nil)
+// when the owner has zero rows (the empty-state path, #313). See #325.
+func (p *pgStore) SelectProviderForOwner(ctx context.Context, ownerUserID string) (*Provider, error) {
+	if ownerUserID == "" {
+		return nil, nil
+	}
+	owner, err := parseUUID("ownerUserID", ownerUserID)
+	if err != nil {
+		// Malformed user id from the auth layer is a 500-class bug, not
+		// a user-visible state. Surfacing nil/nil would silently render
+		// the empty-state instead of escalating.
+		return nil, fmt.Errorf("select provider for owner: %w", err)
+	}
+	row := p.pool.QueryRow(ctx, `
+		SELECT `+selectProviderCols+`
+		  FROM providers
+		 WHERE owner_user_id = $1
+		 ORDER BY is_primary DESC,
+		          last_seen_at DESC NULLS LAST,
+		          registered_at DESC,
+		          id ASC
+		 LIMIT 1`, owner)
+	prov, err := scanProvider(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("select provider for owner: %w", err)
+	}
+	return prov, nil
 }
 
 func (p *pgStore) DeactivateProvider(ctx context.Context, idStr, reason string) error {

@@ -59,6 +59,9 @@ const (
 	// ProviderRegistrationServiceDeactivateProviderProcedure is the fully-qualified name of the
 	// ProviderRegistrationService's DeactivateProvider RPC.
 	ProviderRegistrationServiceDeactivateProviderProcedure = "/iogrid.providers.v1.ProviderRegistrationService/DeactivateProvider"
+	// ProviderRegistrationServiceSetPrimaryProviderProcedure is the fully-qualified name of the
+	// ProviderRegistrationService's SetPrimaryProvider RPC.
+	ProviderRegistrationServiceSetPrimaryProviderProcedure = "/iogrid.providers.v1.ProviderRegistrationService/SetPrimaryProvider"
 )
 
 // These variables are the protoreflect.Descriptor objects for the RPCs defined in this package.
@@ -71,6 +74,7 @@ var (
 	providerRegistrationServiceGetProviderMethodDescriptor               = providerRegistrationServiceServiceDescriptor.Methods().ByName("GetProvider")
 	providerRegistrationServiceListProvidersMethodDescriptor             = providerRegistrationServiceServiceDescriptor.Methods().ByName("ListProviders")
 	providerRegistrationServiceDeactivateProviderMethodDescriptor        = providerRegistrationServiceServiceDescriptor.Methods().ByName("DeactivateProvider")
+	providerRegistrationServiceSetPrimaryProviderMethodDescriptor        = providerRegistrationServiceServiceDescriptor.Methods().ByName("SetPrimaryProvider")
 )
 
 // ProviderRegistrationServiceClient is a client for the
@@ -83,6 +87,9 @@ type ProviderRegistrationServiceClient interface {
 	GetProvider(context.Context, *connect.Request[v1.GetProviderRequest]) (*connect.Response[v1.GetProviderResponse], error)
 	ListProviders(context.Context, *connect.Request[v1.ListProvidersRequest]) (*connect.Response[v1.ListProvidersResponse], error)
 	DeactivateProvider(context.Context, *connect.Request[v1.DeactivateProviderRequest]) (*connect.Response[v1.DeactivateProviderResponse], error)
+	// SetPrimaryProvider promotes one owned provider to the per-owner
+	// primary slot. Atomic swap. Issue #325.
+	SetPrimaryProvider(context.Context, *connect.Request[v1.SetPrimaryProviderRequest]) (*connect.Response[v1.SetPrimaryProviderResponse], error)
 }
 
 // NewProviderRegistrationServiceClient constructs a client for the
@@ -138,6 +145,12 @@ func NewProviderRegistrationServiceClient(httpClient connect.HTTPClient, baseURL
 			connect.WithSchema(providerRegistrationServiceDeactivateProviderMethodDescriptor),
 			connect.WithClientOptions(opts...),
 		),
+		setPrimaryProvider: connect.NewClient[v1.SetPrimaryProviderRequest, v1.SetPrimaryProviderResponse](
+			httpClient,
+			baseURL+ProviderRegistrationServiceSetPrimaryProviderProcedure,
+			connect.WithSchema(providerRegistrationServiceSetPrimaryProviderMethodDescriptor),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -150,6 +163,7 @@ type providerRegistrationServiceClient struct {
 	getProvider               *connect.Client[v1.GetProviderRequest, v1.GetProviderResponse]
 	listProviders             *connect.Client[v1.ListProvidersRequest, v1.ListProvidersResponse]
 	deactivateProvider        *connect.Client[v1.DeactivateProviderRequest, v1.DeactivateProviderResponse]
+	setPrimaryProvider        *connect.Client[v1.SetPrimaryProviderRequest, v1.SetPrimaryProviderResponse]
 }
 
 // IssuePairingToken calls iogrid.providers.v1.ProviderRegistrationService.IssuePairingToken.
@@ -188,6 +202,11 @@ func (c *providerRegistrationServiceClient) DeactivateProvider(ctx context.Conte
 	return c.deactivateProvider.CallUnary(ctx, req)
 }
 
+// SetPrimaryProvider calls iogrid.providers.v1.ProviderRegistrationService.SetPrimaryProvider.
+func (c *providerRegistrationServiceClient) SetPrimaryProvider(ctx context.Context, req *connect.Request[v1.SetPrimaryProviderRequest]) (*connect.Response[v1.SetPrimaryProviderResponse], error) {
+	return c.setPrimaryProvider.CallUnary(ctx, req)
+}
+
 // ProviderRegistrationServiceHandler is an implementation of the
 // iogrid.providers.v1.ProviderRegistrationService service.
 type ProviderRegistrationServiceHandler interface {
@@ -198,6 +217,9 @@ type ProviderRegistrationServiceHandler interface {
 	GetProvider(context.Context, *connect.Request[v1.GetProviderRequest]) (*connect.Response[v1.GetProviderResponse], error)
 	ListProviders(context.Context, *connect.Request[v1.ListProvidersRequest]) (*connect.Response[v1.ListProvidersResponse], error)
 	DeactivateProvider(context.Context, *connect.Request[v1.DeactivateProviderRequest]) (*connect.Response[v1.DeactivateProviderResponse], error)
+	// SetPrimaryProvider promotes one owned provider to the per-owner
+	// primary slot. Atomic swap. Issue #325.
+	SetPrimaryProvider(context.Context, *connect.Request[v1.SetPrimaryProviderRequest]) (*connect.Response[v1.SetPrimaryProviderResponse], error)
 }
 
 // NewProviderRegistrationServiceHandler builds an HTTP handler from the service implementation. It
@@ -248,6 +270,12 @@ func NewProviderRegistrationServiceHandler(svc ProviderRegistrationServiceHandle
 		connect.WithSchema(providerRegistrationServiceDeactivateProviderMethodDescriptor),
 		connect.WithHandlerOptions(opts...),
 	)
+	providerRegistrationServiceSetPrimaryProviderHandler := connect.NewUnaryHandler(
+		ProviderRegistrationServiceSetPrimaryProviderProcedure,
+		svc.SetPrimaryProvider,
+		connect.WithSchema(providerRegistrationServiceSetPrimaryProviderMethodDescriptor),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/iogrid.providers.v1.ProviderRegistrationService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ProviderRegistrationServiceIssuePairingTokenProcedure:
@@ -264,6 +292,8 @@ func NewProviderRegistrationServiceHandler(svc ProviderRegistrationServiceHandle
 			providerRegistrationServiceListProvidersHandler.ServeHTTP(w, r)
 		case ProviderRegistrationServiceDeactivateProviderProcedure:
 			providerRegistrationServiceDeactivateProviderHandler.ServeHTTP(w, r)
+		case ProviderRegistrationServiceSetPrimaryProviderProcedure:
+			providerRegistrationServiceSetPrimaryProviderHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -299,4 +329,8 @@ func (UnimplementedProviderRegistrationServiceHandler) ListProviders(context.Con
 
 func (UnimplementedProviderRegistrationServiceHandler) DeactivateProvider(context.Context, *connect.Request[v1.DeactivateProviderRequest]) (*connect.Response[v1.DeactivateProviderResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iogrid.providers.v1.ProviderRegistrationService.DeactivateProvider is not implemented"))
+}
+
+func (UnimplementedProviderRegistrationServiceHandler) SetPrimaryProvider(context.Context, *connect.Request[v1.SetPrimaryProviderRequest]) (*connect.Response[v1.SetPrimaryProviderResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iogrid.providers.v1.ProviderRegistrationService.SetPrimaryProvider is not implemented"))
 }

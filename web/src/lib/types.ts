@@ -342,6 +342,14 @@ export interface ProviderRef {
   capabilities?: CapabilityInventory | null;
   registered_at?: ProtoTimestamp | string | null;
   last_seen_at?: ProtoTimestamp | string | null;
+  /**
+   * Per-owner primary-daemon flag (#325). When the caller owns ≥2
+   * paired daemons the schedule editor renders a picker that lets the
+   * owner re-elect which is primary; non-primary rows show a "Set as
+   * primary" button. At most one row per owner has is_primary=true
+   * (enforced by a partial unique index in providers-svc).
+   */
+  is_primary?: boolean;
 }
 
 export interface ProviderDashboard {

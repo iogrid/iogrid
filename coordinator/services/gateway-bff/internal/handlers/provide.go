@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"net/http"
+	"sort"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -284,26 +285,33 @@ func (a *API) GetProviderEarnings(w http.ResponseWriter, r *http.Request) {
 //  1. ?provider_id=<UUID> in the query string — caller must actually own
 //     this provider (we validate by listing the caller's providers and
 //     matching). Mismatch returns ("", nil, false) with HTTP 403.
-//  2. No query param: look up the caller's owned providers via
-//     ProviderRegistrationService.ListProviders(owner_user_id=caller). If
-//     exactly one paired provider exists, return its id. If zero, return
-//     ("", []Provider{}, true) so the caller can render an empty state.
-//     If multiple, return the first ACTIVE one (Phase-0 single-daemon
-//     assumption — multi-daemon-per-user is a future feature).
+//  2. No query param: pick the caller's PRIMARY provider deterministically.
+//     Ordering (see sortOwnedProviders):
+//       a. is_primary DESC
+//       b. status == ACTIVE > anything else (an OFFLINE primary still
+//          beats an ACTIVE secondary)
+//       c. last_seen_at DESC (more recent heartbeat wins ties)
+//       d. registered_at DESC (newer pair wins last-second ties)
+//       e. id ASC (stable lexical tiebreaker)
+//     Owners with zero rows return ("", []Provider{}, true) so the
+//     handler renders the empty-state #313 envelope.
 //
 // Returns ("", nil, false) only when the handler should bail out (HTTP
 // response already written). Returns ("", []Provider{}, true) when the
 // caller is authenticated but has no paired provider yet — that's a
 // 200/OK empty-state path, NOT an error.
 //
-// Replaces the legacy resolveProviderID, which fell back to the caller's
-// user_id as if it were a provider_id. Downstream providers-svc then
-// synthesised a default SchedulingConfig keyed by that user_id (#305).
+// Replaces the pre-#325 "first ACTIVE" pick, which was indeterminate
+// for owners with ≥2 paired daemons because ListProviders ordered by
+// id ASC — Hatice's manual-test daemon happened to win against her real
+// Mac, so /provide/schedule rendered the wrong caps. Issue #325 (family
+// of #305).
 func (a *API) resolveOwnedProviderID(w http.ResponseWriter, r *http.Request, callerUserID string) (string, []*providersv1.Provider, bool) {
 	owned, ok := a.listOwnedProviders(w, r.Context(), callerUserID)
 	if !ok {
 		return "", nil, false
 	}
+	owned = sortOwnedProviders(owned)
 	if q := r.URL.Query().Get("provider_id"); q != "" {
 		id, ok := parseUUIDParam(w, q, "provider_id")
 		if !ok {
@@ -321,15 +329,84 @@ func (a *API) resolveOwnedProviderID(w http.ResponseWriter, r *http.Request, cal
 	if len(owned) == 0 {
 		return "", owned, true
 	}
-	// Prefer the first ACTIVE provider; otherwise fall through to the
-	// first row so the dashboard still shows the suspended/pending
-	// daemon. Phase 0 only ever ships 1 daemon per user.
-	for _, p := range owned {
-		if p.GetStatus() == providersv1.ProviderStatus_PROVIDER_STATUS_ACTIVE {
-			return p.GetId().GetValue(), owned, true
-		}
-	}
 	return owned[0].GetId().GetValue(), owned, true
+}
+
+// sortOwnedProviders returns owned re-sorted by the deterministic
+// per-owner primary-first ordering used by /provide/* default selection.
+// Pure: never mutates the input slice.
+func sortOwnedProviders(owned []*providersv1.Provider) []*providersv1.Provider {
+	out := append([]*providersv1.Provider(nil), owned...)
+	sort.SliceStable(out, func(i, j int) bool {
+		ai, bi := out[i], out[j]
+		// 1. is_primary DESC
+		if ai.GetIsPrimary() != bi.GetIsPrimary() {
+			return ai.GetIsPrimary()
+		}
+		// 2. ACTIVE before anything else (so a stale-OFFLINE non-primary
+		//    doesn't outrank a live ACTIVE one when neither is primary).
+		ais := ai.GetStatus() == providersv1.ProviderStatus_PROVIDER_STATUS_ACTIVE
+		bis := bi.GetStatus() == providersv1.ProviderStatus_PROVIDER_STATUS_ACTIVE
+		if ais != bis {
+			return ais
+		}
+		// 3. last_seen_at DESC (most-recently-heartbeated wins ties)
+		al := ai.GetLastSeenAt().AsTime()
+		bl := bi.GetLastSeenAt().AsTime()
+		if !al.Equal(bl) {
+			return al.After(bl)
+		}
+		// 4. registered_at DESC (newer pair wins last-second ties)
+		ar := ai.GetRegisteredAt().AsTime()
+		br := bi.GetRegisteredAt().AsTime()
+		if !ar.Equal(br) {
+			return ar.After(br)
+		}
+		// 5. id ASC (stable lexical tiebreaker)
+		return ai.GetId().GetValue() < bi.GetId().GetValue()
+	})
+	return out
+}
+
+// SetPrimaryProvider promotes one of the caller's owned providers to
+// the per-owner primary slot. Backs PUT /api/v1/provide/primary-provider.
+// Request body: {"provider_id": "<UUID>"}. Returns the freshly-promoted
+// Provider proto on success.
+//
+//	PUT /api/v1/provide/primary-provider  { "provider_id": "..." }
+func (a *API) SetPrimaryProvider(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.FromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "valid Bearer token required")
+		return
+	}
+	if a.Clients == nil || a.Clients.ProvidersRegistration == nil {
+		writeError(w, http.StatusServiceUnavailable, "registration_client_unwired",
+			"providers-svc Registration client not configured")
+		return
+	}
+	var body struct {
+		ProviderID string `json:"provider_id"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	pidParsed, ok := parseUUIDParam(w, body.ProviderID, "provider_id")
+	if !ok {
+		return
+	}
+	resp, err := a.Clients.ProvidersRegistration.SetPrimaryProvider(r.Context(), &providersv1.SetPrimaryProviderRequest{
+		OwnerUserId: &commonv1.UUID{Value: claims.UserID().String()},
+		ProviderId:  &commonv1.UUID{Value: pidParsed.String()},
+	})
+	if err != nil {
+		// providers-svc returns PERMISSION_DENIED when caller doesn't
+		// own the provider; writeUpstreamError maps that to HTTP 403.
+		writeUpstreamError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // listOwnedProviders queries providers-svc for the set of providers

@@ -246,6 +246,142 @@ func TestMemStore_EarningsSummary_EmptyProvider(t *testing.T) {
 	}
 }
 
+// --- #325 — per-owner primary provider ---------------------------------
+
+// TestMemStore_CreateProvider_AutoPromotesFirst asserts the first row
+// inserted for an owner is auto-marked is_primary=true.
+func TestMemStore_CreateProvider_AutoPromotesFirst(t *testing.T) {
+	ctx := context.Background()
+	s := NewInMemory()
+	p := &Provider{OwnerUserID: "owner-A", DisplayName: "first"}
+	if err := s.CreateProvider(ctx, p); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if !p.IsPrimary {
+		t.Fatalf("first daemon should be auto-primary")
+	}
+	got, _ := s.GetProvider(ctx, p.ID)
+	if !got.IsPrimary {
+		t.Fatalf("persisted row should be primary")
+	}
+}
+
+// TestMemStore_CreateProvider_SecondNotPrimary mirrors the
+// PairDaemon-side contract: subsequent rows default to non-primary.
+func TestMemStore_CreateProvider_SecondNotPrimary(t *testing.T) {
+	ctx := context.Background()
+	s := NewInMemory()
+	_ = s.CreateProvider(ctx, &Provider{OwnerUserID: "owner-B", DisplayName: "first"})
+	second := &Provider{OwnerUserID: "owner-B", DisplayName: "second"}
+	_ = s.CreateProvider(ctx, second)
+	if second.IsPrimary {
+		t.Fatalf("second daemon must NOT be primary on insert")
+	}
+}
+
+// TestMemStore_SetPrimaryProvider_AtomicSwap verifies the prior primary
+// is cleared in the same call that promotes the new one.
+func TestMemStore_SetPrimaryProvider_AtomicSwap(t *testing.T) {
+	ctx := context.Background()
+	s := NewInMemory()
+	first := &Provider{OwnerUserID: "owner-C", DisplayName: "first"}
+	second := &Provider{OwnerUserID: "owner-C", DisplayName: "second"}
+	_ = s.CreateProvider(ctx, first)
+	_ = s.CreateProvider(ctx, second)
+	if !first.IsPrimary || second.IsPrimary {
+		t.Fatalf("setup invariant: first primary, second not — got first=%v second=%v", first.IsPrimary, second.IsPrimary)
+	}
+
+	out, err := s.SetPrimaryProvider(ctx, "owner-C", second.ID)
+	if err != nil {
+		t.Fatalf("set primary: %v", err)
+	}
+	if out.ID != second.ID || !out.IsPrimary {
+		t.Fatalf("returned row should be promoted second: %+v", out)
+	}
+	gotFirst, _ := s.GetProvider(ctx, first.ID)
+	if gotFirst.IsPrimary {
+		t.Fatalf("prior primary should be cleared")
+	}
+	gotSecond, _ := s.GetProvider(ctx, second.ID)
+	if !gotSecond.IsPrimary {
+		t.Fatalf("new primary should be set")
+	}
+}
+
+// TestMemStore_SetPrimaryProvider_NotOwner asserts that an attempt to
+// promote a provider not owned by the caller returns ErrNotFound (the
+// handler turns this into PermissionDenied).
+func TestMemStore_SetPrimaryProvider_NotOwner(t *testing.T) {
+	ctx := context.Background()
+	s := NewInMemory()
+	p := &Provider{OwnerUserID: "owner-D"}
+	_ = s.CreateProvider(ctx, p)
+	if _, err := s.SetPrimaryProvider(ctx, "owner-E", p.ID); err == nil {
+		t.Fatalf("expected error when caller doesn't own the provider")
+	}
+}
+
+// TestMemStore_SelectProviderForOwner_PrimaryWins asserts is_primary=true
+// always wins, regardless of registered_at/last_seen ordering.
+func TestMemStore_SelectProviderForOwner_PrimaryWins(t *testing.T) {
+	ctx := context.Background()
+	s := NewInMemory()
+	now := time.Now().UTC()
+	first := &Provider{OwnerUserID: "owner-F", DisplayName: "first", LastSeenAt: now.Add(-time.Hour), RegisteredAt: now.Add(-time.Hour)}
+	second := &Provider{OwnerUserID: "owner-F", DisplayName: "second", LastSeenAt: now, RegisteredAt: now}
+	_ = s.CreateProvider(ctx, first)  // auto-primary
+	_ = s.CreateProvider(ctx, second) // not primary even though more recent
+
+	got, err := s.SelectProviderForOwner(ctx, "owner-F")
+	if err != nil {
+		t.Fatalf("select: %v", err)
+	}
+	if got == nil || got.ID != first.ID {
+		t.Fatalf("primary should win, got %+v", got)
+	}
+}
+
+// TestMemStore_SelectProviderForOwner_LastSeenTiebreaker asserts that
+// when no provider is primary (legacy data shape pre-migration), the
+// most-recently-heartbeated row wins.
+func TestMemStore_SelectProviderForOwner_LastSeenTiebreaker(t *testing.T) {
+	ctx := context.Background()
+	s := NewInMemory()
+	now := time.Now().UTC()
+	// Force is_primary=false on both by inserting then clearing.
+	p1 := &Provider{OwnerUserID: "owner-G", DisplayName: "p1", LastSeenAt: now.Add(-time.Hour), RegisteredAt: now.Add(-time.Hour)}
+	p2 := &Provider{OwnerUserID: "owner-G", DisplayName: "p2", LastSeenAt: now, RegisteredAt: now.Add(-30 * time.Minute)}
+	_ = s.CreateProvider(ctx, p1)
+	_ = s.CreateProvider(ctx, p2)
+	// Clear the auto-primary so we exercise pure timestamp ordering.
+	p1.IsPrimary = false
+	_ = s.UpdateProvider(ctx, p1)
+
+	got, err := s.SelectProviderForOwner(ctx, "owner-G")
+	if err != nil {
+		t.Fatalf("select: %v", err)
+	}
+	if got == nil || got.ID != p2.ID {
+		t.Fatalf("most-recent last_seen should win, got %+v", got)
+	}
+}
+
+// TestMemStore_SelectProviderForOwner_EmptyOwnerReturnsNil documents the
+// (nil, nil) empty-state contract — caller renders the "Install daemon"
+// CTA, not an error banner.
+func TestMemStore_SelectProviderForOwner_EmptyOwnerReturnsNil(t *testing.T) {
+	ctx := context.Background()
+	s := NewInMemory()
+	got, err := s.SelectProviderForOwner(ctx, "ghost-owner")
+	if err != nil {
+		t.Fatalf("expected nil error for empty owner, got %v", err)
+	}
+	if got != nil {
+		t.Fatalf("expected nil for empty owner, got %+v", got)
+	}
+}
+
 // TestMemStore_CreditEarnings_DefaultsGrid asserts the credit-time
 // default matches the pgStore — an entry with Currency:"" gets stored
 // as "GRID", not "USD" (#312). Keeps the in-memory test backend

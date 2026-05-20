@@ -93,6 +93,12 @@ type Provider struct {
 	RegisteredAt  time.Time
 	LastSeenAt    time.Time
 	PublicKey     []byte // DER-encoded SubjectPublicKeyInfo, captured at pairing time
+	// IsPrimary marks the owner's elected default daemon for /provide/*
+	// surfaces. At-most-one TRUE per owner_user_id (enforced by a partial
+	// unique index in migration 0002). On PairDaemon: the first row for
+	// an owner is promoted to primary; subsequent pairings stay false
+	// until the owner promotes them via SetPrimaryProvider. See #325.
+	IsPrimary bool
 }
 
 // SchedulingConfig is the persisted desired-state for a single provider.
@@ -174,6 +180,27 @@ type Store interface {
 	// surfaced as a warning by the caller).
 	UpdateLastSeen(ctx context.Context, id string, at time.Time) error
 
+	// SetPrimaryProvider atomically flips the per-owner primary flag:
+	// the previous primary (if any) is cleared and providerID becomes the
+	// new primary. Both rows MUST be owned by ownerUserID — mismatch
+	// returns ErrNotFound (handlers translate to PermissionDenied to
+	// avoid leaking provider existence to non-owners). Returns the
+	// freshly-promoted Provider. See #325.
+	SetPrimaryProvider(ctx context.Context, ownerUserID, providerID string) (*Provider, error)
+
+	// SelectProviderForOwner returns the deterministic "which paired
+	// daemon answers for this user" pick for /provide/* surfaces:
+	//   ORDER BY is_primary DESC,
+	//            last_seen_at DESC NULLS LAST,
+	//            registered_at DESC
+	//   LIMIT 1
+	// Returns (nil, nil) when the owner has zero rows — that's the
+	// "install daemon" empty-state path (#313), NOT an error. See #325
+	// for why a separate method (rather than reusing ListProviders +
+	// client-side sort) — the ordering is load-bearing and we want the
+	// SQL planner to keep it on the server.
+	SelectProviderForOwner(ctx context.Context, ownerUserID string) (*Provider, error)
+
 	// Pairing -----------------------------------------------------------
 	IssuePairingToken(ctx context.Context, ownerUserID string, ttl time.Duration) (string, error)
 	ConsumePairingToken(ctx context.Context, token string) (PairingToken, error)
@@ -249,6 +276,22 @@ func (m *memStore) CreateProvider(_ context.Context, p *Provider) error {
 	if p.Status == StatusUnspecified {
 		p.Status = StatusActive
 	}
+	// First daemon paired by this owner is auto-promoted to primary, so
+	// single-daemon users (the overwhelming majority) never need to
+	// touch the picker. Second-and-onwards default to false; the owner
+	// flips them via SetPrimaryProvider. Mirrors pgStore.CreateProvider.
+	if p.OwnerUserID != "" {
+		hasAny := false
+		for _, existing := range m.providers {
+			if existing.OwnerUserID == p.OwnerUserID {
+				hasAny = true
+				break
+			}
+		}
+		if !hasAny {
+			p.IsPrimary = true
+		}
+	}
 	copy := *p
 	m.providers[p.ID] = &copy
 	return nil
@@ -278,6 +321,80 @@ func (m *memStore) UpdateLastSeen(_ context.Context, id string, at time.Time) er
 	}
 	p.LastSeenAt = at
 	return nil
+}
+
+// SetPrimaryProvider atomically swaps the per-owner primary flag. See
+// the Store interface comment for the contract. In-memory: we hold the
+// write lock for the duration so a concurrent CreateProvider for the
+// same owner can't slip a second primary in between the clear + set.
+func (m *memStore) SetPrimaryProvider(_ context.Context, ownerUserID, providerID string) (*Provider, error) {
+	if ownerUserID == "" || providerID == "" {
+		return nil, ErrNotFound
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	target, ok := m.providers[providerID]
+	if !ok || target.OwnerUserID != ownerUserID {
+		// Caller doesn't own this id (or id doesn't exist). Surfacing
+		// ErrNotFound rather than ErrAlreadyExists keeps the handler's
+		// error mapping uniform; the handler turns this into
+		// PermissionDenied so non-owners can't probe ids by error code.
+		return nil, ErrNotFound
+	}
+	for _, existing := range m.providers {
+		if existing.OwnerUserID == ownerUserID {
+			existing.IsPrimary = false
+		}
+	}
+	target.IsPrimary = true
+	out := *target
+	return &out, nil
+}
+
+// SelectProviderForOwner returns the primary (or best-available)
+// provider for the owner. (nil, nil) when the owner has zero rows.
+// Mirrors the pgStore SQL: ORDER BY is_primary DESC, last_seen_at DESC,
+// registered_at DESC — deterministic and stable across restarts so the
+// same daemon answers for /provide/* until the owner re-elects.
+func (m *memStore) SelectProviderForOwner(_ context.Context, ownerUserID string) (*Provider, error) {
+	if ownerUserID == "" {
+		return nil, nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var best *Provider
+	for _, existing := range m.providers {
+		if existing.OwnerUserID != ownerUserID {
+			continue
+		}
+		if best == nil || providerBeatsForOwner(existing, best) {
+			best = existing
+		}
+	}
+	if best == nil {
+		return nil, nil
+	}
+	out := *best
+	return &out, nil
+}
+
+// providerBeatsForOwner is the ranking predicate used by
+// SelectProviderForOwner. cand "beats" cur when (in order):
+//   1. cand.IsPrimary && !cur.IsPrimary
+//   2. cand.LastSeenAt > cur.LastSeenAt
+//   3. cand.RegisteredAt > cur.RegisteredAt
+// Final tiebreaker: lexical ID (stable, deterministic).
+func providerBeatsForOwner(cand, cur *Provider) bool {
+	if cand.IsPrimary != cur.IsPrimary {
+		return cand.IsPrimary
+	}
+	if !cand.LastSeenAt.Equal(cur.LastSeenAt) {
+		return cand.LastSeenAt.After(cur.LastSeenAt)
+	}
+	if !cand.RegisteredAt.Equal(cur.RegisteredAt) {
+		return cand.RegisteredAt.After(cur.RegisteredAt)
+	}
+	return cand.ID < cur.ID
 }
 
 func (m *memStore) GetProvider(_ context.Context, id string) (*Provider, error) {
