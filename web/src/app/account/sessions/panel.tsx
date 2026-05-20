@@ -30,7 +30,7 @@ import * as React from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { browserApi } from "@/lib/api";
-import { formatRelativeTime } from "@/lib/format";
+import { formatProtoTimestampRelative } from "@/lib/format";
 import type { ListSessionsResponse, Session, UUIDValue } from "@/lib/types";
 
 // Extract the session id whether it arrived as {value:"<uuid>"} or as
@@ -64,12 +64,23 @@ function ipOf(s: Session): string {
   return String(pick(s.ip_address, s.ipAddress) ?? "");
 }
 
-function createdAtOf(s: Session): string | undefined {
-  return pick(s.created_at, s.createdAt) as string | undefined;
+// The on-wire shape is gateway-bff's `encoding/json`-serialised proto:
+// either a string (RFC3339, after a future protojson cutover) OR a
+// `{seconds, nanos}` object (today's stdlib path). The earlier
+// `as string | undefined` cast silently coerced the object → NaN
+// downstream, blanking every timestamp on /account/sessions (#322).
+// `formatProtoTimestampRelative` already handles both shapes.
+type ProtoTimestampOrISO =
+  | string
+  | { seconds?: string | number; nanos?: number }
+  | undefined;
+
+function createdAtOf(s: Session): ProtoTimestampOrISO {
+  return pick(s.created_at, s.createdAt) as ProtoTimestampOrISO;
 }
 
-function lastUsedAtOf(s: Session): string | undefined {
-  return pick(s.last_used_at, s.lastSeenAt) as string | undefined;
+function lastUsedAtOf(s: Session): ProtoTimestampOrISO {
+  return pick(s.last_used_at, s.lastSeenAt) as ProtoTimestampOrISO;
 }
 
 function expiresAtOf(s: Session): string | undefined {
@@ -236,9 +247,11 @@ export function SessionsPanel() {
                   </p>
                   <p className="mt-0.5 text-xs text-zinc-500" title={ua}>
                     {ip ? `${ip} · ` : ""}
-                    {created ? `started ${formatRelativeTime(created)} · ` : ""}
+                    {created
+                      ? `started ${formatProtoTimestampRelative(created)} · `
+                      : ""}
                     {lastUsed
-                      ? `last active ${formatRelativeTime(lastUsed)}`
+                      ? `last active ${formatProtoTimestampRelative(lastUsed)}`
                       : "never used"}
                     {expires ? ` · ${formatExpiresIn(expires)}` : ""}
                   </p>
