@@ -209,6 +209,17 @@ export class Session extends Message<Session> {
    */
   expiresAt?: Timestamp;
 
+  /**
+   * True when this row matches the caller's own session — populated by
+   * AuthService.ListSessions when the caller's session id (`jti`) is
+   * resolvable. UI uses this to render the "Current session" pill and to
+   * disable the Revoke button for the active session (it must be ended
+   * via the normal sign-out flow).
+   *
+   * @generated from field: bool is_current = 8;
+   */
+  isCurrent = false;
+
   constructor(data?: PartialMessage<Session>) {
     super();
     proto3.util.initPartial(data, this);
@@ -224,6 +235,7 @@ export class Session extends Message<Session> {
     { no: 5, name: "created_at", kind: "message", T: Timestamp },
     { no: 6, name: "last_used_at", kind: "message", T: Timestamp },
     { no: 7, name: "expires_at", kind: "message", T: Timestamp },
+    { no: 8, name: "is_current", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): Session {

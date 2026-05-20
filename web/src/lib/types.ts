@@ -67,12 +67,34 @@ export interface MeResponse {
 }
 
 export interface Session {
-  id?: UUIDValue;
-  userAgent: string;
-  ipAddress: string;
-  createdAt: string;
-  lastSeenAt: string;
-  current: boolean;
+  // gateway-bff returns the Connect-RPC JSON envelope of the canonical
+  // identityv1.Session message, which uses snake_case field names per
+  // the proto3-JSON mapping. We surface both spellings here so older
+  // callers that referenced the camelCase aliases keep compiling
+  // alongside the /account/sessions panel that consumes the canonical
+  // names (issue #322).
+  //
+  // `id` carries the session UUID. Connect-RPC wraps it as
+  // {value: "<uuid>"}; the older chi JSON twin emits a bare string —
+  // both shapes are tolerated so the panel can pick whichever the
+  // current call site returned.
+  id?: UUIDValue | string;
+  user_id?: UUIDValue | string;
+  // Canonical protobuf-JSON fields (issue #322).
+  user_agent?: string;
+  ip_address?: string;
+  created_at?: string;
+  last_used_at?: string;
+  expires_at?: string;
+  is_current?: boolean;
+  // Legacy camelCase aliases kept for backward compatibility with the
+  // earlier hand-rolled JSON shape. The panel reads via the
+  // sessionFieldShim helper which falls back across both.
+  userAgent?: string;
+  ipAddress?: string;
+  createdAt?: string;
+  lastSeenAt?: string;
+  current?: boolean;
 }
 
 export interface ListSessionsResponse {

@@ -51,6 +51,10 @@ type AuthClient interface {
 	RefreshToken(ctx context.Context, req *identityv1.RefreshTokenRequest) (*identityv1.RefreshTokenResponse, error)
 	SignOut(ctx context.Context, req *identityv1.SignOutRequest) (*identityv1.SignOutResponse, error)
 	ListSessions(ctx context.Context, req *identityv1.ListSessionsRequest) (*identityv1.ListSessionsResponse, error)
+	// RevokeSession soft-revokes a session id owned by the caller
+	// (issue #322). Identity-svc validates ownership in the WHERE
+	// clause of the UPDATE; the BFF only forwards.
+	RevokeSession(ctx context.Context, req *identityv1.RevokeSessionRequest) (*identityv1.RevokeSessionResponse, error)
 }
 
 // ProvidersDashboardClient backs the /provide/dashboard + audit feed.
@@ -171,6 +175,15 @@ type Config struct {
 	BillingURL   string
 	Timeout      time.Duration
 	Retries      int
+	// ServiceToken is the shared secret identity-svc's Phase 0 shim
+	// accepts on Authorization: Bearer <token> alongside the
+	// X-Iogrid-User-Id + X-Iogrid-Session-Id headers (issue #322 +
+	// #232). When set, every Connect-RPC client wires a header-
+	// forwarding interceptor that stamps the caller's identity onto
+	// outbound calls. When empty, no header is set and downstream
+	// services see anonymous calls — useful for tests / dev where
+	// the shim isn't configured.
+	ServiceToken string
 }
 
 // New constructs a real, network-backed Set. httpClient is reused
@@ -179,18 +192,22 @@ func New(cfg Config, httpClient *http.Client) *Set {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: cfg.Timeout}
 	}
+	// Single header-forwarding interceptor shared across every client.
+	// Connect's WithInterceptors applies them in order; we keep just
+	// the one so call ordering can't surprise reviewers later.
+	interceptors := connect.WithInterceptors(newHeaderForwarder(cfg.ServiceToken))
 	// Connect-Go retries on the wire transport via its policy options.
 	// For simplicity we wrap retries at the call site (see Retry below).
-	identityRaw := identityv1connect.NewIdentityServiceClient(httpClient, cfg.IdentityURL)
-	authRaw := identityv1connect.NewAuthServiceClient(httpClient, cfg.IdentityURL)
-	workspaceRaw := identityv1connect.NewWorkspaceServiceClient(httpClient, cfg.IdentityURL)
-	dashRaw := providersv1connect.NewDashboardServiceClient(httpClient, cfg.ProvidersURL)
-	schedRaw := providersv1connect.NewSchedulingServiceClient(httpClient, cfg.ProvidersURL)
-	regRaw := providersv1connect.NewProviderRegistrationServiceClient(httpClient, cfg.ProvidersURL)
-	wlRaw := workloadsv1connect.NewWorkloadSubmissionServiceClient(httpClient, cfg.WorkloadsURL)
-	abuseRaw := antiabusev1connect.NewAbuseFilterServiceClient(httpClient, cfg.AntiabuseURL)
-	billRaw := billingv1connect.NewSubscriptionServiceClient(httpClient, cfg.BillingURL)
-	earnRaw := billingv1connect.NewEarningsServiceClient(httpClient, cfg.BillingURL)
+	identityRaw := identityv1connect.NewIdentityServiceClient(httpClient, cfg.IdentityURL, interceptors)
+	authRaw := identityv1connect.NewAuthServiceClient(httpClient, cfg.IdentityURL, interceptors)
+	workspaceRaw := identityv1connect.NewWorkspaceServiceClient(httpClient, cfg.IdentityURL, interceptors)
+	dashRaw := providersv1connect.NewDashboardServiceClient(httpClient, cfg.ProvidersURL, interceptors)
+	schedRaw := providersv1connect.NewSchedulingServiceClient(httpClient, cfg.ProvidersURL, interceptors)
+	regRaw := providersv1connect.NewProviderRegistrationServiceClient(httpClient, cfg.ProvidersURL, interceptors)
+	wlRaw := workloadsv1connect.NewWorkloadSubmissionServiceClient(httpClient, cfg.WorkloadsURL, interceptors)
+	abuseRaw := antiabusev1connect.NewAbuseFilterServiceClient(httpClient, cfg.AntiabuseURL, interceptors)
+	billRaw := billingv1connect.NewSubscriptionServiceClient(httpClient, cfg.BillingURL, interceptors)
+	earnRaw := billingv1connect.NewEarningsServiceClient(httpClient, cfg.BillingURL, interceptors)
 
 	return &Set{
 		Identity:              &identityAdapter{c: identityRaw, retries: cfg.Retries},
@@ -325,6 +342,16 @@ func (a *authAdapter) SignOut(ctx context.Context, req *identityv1.SignOutReques
 func (a *authAdapter) ListSessions(ctx context.Context, req *identityv1.ListSessionsRequest) (*identityv1.ListSessionsResponse, error) {
 	return retry(ctx, a.retries, func(ctx context.Context) (*identityv1.ListSessionsResponse, error) {
 		r, err := a.c.ListSessions(ctx, connect.NewRequest(req))
+		if err != nil {
+			return nil, err
+		}
+		return r.Msg, nil
+	})
+}
+
+func (a *authAdapter) RevokeSession(ctx context.Context, req *identityv1.RevokeSessionRequest) (*identityv1.RevokeSessionResponse, error) {
+	return retry(ctx, a.retries, func(ctx context.Context) (*identityv1.RevokeSessionResponse, error) {
+		r, err := a.c.RevokeSession(ctx, connect.NewRequest(req))
 		if err != nil {
 			return nil, err
 		}
