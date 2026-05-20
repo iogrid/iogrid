@@ -33,7 +33,7 @@ spec:
         # cache-identical. Treated as an opaque ISO-8601 string by the
         # deploy-bot sed in the workflow — do not hand-edit unless you intend
         # to roll the pods.
-        kubectl.kubernetes.io/restartedAt: "2026-05-20T17:38:38Z"
+        kubectl.kubernetes.io/restartedAt: "2026-05-20T19:19:08Z"
     spec:
       serviceAccountName: web
       automountServiceAccountToken: true
@@ -56,7 +56,7 @@ spec:
           #   (c) imagePullPolicy: Always belt-and-braces guarantees the
           #       node pulls the digest even when the tag string is unchanged
           # Refs #332.
-          image: ghcr.io/iogrid/web@sha256:ffd76e8d97f70a0dfe1d28c05c3442a83769ca8d0ecbbae10488c2abe80ee611
+          image: ghcr.io/iogrid/web@sha256:7f2922d412f318cd9bf13682b80c1cb6ed9e20259868728f45dce089ebd22b44
           imagePullPolicy: Always
           ports:
             - name: http
