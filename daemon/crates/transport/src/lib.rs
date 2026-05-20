@@ -474,6 +474,15 @@ impl Channel {
             .timeout(Duration::from_secs(10))
             .tcp_keepalive(Some(Duration::from_secs(30)))
             .http2_keep_alive_interval(Duration::from_secs(15))
+            // #271: pair the keep_alive_interval with an explicit
+            // keep_alive_timeout so the client doesn't tear down its own
+            // connection when a single ping ack is slow. The tonic
+            // default (20s) was racing Traefik's 30s default idle h2
+            // stream close, manifesting as `Dispatch` streams that
+            // appeared to "succeed" at TLS but then died within ~7s
+            // before the DaemonHello frame reached workloads-svc. 60s
+            // gives the bidi pump enough slack for two missed pings.
+            .keep_alive_timeout(Duration::from_secs(60))
             .keep_alive_while_idle(true);
         let ch = match ep.connect().await {
             Ok(ch) => ch,
@@ -1081,7 +1090,20 @@ async fn run_dispatch_stream(
         .map_err(|_| TransportError::Unreachable("hello channel closed before send".into()))?;
 
     let req_stream = ReceiverStream::new(req_rx);
+    tracing::info!(
+        provider_id = %hello.provider_id,
+        eligible_types = ?hello.supported_types,
+        max_concurrent = hello.max_concurrent,
+        "dispatch stream: opening RPC + DaemonHello queued"
+    );
     let resp = client.dispatch(req_stream).await.map_err(|s| {
+        // #271: log the actual gRPC status code/message so we can tell
+        // a TLS / ALPN / Traefik issue apart from a server-side reject.
+        tracing::warn!(
+            grpc_code = ?s.code(),
+            grpc_message = %s.message(),
+            "dispatch stream: client.dispatch() returned error before ack"
+        );
         TransportError::Unreachable(format!("dispatch RPC: {}", display_error_chain(&s)))
     })?;
     let mut resp_stream = resp.into_inner();
@@ -1090,20 +1112,36 @@ async fn run_dispatch_stream(
     let ack = match tokio::time::timeout(Duration::from_secs(10), resp_stream.message()).await {
         Ok(Ok(Some(frame))) => convert::frame_from_pb(frame),
         Ok(Ok(None)) => {
+            // #271: this is the failure mode that left no breadcrumbs in
+            // the live log — the server returned grpc-status=0 with no
+            // CoordinatorHello frame, almost certainly because the
+            // request body was buffered by an intermediary and the
+            // handler saw io.EOF before our DaemonHello reached it.
+            tracing::warn!(
+                "dispatch stream: server closed cleanly BEFORE coordinator-hello — \
+                 likely request-body buffering at the edge (Traefik/h2) or \
+                 handler returning early; reconnect will follow"
+            );
             return Err(TransportError::Unreachable(
                 "stream closed before coordinator-hello".into(),
-            ))
+            ));
         }
         Ok(Err(s)) => {
+            tracing::warn!(
+                grpc_code = ?s.code(),
+                grpc_message = %s.message(),
+                "dispatch stream: recv error while awaiting coordinator-hello"
+            );
             return Err(TransportError::Unreachable(format!(
                 "recv error: {}",
                 display_error_chain(&s)
-            )))
+            )));
         }
         Err(_) => {
+            tracing::warn!("dispatch stream: 10s timeout waiting for coordinator-hello");
             return Err(TransportError::Unreachable(
                 "timed out waiting for coordinator-hello (10s)".into(),
-            ))
+            ));
         }
     };
     match ack {
@@ -1142,10 +1180,23 @@ async fn run_dispatch_stream(
                         }
                     }
                     Ok(None) => {
-                        tracing::info!("coordinator closed dispatch stream");
+                        // #271: warn (not info) so a healthy long-lived
+                        // stream's *unexpected* clean close gets noticed
+                        // — the dispatch RPC is supposed to outlive the
+                        // process; coordinator returning None means an
+                        // edge proxy dropped the response stream.
+                        tracing::warn!(
+                            "dispatch stream: server closed mid-flight (Ok(None)) — \
+                             likely h2 idle-timeout or GOAWAY at the edge"
+                        );
                         return Ok(());
                     }
                     Err(s) => {
+                        tracing::warn!(
+                            grpc_code = ?s.code(),
+                            grpc_message = %s.message(),
+                            "dispatch stream: recv error mid-flight"
+                        );
                         return Err(TransportError::Unreachable(format!(
                             "dispatch stream recv: {}",
                             display_error_chain(&s)

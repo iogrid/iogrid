@@ -1,0 +1,57 @@
+# Traefik ServersTransport — disables all idle / read / write timeouts on
+# the Traefik→backend leg so Connect-RPC bidi streams (DaemonHello +
+# Assignment + TunnelData) can stay open for the lifetime of a paired
+# daemon (minutes to hours).
+#
+# Without this, Traefik's default Go-stdlib `http.Transport` carries:
+#
+#   - `IdleConnTimeout: 90s`       — pool-level idle conn close
+#   - `ReadHeaderTimeout: 0`       — no header timeout (good)
+#   - `ResponseHeaderTimeout: 0`   — no header timeout (good)
+#
+# The 90s `IdleConnTimeout` is the killer: when the bidi stream goes
+# briefly idle (no app-level frames in transit, only h2 keepalive
+# pings), Traefik's pool considers the underlying TCP+TLS connection
+# stale and tears it down on the next request multiplexed onto it.
+# Daemon sees `Ok(None)` on `resp_stream.message()` and reconnects.
+#
+# Setting all four to 0 == "never expire" — Connect-RPC streams have
+# their own keepalive (h2 PING every 15s daemon-side, see #243 and
+# `daemon/crates/transport/src/lib.rs:run_dispatch_stream`).
+#
+# Issue: #271. Built on #260 (Service appProtocol h2c) and #261
+# (server h2c.NewHandler).
+apiVersion: traefik.io/v1alpha1
+kind: ServersTransport
+metadata:
+  name: long-lived-bidi
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: traefik-shim
+spec:
+  # Disable cert validation for the in-cluster h2c upstream — the
+  # backend is plaintext h2c, so this field is moot, but explicit > implicit.
+  insecureSkipVerify: true
+  forwardingTimeouts:
+    # Time to keep an idle keep-alive connection in the pool. 0 ==
+    # never close on idle. This is THE setting that fixes #271 — the
+    # default 90s was tearing down the dispatch stream before the
+    # daemon could complete its DaemonHello/Assignment cycle.
+    idleConnTimeout: "0s"
+    # Time we wait for the response headers after a request was sent.
+    # Connect-RPC sends headers immediately; 0 == no timeout.
+    responseHeaderTimeout: "0s"
+    # Time we wait to establish the TCP connection to the backend.
+    # Kept short so deployment rolls (Pending pods) don't get picked.
+    dialTimeout: "5s"
+    # Interval between h2 PING frames on idle connections. Setting a
+    # positive value enables Traefik's own h2 keepalive — this matches
+    # the daemon's `http2_keep_alive_interval(15s)` so the round-trip
+    # is symmetric and a single missed pong from either side resets
+    # the connection cleanly instead of stranding the bidi stream.
+    readIdleTimeout: "30s"
+    # How long to wait for a PING pong before declaring the connection
+    # dead. 60s == the same value we ship on the daemon side after
+    # #271 (`http2_keep_alive_timeout(60s)`).
+    pingTimeout: "60s"
