@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Hero } from "@/components/Hero";
 import { PricingTable } from "@/components/PricingTable";
-import { InstallButtons } from "@/components/InstallButtons";
+import { InstallButton } from "@/components/InstallButton";
 import { vpnPricing } from "@/content/pricing";
 
 export const metadata: Metadata = {
@@ -60,7 +60,7 @@ export default function VPNPage() {
 
       <section className="container-page py-12">
         <div className="mx-auto max-w-2xl">
-          <InstallButtons />
+          <InstallButton />
         </div>
       </section>
 

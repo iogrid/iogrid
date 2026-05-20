@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Hero } from "@/components/Hero";
 import { FeatureGrid } from "@/components/FeatureGrid";
-import { InstallButtons } from "@/components/InstallButtons";
+import { InstallButton } from "@/components/InstallButton";
 import { TransparencyDemoEmbed } from "@/components/TransparencyDemoEmbed";
 
 export const metadata: Metadata = {
@@ -166,7 +166,7 @@ export default function ProvidersPage() {
           </p>
         </div>
         <div className="mx-auto mt-10 max-w-2xl">
-          <InstallButtons />
+          <InstallButton />
         </div>
       </section>
     </>

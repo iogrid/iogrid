@@ -1,0 +1,85 @@
+{
+  "version": "0.1.0",
+  "channel": "stable",
+  "cdn": "https://releases.iogrid.org",
+  "_comment_sha256": "Placeholder SHA-256 (64 zero hex chars) for unsigned dev builds; bumped by the release pipeline alongside the daemon Cargo.toml + nfpm IOGRID_VERSION when a tagged release is cut.",
+  "artifacts": [
+    {
+      "id": "mac-arm64",
+      "label": "macOS (Apple Silicon)",
+      "filename": "iogrid-0.1.0-arm64.pkg",
+      "platform": "mac",
+      "arch": "arm64",
+      "linuxFormat": null,
+      "target": "aarch64-apple-darwin",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sizeBytes": 5242880
+    },
+    {
+      "id": "mac-amd64",
+      "label": "macOS (Intel)",
+      "filename": "iogrid-0.1.0-amd64.pkg",
+      "platform": "mac",
+      "arch": "amd64",
+      "linuxFormat": null,
+      "target": "x86_64-apple-darwin",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sizeBytes": 5242880
+    },
+    {
+      "id": "win-amd64",
+      "label": "Windows (x64)",
+      "filename": "iogrid-0.1.0-amd64.msi",
+      "platform": "win",
+      "arch": "amd64",
+      "linuxFormat": null,
+      "target": "x86_64-pc-windows-msvc",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sizeBytes": 5242880
+    },
+    {
+      "id": "linux-deb-amd64",
+      "label": "Linux (.deb · amd64)",
+      "filename": "iogrid_0.1.0_amd64.deb",
+      "platform": "linux",
+      "arch": "amd64",
+      "linuxFormat": "deb",
+      "target": "x86_64-unknown-linux-gnu",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sizeBytes": 5242880
+    },
+    {
+      "id": "linux-deb-arm64",
+      "label": "Linux (.deb · arm64)",
+      "filename": "iogrid_0.1.0_arm64.deb",
+      "platform": "linux",
+      "arch": "arm64",
+      "linuxFormat": "deb",
+      "target": "aarch64-unknown-linux-gnu",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sizeBytes": 5242880
+    },
+    {
+      "id": "linux-rpm-amd64",
+      "label": "Linux (.rpm · amd64)",
+      "filename": "iogrid-0.1.0-1.x86_64.rpm",
+      "platform": "linux",
+      "arch": "amd64",
+      "linuxFormat": "rpm",
+      "target": "x86_64-unknown-linux-gnu",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sizeBytes": 5242880
+    },
+    {
+      "id": "linux-apk-amd64",
+      "label": "Linux (.apk · amd64)",
+      "filename": "iogrid_0.1.0_amd64.apk",
+      "platform": "linux",
+      "arch": "amd64",
+      "linuxFormat": "apk",
+      "target": "x86_64-unknown-linux-gnu",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sizeBytes": 5242880
+    }
+  ]
+}
