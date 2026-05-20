@@ -1,4 +1,17 @@
 /// <reference types="react/canary" />
+/// <reference types="@testing-library/jest-dom" />
+
+// `@testing-library/jest-dom` augments Vitest's `Assertion<HTMLElement>`
+// with the DOM matchers `toBeInTheDocument`, `toHaveTextContent`, etc.
+// Test files import the runtime side via `import
+// "@testing-library/jest-dom/vitest";` — that wires the matchers — but
+// the TYPE augmentation only takes effect when this triple-slash
+// reference is in scope of `tsc`. Without it, every test file using a
+// jest-dom matcher fails typecheck with TS2339 'Property
+// toBeInTheDocument does not exist on type Assertion<HTMLElement>'.
+//
+// Putting the reference here (instead of in each test file) means new
+// tests don't need to remember to add it.
 
 // React canary types — required so `<form action={serverAction}>` accepts
 // a function value (Server Action) and not just a string URL. These types
