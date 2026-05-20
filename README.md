@@ -81,7 +81,8 @@ iogrid/
 
 ## Key documents
 
-- [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — how iogrid works: system overview, components, scheduling, transparency layer, security, DNS + TLS, install UX, observability
+- [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — how iogrid works: system overview, components, scheduling, transparency layer, DNS + TLS, install UX, observability
+- [`docs/SECURITY.md`](./docs/SECURITY.md) — threat model, trust boundaries, service mTLS, secrets policy, identity, supply chain
 - [`docs/ROADMAP.md`](./docs/ROADMAP.md) — module shipping sequence toward the end state
 - [`docs/BUSINESS-STRATEGY.md`](./docs/BUSINESS-STRATEGY.md) — market, competitive landscape, unit economics, currency model ($GRID), off-ramp partners, legal risk
 - [`docs/whitepaper.md`](./docs/whitepaper.md) — $GRID token whitepaper (regulatory artifact)

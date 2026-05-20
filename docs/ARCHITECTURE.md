@@ -346,7 +346,7 @@ The Google verified-emails trick: Google APIs expose all emails verified on a Go
 
 Every coordinator microservice carries a SPIFFE-style identity issued from the Cilium service-mesh control plane. Identity-aware `CiliumNetworkPolicy` enforces mutual auth at L7 — a connection from `proxy-gateway` to `billing-svc` is rejected at the kernel unless `proxy-gateway`'s SVID is presented and matches the policy's `selector.matchLabels`. SPIFFE IDs are of the form `spiffe://iogrid/ns/iogrid/sa/<service>`.
 
-The plain Kubernetes `NetworkPolicy` (L3/L4) ships in parallel as defence-in-depth. Operators verify mutual auth via `cilium hubble observe --identity=<svid>`. The detailed mTLS debug walk lives in [`SECURITY-mTLS.md`](./SECURITY-mTLS.md) (will fold into `SECURITY.md` in the security-fold PR per #337).
+The plain Kubernetes `NetworkPolicy` (L3/L4) ships in parallel as defence-in-depth. Operators verify mutual auth via `cilium hubble observe --identity=<svid>`. The detailed mTLS debug walk lives in [`SECURITY.md`](./SECURITY.md) §3.
 
 ### 5.5 Privileged operations require step-up auth
 
