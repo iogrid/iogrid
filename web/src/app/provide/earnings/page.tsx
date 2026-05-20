@@ -9,7 +9,9 @@ export const metadata = {
 /**
  * /provide/earnings — daily / weekly / monthly view. Headline number,
  * time-series chart, breakdown by workload type, and a payout-method
- * picker (Cash / Free VPN / Charity).
+ * picker (Hold $GRID default / Cash / Charity). Earnings accrue in
+ * $GRID; cash + charity variants auto-swap via billing-svc's monthly
+ * off-ramp cron.
  */
 export default function ProvideEarningsPage() {
   return (

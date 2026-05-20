@@ -16,7 +16,12 @@ import {
 } from "./withdraw";
 
 type Period = "daily" | "weekly" | "monthly";
-type PayoutMethod = "cash" | "vpn" | "charity";
+// "Free iogrid VPN" used to live here, but it's redundant — holders of
+// $GRID can burn-for-VPN at any time via the VPN credit pool. The
+// canonical payout state is "hold $GRID" (default); the cash and
+// charity variants are swap-from-$GRID off-ramps handled by
+// billing-svc's monthly cron once #274 lands the founder mint.
+type PayoutMethod = "grid" | "cash" | "charity";
 
 const PERIODS: { key: Period; label: string; days: number }[] = [
   { key: "daily", label: "Daily (last 14d)", days: 14 },
@@ -31,7 +36,7 @@ export function EarningsView() {
   );
   const [chart, setChart] = React.useState<EarningsPoint[]>([]);
   const [loading, setLoading] = React.useState(true);
-  const [payout, setPayout] = React.useState<PayoutMethod>("cash");
+  const [payout, setPayout] = React.useState<PayoutMethod>("grid");
   const [withdrawOpen, setWithdrawOpen] = React.useState(false);
   const [pendingOffRamps, setPendingOffRamps] = React.useState<PendingOffRamp[]>(
     [],
@@ -72,12 +77,17 @@ export function EarningsView() {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatsCard
           label="Total this period"
           value={formatMoney(total?.amount, currency)}
           hint={periodHint(period)}
           series={chart.map((p) => p.amount)}
+        />
+        <StatsCard
+          label="$GRID balance"
+          value={<GridBalanceValue />}
+          hint="Auto-credited per workload completion (devnet)"
         />
         <StatsCard
           label="Top workload type"
@@ -172,28 +182,29 @@ export function EarningsView() {
       <section>
         <h2 className="text-lg font-semibold">Payout method</h2>
         <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-          Choose how iogrid pays you. You can change this any time before the
-          next payout date.
+          Earnings are paid in $GRID by default. The cash and charity
+          variants auto-swap $GRID via billing-svc&apos;s monthly off-ramp
+          cron — you can change this any time before the next payout date.
         </p>
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
           <PayoutOption
-            method="cash"
-            label="Cash (Stripe Connect)"
-            description="Direct bank deposit on the 1st of each month."
-            selected={payout === "cash"}
+            method="grid"
+            label="Hold $GRID (default)"
+            description="Earnings stay in your wallet as $GRID. Swap, burn-for-VPN, or transfer any time. (devnet during Phase 0.)"
+            selected={payout === "grid"}
             onSelect={setPayout}
           />
           <PayoutOption
-            method="vpn"
-            label="Free iogrid VPN"
-            description="Earnings credit your VPN bandwidth quota at par."
-            selected={payout === "vpn"}
+            method="cash"
+            label="Cash (Stripe Connect)"
+            description="Auto-swap $GRID → USD via off-ramp on the 1st of each month."
+            selected={payout === "cash"}
             onSelect={setPayout}
           />
           <PayoutOption
             method="charity"
             label="Donate to charity"
-            description="Forward 100% to an EFF / Wikimedia / Internet Archive partner."
+            description="Auto-swap $GRID and forward proceeds to EFF / Wikimedia / Internet Archive."
             selected={payout === "charity"}
             onSelect={setPayout}
           />
@@ -278,13 +289,36 @@ function periodHint(p: Period): string {
 
 function payoutHint(m: PayoutMethod): string {
   switch (m) {
+    case "grid":
+      return "Held in $GRID";
     case "cash":
       return "Bank transfer";
-    case "vpn":
-      return "VPN credit";
     case "charity":
       return "Charity forward";
   }
+}
+
+/**
+ * Renders the user's $GRID balance in the top stats card. The Solana
+ * mint + billing-svc credit cron is gated on #274 (operator-handoff
+ * founder mint). Until that ships, we surface an em-dash with a
+ * tooltip pointing at docs/SOLANA.md so operators understand why the
+ * number is blank — rather than fabricating a zero balance, which
+ * would imply the user has been paid 0 $GRID.
+ */
+function GridBalanceValue() {
+  return (
+    <span
+      title="Wallet balance fetch is gated on Solana devnet mint — see docs/SOLANA.md (#274)."
+      aria-label="GRID balance unavailable — see docs/SOLANA.md"
+      className="cursor-help"
+    >
+      —
+      <span className="ml-2 align-middle text-xs font-normal text-zinc-500">
+        (devnet)
+      </span>
+    </span>
+  );
 }
 
 function nextPayoutDate(): string {
