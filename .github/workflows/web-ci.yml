@@ -147,11 +147,22 @@ jobs:
         id: vars
         env:
           DIGEST: ${{ needs.docker.outputs.digest }}
+          EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
+          # On PRs the docker job runs with push:false (no registry write,
+          # so build-push-action emits no digest). The downstream
+          # "Preview manifest bump (dry-run on PRs)" step still wants to
+          # render the substitution — emit a placeholder. The main-only
+          # rewrite step is guarded on event==push so the placeholder
+          # never reaches a commit.
           if [ -z "${DIGEST:-}" ]; then
-            echo "::error::docker job did not emit a digest output" >&2
-            exit 1
+            if [ "${EVENT}" = "pull_request" ]; then
+              DIGEST="sha256:<resolved-on-merge-to-main>"
+            else
+              echo "::error::docker job did not emit a digest output on event=${EVENT}" >&2
+              exit 1
+            fi
           fi
           # docker/build-push-action emits the digest as "sha256:<hex>"; the
           # deployment manifest needs the fully-qualified
