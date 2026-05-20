@@ -51,6 +51,7 @@ jobs:
           cache-dependency-path: |
             coordinator/shared/go.sum
             coordinator/services/*/go.sum
+            coordinator/cmd/*/go.sum
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
@@ -59,13 +60,32 @@ jobs:
           working-directory: coordinator/shared
           args: --timeout=5m
 
+      - name: Sync workspace checksums
+        # `go work sync` ensures go.work.sum has entries for every
+        # module the workspace references — necessary after adding
+        # ./cmd/dev-stub-daemon (which pulls golang.org/x/net for
+        # net/http2). Without this, workspace-mode builds of OTHER
+        # modules can fail "missing go.sum entry" for transitives.
+        working-directory: coordinator
+        run: go work sync
+
       - name: Vet / test / build every module
         working-directory: coordinator
         run: |
           set -euo pipefail
-          modules=(shared $(ls services))
+          # `services/` holds the long-running microservices, `cmd/`
+          # holds standalone dev/ops binaries (e.g. dev-stub-daemon for
+          # iogrid#215). Both are independent Go modules and need the
+          # same vet / test / build pass.
+          modules=(shared $(ls services) $(ls cmd 2>/dev/null | sed 's|^|cmd/|'))
           for m in "${modules[@]}"; do
-            if [[ "$m" == "shared" ]]; then dir="shared"; else dir="services/$m"; fi
+            case "$m" in
+              shared)   dir="shared" ;;
+              cmd/*)    dir="$m" ;;
+              *)        dir="services/$m" ;;
+            esac
+            echo "=== $dir: download deps ==="
+            (cd "$dir" && go mod download)
             echo "=== $dir: vet ==="
             (cd "$dir" && go vet ./...)
             echo "=== $dir: test ==="
@@ -73,6 +93,31 @@ jobs:
             echo "=== $dir: build ==="
             (cd "$dir" && go build ./...)
           done
+
+      - name: Build dev-stub-daemon multi-arch binaries
+        # Phase 0 unblock binary — see iogrid#215 (vCard smoke) and
+        # iogrid#273 (Rust daemon TCP-RST). Produces a static-ish Go
+        # binary the bastion can scp + run against api.iogrid.org with
+        # the paired ~/.iogrid/cert.pem.
+        working-directory: coordinator/cmd/dev-stub-daemon
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/dist
+          CGO_ENABLED=0 GOOS=linux  GOARCH=amd64 go build -ldflags='-s -w' \
+            -o /tmp/dist/dev-stub-daemon-linux-amd64  ./...
+          CGO_ENABLED=0 GOOS=linux  GOARCH=arm64 go build -ldflags='-s -w' \
+            -o /tmp/dist/dev-stub-daemon-linux-arm64  ./...
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags='-s -w' \
+            -o /tmp/dist/dev-stub-daemon-darwin-arm64 ./...
+          ls -la /tmp/dist/
+
+      - name: Upload dev-stub-daemon binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-stub-daemon-binaries
+          path: /tmp/dist/dev-stub-daemon-*
+          if-no-files-found: error
+          retention-days: 30
 
   # --------------------------------------------------------------------------
   # Multi-arch container build per microservice. Each service is a separate

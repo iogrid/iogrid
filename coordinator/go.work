@@ -15,4 +15,5 @@ use (
 	./services/proxy-gateway
 	./services/build-gateway
 	./services/vpn-gateway
+	./cmd/dev-stub-daemon
 )
