@@ -15,6 +15,7 @@ import "@testing-library/jest-dom/vitest";
 
 import { AbusePanel } from "@/app/admin/abuse/panel";
 import * as api from "@/lib/api";
+import type { ApiClient } from "@/lib/api";
 import type { ListFiltersResponse } from "@/lib/types";
 
 const sampleResponse: ListFiltersResponse = {
@@ -48,13 +49,17 @@ const sampleResponse: ListFiltersResponse = {
 
 describe("AbusePanel — #304 timestamp render", () => {
   beforeEach(() => {
+    // `ApiClient` is a class with private fields, so a partial stub
+    // cannot satisfy it structurally — cast through `unknown` to avoid
+    // `any` (the @typescript-eslint plugin is not loaded in this repo,
+    // so `eslint-disable-next-line @typescript-eslint/no-explicit-any`
+    // itself trips an "unknown rule" lint error).
     vi.spyOn(api, "browserApi").mockReturnValue({
       get: vi.fn().mockResolvedValue(sampleResponse),
       post: vi.fn(),
       put: vi.fn(),
       del: vi.fn(),
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any);
+    } as unknown as ApiClient);
   });
 
   afterEach(() => {
