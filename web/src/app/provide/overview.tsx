@@ -3,6 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { AuditEventCard } from "@/components/dashboard/audit-event-card";
+import { PairedMachinesCard } from "@/components/dashboard/paired-machines-card";
 import { StatsCard } from "@/components/dashboard/stats-card";
 import {
   ProviderEmptyState,
@@ -81,9 +82,20 @@ export function ProvideOverview() {
   const reason = dash?.state?.reason;
   const earnings = dash?.earnings?.summary;
   const recent = dash?.recent_events ?? [];
+  const providers = dash?.providers ?? [];
 
   return (
     <div className="space-y-6">
+      {/*
+       * "Paired machines" panel — #318. Shows display_name / status /
+       * last-seen / registered for every daemon the caller owns. Hidden
+       * when the BFF returns zero providers; the empty-state CTA on the
+       * not-yet-paired path is handled by ProviderEmptyState (#313 /
+       * PR #316) so we do NOT render anything here in that case to
+       * avoid double empty-state UI.
+       */}
+      <PairedMachinesCard providers={providers} />
+
       <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
         <StatsCard
           label="Scheduler"
