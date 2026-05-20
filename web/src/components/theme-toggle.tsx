@@ -6,7 +6,13 @@ import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
 
 /**
- * Three-state theme cycle: light → dark → system → light.
+ * Three-state theme cycle: system → dark → light → system.
+ *
+ * Order chosen so the FIRST click from the default (system) always
+ * produces a visible change for the most common operator setup
+ * (system preference = light on most desktops). After that the user
+ * is in explicit mode and can flip dark↔light freely; one more click
+ * returns to system tracking.
  *
  * Why three states (not the usual two): operators on Linux + macOS
  * who already wire `prefers-color-scheme` at the OS level expect
@@ -36,9 +42,9 @@ export function ThemeToggle({ className }: { className?: string }) {
   }, []);
 
   const cycle = React.useCallback(() => {
-    // light → dark → system → light
+    // system → dark → light → system
     const next =
-      theme === "light" ? "dark" : theme === "dark" ? "system" : "light";
+      theme === "system" ? "dark" : theme === "dark" ? "light" : "system";
     setTheme(next);
   }, [theme, setTheme]);
 
@@ -68,7 +74,7 @@ export function ThemeToggle({ className }: { className?: string }) {
   // Icon: current effective state. Label: the mode we'll switch INTO.
   const effective = resolvedTheme === "dark" ? "dark" : "light";
   const nextMode =
-    theme === "light" ? "dark" : theme === "dark" ? "system" : "light";
+    theme === "system" ? "dark" : theme === "dark" ? "light" : "system";
 
   const icon =
     theme === "system" ? (

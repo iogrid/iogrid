@@ -59,7 +59,7 @@ test.describe("theme toggle", () => {
     await expect(page.locator("html")).toHaveClass(/(^|\s)dark(\s|$)/);
   });
 
-  test("cycles through light, dark, system on successive clicks", async ({
+  test("cycles through system, dark, light on successive clicks", async ({
     page,
   }) => {
     await page.emulateMedia({ colorScheme: "light" });
@@ -71,16 +71,18 @@ test.describe("theme toggle", () => {
     const toggle = page.getByRole("button", { name: /switch to .+ theme/i });
     await expect(toggle).toBeEnabled();
 
-    // light (system-resolved) → dark
+    // system → dark (the first click from default always produces a
+    // visible change, regardless of system preference)
     await toggle.click();
     await expect(toggle).toHaveAttribute("data-theme-toggle", "dark");
 
-    // dark → system
-    await toggle.click();
-    await expect(toggle).toHaveAttribute("data-theme-toggle", "system");
-
-    // system → light
+    // dark → light
     await toggle.click();
     await expect(toggle).toHaveAttribute("data-theme-toggle", "light");
+
+    // light → system (back to default; one more click would re-enter
+    // the dark→light cycle)
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("data-theme-toggle", "system");
   });
 });
