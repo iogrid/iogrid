@@ -15,6 +15,30 @@ import { schedulerStateShortName } from "@/lib/proto-enum";
 import { cn } from "@/lib/utils";
 import type { ProviderDashboard } from "@/lib/types";
 
+/**
+ * Read a numeric field that may arrive on the wire under either its
+ * canonical proto3-JSON camelCase name OR the stdlib `encoding/json`
+ * snake_case name. gateway-bff serialises Connect-Go structs via
+ * `encoding/json`, which honours the proto-gen struct tags
+ * (`json:"cpu_percent,omitempty"`) and emits snake_case. Older
+ * browser builds saw camelCase from a previous direct-Connect path.
+ * Returns 0 when neither key is present (avoids `.toFixed()` on
+ * `undefined` which crashes the entire panel — surfaced by the EPIC
+ * #309 walk on 2026-05-21).
+ */
+function pickNum(
+  obj: object,
+  canonical: string,
+  snake: string,
+): number {
+  const bag = obj as Record<string, unknown>;
+  const v =
+    (bag[canonical] as number | undefined) ??
+    (bag[snake] as number | undefined) ??
+    0;
+  return typeof v === "number" && Number.isFinite(v) ? v : 0;
+}
+
 export function ProvideOverview() {
   const [dash, setDash] = React.useState<ProviderDashboard | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -121,7 +145,7 @@ export function ProvideOverview() {
           label="CPU / Memory"
           value={
             usage
-              ? `${usage.cpuPercent.toFixed(0)}% / ${usage.memoryPercent.toFixed(0)}%`
+              ? `${(pickNum(usage, "cpuPercent", "cpu_percent")).toFixed(0)}% / ${(pickNum(usage, "memoryPercent", "memory_percent")).toFixed(0)}%`
               : "—"
           }
           hint="Current load"
