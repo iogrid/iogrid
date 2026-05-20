@@ -34,6 +34,13 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: billing-svc
+        # web pod runs the Next.js BFF proxy (web/src/app/api/v1/admin/
+        # providers/list/route.ts) that fans Connect-RPC calls to
+        # providers-svc on behalf of NextAuth-authenticated browser users.
+        # Without this allowance, /admin/providers returns 502 at the edge.
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: web
       ports:
         - protocol: TCP
           port: 8080
