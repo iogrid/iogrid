@@ -84,9 +84,8 @@ iogrid/
 - [`docs/TECH.md`](./docs/TECH.md) — detailed technology stack, microservices breakdown, scheduling state machine, install UX per platform, observability
 - [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — high-level architecture, workload modules, security model
 - [`docs/ROADMAP.md`](./docs/ROADMAP.md) — module shipping sequence toward the end state
-- [`docs/INCENTIVES.md`](./docs/INCENTIVES.md) — provider payout tiers and unit economics
-- [`docs/LEGAL.md`](./docs/LEGAL.md) — Provider ToS, DPA, AUP requirements, anti-abuse design, liability shielding
-- [`docs/MARKET.md`](./docs/MARKET.md) — competitive landscape, market sizing
+- [`docs/BUSINESS-STRATEGY.md`](./docs/BUSINESS-STRATEGY.md) — market, competitive landscape, unit economics, currency model ($GRID), off-ramp partners, legal risk
+- [`docs/whitepaper.md`](./docs/whitepaper.md) — $GRID token whitepaper (regulatory artifact)
 
 ---
 
