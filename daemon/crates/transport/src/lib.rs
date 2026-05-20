@@ -756,14 +756,14 @@ fn parse_socket_addr_from_authority(authority: &str) -> Result<SocketAddr, Trans
 /// Tonic-compatible `tower::Service<Uri>` that always dials the same
 /// pre-resolved [`SocketAddr`], regardless of the `Uri`'s host.
 ///
-/// This is the core of the #273 fix. The bug we saw on the bastion
-/// 2026-05-20 was tonic 0.12 + `Endpoint::from_shared("https://<ip>:443")`
-/// + the `tcp_keepalive` / `http2_keep_alive_interval` /
-/// `keep_alive_while_idle(true)` combo producing a tight ~10ms loop
-/// of tonic's `Reconnect` middleware that dropped each TCP SYN's
-/// connect future after ~150μs (before the SYN-ACK could be received
-/// and ACK'd). The kernel then RST'd every SYN-ACK that arrived on
-/// the closed socket, and the dial never completed.
+/// This is the core of the #273 fix. The bug observed on the bastion
+/// 2026-05-20: tonic 0.12 paired with `Endpoint::from_shared("https://<ip>:443")`
+/// and the `tcp_keepalive` / `http2_keep_alive_interval` /
+/// `keep_alive_while_idle(true)` combo produced a tight ~10ms loop of
+/// tonic's `Reconnect` middleware that dropped each TCP SYN's connect
+/// future after ~150μs (before the SYN-ACK could be received and ACK'd).
+/// The kernel then RST'd every SYN-ACK that arrived on the closed
+/// socket, and the dial never completed.
 ///
 /// By feeding `Endpoint::connect_with_connector` a hand-rolled
 /// connector — with a single, simple `TcpStream::connect(addr)`
