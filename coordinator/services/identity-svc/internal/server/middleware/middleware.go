@@ -37,12 +37,21 @@ const devServiceTokenEnv = "IOGRID_SERVICE_TOKEN"
 // Lowercased to match canonical HTTP form Go's `Get` performs.
 const devUserHeader = "X-Iogrid-User-Id"
 
+// devSessionHeader is the header carrying the BFF-asserted session id
+// (`jti` claim from the caller's JWT). Threaded through alongside
+// X-Iogrid-User-Id so the service-token shim path can mark `is_current`
+// on AuthService.ListSessions responses + refuse self-revoke on
+// AuthService.RevokeSession. Optional — handlers degrade to "no current
+// session detected" when missing.
+const devSessionHeader = "X-Iogrid-Session-Id"
+
 // contextKey wraps a string so context.Value lookups are type-safe.
 type contextKey string
 
 const (
-	ctxUserID contextKey = "user_id"
-	ctxClaims contextKey = "claims"
+	ctxUserID    contextKey = "user_id"
+	ctxClaims    contextKey = "claims"
+	ctxSessionID contextKey = "session_id"
 )
 
 // VerifyBearer parses the Authorization: Bearer <jwt> header and writes
@@ -80,6 +89,14 @@ func VerifyBearer(signer *tokens.Signer) func(http.Handler) http.Handler {
 					return
 				}
 				ctx := context.WithValue(r.Context(), ctxUserID, id)
+				// Carry the BFF-asserted session id through when supplied.
+				// Best-effort: a malformed value is ignored so the rest
+				// of the request still authenticates as the user.
+				if rawSID := r.Header.Get(devSessionHeader); rawSID != "" {
+					if sid, err := uuid.Parse(rawSID); err == nil {
+						ctx = context.WithValue(ctx, ctxSessionID, sid)
+					}
+				}
 				// We deliberately do NOT inject Claims here: step-up
 				// gated routes (DeleteAccount, payout change) MUST
 				// continue to require a real JWT with `step_up=true`.
@@ -99,6 +116,15 @@ func VerifyBearer(signer *tokens.Signer) func(http.Handler) http.Handler {
 			}
 			ctx := context.WithValue(r.Context(), ctxUserID, id)
 			ctx = context.WithValue(ctx, ctxClaims, claims)
+			// JWT path: the session id is in the `jti` registered claim
+			// (see tokens.IssueAccessToken). Surface it via the same
+			// context key as the service-token path so handlers don't
+			// branch on auth mode.
+			if claims.ID != "" {
+				if sid, err := uuid.Parse(claims.ID); err == nil {
+					ctx = context.WithValue(ctx, ctxSessionID, sid)
+				}
+			}
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -127,6 +153,22 @@ func AuthedUser(ctx context.Context) (uuid.UUID, bool) {
 func AuthedClaims(ctx context.Context) (*tokens.AccessClaims, bool) {
 	v, ok := ctx.Value(ctxClaims).(*tokens.AccessClaims)
 	return v, ok
+}
+
+// AuthedSessionID returns the caller's session id (`jti` claim on the
+// JWT, or the BFF-asserted X-Iogrid-Session-Id header on the
+// service-token shim path). Returns (uuid.Nil, false) when no session
+// id is resolvable — handlers should treat this as "unknown current
+// session" rather than crashing.
+func AuthedSessionID(ctx context.Context) (uuid.UUID, bool) {
+	v, ok := ctx.Value(ctxSessionID).(uuid.UUID)
+	return v, ok
+}
+
+// WithAuthedSessionID is a test-only helper for handlers that need to
+// assert the "current session" path without spinning up a JWT signer.
+func WithAuthedSessionID(ctx context.Context, id uuid.UUID) context.Context {
+	return context.WithValue(ctx, ctxSessionID, id)
 }
 
 // WithAuthedUser is a test-only helper for handlers that need to assert

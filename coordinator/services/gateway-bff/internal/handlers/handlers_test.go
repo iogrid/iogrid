@@ -61,6 +61,7 @@ type mockAuth struct {
 	refresh        func(context.Context, *identityv1.RefreshTokenRequest) (*identityv1.RefreshTokenResponse, error)
 	signOut        func(context.Context, *identityv1.SignOutRequest) (*identityv1.SignOutResponse, error)
 	listSessions   func(context.Context, *identityv1.ListSessionsRequest) (*identityv1.ListSessionsResponse, error)
+	revokeSession  func(context.Context, *identityv1.RevokeSessionRequest) (*identityv1.RevokeSessionResponse, error)
 }
 
 func (m *mockAuth) StartGoogleSignIn(ctx context.Context, req *identityv1.StartGoogleSignInRequest) (*identityv1.StartGoogleSignInResponse, error) {
@@ -83,6 +84,12 @@ func (m *mockAuth) SignOut(ctx context.Context, req *identityv1.SignOutRequest) 
 }
 func (m *mockAuth) ListSessions(ctx context.Context, req *identityv1.ListSessionsRequest) (*identityv1.ListSessionsResponse, error) {
 	return m.listSessions(ctx, req)
+}
+func (m *mockAuth) RevokeSession(ctx context.Context, req *identityv1.RevokeSessionRequest) (*identityv1.RevokeSessionResponse, error) {
+	if m.revokeSession == nil {
+		return &identityv1.RevokeSessionResponse{}, nil
+	}
+	return m.revokeSession(ctx, req)
 }
 
 type mockDashboard struct {

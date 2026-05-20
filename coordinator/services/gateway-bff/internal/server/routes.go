@@ -124,7 +124,14 @@ func Mount(deps Deps) func(chi.Router) {
 				r.Post("/sign-in/magic", api.RequestMagicLink)
 				r.Post("/sign-in/magic/complete", api.CompleteMagicLink)
 				r.Post("/sign-out", api.SignOut)
-				r.Get("/sessions", api.ListSessions)
+				// Sessions surface (issue #322). GET lists every active
+				// session for the caller (with is_current on the row
+				// matching this browser's session id). DELETE revokes
+				// one. The caller's own current session is refused —
+				// the user must sign out via /sign-out so the refresh
+				// cookie clears alongside the server-side revocation.
+				r.Get("/sessions", api.ListSessionsForAccount)
+				r.Delete("/sessions/{id}", api.RevokeAccountSession)
 
 				// Auto-update operator surface (#59).
 				r.Route("/updates", func(r chi.Router) {

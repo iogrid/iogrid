@@ -200,6 +200,11 @@ func main() {
 	// idHandler ships the RemoveIdentifier + DeleteAccount RPCs that
 	// back /account/identifiers + /account/danger-zone in the web plane.
 	idHandler := handlers.NewIdentityHandler(st)
+	// authHandler ships AuthService.{ListSessions, RevokeSession} that
+	// back /account/sessions (issue #322). Other AuthService RPCs keep
+	// flowing through the chi JSON tree on api until each is migrated
+	// to Connect-RPC under EPIC #309.
+	authHandler := handlers.NewAuthHandler(st)
 
 	// --- background: session cleanup ---------------------------------
 	cleanupCtx, cancelCleanup := context.WithCancel(ctx)
@@ -217,6 +222,7 @@ func main() {
 			API:       api,
 			Workspace: wsHandler,
 			Identity:  idHandler,
+			Auth:      authHandler,
 			Signer:    signer,
 		}),
 	}); err != nil {

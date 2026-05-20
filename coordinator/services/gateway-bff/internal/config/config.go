@@ -42,6 +42,14 @@ type Config struct {
 	DownstreamTimeout time.Duration `env:"DOWNSTREAM_TIMEOUT" envDefault:"10s"`
 	DownstreamRetries int           `env:"DOWNSTREAM_RETRIES" envDefault:"2"`
 
+	// ServiceToken is the shared secret gateway-bff presents to
+	// identity-svc on outbound Connect-RPC calls so the Phase 0 shim
+	// (X-Iogrid-User-Id + X-Iogrid-Session-Id) is accepted. Mounted
+	// from the same sealed Secret as the web pod's IOGRID_SERVICE_TOKEN.
+	// Optional in tests / dev — when empty, the header-forwarding
+	// interceptor no-ops and downstream services see anonymous calls.
+	ServiceToken string `env:"IOGRID_SERVICE_TOKEN" envDefault:""`
+
 	// JWT -----------------------------------------------------------------
 
 	// JWKSURL is the public key endpoint exposed by identity-svc. The

@@ -27,7 +27,13 @@ type MountConfig struct {
 	// Optional so existing test wiring that constructs MountConfig
 	// without it keeps compiling.
 	Identity *handlers.IdentityHandler
-	Signer   *tokens.Signer
+	// Auth hosts AuthService.{ListSessions, RevokeSession} that back
+	// /account/sessions (issue #322). Other AuthService RPCs (sign-in
+	// flows, refresh, sign-out, step-up, SIWS) remain on the chi JSON
+	// tree in handlers.go until they're migrated one-by-one. Optional
+	// so existing test wiring without sessions keeps compiling.
+	Auth   *handlers.AuthHandler
+	Signer *tokens.Signer
 }
 
 // MountFunc returns the function the shared bootstrap will hand to its
@@ -41,10 +47,11 @@ func MountFunc(cfg MountConfig) func(r chi.Router) {
 		// Scope the bearer middleware to a Group sub-router instead.
 		r.Group(func(r chi.Router) {
 			r.Use(authmw.VerifyBearer(cfg.Signer))
-			// All three handler trees (API, Workspace, Identity) share
-			// the /v1 prefix. chi.Mux allows Route("/v1", ...) only
-			// once per parent — so own the /v1 here and mount each
-			// handler's sub-paths inside via MountV1 / MountXxxJSON.
+			// All four handler trees (API, Workspace, Identity, Auth)
+			// share the /v1 prefix. chi.Mux allows Route("/v1", ...)
+			// only once per parent — so own the /v1 here and mount
+			// each handler's sub-paths inside via MountV1 /
+			// MountXxxJSON.
 			r.Route("/v1", func(r chi.Router) {
 				cfg.API.MountV1(r)
 				if cfg.Workspace != nil {
@@ -52,6 +59,9 @@ func MountFunc(cfg MountConfig) func(r chi.Router) {
 				}
 				if cfg.Identity != nil {
 					cfg.Identity.MountIdentityJSON(r)
+				}
+				if cfg.Auth != nil {
+					cfg.Auth.MountSessionsJSON(r)
 				}
 			})
 			// Connect-RPC handlers own their own absolute paths derived
@@ -62,6 +72,10 @@ func MountFunc(cfg MountConfig) func(r chi.Router) {
 			}
 			if cfg.Identity != nil {
 				path, hh := identityv1connect.NewIdentityServiceHandler(cfg.Identity)
+				r.Mount(path, hh)
+			}
+			if cfg.Auth != nil {
+				path, hh := identityv1connect.NewAuthServiceHandler(cfg.Auth)
 				r.Mount(path, hh)
 			}
 		})

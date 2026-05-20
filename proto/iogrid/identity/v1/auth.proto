@@ -53,6 +53,12 @@ message Session {
   google.protobuf.Timestamp created_at = 5;
   google.protobuf.Timestamp last_used_at = 6;
   google.protobuf.Timestamp expires_at = 7;
+  // True when this row matches the caller's own session — populated by
+  // AuthService.ListSessions when the caller's session id (`jti`) is
+  // resolvable. UI uses this to render the "Current session" pill and to
+  // disable the Revoke button for the active session (it must be ended
+  // via the normal sign-out flow).
+  bool is_current = 8;
 }
 
 // --- Google OAuth ---------------------------------------------------------

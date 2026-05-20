@@ -74,6 +74,9 @@ func (stubAuth) SignOut(_ context.Context, _ *identityv1.SignOutRequest) (*ident
 func (stubAuth) ListSessions(_ context.Context, _ *identityv1.ListSessionsRequest) (*identityv1.ListSessionsResponse, error) {
 	return &identityv1.ListSessionsResponse{}, nil
 }
+func (stubAuth) RevokeSession(_ context.Context, _ *identityv1.RevokeSessionRequest) (*identityv1.RevokeSessionResponse, error) {
+	return &identityv1.RevokeSessionResponse{}, nil
+}
 
 type stubDashboard struct{}
 

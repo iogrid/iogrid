@@ -66,6 +66,7 @@ func main() {
 		BillingURL:   cfg.BillingSvcURL,
 		Timeout:      cfg.DownstreamTimeout,
 		Retries:      cfg.DownstreamRetries,
+		ServiceToken: cfg.ServiceToken,
 	}, httpClient)
 
 	// JWKS resolver — caches identity-svc's RSA public key set and
