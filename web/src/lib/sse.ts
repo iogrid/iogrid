@@ -12,6 +12,20 @@ import { useEffect, useRef, useState } from "react";
  * gateway is unreachable.
  *
  * The hook stores at most `maxBuffer` events to keep memory bounded.
+ *
+ * Stability contract (#292):
+ *   The effect that creates the underlying EventSource depends ONLY on
+ *   `url` and `paused`. Callers commonly pass `parse` as an inline arrow
+ *   function whose identity changes every render; if that were a
+ *   dependency the EventSource would be torn down + re-opened on every
+ *   parent render, producing the 30+-requests/10s reconnect storm seen
+ *   in #292 (every status flip triggered a re-render → new `parse` →
+ *   effect retear). We stash `parse` + `maxBuffer` in refs so callers
+ *   keep ergonomic inline options without paying for instability.
+ *
+ *   We also detect fast reconnects: if the stream errors within 1s of
+ *   opening for 3 consecutive attempts we give up and stay in the
+ *   `error` state instead of hammering the network forever.
  */
 
 export interface UseSSEOptions<T> {
@@ -29,18 +43,32 @@ export interface UseSSEOptions<T> {
 
 export interface UseSSEResult<T> {
   events: T[];
-  status: "connecting" | "open" | "closed" | "error";
+  status: "connecting" | "open" | "closed" | "error" | "unavailable";
   lastEventId: string | undefined;
   clear: () => void;
 }
 
+const FAST_RECONNECT_THRESHOLD_MS = 1000;
+const MAX_FAST_RECONNECTS = 3;
+
 export function useSSE<T>(opts: UseSSEOptions<T>): UseSSEResult<T> {
-  const { url, parse = JSON.parse as (raw: string) => T, maxBuffer = 500, paused = false } =
-    opts;
+  const { url, paused = false } = opts;
 
   const [events, setEvents] = useState<T[]>([]);
   const [status, setStatus] = useState<UseSSEResult<T>["status"]>("connecting");
   const lastIdRef = useRef<string | undefined>(opts.initialLastEventId);
+
+  // Stable refs for the callbacks/values that the effect uses but should
+  // NOT trigger a re-subscribe when they change identity. See the
+  // "Stability contract" note above.
+  const parseRef = useRef<(raw: string) => T | null>(
+    opts.parse ?? (JSON.parse as (raw: string) => T),
+  );
+  const maxBufferRef = useRef<number>(opts.maxBuffer ?? 500);
+  // Keep refs current without re-running the effect.
+  parseRef.current =
+    opts.parse ?? (JSON.parse as (raw: string) => T);
+  maxBufferRef.current = opts.maxBuffer ?? 500;
 
   useEffect(() => {
     if (!url || paused) {
@@ -51,10 +79,18 @@ export function useSSE<T>(opts: UseSSEOptions<T>): UseSSEResult<T> {
     let es: EventSource | null = null;
     let backoffMs = 1000;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    // Fast-reconnect tracker: counts errors that fire within
+    // FAST_RECONNECT_THRESHOLD_MS of the previous "open" attempt
+    // starting. After MAX_FAST_RECONNECTS we stop retrying and flip
+    // the status to "unavailable" so the UI can surface a banner
+    // instead of letting EventSource hammer the network forever.
+    let fastReconnectCount = 0;
+    let openedAt = 0;
 
     const open = () => {
       if (cancelled) return;
       setStatus("connecting");
+      openedAt = Date.now();
       try {
         es = new EventSource(url, { withCredentials: true });
       } catch {
@@ -65,16 +101,18 @@ export function useSSE<T>(opts: UseSSEOptions<T>): UseSSEResult<T> {
         if (cancelled) return;
         setStatus("open");
         backoffMs = 1000;
+        fastReconnectCount = 0;
       });
       es.addEventListener("message", (ev: MessageEvent<string>) => {
         if (cancelled) return;
         try {
-          const parsed = parse(ev.data);
+          const parsed = parseRef.current(ev.data);
           if (parsed == null) return;
           if (ev.lastEventId) lastIdRef.current = ev.lastEventId;
           setEvents((prev) => {
             const next = prev.concat([parsed]);
-            return next.length > maxBuffer ? next.slice(next.length - maxBuffer) : next;
+            const cap = maxBufferRef.current;
+            return next.length > cap ? next.slice(next.length - cap) : next;
           });
         } catch {
           // Drop malformed payloads — the BFF emits well-formed JSON,
@@ -83,9 +121,23 @@ export function useSSE<T>(opts: UseSSEOptions<T>): UseSSEResult<T> {
       });
       es.addEventListener("error", () => {
         if (cancelled) return;
-        setStatus("error");
+        const elapsed = Date.now() - openedAt;
         es?.close();
         es = null;
+        if (elapsed < FAST_RECONNECT_THRESHOLD_MS) {
+          fastReconnectCount += 1;
+          if (fastReconnectCount >= MAX_FAST_RECONNECTS) {
+            // Give up — surface as "unavailable" so the UI can render
+            // a banner instead of letting EventSource hammer the wire.
+            setStatus("unavailable");
+            return;
+          }
+        } else {
+          // A connection that lasted >threshold counts as a healthy
+          // disconnect; reset the fast-reconnect counter.
+          fastReconnectCount = 0;
+        }
+        setStatus("error");
         timer = setTimeout(() => {
           backoffMs = Math.min(backoffMs * 2, 30_000);
           open();
@@ -100,7 +152,11 @@ export function useSSE<T>(opts: UseSSEOptions<T>): UseSSEResult<T> {
       es?.close();
       setStatus("closed");
     };
-  }, [url, parse, maxBuffer, paused]);
+    // Intentionally narrow deps — see "Stability contract" above. The
+    // refs cover parse + maxBuffer; initialLastEventId is captured on
+    // mount only by design (it's a "where to resume from" hint).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [url, paused]);
 
   return {
     events,
