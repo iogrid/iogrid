@@ -182,14 +182,41 @@ export interface GetCurrentStateResponse {
   reason?: string;
 }
 
+/**
+ * Phase-0 minimal Provider shape returned by the gateway-bff under
+ * `providers: [...]` on /provide/* envelopes. We only need an id +
+ * status on the web side today; richer fields land alongside the
+ * multi-daemon picker (future).
+ */
+export interface ProviderRef {
+  id?: UUIDValue;
+  status?: string;
+}
+
 export interface ProviderDashboard {
   earnings?: GetEarningsSummaryResponse;
   state?: GetCurrentStateResponse;
   recent_events?: AuditEvent[];
+  /**
+   * False when the caller owns zero paired providers. The web layer
+   * MUST gate on this flag and render the "Install daemon" empty-state
+   * instead of the skeleton dashboard with em-dash placeholders.
+   * Backed by gateway-bff `providerDashboard.HasProvider` (issues #305
+   * / #313).
+   */
+  has_provider?: boolean;
+  providers?: ProviderRef[] | null;
 }
 
 export interface GetSchedulingConfigResponse {
   config?: SchedulingConfig;
+  /**
+   * False when the caller owns zero paired providers. Same gating
+   * contract as ProviderDashboard.has_provider — UI renders the
+   * "Install daemon" empty-state instead of the default form (#313).
+   */
+  has_provider?: boolean;
+  providers?: ProviderRef[] | null;
 }
 
 export interface UpdateSchedulingConfigResponse {

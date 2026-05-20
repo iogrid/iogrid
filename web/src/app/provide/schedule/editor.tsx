@@ -9,6 +9,10 @@ import {
   calendarWindowsToBitmasks,
 } from "@/components/dashboard/schedule-calendar";
 import { CategoryGrid } from "@/components/dashboard/category-grid";
+import {
+  ProviderEmptyState,
+  PROVIDER_EMPTY_SCHEDULE_SUBTITLE,
+} from "@/components/dashboard/provider-empty-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { browserApi, ApiError } from "@/lib/api";
@@ -71,6 +75,11 @@ export function ScheduleEditor() {
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
   const [errors, setErrors] = React.useState<Record<string, string>>({});
+  // hasProvider mirrors gateway-bff's schedule envelope flag (#313). We
+  // gate the form render on this so users with zero paired daemons see
+  // the "Install daemon" CTA instead of a form they cannot meaningfully
+  // submit (the BFF would 403 on POST without an owned provider).
+  const [hasProvider, setHasProvider] = React.useState<boolean | null>(null);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -90,6 +99,9 @@ export function ScheduleEditor() {
         ]);
         if (cancelled) return;
         if (stateRes) setUsage(stateRes);
+        // Treat anything other than an explicit `false` as "has provider"
+        // — covers older BFF builds that didn't emit the flag yet.
+        setHasProvider(cfgRes.has_provider === false ? false : true);
         const cfg = cfgRes.config;
         if (cfg) {
           setForm({
@@ -188,6 +200,14 @@ export function ScheduleEditor() {
         Loading current schedule…
       </div>
     );
+  }
+
+  // Gate on ownership BEFORE rendering the editor form (#313). The
+  // empty-state replaces the entire surface, NOT a partial overlay,
+  // because every section (caps / calendar / categories) would require
+  // an owned provider to persist.
+  if (hasProvider === false) {
+    return <ProviderEmptyState subtitle={PROVIDER_EMPTY_SCHEDULE_SUBTITLE} />;
   }
 
   return (

@@ -13,11 +13,16 @@ import Link from "next/link";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  ProviderEmptyState,
+  PROVIDER_EMPTY_STAKING_SUBTITLE,
+} from "@/components/dashboard/provider-empty-state";
 import { WalletBalance } from "@/components/wallet/WalletBalance";
 import { WalletConnectButton } from "@/components/wallet/WalletConnectButton";
 import { StakeForm } from "@/components/wallet/StakeForm";
 import { StakePositionsTable } from "@/components/wallet/StakePositionsTable";
 import { browserApi } from "@/lib/api";
+import { useProviderOwnership } from "@/lib/use-provider-ownership";
 import {
   claimYield,
   earlyUnlock,
@@ -29,6 +34,7 @@ import {
 import { fetchWalletBalances } from "@/lib/solana/balances";
 
 export function StakingView() {
+  const ownership = useProviderOwnership();
   const { connection } = useConnection();
   const { publicKey, connected } = useWallet();
 
@@ -57,8 +63,11 @@ export function StakingView() {
   }, [connected, publicKey, connection]);
 
   React.useEffect(() => {
+    // Suppress the positions probe when ownership says no — saves a
+    // round-trip per page view for the not-yet-paired cohort (#313).
+    if (ownership.hasProvider === false) return;
     void refresh();
-  }, [refresh]);
+  }, [refresh, ownership.hasProvider]);
 
   const handleStake = React.useCallback(
     async (amount: string, lockPeriodDays: LockPeriodDays) => {
@@ -99,6 +108,13 @@ export function StakingView() {
     },
     [refresh],
   );
+
+  // Gate on ownership BEFORE rendering the wallet + stake form (#313).
+  // Staking requires routing yield to a paired provider — without one,
+  // there's no provider to weight, so we point the operator at /install.
+  if (ownership.hasProvider === false) {
+    return <ProviderEmptyState subtitle={PROVIDER_EMPTY_STAKING_SUBTITLE} />;
+  }
 
   return (
     <div className="space-y-6">
