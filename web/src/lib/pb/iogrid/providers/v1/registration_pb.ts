@@ -428,6 +428,19 @@ export class Provider extends Message<Provider> {
    */
   lastSeenAt?: Timestamp;
 
+  /**
+   * is_primary is the per-owner default daemon flag. At-most-one TRUE
+   * row per owner_user_id (enforced by a partial unique index in the
+   * providers-svc schema). /provide/* surfaces in gateway-bff pick the
+   * primary by default when the caller hasn't supplied ?provider_id=
+   * explicitly. PairDaemon auto-promotes the first row per owner;
+   * subsequent rows stay false until the owner promotes via
+   * SetPrimaryProvider. Issue #325 (family of #305).
+   *
+   * @generated from field: bool is_primary = 10;
+   */
+  isPrimary = false;
+
   constructor(data?: PartialMessage<Provider>) {
     super();
     proto3.util.initPartial(data, this);
@@ -445,6 +458,7 @@ export class Provider extends Message<Provider> {
     { no: 7, name: "capabilities", kind: "message", T: CapabilityInventory },
     { no: 8, name: "registered_at", kind: "message", T: Timestamp },
     { no: 9, name: "last_seen_at", kind: "message", T: Timestamp },
+    { no: 10, name: "is_primary", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): Provider {
@@ -1093,6 +1107,99 @@ export class DeactivateProviderResponse extends Message<DeactivateProviderRespon
 
   static equals(a: DeactivateProviderResponse | PlainMessage<DeactivateProviderResponse> | undefined, b: DeactivateProviderResponse | PlainMessage<DeactivateProviderResponse> | undefined): boolean {
     return proto3.util.equals(DeactivateProviderResponse, a, b);
+  }
+}
+
+/**
+ * SetPrimaryProviderRequest promotes a single owned provider to the
+ * per-owner primary slot. Atomic swap: any prior primary for the owner
+ * is cleared in the same transaction. Issue #325 (family of #305).
+ *
+ * @generated from message iogrid.providers.v1.SetPrimaryProviderRequest
+ */
+export class SetPrimaryProviderRequest extends Message<SetPrimaryProviderRequest> {
+  /**
+   * The user the elected provider belongs to. gateway-bff sets this to
+   * the authenticated principal; providers-svc validates ownership in
+   * the WHERE clause of the UPDATE before applying any state change.
+   *
+   * @generated from field: iogrid.common.v1.UUID owner_user_id = 1;
+   */
+  ownerUserId?: UUID;
+
+  /**
+   * The provider to promote. MUST be owned by owner_user_id; mismatch
+   * returns PERMISSION_DENIED so non-owners cannot probe IDs.
+   *
+   * @generated from field: iogrid.common.v1.UUID provider_id = 2;
+   */
+  providerId?: UUID;
+
+  constructor(data?: PartialMessage<SetPrimaryProviderRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "iogrid.providers.v1.SetPrimaryProviderRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "owner_user_id", kind: "message", T: UUID },
+    { no: 2, name: "provider_id", kind: "message", T: UUID },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SetPrimaryProviderRequest {
+    return new SetPrimaryProviderRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): SetPrimaryProviderRequest {
+    return new SetPrimaryProviderRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): SetPrimaryProviderRequest {
+    return new SetPrimaryProviderRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: SetPrimaryProviderRequest | PlainMessage<SetPrimaryProviderRequest> | undefined, b: SetPrimaryProviderRequest | PlainMessage<SetPrimaryProviderRequest> | undefined): boolean {
+    return proto3.util.equals(SetPrimaryProviderRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message iogrid.providers.v1.SetPrimaryProviderResponse
+ */
+export class SetPrimaryProviderResponse extends Message<SetPrimaryProviderResponse> {
+  /**
+   * The freshly-promoted provider row, with is_primary=true.
+   *
+   * @generated from field: iogrid.providers.v1.Provider provider = 1;
+   */
+  provider?: Provider;
+
+  constructor(data?: PartialMessage<SetPrimaryProviderResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "iogrid.providers.v1.SetPrimaryProviderResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "provider", kind: "message", T: Provider },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SetPrimaryProviderResponse {
+    return new SetPrimaryProviderResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): SetPrimaryProviderResponse {
+    return new SetPrimaryProviderResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): SetPrimaryProviderResponse {
+    return new SetPrimaryProviderResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: SetPrimaryProviderResponse | PlainMessage<SetPrimaryProviderResponse> | undefined, b: SetPrimaryProviderResponse | PlainMessage<SetPrimaryProviderResponse> | undefined): boolean {
+    return proto3.util.equals(SetPrimaryProviderResponse, a, b);
   }
 }
 

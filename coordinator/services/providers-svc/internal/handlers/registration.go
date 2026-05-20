@@ -229,6 +229,47 @@ func (h *RegistrationHandler) ListProviders(
 	return connect.NewResponse(out), nil
 }
 
+// SetPrimaryProvider promotes one owned provider to the per-owner
+// primary slot. Closes the multi-daemon ownership ambiguity introduced
+// by #305 — when Hatice paired her real Mac alongside the manual-test
+// daemon, gateway-bff's "first ACTIVE" pick was undefined. See #325.
+//
+// Authorization model: providers-svc trusts gateway-bff to set
+// owner_user_id to the authenticated principal. We re-validate inside
+// the SQL UPDATE (WHERE id = $1 AND owner_user_id = $2) so a malicious
+// or buggy intermediate cannot promote a row owned by someone else.
+// Mismatch returns PERMISSION_DENIED (not NOT_FOUND) so the BFF can
+// surface a clean 403 without leaking row existence.
+func (h *RegistrationHandler) SetPrimaryProvider(
+	ctx context.Context,
+	req *connect.Request[providersv1.SetPrimaryProviderRequest],
+) (*connect.Response[providersv1.SetPrimaryProviderResponse], error) {
+	owner := uuidString(req.Msg.GetOwnerUserId())
+	if owner == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("owner_user_id required"))
+	}
+	pid := uuidString(req.Msg.GetProviderId())
+	if pid == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("provider_id required"))
+	}
+	prov, err := h.Store.SetPrimaryProvider(ctx, owner, pid)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			// Caller doesn't own the requested id (or it doesn't exist).
+			// Surface as PERMISSION_DENIED so non-owners can't probe.
+			return nil, connect.NewError(connect.CodePermissionDenied, errors.New("caller does not own provider"))
+		}
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	h.Log.Info("primary provider set",
+		slog.String("owner_user_id", owner),
+		slog.String("provider_id", pid),
+	)
+	return connect.NewResponse(&providersv1.SetPrimaryProviderResponse{
+		Provider: providerToProto(prov),
+	}), nil
+}
+
 func (h *RegistrationHandler) DeactivateProvider(
 	ctx context.Context,
 	req *connect.Request[providersv1.DeactivateProviderRequest],

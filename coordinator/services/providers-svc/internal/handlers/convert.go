@@ -250,6 +250,7 @@ func providerToProto(p *store.Provider) *providersv1.Provider {
 		Capabilities: capabilityToProto(p.Capabilities),
 		RegisteredAt: timestamppb.New(p.RegisteredAt),
 		LastSeenAt:   timestamppb.New(p.LastSeenAt),
+		IsPrimary:    p.IsPrimary,
 	}
 }
 

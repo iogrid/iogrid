@@ -85,8 +85,13 @@ type ProvidersSchedulingClient interface {
 // responses on actual ownership. Without it, /provide/schedule was
 // synthesising a default config keyed by the caller's user_id even when
 // the caller had zero paired providers (#305).
+//
+// SetPrimaryProvider is the multi-daemon picker write-side: lets the
+// owner re-elect which paired daemon answers for /provide/* by default
+// (#325). Atomic swap server-side.
 type ProvidersRegistrationClient interface {
 	ListProviders(ctx context.Context, req *providersv1.ListProvidersRequest) (*providersv1.ListProvidersResponse, error)
+	SetPrimaryProvider(ctx context.Context, req *providersv1.SetPrimaryProviderRequest) (*providersv1.SetPrimaryProviderResponse, error)
 }
 
 // WorkloadsClient backs /customer/workloads and the per-workload stream.
@@ -449,6 +454,18 @@ type regAdapter struct {
 func (a *regAdapter) ListProviders(ctx context.Context, req *providersv1.ListProvidersRequest) (*providersv1.ListProvidersResponse, error) {
 	return retry(ctx, a.retries, func(ctx context.Context) (*providersv1.ListProvidersResponse, error) {
 		r, err := a.c.ListProviders(ctx, connect.NewRequest(req))
+		if err != nil {
+			return nil, err
+		}
+		return r.Msg, nil
+	})
+}
+
+// SetPrimaryProvider is idempotent (last-write-wins on the per-owner
+// primary flag), so transient retries are safe.
+func (a *regAdapter) SetPrimaryProvider(ctx context.Context, req *providersv1.SetPrimaryProviderRequest) (*providersv1.SetPrimaryProviderResponse, error) {
+	return retry(ctx, a.retries, func(ctx context.Context) (*providersv1.SetPrimaryProviderResponse, error) {
+		r, err := a.c.SetPrimaryProvider(ctx, connect.NewRequest(req))
 		if err != nil {
 			return nil, err
 		}

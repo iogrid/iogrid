@@ -421,3 +421,176 @@ func TestPgStore_SurvivesReconnect(t *testing.T) {
 		t.Fatalf("provider did not survive reconnect: %+v", got)
 	}
 }
+
+// --- #325 — per-owner primary provider (Postgres) ---------------------
+
+// TestPgStore_CreateProvider_AutoPromotesFirst documents the
+// "first daemon for an owner is auto-primary" contract on the real
+// SQL backend. The single-daemon case (vast majority of users) must
+// never need to touch the picker.
+func TestPgStore_CreateProvider_AutoPromotesFirst(t *testing.T) {
+	pool, _, cleanup := pgFixture(t)
+	defer cleanup()
+	ctx := context.Background()
+	s := NewPostgres(pool)
+
+	owner := uuid.NewString()
+	p := &Provider{OwnerUserID: owner, DisplayName: "first"}
+	if err := s.CreateProvider(ctx, p); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	got, err := s.GetProvider(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if !got.IsPrimary {
+		t.Fatalf("first daemon should be auto-primary, got is_primary=false")
+	}
+}
+
+// TestPgStore_CreateProvider_SecondNotPrimary asserts the second pair
+// for the same owner stays non-primary. Pre-#325 the BFF's "first
+// ACTIVE" selector silently switched between the two — multi-daemon
+// owners saw the wrong daemon's caps on /provide/schedule.
+func TestPgStore_CreateProvider_SecondNotPrimary(t *testing.T) {
+	pool, _, cleanup := pgFixture(t)
+	defer cleanup()
+	ctx := context.Background()
+	s := NewPostgres(pool)
+
+	owner := uuid.NewString()
+	p1 := &Provider{OwnerUserID: owner, DisplayName: "first"}
+	p2 := &Provider{OwnerUserID: owner, DisplayName: "second"}
+	if err := s.CreateProvider(ctx, p1); err != nil {
+		t.Fatalf("p1 create: %v", err)
+	}
+	if err := s.CreateProvider(ctx, p2); err != nil {
+		t.Fatalf("p2 create: %v", err)
+	}
+	got1, _ := s.GetProvider(ctx, p1.ID)
+	got2, _ := s.GetProvider(ctx, p2.ID)
+	if !got1.IsPrimary {
+		t.Fatalf("first should remain primary, got false")
+	}
+	if got2.IsPrimary {
+		t.Fatalf("second should NOT be primary, got true")
+	}
+}
+
+// TestPgStore_SetPrimaryProvider_AtomicSwap exercises the canonical
+// promote-second-daemon flow Hatice (multi-machine owner) needs.
+func TestPgStore_SetPrimaryProvider_AtomicSwap(t *testing.T) {
+	pool, _, cleanup := pgFixture(t)
+	defer cleanup()
+	ctx := context.Background()
+	s := NewPostgres(pool)
+
+	owner := uuid.NewString()
+	p1 := &Provider{OwnerUserID: owner, DisplayName: "first"}
+	p2 := &Provider{OwnerUserID: owner, DisplayName: "second"}
+	_ = s.CreateProvider(ctx, p1)
+	_ = s.CreateProvider(ctx, p2)
+
+	out, err := s.SetPrimaryProvider(ctx, owner, p2.ID)
+	if err != nil {
+		t.Fatalf("set primary: %v", err)
+	}
+	if out.ID != p2.ID || !out.IsPrimary {
+		t.Fatalf("returned row should be promoted second: %+v", out)
+	}
+	got1, _ := s.GetProvider(ctx, p1.ID)
+	got2, _ := s.GetProvider(ctx, p2.ID)
+	if got1.IsPrimary {
+		t.Fatalf("prior primary should be cleared")
+	}
+	if !got2.IsPrimary {
+		t.Fatalf("new primary should be set")
+	}
+}
+
+// TestPgStore_SetPrimaryProvider_NotOwner asserts a swap targeting a
+// row owned by someone else returns ErrNotFound (handler maps to
+// PermissionDenied).
+func TestPgStore_SetPrimaryProvider_NotOwner(t *testing.T) {
+	pool, _, cleanup := pgFixture(t)
+	defer cleanup()
+	ctx := context.Background()
+	s := NewPostgres(pool)
+
+	ownerA := uuid.NewString()
+	ownerB := uuid.NewString()
+	p := &Provider{OwnerUserID: ownerA, DisplayName: "owned-by-A"}
+	_ = s.CreateProvider(ctx, p)
+	if _, err := s.SetPrimaryProvider(ctx, ownerB, p.ID); err == nil {
+		t.Fatalf("expected error when caller doesn't own the provider")
+	}
+	// And A's row is still primary (the failed swap must not have
+	// cleared it).
+	got, _ := s.GetProvider(ctx, p.ID)
+	if !got.IsPrimary {
+		t.Fatalf("legitimate primary should NOT be cleared by a failed cross-owner swap")
+	}
+}
+
+// TestPgStore_SelectProviderForOwner_PrimaryFirst documents the SQL
+// ordering invariant: is_primary DESC wins regardless of recency.
+func TestPgStore_SelectProviderForOwner_PrimaryFirst(t *testing.T) {
+	pool, _, cleanup := pgFixture(t)
+	defer cleanup()
+	ctx := context.Background()
+	s := NewPostgres(pool)
+
+	owner := uuid.NewString()
+	old := &Provider{OwnerUserID: owner, DisplayName: "primary-but-old", RegisteredAt: time.Now().Add(-24 * time.Hour), LastSeenAt: time.Now().Add(-24 * time.Hour)}
+	fresh := &Provider{OwnerUserID: owner, DisplayName: "non-primary-but-fresh", RegisteredAt: time.Now(), LastSeenAt: time.Now()}
+	_ = s.CreateProvider(ctx, old)   // auto-primary
+	_ = s.CreateProvider(ctx, fresh) // not primary
+	got, err := s.SelectProviderForOwner(ctx, owner)
+	if err != nil {
+		t.Fatalf("select: %v", err)
+	}
+	if got == nil || got.ID != old.ID {
+		t.Fatalf("primary should beat fresher non-primary: %+v", got)
+	}
+}
+
+// TestPgStore_SelectProviderForOwner_EmptyOwnerReturnsNil locks in the
+// (nil, nil) empty-state contract used by /provide/* gating (#313).
+func TestPgStore_SelectProviderForOwner_EmptyOwnerReturnsNil(t *testing.T) {
+	pool, _, cleanup := pgFixture(t)
+	defer cleanup()
+	ctx := context.Background()
+	s := NewPostgres(pool)
+	got, err := s.SelectProviderForOwner(ctx, uuid.NewString())
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if got != nil {
+		t.Fatalf("expected nil for empty owner, got %+v", got)
+	}
+}
+
+// TestPgStore_PrimaryUniqueConstraint is a backstop verifying the
+// partial unique index actually prevents two-primaries-per-owner
+// drift in the SQL — even if our application code regresses, the
+// constraint should catch the second row.
+func TestPgStore_PrimaryUniqueConstraint(t *testing.T) {
+	pool, _, cleanup := pgFixture(t)
+	defer cleanup()
+	ctx := context.Background()
+	s := NewPostgres(pool)
+
+	owner := uuid.NewString()
+	p1 := &Provider{OwnerUserID: owner, DisplayName: "p1"}
+	p2 := &Provider{OwnerUserID: owner, DisplayName: "p2", IsPrimary: true}
+	if err := s.CreateProvider(ctx, p1); err != nil {
+		t.Fatalf("p1 create: %v", err)
+	}
+	// p2 explicitly tries to insert with IsPrimary=true. Because p1 is
+	// already primary for this owner, the partial unique index must
+	// reject it as ErrAlreadyExists.
+	err := s.CreateProvider(ctx, p2)
+	if err == nil {
+		t.Fatalf("expected unique-violation on second-primary insert")
+	}
+}

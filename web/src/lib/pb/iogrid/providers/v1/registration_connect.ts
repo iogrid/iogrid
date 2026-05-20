@@ -7,7 +7,7 @@
 /* eslint-disable */
 // @ts-nocheck
 
-import { DeactivateProviderRequest, DeactivateProviderResponse, GetProviderRequest, GetProviderResponse, IssuePairingTokenRequest, IssuePairingTokenResponse, ListProvidersRequest, ListProvidersResponse, PairDaemonRequest, PairDaemonResponse, UpdateCapabilityInventoryRequest, UpdateCapabilityInventoryResponse, UpdateHostInfoRequest, UpdateHostInfoResponse } from "./registration_pbjs";
+import { DeactivateProviderRequest, DeactivateProviderResponse, GetProviderRequest, GetProviderResponse, IssuePairingTokenRequest, IssuePairingTokenResponse, ListProvidersRequest, ListProvidersResponse, PairDaemonRequest, PairDaemonResponse, SetPrimaryProviderRequest, SetPrimaryProviderResponse, UpdateCapabilityInventoryRequest, UpdateCapabilityInventoryResponse, UpdateHostInfoRequest, UpdateHostInfoResponse } from "./registration_pbjs";
 import { MethodKind } from "@bufbuild/protobuf";
 
 /**
@@ -80,6 +80,18 @@ export const ProviderRegistrationService = {
       name: "DeactivateProvider",
       I: DeactivateProviderRequest,
       O: DeactivateProviderResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * SetPrimaryProvider promotes one owned provider to the per-owner
+     * primary slot. Atomic swap. Issue #325.
+     *
+     * @generated from rpc iogrid.providers.v1.ProviderRegistrationService.SetPrimaryProvider
+     */
+    setPrimaryProvider: {
+      name: "SetPrimaryProvider",
+      I: SetPrimaryProviderRequest,
+      O: SetPrimaryProviderResponse,
       kind: MethodKind.Unary,
     },
   }

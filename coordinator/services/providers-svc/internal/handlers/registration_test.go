@@ -224,6 +224,169 @@ func TestIssuePairingToken_ZeroTTLDefaults(t *testing.T) {
 	}
 }
 
+// --- #325 — primary-provider election ---------------------------------
+
+// TestPairDaemon_AutoPromotesFirstProviderToPrimary asserts that the
+// first daemon paired by an owner is marked is_primary=true so the
+// single-daemon happy path (the vast majority of users) never has to
+// touch the picker. Closes the #325 multi-daemon ambiguity.
+func TestPairDaemon_AutoPromotesFirstProviderToPrimary(t *testing.T) {
+	h := newTestHandler(t)
+	ctx := context.Background()
+	tok, _ := h.Store.IssuePairingToken(ctx, "owner-pri-1", 0)
+
+	resp, err := h.PairDaemon(ctx, connect.NewRequest(&providersv1.PairDaemonRequest{
+		PairingToken:    tok,
+		DaemonPublicKey: newDaemonPubKey(t),
+		DisplayName:     "my first mac",
+	}))
+	if err != nil {
+		t.Fatalf("PairDaemon: %v", err)
+	}
+	if !resp.Msg.GetProvider().GetIsPrimary() {
+		t.Fatalf("first pair must auto-promote to primary, got is_primary=false")
+	}
+}
+
+// TestPairDaemon_SecondProviderNotPrimary asserts that subsequent pairs
+// stay non-primary — the owner explicitly elects via SetPrimaryProvider.
+// Second daemon silently stealing the primary slot would re-introduce
+// the same wrong-daemon ambiguity #325 closes.
+func TestPairDaemon_SecondProviderNotPrimary(t *testing.T) {
+	h := newTestHandler(t)
+	ctx := context.Background()
+
+	tok1, _ := h.Store.IssuePairingToken(ctx, "owner-pri-2", 0)
+	first, err := h.PairDaemon(ctx, connect.NewRequest(&providersv1.PairDaemonRequest{
+		PairingToken:    tok1,
+		DaemonPublicKey: newDaemonPubKey(t),
+		DisplayName:     "first",
+	}))
+	if err != nil {
+		t.Fatalf("first pair: %v", err)
+	}
+	if !first.Msg.GetProvider().GetIsPrimary() {
+		t.Fatalf("first daemon must be primary")
+	}
+
+	tok2, _ := h.Store.IssuePairingToken(ctx, "owner-pri-2", 0)
+	second, err := h.PairDaemon(ctx, connect.NewRequest(&providersv1.PairDaemonRequest{
+		PairingToken:    tok2,
+		DaemonPublicKey: newDaemonPubKey(t),
+		DisplayName:     "second",
+	}))
+	if err != nil {
+		t.Fatalf("second pair: %v", err)
+	}
+	if second.Msg.GetProvider().GetIsPrimary() {
+		t.Fatalf("second daemon must NOT be primary on pair; owner re-elects via SetPrimaryProvider")
+	}
+}
+
+// TestSetPrimaryProvider_AtomicSwap exercises the happy-path swap and
+// verifies the prior primary is cleared in the same transaction.
+func TestSetPrimaryProvider_AtomicSwap(t *testing.T) {
+	h := newTestHandler(t)
+	ctx := context.Background()
+
+	tok1, _ := h.Store.IssuePairingToken(ctx, "owner-swap", 0)
+	first, err := h.PairDaemon(ctx, connect.NewRequest(&providersv1.PairDaemonRequest{
+		PairingToken:    tok1,
+		DaemonPublicKey: newDaemonPubKey(t),
+	}))
+	if err != nil {
+		t.Fatalf("first pair: %v", err)
+	}
+	firstID := first.Msg.GetProvider().GetId().GetValue()
+
+	tok2, _ := h.Store.IssuePairingToken(ctx, "owner-swap", 0)
+	second, err := h.PairDaemon(ctx, connect.NewRequest(&providersv1.PairDaemonRequest{
+		PairingToken:    tok2,
+		DaemonPublicKey: newDaemonPubKey(t),
+	}))
+	if err != nil {
+		t.Fatalf("second pair: %v", err)
+	}
+	secondID := second.Msg.GetProvider().GetId().GetValue()
+
+	resp, err := h.SetPrimaryProvider(ctx, connect.NewRequest(&providersv1.SetPrimaryProviderRequest{
+		OwnerUserId: &commonv1.UUID{Value: "owner-swap"},
+		ProviderId:  &commonv1.UUID{Value: secondID},
+	}))
+	if err != nil {
+		t.Fatalf("SetPrimaryProvider: %v", err)
+	}
+	if resp.Msg.GetProvider().GetId().GetValue() != secondID || !resp.Msg.GetProvider().GetIsPrimary() {
+		t.Fatalf("returned provider should be promoted second: %+v", resp.Msg.GetProvider())
+	}
+
+	// Verify the prior primary was cleared.
+	gotFirst, err := h.Store.GetProvider(ctx, firstID)
+	if err != nil {
+		t.Fatalf("get first: %v", err)
+	}
+	if gotFirst.IsPrimary {
+		t.Fatalf("prior primary should be cleared, still IsPrimary=true")
+	}
+	// And the new primary is set.
+	gotSecond, err := h.Store.GetProvider(ctx, secondID)
+	if err != nil {
+		t.Fatalf("get second: %v", err)
+	}
+	if !gotSecond.IsPrimary {
+		t.Fatalf("new primary should be set")
+	}
+}
+
+// TestSetPrimaryProvider_PermissionDeniedForNonOwner is the regression
+// receipt for the "Hatice cannot promote someone else's daemon" surface.
+// providers-svc validates ownership in the WHERE clause; a mismatch
+// translates to PermissionDenied so non-owners cannot probe by id.
+func TestSetPrimaryProvider_PermissionDeniedForNonOwner(t *testing.T) {
+	h := newTestHandler(t)
+	ctx := context.Background()
+
+	tok, _ := h.Store.IssuePairingToken(ctx, "owner-A", 0)
+	pair, _ := h.PairDaemon(ctx, connect.NewRequest(&providersv1.PairDaemonRequest{
+		PairingToken:    tok,
+		DaemonPublicKey: newDaemonPubKey(t),
+	}))
+	pid := pair.Msg.GetProvider().GetId().GetValue()
+
+	_, err := h.SetPrimaryProvider(ctx, connect.NewRequest(&providersv1.SetPrimaryProviderRequest{
+		OwnerUserId: &commonv1.UUID{Value: "owner-B"},
+		ProviderId:  &commonv1.UUID{Value: pid},
+	}))
+	if err == nil {
+		t.Fatalf("expected error when caller does not own the provider")
+	}
+	var ce *connect.Error
+	if !errorAs(err, &ce) || ce.Code() != connect.CodePermissionDenied {
+		t.Fatalf("expected PermissionDenied, got %v", err)
+	}
+}
+
+func TestSetPrimaryProvider_RequiresOwnerAndProvider(t *testing.T) {
+	h := newTestHandler(t)
+	cases := map[string]*providersv1.SetPrimaryProviderRequest{
+		"missing owner_user_id": {ProviderId: &commonv1.UUID{Value: "x"}},
+		"missing provider_id":   {OwnerUserId: &commonv1.UUID{Value: "x"}},
+		"both missing":          {},
+	}
+	for name, req := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := h.SetPrimaryProvider(context.Background(), connect.NewRequest(req))
+			if err == nil {
+				t.Fatalf("expected error")
+			}
+			var ce *connect.Error
+			if !errorAs(err, &ce) || ce.Code() != connect.CodeInvalidArgument {
+				t.Fatalf("expected InvalidArgument, got %v", err)
+			}
+		})
+	}
+}
+
 // errorAs is a tiny helper around errors.As that returns the bool so we
 // can write `if !errorAs(err, &ce)` cleanly.
 func errorAs(err error, target interface{}) bool {
