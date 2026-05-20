@@ -56,7 +56,9 @@ const PreambleTimeout = 5 * time.Second
 // Options configures a Forwarder.
 type Options struct {
 	// ListenAddr is the host:port the forwarder binds. Defaults to
-	// ":9090" when zero-valued.
+	// ":9091" when zero-valued (was ":9090" — port 9090 is reserved
+	// for the Prometheus /metrics listener exposed by the shared
+	// bootstrap; see #267).
 	ListenAddr string
 	// Dispatcher is the live dispatcher; the forwarder uses it to look
 	// up the daemon Connection for each attempt id.
@@ -76,7 +78,7 @@ type Forwarder struct {
 // New builds a Forwarder. The listener is NOT bound yet — call Start.
 func New(opts Options) *Forwarder {
 	if opts.ListenAddr == "" {
-		opts.ListenAddr = ":9090"
+		opts.ListenAddr = ":9091"
 	}
 	if opts.Log == nil {
 		opts.Log = slog.Default()

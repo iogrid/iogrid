@@ -49,6 +49,15 @@ spec:
             - name: metrics
               containerPort: 9090
               protocol: TCP
+            # TCP-over-DispatchFrame forwarder (issue #222). The
+            # proxy-gateway dials this port to forward customer bytes
+            # to the daemon connected via this workloads-svc replica.
+            # Split off port 9090 (metrics) in the PR for #267 — the
+            # boot race between the two listeners was the silent root
+            # of the Phase 0 vCard smoke failure.
+            - name: forwarder
+              containerPort: 9091
+              protocol: TCP
           env:
             - name: POD_NAME
               valueFrom:
@@ -62,6 +71,18 @@ spec:
               value: info
             - name: SERVICE_NAME
               value: workloads-svc
+            # Forwarder listener address — see internal/forwarder.
+            # 9091 (not 9090) so it doesn't collide with the
+            # Prometheus /metrics listener. Issue #267.
+            - name: FORWARDER_LISTEN_ADDR
+              value: ":9091"
+            # WORKLOADS_SVC_PROVIDER_ENDPOINT is the host:port the
+            # proxy-gateway dials to reach the forwarder. Mirrors
+            # FORWARDER_LISTEN_ADDR but resolved via the Kubernetes
+            # Service DNS name so the proxy-gateway can reach the
+            # correct replica. See #217 / #222 / #267.
+            - name: WORKLOADS_SVC_PROVIDER_ENDPOINT
+              value: "workloads-svc.iogrid.svc.cluster.local:9091"
           envFrom:
             - configMapRef:
                 name: workloads-svc-config

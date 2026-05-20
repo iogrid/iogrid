@@ -70,16 +70,22 @@ func main() {
 	}
 
 	// FORWARDER_LISTEN_ADDR controls the TCP-over-DispatchFrame
-	// forwarder's bind address (issue #222). Defaults to ":9090".
+	// forwarder's bind address (issue #222). Defaults to ":9091".
 	// When the env var "WORKLOADS_SVC_PROVIDER_ENDPOINT" is empty we
 	// still start the forwarder, but the EndpointHint advertised in
 	// assignments will be empty (proxy-gateway falls back to its dev
 	// pool). The two are intentionally separate: the listener may
-	// bind to ":9090" while the publicly-routable endpoint is the
+	// bind to ":9091" while the publicly-routable endpoint is the
 	// Kubernetes Service DNS name.
+	//
+	// The default moved from ":9090" to ":9091" in the PR for #267 —
+	// port 9090 was colliding with the Prometheus /metrics listener
+	// exposed by the shared bootstrap, causing whichever side won the
+	// boot race to silently shadow the other. Metrics stay on 9090,
+	// the forwarder lives on 9091.
 	forwarderAddr := os.Getenv("FORWARDER_LISTEN_ADDR")
 	if forwarderAddr == "" {
-		forwarderAddr = ":9090"
+		forwarderAddr = ":9091"
 	}
 	fwd := forwarder.New(forwarder.Options{
 		ListenAddr: forwarderAddr,

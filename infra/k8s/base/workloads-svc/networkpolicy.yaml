@@ -56,6 +56,16 @@ spec:
       ports:
         - protocol: TCP
           port: 9090
+    # proxy-gateway dials the TCP-over-DispatchFrame forwarder on
+    # port 9091 to forward customer bytes to the daemon connected
+    # via this workloads-svc replica. See #222 / #267.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: proxy-gateway
+      ports:
+        - protocol: TCP
+          port: 9091
   egress:
     - to:
         - podSelector:

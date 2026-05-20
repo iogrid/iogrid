@@ -26,3 +26,11 @@ spec:
       port: 9090
       targetPort: metrics
       protocol: TCP
+    # TCP-over-DispatchFrame forwarder — proxy-gateway dials this
+    # port (see Assignment.Endpoint from internal/dispatcher). Split
+    # off port 9090 in the PR for #267 to stop the boot-race with the
+    # Prometheus /metrics listener.
+    - name: forwarder
+      port: 9091
+      targetPort: forwarder
+      protocol: TCP
