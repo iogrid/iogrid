@@ -1249,6 +1249,50 @@ async fn run_heartbeat_stream(
     let mut client = SchedulingServiceClient::new(channel);
     let (req_tx, req_rx) = mpsc::channel::<pb::providers::v1::Heartbeat>(64);
     let req_stream = ReceiverStream::new(req_rx);
+
+    // CRITICAL: spawn the outbound forwarder BEFORE awaiting
+    // `client.stream_heartbeats(req_stream)`. tonic 0.12 + Connect-Go
+    // bidi semantics: the server-side handler runs `stream.Receive()`
+    // on entry and BLOCKS until the first client frame arrives. The
+    // client-side `.await` here returns when the server sends its
+    // response HEADERS, which Connect-Go sends after the first
+    // received frame (or on explicit `WriteHeader`, which the handler
+    // does not call). If we hold the lock + drain `hb_rx` only AFTER
+    // this `.await` returns (the pre-fix shape), nothing ever flows
+    // and Traefik 504s the idle stream after ~60s.
+    //
+    // Fix: spawn the forwarder up-front. The mpsc(64) buffer in
+    // `req_tx` queues the first heartbeat the moment the scheduler
+    // poller emits one (every 5s, see [`spawn_heartbeat_pump`]). That
+    // queued frame is read by tonic the instant the stream is open,
+    // sent on the wire, processed by the server's `stream.Receive()`,
+    // which sends back the first `HeartbeatAck` → response HEADERS →
+    // our `.await` unblocks → ack flow begins. No deadlock.
+    //
+    // Issue #362.
+    let forwarder_req_tx = req_tx.clone();
+    let forwarder_hb_rx = hb_rx.clone();
+    let forwarder = tokio::spawn(async move {
+        let mut guard = forwarder_hb_rx.lock().await;
+        while let Some(hb) = guard.recv().await {
+            if forwarder_req_tx
+                .send(convert::heartbeat_to_pb(&hb))
+                .await
+                .is_err()
+            {
+                // tonic dropped its end of req_rx — stream closed.
+                tracing::debug!("heartbeat request stream closed; forwarder exiting");
+                return;
+            }
+        }
+        tracing::debug!("heartbeat sink closed; forwarder exiting");
+    });
+    // Drop our local req_tx so the only sender is inside the
+    // forwarder task. When the forwarder exits (sink closed OR the
+    // server dropped its side), tonic's req_stream sees EOF and
+    // tears the stream down cleanly.
+    drop(req_tx);
+
     tracing::info!("heartbeat stream: opening SchedulingService.StreamHeartbeats RPC");
     let resp = client.stream_heartbeats(req_stream).await.map_err(|s| {
         tracing::warn!(
@@ -1263,58 +1307,44 @@ async fn run_heartbeat_stream(
     })?;
     let mut resp_stream = resp.into_inner();
 
-    let mut hb_rx_guard = hb_rx.lock().await;
-    loop {
-        tokio::select! {
-            biased;
-            inbound = resp_stream.message() => {
-                match inbound {
-                    Ok(Some(pb_ack)) => {
-                        let ack = HeartbeatAck {
-                            config_changed: pb_ack.config_changed,
-                            operations_pause: pb_ack.operations_pause,
-                        };
-                        if ack_tx.send(ack).await.is_err() {
-                            tracing::debug!("supervisor ack_rx closed; exiting heartbeat pump");
-                            return Ok(());
-                        }
-                    }
-                    Ok(None) => {
-                        tracing::warn!(
-                            "heartbeat stream: server closed mid-flight (Ok(None)) — \
-                             likely h2 idle-timeout or GOAWAY at the edge"
-                        );
-                        return Ok(());
-                    }
-                    Err(s) => {
-                        tracing::warn!(
-                            grpc_code = ?s.code(),
-                            grpc_message = %s.message(),
-                            "heartbeat stream: recv error mid-flight"
-                        );
-                        return Err(TransportError::Unreachable(format!(
-                            "heartbeat stream recv: {}",
-                            display_error_chain(&s)
-                        )));
-                    }
+    let result: Result<(), TransportError> = loop {
+        match resp_stream.message().await {
+            Ok(Some(pb_ack)) => {
+                let ack = HeartbeatAck {
+                    config_changed: pb_ack.config_changed,
+                    operations_pause: pb_ack.operations_pause,
+                };
+                if ack_tx.send(ack).await.is_err() {
+                    tracing::debug!("supervisor ack_rx closed; exiting heartbeat pump");
+                    break Ok(());
                 }
             }
-            outbound = hb_rx_guard.recv() => {
-                match outbound {
-                    Some(hb) => {
-                        if req_tx.send(convert::heartbeat_to_pb(&hb)).await.is_err() {
-                            tracing::debug!("heartbeat request stream closed; exiting");
-                            return Ok(());
-                        }
-                    }
-                    None => {
-                        tracing::debug!("heartbeat sink closed; exiting heartbeat pump");
-                        return Ok(());
-                    }
-                }
+            Ok(None) => {
+                tracing::warn!(
+                    "heartbeat stream: server closed mid-flight (Ok(None)) — \
+                     likely h2 idle-timeout or GOAWAY at the edge"
+                );
+                break Ok(());
+            }
+            Err(s) => {
+                tracing::warn!(
+                    grpc_code = ?s.code(),
+                    grpc_message = %s.message(),
+                    "heartbeat stream: recv error mid-flight"
+                );
+                break Err(TransportError::Unreachable(format!(
+                    "heartbeat stream recv: {}",
+                    display_error_chain(&s)
+                )));
             }
         }
-    }
+    };
+    // Tear down the forwarder when the inbound stream ends so it
+    // releases its hold on `hb_rx`. The next reconnect attempt will
+    // re-acquire the lock and start a fresh forwarder.
+    forwarder.abort();
+    let _ = forwarder.await;
+    result
 }
 
 /// Dispatch channel — daemon-side bidi tx/rx pair.
