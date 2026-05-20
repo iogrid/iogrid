@@ -9,12 +9,15 @@ import { test, expect } from "@playwright/test";
  *   - Lets us assert localStorage persistence + html.class flip
  *     without any backend dependency.
  *
+ * Cycle: system → dark → light → system. First-time visitors land on
+ * `theme === "system"`, so the FIRST click moves them to dark
+ * regardless of OS preference — see `theme-toggle.tsx` for the why.
+ *
  * Acceptance:
- *   1. First load resolves to either "light" or "dark" via system
- *      preference (Playwright default is light).
- *   2. Clicking the toggle moves the html.class from "light" → "dark"
- *      (or vice-versa) AND updates the rendered <body> background
- *      colour.
+ *   1. First load resolves to system (no localStorage), html class
+ *      tracks the resolved scheme.
+ *   2. First click sets theme="dark" → html.dark + body background
+ *      changes from the system-resolved colour.
  *   3. The choice persists across reload via `localStorage["iogrid-theme"]`.
  */
 
@@ -29,14 +32,16 @@ test.describe("theme toggle", () => {
     const toggle = page.getByRole("button", { name: /switch to .+ theme/i });
     await expect(toggle).toBeEnabled();
 
-    // Initial state: light (system preference is light).
+    // Initial state: theme="system", resolves to light → html has
+    // class "light" (not "dark").
     await expect(page.locator("html")).not.toHaveClass(/(^|\s)dark(\s|$)/);
     const lightBg = await page.evaluate(
       () => getComputedStyle(document.body).backgroundColor,
     );
 
-    // First click: light → dark.
+    // First click: system → dark.
     await toggle.click();
+    await expect(toggle).toHaveAttribute("data-theme-toggle", "dark");
     await expect(page.locator("html")).toHaveClass(/(^|\s)dark(\s|$)/);
 
     const darkBg = await page.evaluate(
@@ -51,28 +56,26 @@ test.describe("theme toggle", () => {
     expect(stored).toBe("dark");
 
     // Reload — the dark choice should survive without a flash to
-    // light. We check the class on `<html>` immediately after the
-    // navigation completes; next-themes' inline blocking script runs
-    // before React hydrates, so the class is present in the first
-    // painted frame.
+    // light. next-themes' inline blocking script runs before React
+    // hydrates, so the class is present in the first painted frame.
     await page.reload();
     await expect(page.locator("html")).toHaveClass(/(^|\s)dark(\s|$)/);
   });
 
-  test("cycles through system, dark, light on successive clicks", async ({
+  test("cycles system → dark → light → system on successive clicks", async ({
     page,
   }) => {
     await page.emulateMedia({ colorScheme: "light" });
     await page.goto("/");
-    // Start clean — no persisted choice from prior tests.
+    // Start clean — no persisted choice.
     await page.evaluate(() => localStorage.removeItem("iogrid-theme"));
     await page.reload();
 
     const toggle = page.getByRole("button", { name: /switch to .+ theme/i });
     await expect(toggle).toBeEnabled();
+    await expect(toggle).toHaveAttribute("data-theme-toggle", "system");
 
-    // system → dark (the first click from default always produces a
-    // visible change, regardless of system preference)
+    // system → dark
     await toggle.click();
     await expect(toggle).toHaveAttribute("data-theme-toggle", "dark");
 
@@ -80,8 +83,7 @@ test.describe("theme toggle", () => {
     await toggle.click();
     await expect(toggle).toHaveAttribute("data-theme-toggle", "light");
 
-    // light → system (back to default; one more click would re-enter
-    // the dark→light cycle)
+    // light → system
     await toggle.click();
     await expect(toggle).toHaveAttribute("data-theme-toggle", "system");
   });

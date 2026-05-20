@@ -59,6 +59,10 @@ describe("ThemeToggle", () => {
     // useTheme() value is sampled at render time and updating the
     // module-level mock state doesn't trigger a re-render — that's a
     // job for the real next-themes provider, which we are mocking.
+    //
+    // Cycle order is `system → dark → light → system` (see
+    // theme-toggle.tsx for the why — first-time visitors start at
+    // "system" and the first click must produce a visible flip).
 
     mockState = { theme: "system", resolvedTheme: "light" };
     const r1 = render(<ThemeToggle />);

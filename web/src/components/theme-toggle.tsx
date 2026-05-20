@@ -6,13 +6,7 @@ import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
 
 /**
- * Three-state theme cycle: system → dark → light → system.
- *
- * Order chosen so the FIRST click from the default (system) always
- * produces a visible change for the most common operator setup
- * (system preference = light on most desktops). After that the user
- * is in explicit mode and can flip dark↔light freely; one more click
- * returns to system tracking.
+ * Three-state theme cycle: light → dark → system → light.
  *
  * Why three states (not the usual two): operators on Linux + macOS
  * who already wire `prefers-color-scheme` at the OS level expect
@@ -42,7 +36,16 @@ export function ThemeToggle({ className }: { className?: string }) {
   }, []);
 
   const cycle = React.useCallback(() => {
-    // system → dark → light → system
+    // Cycle order: system → dark → light → system.
+    //
+    // Why this order (not the more obvious light → dark → system):
+    // first-time visitors land on `theme === "system"`. With the
+    // light-first ordering, a click on a system-light box would set
+    // theme="light" — no visible change. That feels broken even
+    // though it's technically correct. With system→dark→light, the
+    // FIRST click always produces a visible flip regardless of the
+    // user's OS preference, which matches "the button does
+    // something" expectations and exits the system-tracked state.
     const next =
       theme === "system" ? "dark" : theme === "dark" ? "light" : "system";
     setTheme(next);
