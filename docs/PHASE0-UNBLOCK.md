@@ -32,7 +32,7 @@ mothership cluster, and that you have shell access to the founder's Mac
 | 3 | `iogrid-database`        | every -svc reads `DATABASE_URL`     | Re-wrap CNPG's auto-generated `iogrid-pg-app` Secret (one-liner in `gitops/flux/iogrid-secrets-skeleton.yaml`). |
 | 4 | `iogrid-nats`            | inter-service event bus             | In-cluster, no auth required for Phase 0 (`nats://nats.iogrid.svc.cluster.local:4222`). |
 | 5 | `iogrid-redis`           | scheduler hot-path cache            | bitnami Redis chart auto-generates the password; pull from `redis-master-secret`. |
-| 6 | `iogrid-solana-payout`   | billing-svc pay-outs                | `solana-keygen new --no-bip39-passphrase -o /tmp/iogrid-payout.json`; fund the pubkey with ~5-10 SOL. |
+| 6 | `iogrid-solana-payout`   | billing-svc pay-outs                | Full devnet runbook in [`docs/SOLANA.md`](./SOLANA.md) — `solana-keygen new` + `spl-token create-token --program-id Token-2022 …` + `kubectl create secret`. Both `keypair_json` and `grid_token_mint_address` keys land in the same Secret. |
 | 7 | `iogrid-apollo`          | vCard enrichment fallback           | https://app.apollo.io/#/settings/integrations/api — production key for the Dynolabs / OpenOva account. |
 
 The exact key set per Secret is in

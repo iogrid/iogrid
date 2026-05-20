@@ -48,6 +48,11 @@ defaults:
     capabilities:
       drop: [ALL]
   env: []
+  # Per-service Volumes / VolumeMounts. Empty by default; services
+  # that need to mount Secrets/ConfigMaps as files (e.g. billing-svc's
+  # Solana hot-wallet keypair) override these.
+  volumes: []
+  volumeMounts: []
   livenessProbe:
     httpGet:
       path: /healthz
@@ -89,6 +94,54 @@ services:
     image:
       repository: billing-svc
       tag: latest
+    # Phase 0 wiring for the $GRID Solana SPL token payout loop.
+    # - These env vars carry non-sensitive devnet defaults (RPC URL,
+    #   program, cron schedule). Override per-environment in the
+    #   overlay or via `--set services.billing-svc.env[N]=...`.
+    # - Secret `iogrid-solana-payout` holds the 64-byte keypair JSON
+    #   (mounted as a file at /var/run/solana/keypair.json) AND the
+    #   base58 mint address (referenced via secretKeyRef). Both keys
+    #   are optional — billing-svc logs "stub mode" and keeps serving
+    #   Stripe/usage routes when unset.
+    # - See docs/SOLANA.md for the full operator runbook.
+    env:
+      - name: SOLANA_RPC_URL
+        value: "https://api.devnet.solana.com"
+      - name: SOLANA_HOT_WALLET_KEYPAIR_PATH
+        value: "/var/run/solana/keypair.json"
+      - name: GRID_TOKEN_PROGRAM
+        value: "token-2022"
+      - name: JUPITER_API_URL
+        value: "https://quote-api.jup.ag/v6"
+      - name: BURN_PERCENTAGE
+        value: "2"
+      - name: BURN_VIA_INCINERATOR
+        value: "true"
+      - name: INCINERATOR_ADDRESS
+        value: "1nc1nerator11111111111111111111111111111111"
+      - name: DAILY_PAYOUT_ENABLED
+        value: "true"
+      - name: DAILY_PAYOUT_CRON
+        value: "5 0 * * *"
+      - name: GRID_TOKEN_MINT_ADDRESS
+        valueFrom:
+          secretKeyRef:
+            name: iogrid-solana-payout
+            key: grid_token_mint_address
+            optional: true
+    volumes:
+      - name: solana-keypair
+        secret:
+          secretName: iogrid-solana-payout
+          optional: true
+          defaultMode: 0400
+          items:
+            - key: keypair_json
+              path: keypair.json
+    volumeMounts:
+      - name: solana-keypair
+        mountPath: /var/run/solana
+        readOnly: true
   telemetry-svc:
     image:
       repository: telemetry-svc
