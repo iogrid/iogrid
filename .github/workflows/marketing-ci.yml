@@ -64,6 +64,18 @@ jobs:
           test -f out/status/index.html
           test -f out/sitemap.xml
           test -f out/robots.txt
+          # install/ — verify the download UX shipped (issue #349)
+          test -f out/install/index.html
+          test -f out/install/mac/index.html
+          test -f out/install/win/index.html
+          test -f out/install/linux/index.html
+          test -f out/install/manifest.json
+          test -f out/install/mac-arm64.sha256
+          # The /install/mac page must redirect to the .pkg URL so
+          # `curl iogrid.org/install/mac` (no -L) still surfaces the
+          # canonical artefact path. Smoke this end-to-end.
+          grep -q 'releases.iogrid.org' out/install/mac/index.html
+          grep -q 'http-equiv="refresh"' out/install/mac/index.html
           echo "Files in out/:"
           find out -maxdepth 2 -type f | sort | head -40
 
@@ -112,6 +124,7 @@ jobs:
             --url=http://localhost:8080/token/ \
             --url=http://localhost:8080/about/ \
             --url=http://localhost:8080/status/ \
+            --url=http://localhost:8080/install/ \
             --numberOfRuns=1 \
             --settings.preset=desktop \
             --settings.chromeFlags="--no-sandbox --headless=new"

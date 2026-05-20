@@ -4,7 +4,7 @@ import { FeatureGrid } from "@/components/FeatureGrid";
 import { TransparencyDemoEmbed } from "@/components/TransparencyDemoEmbed";
 import { ComparisonTable } from "@/components/ComparisonTable";
 import { Stats } from "@/components/Stats";
-import { InstallButtons } from "@/components/InstallButtons";
+import { InstallButton } from "@/components/InstallButton";
 
 export default function LandingPage() {
   return (
@@ -157,11 +157,11 @@ export default function LandingPage() {
           </p>
         </div>
         <div className="mx-auto mt-10 max-w-2xl">
-          <InstallButtons />
+          <InstallButton />
           <p className="mt-4 text-center text-xs text-neutral-500">
             Prefer the terminal?{" "}
             <code className="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-neutral-700">
-              curl -fsSL https://iogrid.org/install/mac | sh
+              curl -fsSL https://iogrid.org/install/sh | sh
             </code>
           </p>
         </div>
