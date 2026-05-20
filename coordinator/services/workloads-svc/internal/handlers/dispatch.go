@@ -60,23 +60,59 @@ func (h *DispatchHandler) Dispatch(
 	ctx context.Context,
 	stream *connect.BidiStream[workloadsv1.DispatchFrame, workloadsv1.DispatchFrame],
 ) error {
+	// #271: surface the lifecycle of every bidi stream so we can tell
+	// apart "daemon never sent a frame" (edge dropped the request body)
+	// from "DaemonHello arrived but registration failed" (handler bug).
+	// `peer` is best-effort — Connect-Go exposes Headers; the X-Forwarded-For
+	// chain Traefik sets is what's actually identifying here.
+	xff := stream.RequestHeader().Get("X-Forwarded-For")
+	if xff == "" {
+		xff = stream.RequestHeader().Get("X-Real-Ip")
+	}
+	h.Log.Info("dispatch stream opened",
+		slog.String("remote_addr", xff),
+		slog.String("user_agent", stream.RequestHeader().Get("User-Agent")),
+	)
+	defer h.Log.Info("dispatch stream closing",
+		slog.String("remote_addr", xff),
+	)
+
 	// Reception loop runs in this goroutine; sending lives on the
 	// `outbox` channel populated by the dispatcher Send hook.
 	hello, err := stream.Receive()
 	if err != nil {
 		if errors.Is(err, io.EOF) {
+			h.Log.Warn("dispatch stream: client EOF before DaemonHello — edge dropped the request body or client gave up",
+				slog.String("remote_addr", xff),
+			)
 			return nil
 		}
+		h.Log.Warn("dispatch stream: recv error before DaemonHello",
+			slog.String("remote_addr", xff),
+			slog.String("error", err.Error()),
+		)
 		return err
 	}
 	dh := hello.GetDaemonHello()
 	if dh == nil {
+		h.Log.Warn("dispatch stream: first frame was not DaemonHello",
+			slog.String("remote_addr", xff),
+		)
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("first frame must be daemon_hello"))
 	}
 	providerID := uuidString(dh.GetProviderId())
 	if providerID == "" {
+		h.Log.Warn("dispatch stream: DaemonHello.provider_id was empty",
+			slog.String("remote_addr", xff),
+		)
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("daemon_hello.provider_id required"))
 	}
+	h.Log.Info("daemon hello received",
+		slog.String("provider_id", providerID),
+		slog.String("remote_addr", xff),
+		slog.Int("eligible_types", len(dh.GetEligibleTypes())),
+		slog.Int("max_concurrent", int(dh.GetMaxConcurrent())),
+	)
 
 	// Send back a coordinator-hello so the daemon knows we adopted it.
 	if err := stream.Send(&workloadsv1.DispatchFrame{

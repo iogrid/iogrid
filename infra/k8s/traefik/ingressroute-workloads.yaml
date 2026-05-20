@@ -1,0 +1,47 @@
+# api.iogrid.org/iogrid.workloads.v1* → workloads-svc :8080 (h2c, bidi).
+#
+# This route handles the long-lived `WorkloadDispatchService.Dispatch`
+# bidi stream that paired daemons hold open for the lifetime of
+# `iogridd`. The combination of:
+#
+#   - `scheme: h2c` (built on #260)
+#   - `serversTransport: long-lived-bidi` (#271, see serverstransport-long-lived.yaml)
+#   - `responseForwarding.flushInterval: 100ms` (#271)
+#
+# is what makes the stream survive the first `DaemonHello` ack and
+# stay open for subsequent Assignment / TunnelData frames.
+#
+# The existing `cors-app-iogrid` middleware is preserved so the
+# browser-facing Connect-Web client (web/) keeps working.
+#
+# Issue: #271
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: api-iogrid-org-workloads
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/part-of: iogrid
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - kind: Rule
+      match: Host(`api.iogrid.org`) && PathPrefix(`/iogrid.workloads.v1`)
+      priority: 100
+      middlewares:
+        - name: cors-app-iogrid
+      services:
+        - name: workloads-svc
+          port: 8080
+          scheme: h2c
+          # #271: bind the long-lived ServersTransport so the proxy→backend
+          # pool doesn't expire idle connections used by the bidi stream.
+          serversTransport: long-lived-bidi
+          # #271: flush every server-sent frame within 100ms instead of
+          # buffering up to the default 1s. Critical for the DaemonHello
+          # ack arriving within the daemon's 10s budget under load.
+          responseForwarding:
+            flushInterval: "100ms"
+  tls:
+    secretName: iogrid-tls
