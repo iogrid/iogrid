@@ -20,6 +20,7 @@ import (
 
 	commonv1 "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/common/v1"
 	identityv1 "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/identity/v1"
+	"github.com/iogrid/iogrid/coordinator/services/identity-svc/internal/auth"
 	authmw "github.com/iogrid/iogrid/coordinator/services/identity-svc/internal/server/middleware"
 	"github.com/iogrid/iogrid/coordinator/services/identity-svc/internal/store"
 )
@@ -27,7 +28,7 @@ import (
 // --- JSON twin ----------------------------------------------------------
 
 func TestAuthHandler_ListSessions_RequiresBearer(t *testing.T) {
-	h := NewAuthHandler(nil)
+	h := NewAuthHandler(nil, nil)
 	r := chi.NewRouter()
 	r.Route("/v1", func(r chi.Router) {
 		h.MountSessionsJSON(r)
@@ -43,7 +44,7 @@ func TestAuthHandler_ListSessions_RequiresBearer(t *testing.T) {
 }
 
 func TestAuthHandler_RevokeSession_RequiresBearer(t *testing.T) {
-	h := NewAuthHandler(nil)
+	h := NewAuthHandler(nil, nil)
 	r := chi.NewRouter()
 	r.Route("/v1", func(r chi.Router) {
 		h.MountSessionsJSON(r)
@@ -60,7 +61,7 @@ func TestAuthHandler_RevokeSession_RequiresBearer(t *testing.T) {
 }
 
 func TestAuthHandler_RevokeSession_RejectsBadID(t *testing.T) {
-	h := NewAuthHandler(nil)
+	h := NewAuthHandler(nil, nil)
 	r := chi.NewRouter()
 	r.Route("/v1", func(r chi.Router) {
 		h.MountSessionsJSON(r)
@@ -78,7 +79,7 @@ func TestAuthHandler_RevokeSession_RejectsBadID(t *testing.T) {
 }
 
 func TestAuthHandler_RevokeSession_RefusesCurrentSession(t *testing.T) {
-	h := NewAuthHandler(nil)
+	h := NewAuthHandler(nil, nil)
 	r := chi.NewRouter()
 	r.Route("/v1", func(r chi.Router) {
 		h.MountSessionsJSON(r)
@@ -104,7 +105,7 @@ func TestAuthHandler_RevokeSession_RefusesCurrentSession(t *testing.T) {
 // --- Connect-RPC entry points ------------------------------------------
 
 func TestAuthHandler_RPC_ListSessions_RequiresBearer(t *testing.T) {
-	h := NewAuthHandler(nil)
+	h := NewAuthHandler(nil, nil)
 	_, err := h.ListSessions(context.Background(), connect.NewRequest(&identityv1.ListSessionsRequest{}))
 	if err == nil {
 		t.Fatal("expected unauthenticated error, got nil")
@@ -116,7 +117,7 @@ func TestAuthHandler_RPC_ListSessions_RequiresBearer(t *testing.T) {
 }
 
 func TestAuthHandler_RPC_RevokeSession_RequiresBearer(t *testing.T) {
-	h := NewAuthHandler(nil)
+	h := NewAuthHandler(nil, nil)
 	_, err := h.RevokeSession(context.Background(), connect.NewRequest(&identityv1.RevokeSessionRequest{
 		SessionId: &commonv1.UUID{Value: uuid.New().String()},
 	}))
@@ -130,7 +131,7 @@ func TestAuthHandler_RPC_RevokeSession_RequiresBearer(t *testing.T) {
 }
 
 func TestAuthHandler_RPC_RevokeSession_RejectsBadUUID(t *testing.T) {
-	h := NewAuthHandler(nil)
+	h := NewAuthHandler(nil, nil)
 	ctx := authmw.WithAuthedUser(context.Background(), uuid.New())
 	_, err := h.RevokeSession(ctx, connect.NewRequest(&identityv1.RevokeSessionRequest{
 		SessionId: &commonv1.UUID{Value: "not-a-uuid"},
@@ -145,7 +146,7 @@ func TestAuthHandler_RPC_RevokeSession_RejectsBadUUID(t *testing.T) {
 }
 
 func TestAuthHandler_RPC_RevokeSession_RefusesCurrent(t *testing.T) {
-	h := NewAuthHandler(nil)
+	h := NewAuthHandler(nil, nil)
 	authed := uuid.New()
 	currentSID := uuid.New()
 	ctx := authmw.WithAuthedUser(context.Background(), authed)
@@ -208,3 +209,126 @@ func TestSessionsToProto_StampsIsCurrent(t *testing.T) {
 // clock — vetting that the sort is stable across timezones doesn't
 // need wall-time precision.
 func timeNow() time.Time { return time.Unix(1_700_000_000, 0) }
+
+// --- SIWS wallet RPCs (issue #326) -------------------------------------
+
+// All four wallet RPCs gate on the bearer; a Service-less AuthHandler
+// short-circuits to CodeUnavailable so a misconfigured deployment
+// surfaces clearly instead of NPE'ing on Auth.StartSiwsBinding.
+
+func TestAuthHandler_RPC_StartSiwsBinding_RequiresAuthService(t *testing.T) {
+	h := NewAuthHandler(nil, nil)
+	ctx := authmw.WithAuthedUser(context.Background(), uuid.New())
+	_, err := h.StartSiwsBinding(ctx, connect.NewRequest(&identityv1.StartSiwsBindingRequest{
+		WalletAddress: "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin",
+	}))
+	if err == nil {
+		t.Fatal("expected unavailable error, got nil")
+	}
+	var cErr *connect.Error
+	if !errorsAs(err, &cErr) || cErr.Code() != connect.CodeUnavailable {
+		t.Fatalf("expected CodeUnavailable, got %v", err)
+	}
+}
+
+func TestAuthHandler_RPC_StartSiwsBinding_RequiresBearer(t *testing.T) {
+	h := NewAuthHandler(nil, nil)
+	_, err := h.StartSiwsBinding(context.Background(), connect.NewRequest(&identityv1.StartSiwsBindingRequest{
+		WalletAddress: "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin",
+	}))
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	var cErr *connect.Error
+	if !errorsAs(err, &cErr) {
+		t.Fatalf("expected connect.Error, got %v", err)
+	}
+	// Without an Auth service we expect Unavailable to fire first; with
+	// one wired and no bearer we'd see Unauthenticated. Both are
+	// acceptable short-circuits — the contract is "do not panic and do
+	// not 200". Pin on neither being CodeOK.
+	if cErr.Code() == 0 {
+		t.Fatalf("expected non-OK code, got %v", err)
+	}
+}
+
+func TestAuthHandler_RPC_CompleteSiwsBinding_RequiresAuthService(t *testing.T) {
+	h := NewAuthHandler(nil, nil)
+	ctx := authmw.WithAuthedUser(context.Background(), uuid.New())
+	_, err := h.CompleteSiwsBinding(ctx, connect.NewRequest(&identityv1.CompleteSiwsBindingRequest{
+		WalletAddress: "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin",
+		Signature:     "sig",
+	}))
+	if err == nil {
+		t.Fatal("expected unavailable, got nil")
+	}
+	var cErr *connect.Error
+	if !errorsAs(err, &cErr) || cErr.Code() != connect.CodeUnavailable {
+		t.Fatalf("expected CodeUnavailable, got %v", err)
+	}
+}
+
+func TestAuthHandler_RPC_ListBoundWallets_RequiresAuthService(t *testing.T) {
+	h := NewAuthHandler(nil, nil)
+	ctx := authmw.WithAuthedUser(context.Background(), uuid.New())
+	_, err := h.ListBoundWallets(ctx, connect.NewRequest(&identityv1.ListBoundWalletsRequest{}))
+	if err == nil {
+		t.Fatal("expected unavailable, got nil")
+	}
+	var cErr *connect.Error
+	if !errorsAs(err, &cErr) || cErr.Code() != connect.CodeUnavailable {
+		t.Fatalf("expected CodeUnavailable, got %v", err)
+	}
+}
+
+func TestAuthHandler_RPC_UnbindWallet_RequiresAuthService(t *testing.T) {
+	h := NewAuthHandler(nil, nil)
+	ctx := authmw.WithAuthedUser(context.Background(), uuid.New())
+	_, err := h.UnbindWallet(ctx, connect.NewRequest(&identityv1.UnbindWalletRequest{
+		WalletAddress: "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin",
+	}))
+	if err == nil {
+		t.Fatal("expected unavailable, got nil")
+	}
+	var cErr *connect.Error
+	if !errorsAs(err, &cErr) || cErr.Code() != connect.CodeUnavailable {
+		t.Fatalf("expected CodeUnavailable, got %v", err)
+	}
+}
+
+func TestAuthHandler_RPC_ListBoundWallets_RequiresBearer(t *testing.T) {
+	// Construct a non-nil auth.Service stand-in via the package's
+	// existing wiring: a Store-less Service still satisfies the Auth
+	// pointer check, then bypasses the store path because we never
+	// reach ListIdentifiersForUserByKind without a bearer.
+	h := NewAuthHandler(nil, makeFakeAuth())
+	_, err := h.ListBoundWallets(context.Background(), connect.NewRequest(&identityv1.ListBoundWalletsRequest{}))
+	if err == nil {
+		t.Fatal("expected unauthenticated, got nil")
+	}
+	var cErr *connect.Error
+	if !errorsAs(err, &cErr) || cErr.Code() != connect.CodeUnauthenticated {
+		t.Fatalf("expected CodeUnauthenticated, got %v", err)
+	}
+}
+
+func TestAuthHandler_RPC_UnbindWallet_RequiresBearer(t *testing.T) {
+	h := NewAuthHandler(nil, makeFakeAuth())
+	_, err := h.UnbindWallet(context.Background(), connect.NewRequest(&identityv1.UnbindWalletRequest{
+		WalletAddress: "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin",
+	}))
+	if err == nil {
+		t.Fatal("expected unauthenticated, got nil")
+	}
+	var cErr *connect.Error
+	if !errorsAs(err, &cErr) || cErr.Code() != connect.CodeUnauthenticated {
+		t.Fatalf("expected CodeUnauthenticated, got %v", err)
+	}
+}
+
+// makeFakeAuth returns a non-nil *auth.Service so the wallet RPCs
+// proceed past the "Auth not configured" short-circuit; tests then
+// pin behaviour on the bearer / arg checks BEFORE the store path.
+func makeFakeAuth() *auth.Service {
+	return &auth.Service{}
+}

@@ -77,6 +77,18 @@ func (stubAuth) ListSessions(_ context.Context, _ *identityv1.ListSessionsReques
 func (stubAuth) RevokeSession(_ context.Context, _ *identityv1.RevokeSessionRequest) (*identityv1.RevokeSessionResponse, error) {
 	return &identityv1.RevokeSessionResponse{}, nil
 }
+func (stubAuth) StartSiwsBinding(_ context.Context, _ *identityv1.StartSiwsBindingRequest) (*identityv1.StartSiwsBindingResponse, error) {
+	return &identityv1.StartSiwsBindingResponse{}, nil
+}
+func (stubAuth) CompleteSiwsBinding(_ context.Context, _ *identityv1.CompleteSiwsBindingRequest) (*identityv1.CompleteSiwsBindingResponse, error) {
+	return &identityv1.CompleteSiwsBindingResponse{}, nil
+}
+func (stubAuth) ListBoundWallets(_ context.Context, _ *identityv1.ListBoundWalletsRequest) (*identityv1.ListBoundWalletsResponse, error) {
+	return &identityv1.ListBoundWalletsResponse{}, nil
+}
+func (stubAuth) UnbindWallet(_ context.Context, _ *identityv1.UnbindWalletRequest) (*identityv1.UnbindWalletResponse, error) {
+	return &identityv1.UnbindWalletResponse{}, nil
+}
 
 type stubDashboard struct{}
 

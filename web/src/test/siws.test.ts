@@ -40,10 +40,10 @@ describe("encodeSignature", () => {
 });
 
 describe("SIWS bind flow API helpers", () => {
-  it("POSTs start-binding with the wallet address and returns the challenge", async () => {
+  it("POSTs the challenge endpoint with the wallet address and returns nonce + challenge bytes", async () => {
     const client = fakeClient((url, init) => {
       expect(url).toBe(
-        "https://test.example/api/v1/identity/wallets/start-binding",
+        "https://test.example/api/v1/account/wallets/challenge",
       );
       expect(init.method).toBe("POST");
       expect(init.body).toBe(JSON.stringify({ walletAddress: "WALLET" }));
@@ -64,11 +64,9 @@ describe("SIWS bind flow API helpers", () => {
     });
   });
 
-  it("POSTs complete-binding with the signed payload", async () => {
+  it("POSTs to /account/wallets with the signed payload to complete binding", async () => {
     const client = fakeClient((url, init) => {
-      expect(url).toBe(
-        "https://test.example/api/v1/identity/wallets/complete-binding",
-      );
+      expect(url).toBe("https://test.example/api/v1/account/wallets");
       expect(JSON.parse(String(init.body))).toEqual({
         walletAddress: "WALLET",
         nonce: "abc",
@@ -91,8 +89,10 @@ describe("SIWS bind flow API helpers", () => {
     expect(bound.walletAddress).toBe("WALLET");
   });
 
-  it("lists bound wallets", async () => {
-    const client = fakeClient(() => {
+  it("lists bound wallets via GET /account/wallets", async () => {
+    const client = fakeClient((url, init) => {
+      expect(url).toBe("https://test.example/api/v1/account/wallets");
+      expect(init.method ?? "GET").toBe("GET");
       return new Response(
         JSON.stringify({
           wallets: [
@@ -108,12 +108,13 @@ describe("SIWS bind flow API helpers", () => {
     });
     const res = await listBoundWallets(client);
     expect(res.wallets).toHaveLength(1);
+    expect(res.wallets[0].walletAddress).toBe("W1");
   });
 
-  it("DELETEs an unbind request", async () => {
+  it("DELETEs an unbind request at /account/wallets/{address}", async () => {
     const client = fakeClient((url, init) => {
       expect(init.method).toBe("DELETE");
-      expect(url).toBe("https://test.example/api/v1/identity/wallets/W1");
+      expect(url).toBe("https://test.example/api/v1/account/wallets/W1");
       return new Response(null, { status: 204 });
     });
     await expect(unbindWallet(client, "W1")).resolves.toBeUndefined();
