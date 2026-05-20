@@ -81,8 +81,7 @@ iogrid/
 
 ## Key documents
 
-- [`docs/TECH.md`](./docs/TECH.md) — detailed technology stack, microservices breakdown, scheduling state machine, install UX per platform, observability
-- [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — high-level architecture, workload modules, security model
+- [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — how iogrid works: system overview, components, scheduling, transparency layer, security, DNS + TLS, install UX, observability
 - [`docs/ROADMAP.md`](./docs/ROADMAP.md) — module shipping sequence toward the end state
 - [`docs/BUSINESS-STRATEGY.md`](./docs/BUSINESS-STRATEGY.md) — market, competitive landscape, unit economics, currency model ($GRID), off-ramp partners, legal risk
 - [`docs/whitepaper.md`](./docs/whitepaper.md) — $GRID token whitepaper (regulatory artifact)
