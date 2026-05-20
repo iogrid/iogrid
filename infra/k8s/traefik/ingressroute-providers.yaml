@@ -1,0 +1,69 @@
+# api.iogrid.org/iogrid.providers.v1* → providers-svc :8080 (h2c, bidi).
+# api.iogrid.org/api/v1/providers* → providers-svc :8080 (h2c, browser).
+#
+# This route handles the long-lived
+# `SchedulingService.StreamHeartbeats` bidi stream that every paired
+# daemon opens immediately after `coordinator mTLS channel connected`.
+# Same shape as `ingressroute-workloads.yaml` (#271) — h2c + the long-
+# lived ServersTransport + 100ms flush interval — because the heartbeat
+# stream has the same h2 lifetime requirement as the dispatch stream.
+#
+# Without this file, the path `/iogrid.providers.v1.SchedulingService/
+# StreamHeartbeats` fell through Traefik's default HTTP/1.1 routing
+# and tonic on the daemon side saw `HTTP 505 / grpc-status header
+# missing` — the wire-level symptom of an h2c handler talking to a
+# default-HTTP/1.1 frontend. `providers.last_seen_at` never advanced
+# despite the daemon's `live heartbeat bridge spawned` log line and
+# all 4 layers below it being healthy.
+#
+# Discovered live on 2026-05-20 walking hatice's Mac through PR #346
+# (the `port_or_known_default` daemon fix). Before that fix the daemon
+# hung at TLS config; once #346 + #331 cleared the TLS stack, the
+# daemon reached this provider stream and surfaced the missing
+# IngressRoute. Live-patched on the cluster at the time; this PR puts
+# the canonical declaration into git so fresh provs include it.
+#
+# Issue: #352 (this file's intent). Refs #271 (sibling for workloads).
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: api-iogrid-org-providers
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/part-of: iogrid
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    # gRPC path — daemon ↔ coordinator + service-to-service Connect-RPC
+    # calls that providers-svc exposes (SchedulingService.StreamHeartbeats,
+    # DashboardService.StreamAuditEvents, RegistrationService.Pair, …).
+    - kind: Rule
+      match: Host(`api.iogrid.org`) && PathPrefix(`/iogrid.providers.v1`)
+      priority: 100
+      middlewares:
+        - name: cors-app-iogrid
+      services:
+        - name: providers-svc
+          port: 8080
+          scheme: h2c
+          serversTransport: long-lived-bidi
+          responseForwarding:
+            flushInterval: "100ms"
+    # REST path — the browser-facing /api/v1/providers/* surface used by
+    # gateway-bff (admin/providers list, transparency feed bootstrap, etc).
+    # Same h2c stack so a single ServersTransport pool serves both.
+    - kind: Rule
+      match: Host(`api.iogrid.org`) && PathPrefix(`/api/v1/providers`)
+      priority: 100
+      middlewares:
+        - name: cors-app-iogrid
+      services:
+        - name: providers-svc
+          port: 8080
+          scheme: h2c
+          serversTransport: long-lived-bidi
+          responseForwarding:
+            flushInterval: "100ms"
+  tls:
+    secretName: iogrid-tls
