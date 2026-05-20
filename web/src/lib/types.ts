@@ -98,6 +98,12 @@ export type EventKind =
   | "EVENT_KIND_SCHEDULER_TRANSITION"
   | "EVENT_KIND_ABUSE_FLAGGED"
   | "EVENT_KIND_EARNINGS_CREDITED"
+  // Internal stream-keepalive heartbeat (#323). Backed by
+  // providers.v1.EventKind.EVENT_KIND_KEEPALIVE=7. The gateway-bff
+  // SSE proxy drops these so they should never reach the browser,
+  // but the union carries the variant so defence-in-depth code in
+  // feed.tsx (and any future consumer) can switch on it safely.
+  | "EVENT_KIND_KEEPALIVE"
   | "EVENT_KIND_UNSPECIFIED";
 
 export type WorkloadType =

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"time"
 
 	"connectrpc.com/connect"
 
@@ -13,6 +14,15 @@ import (
 	"github.com/iogrid/iogrid/coordinator/services/providers-svc/internal/store"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+// streamKeepaliveInterval is the cadence at which StreamAuditEvents
+// emits a KEEPALIVE AuditEvent when no real events have flowed. It must
+// stay shorter than (a) the gateway-bff Connect call timeout and
+// (b) any intermediate proxy idle-timeout (typically 30s on traefik).
+// 15s is the same value the gateway-bff SSE handler uses for its
+// downstream comment ticker; matching them keeps the two layers in
+// lockstep.
+const streamKeepaliveInterval = 15 * time.Second
 
 // DashboardHandler implements the DashboardService gRPC.
 type DashboardHandler struct {
@@ -65,6 +75,26 @@ func (h *DashboardHandler) ListAuditEvents(
 
 // StreamAuditEvents emits events newly appended to the audit log for the
 // given provider until the client disconnects or the server shuts down.
+//
+// Wire-level contract (#323): the FIRST frame on the stream is ALWAYS a
+// KEEPALIVE AuditEvent, emitted synchronously before we block on the
+// store subscription. Connect-Go's server-streaming protocol defers
+// sending HTTP response headers until the first Send — so without this
+// initial frame a freshly paired provider (which by definition has zero
+// workload events) leaves the gateway-bff Connect client blocked in
+// Receive() until the per-call timeout fires, surfacing as
+// deadline_exceeded at the BFF and a permanent "Connecting…" pill in
+// the web /provide/audit feed. Hatice flagged this on the DoD walk for
+// EPIC #309.
+//
+// While the subscription is alive we additionally tick a KEEPALIVE
+// every streamKeepaliveInterval to defeat intermediate proxy idle
+// timeouts AND to keep the gateway-bff Connect client from tripping
+// its own per-call timeout when the provider has long stretches with
+// no real events.
+//
+// UI consumers MUST treat KEEPALIVE as "connection alive, no new
+// data" — see the proto comment on EVENT_KIND_KEEPALIVE.
 func (h *DashboardHandler) StreamAuditEvents(
 	ctx context.Context,
 	req *connect.Request[providersv1.StreamAuditEventsRequest],
@@ -82,10 +112,30 @@ func (h *DashboardHandler) StreamAuditEvents(
 	sub, cancel := h.Store.SubscribeAuditEvents(id)
 	defer cancel()
 
+	// Emit the initial KEEPALIVE synchronously BEFORE entering the
+	// receive loop. Connect's ServerStream.Send flushes the underlying
+	// HTTP response writer per frame, so this guarantees a response
+	// header + first frame land on the wire within ms of the request
+	// reaching this handler — which is the load-bearing invariant for
+	// the BFF SSE pipe to flip "Connecting" → "Live" promptly.
+	if err := stream.Send(newKeepaliveEvent(id)); err != nil {
+		return err
+	}
+
+	ticker := time.NewTicker(streamKeepaliveInterval)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
+		case <-ticker.C:
+			// No real event in the last interval — send a KEEPALIVE
+			// to keep the wire alive end-to-end (proxies + BFF
+			// Connect client deadlines).
+			if err := stream.Send(newKeepaliveEvent(id)); err != nil {
+				return err
+			}
 		case e, ok := <-sub:
 			if !ok {
 				return nil
@@ -98,7 +148,22 @@ func (h *DashboardHandler) StreamAuditEvents(
 			if err := stream.Send(auditEventToProto(e)); err != nil {
 				return err
 			}
+			// Real traffic resets the keepalive cadence so we don't
+			// double-tick right after a burst.
+			ticker.Reset(streamKeepaliveInterval)
 		}
+	}
+}
+
+// newKeepaliveEvent builds a minimal KEEPALIVE AuditEvent scoped to the
+// given provider. occurred_at carries server-now so UIs that decide to
+// log keepalives for diagnostics have a usable timestamp; every other
+// field is left at the proto zero value.
+func newKeepaliveEvent(providerID string) *providersv1.AuditEvent {
+	return &providersv1.AuditEvent{
+		ProviderId: &commonv1.UUID{Value: providerID},
+		Kind:       providersv1.EventKind_EVENT_KIND_KEEPALIVE,
+		OccurredAt: timestamppb.Now(),
 	}
 }
 
