@@ -142,6 +142,18 @@ export class ApiClient {
     }
     if (!res.ok) {
       const e = parsed as { code?: string; message?: string } | undefined;
+      // Phase 0 backends deliberately return HTTP 501 +
+      // `{code:"unimplemented"}` for RPCs that have no concrete binding
+      // yet (see gateway-bff writeUpstreamError → CodeUnimplemented).
+      // The operator-facing surface is supposed to render its existing
+      // empty-state in that case, NOT a red "Couldn't load X" banner —
+      // the feature is not broken, it's just not built. Translate the
+      // 501 into an empty object so `data?.rows ?? []` / `data?.state`
+      // accesses naturally fall through to the empty path. Genuine
+      // failures (500 / 502 / 503 / 504 / 4xx) still throw. (#300)
+      if (res.status === 501 && e?.code === "unimplemented") {
+        return {} as T;
+      }
       throw new ApiError(
         res.status,
         e?.code ?? "http_error",
