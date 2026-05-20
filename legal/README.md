@@ -1,6 +1,6 @@
 # iogrid legal scaffolding
 
-This directory contains **placeholder drafts** of the legal documents required for iogrid's Phase 1 launch, prepared per the specification in [`docs/LEGAL.md`](../docs/LEGAL.md).
+This directory contains **placeholder drafts** of the legal documents required for iogrid's Phase 1 launch, prepared per the specification in [`docs/BUSINESS-STRATEGY.md` §6 Legal risk landscape](../docs/BUSINESS-STRATEGY.md#6-legal-risk-landscape--mitigation).
 
 > **Important — these documents are NOT legal advice.** They are working drafts intended to give qualified counsel a coherent, complete starting point so review and finalization can proceed quickly and economically. Every section that requires a legal judgment call carries a `[COUNSEL: …]` marker. **Do not deploy any of these documents to providers, customers, or the public until they have been reviewed and finalized by a qualified attorney in each relevant jurisdiction.**
 
@@ -66,7 +66,7 @@ Before any of these documents may be presented to a provider, customer, or regul
 ## How to use these drafts
 
 1. Read this README in full.
-2. Read [`docs/LEGAL.md`](../docs/LEGAL.md) and [`docs/TOKENOMICS.md`](../docs/TOKENOMICS.md) for product context.
+2. Read [`docs/BUSINESS-STRATEGY.md` §6 Legal risk landscape](../docs/BUSINESS-STRATEGY.md#6-legal-risk-landscape--mitigation) and [`docs/BUSINESS-STRATEGY.md` §4 Currency model](../docs/BUSINESS-STRATEGY.md#4-currency-model--grid--fiat-hybrid) for product context.
 3. Walk each document. Treat every `[COUNSEL: …]` marker as a TODO for the reviewing attorney.
 4. Provide the markdown source to counsel — they may convert to their preferred format (PDF, Word, web form).
 5. Once counsel finalizes, update the revision history above and add a `Status: Finalized` line under each document's "Document status" header.

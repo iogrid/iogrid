@@ -18,7 +18,7 @@ $GRID is the native token of the iogrid network. Providers can choose to be paid
 
 ## 2. What $GRID is
 
-$GRID is the iogrid network's native unit of work, as described in [`docs/TOKENOMICS.md`](../docs/TOKENOMICS.md). Its design goals include:
+$GRID is the iogrid network's native unit of work, as described in [`docs/BUSINESS-STRATEGY.md` §4 Currency model](../docs/BUSINESS-STRATEGY.md#4-currency-model--grid--fiat-hybrid). Its design goals include:
 
 - **Unit of work:** provider compensation and customer billing denominated natively in $GRID (with fiat on-ramp / off-ramp via Stripe and MoonPay).
 - **Aligned incentives:** providers earn into a vesting position that benefits from network growth.

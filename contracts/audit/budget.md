@@ -11,7 +11,7 @@ case studies, and aggregated industry benchmarks.
 **Target spend: $30–80K** for the primary audit (one firm, all 5 programs, one fix-up
 round), plus an **optional $10–20K** for a Neodyme spot review on `vesting` + `emission`.
 
-This sits inside the [`docs/TOKENOMICS.md`](../../docs/TOKENOMICS.md) §"Token launch
+This sits inside the [`docs/BUSINESS-STRATEGY.md` §4 Currency model](../../docs/BUSINESS-STRATEGY.md#4-currency-model--grid--fiat-hybrid) §"Token launch
 sequence" budget of $30–80K and the [`legal/token-disclaimer.md`](../../legal/token-disclaimer.md)
 implied audit-line item.
 
@@ -156,7 +156,7 @@ doing business in this market.
 ## Funding source
 
 The Foundation's treasury (10% allocation = 100M $GRID at TGE) and the strategic raise
-proceeds (per [Tokenomics §"Strategic raise"](../../docs/TOKENOMICS.md)) fund the audit.
+proceeds (per [`docs/BUSINESS-STRATEGY.md` §4.11 Strategic raise](../../docs/BUSINESS-STRATEGY.md#411-strategic-raise--terms-sketch)) fund the audit.
 Specific line items:
 
 - **From strategic raise (if pursued, ~$2M):** $50–100K earmarked for audit per
@@ -184,7 +184,7 @@ TGE**. Decision path:
 8. TGE proceeds.
 
 If iogrid is in week 0 of this clock NOW (2026-05), TGE targets late Q3 2026. This
-aligns with the [`docs/TOKENOMICS.md`](../../docs/TOKENOMICS.md) §"Token launch sequence"
+aligns with the [`docs/BUSINESS-STRATEGY.md` §4 Currency model](../../docs/BUSINESS-STRATEGY.md#4-currency-model--grid--fiat-hybrid) §"Token launch sequence"
 Month 6–9 mainnet TGE target.
 
 ---

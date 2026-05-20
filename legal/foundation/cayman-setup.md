@@ -11,7 +11,7 @@ checklist for the founder, not a substitute for engagement with qualified Cayman
 
 ## Context
 
-Per [`docs/TOKENOMICS.md`](../../docs/TOKENOMICS.md) §"Legal risk + mitigation strategy",
+Per [`docs/BUSINESS-STRATEGY.md` §4 Currency model](../../docs/BUSINESS-STRATEGY.md#4-currency-model--grid--fiat-hybrid) §"Legal risk + mitigation strategy",
 $GRID is intended to be issued by a non-profit Foundation, separately incorporated from
 the iogrid operating entity (Dynolabs Inc.). Section 11 of the [whitepaper](../../docs/whitepaper.md)
 elaborates the rationale and recommends a **Cayman Foundation Company** over BVI Limited,
@@ -112,7 +112,7 @@ Before the first call with counsel, prepare:
 - Total supply, decimals (1B, 9).
 - Network (Solana, plus Base bridge post-TGE).
 - Operating entity (Dynolabs Inc. — US Delaware C-corp).
-- Anticipated TGE date (target Q3 2026 per [Tokenomics §"Token launch sequence"](../../docs/TOKENOMICS.md)).
+- Anticipated TGE date (target Q3 2026 per [`docs/BUSINESS-STRATEGY.md` §4.10 Launch sequence](../../docs/BUSINESS-STRATEGY.md#410-launch-sequence--modern-dex-first-playbook)).
 - Anticipated treasury size at TGE (10% of supply = 100M $GRID at $0.05 initial price = $5M nominal).
 - Initial governance: 3-of-5 Squads multisig → DAO migration in Phase 3+.
 
@@ -328,7 +328,7 @@ gantt
 | First-year annual maintenance | $40–120K | Recurring |
 | **Total Year-1** | **$76–240K** | **midpoint ~$155K** |
 
-The [`docs/TOKENOMICS.md`](../../docs/TOKENOMICS.md) §"Mitigations — required before TGE"
+The [`docs/BUSINESS-STRATEGY.md` §4 Currency model](../../docs/BUSINESS-STRATEGY.md#4-currency-model--grid--fiat-hybrid) §"Mitigations — required before TGE"
 budgets $30–80K for foundation structuring. The above range reflects the broader
 all-in cost including governance fees and banking. Plan for $80–150K all-in for the
 first year if iogrid is comfortable; $50–80K if budget is tighter (accept slower

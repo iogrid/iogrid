@@ -17,7 +17,7 @@ quote, and execute a pre-mainnet review of the five `$GRID` Anchor programs.
 | Solana CLI | Agave 4.0.0 (CI-pinned) |
 | Rust toolchain | 1.85.0 |
 | Lines of Rust (approx) | ~3,000 across the 5 programs |
-| Tokenomics reference | [`../../docs/TOKENOMICS.md`](../../docs/TOKENOMICS.md) |
+| Tokenomics reference | [`../../docs/BUSINESS-STRATEGY.md` §4 Currency model](../../docs/BUSINESS-STRATEGY.md#4-currency-model--grid--fiat-hybrid) |
 | Whitepaper | [`../../docs/whitepaper.md`](../../docs/whitepaper.md) |
 | Risk-factor narrative | [`../../legal/token-disclaimer.md`](../../legal/token-disclaimer.md) |
 | Threat model | [`./threat-model.md`](./threat-model.md) |
@@ -56,7 +56,7 @@ economic logic). **Halborn** as the strong fallback if OtterSec queue blocks at 
 time.
 
 The total target spend: $30–80K (primary) + optional $10–20K (Neodyme spot review).
-Falls within the [`docs/TOKENOMICS.md`](../../docs/TOKENOMICS.md) budget envelope.
+Falls within the [`docs/BUSINESS-STRATEGY.md` §4 Currency model](../../docs/BUSINESS-STRATEGY.md#4-currency-model--grid--fiat-hybrid) budget envelope.
 
 ---
 

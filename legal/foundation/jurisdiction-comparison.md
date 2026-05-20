@@ -11,7 +11,7 @@ counsel; the recommendations below are reference points, not opinions.**
 - [#155](https://github.com/iogrid/iogrid/issues/155) — `legal/*` requires counsel review
 
 **Default per existing docs:** **Cayman Islands Foundation Company** (see
-[`docs/TOKENOMICS.md`](../../docs/TOKENOMICS.md) §"Legal risk + mitigation strategy" and
+[`docs/BUSINESS-STRATEGY.md` §4 Currency model](../../docs/BUSINESS-STRATEGY.md#4-currency-model--grid--fiat-hybrid) §"Legal risk + mitigation strategy" and
 [`legal/foundation/cayman-setup.md`](./cayman-setup.md)).
 
 ---

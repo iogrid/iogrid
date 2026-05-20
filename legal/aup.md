@@ -132,7 +132,7 @@ Penetration testing, load testing, and other stress-testing is permitted **only 
 
 ### 4.5 KYC thresholds
 
-Mirroring [`docs/LEGAL.md`](../docs/LEGAL.md):
+Mirroring [`docs/BUSINESS-STRATEGY.md` §6 Legal risk landscape](../docs/BUSINESS-STRATEGY.md#6-legal-risk-landscape--mitigation):
 
 | Customer monthly spend | KYC requirement |
 |------------------------|-----------------|

@@ -74,7 +74,7 @@ We respond within **5 business days** with the action taken. For CSAM (Section 2
 
 ### A.4 Defense fund disbursement criteria
 
-The iogrid Legal Defense Fund (described in [`docs/LEGAL.md`](../docs/LEGAL.md) §"Legal defense fund") is initially capitalized at **$10,000 USD** and is replenished by **5–10% of monthly B2B revenue**.
+The iogrid Legal Defense Fund (described in [`docs/BUSINESS-STRATEGY.md` §6 Legal risk landscape](../docs/BUSINESS-STRATEGY.md#6-legal-risk-landscape--mitigation) §"Legal defense fund") is initially capitalized at **$10,000 USD** and is replenished by **5–10% of monthly B2B revenue**.
 
 **Disbursement is available to:**
 - Providers who have received a subpoena, search warrant, civil claim, or LEO contact arising from iogrid traffic;
@@ -184,7 +184,7 @@ Per `docs/LEGAL.md` Open items §5, the legal value of a warrant canary is debat
 - [Acceptable Use Policy](./aup.md) Section 10 (Enforcement).
 - [Data Processing Agreement](./dpa.md) Section 3.7 (Breach notification).
 - [Privacy Policy](./privacy-policy.md) Section 5.2 (Law enforcement requests).
-- [`docs/LEGAL.md`](../docs/LEGAL.md) §"Legal defense fund," §"Cooperation with law enforcement."
+- [`docs/BUSINESS-STRATEGY.md` §6 Legal risk landscape](../docs/BUSINESS-STRATEGY.md#6-legal-risk-landscape--mitigation) §"Legal defense fund," §"Cooperation with law enforcement."
 
 ---
 

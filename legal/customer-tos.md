@@ -73,7 +73,7 @@
 
 4.2 **Overage.** Usage above tier limits is billed at the published per-unit rate. See Documentation for current per-unit rates. Customers may set a hard cap to prevent overage; if no cap is set, you authorize us to bill overage at the published rate.
 
-4.3 **Payment.** Customers pay by credit / debit card (via Stripe), bank transfer (Enterprise tier only), USDC on Solana, or $GRID. The discount and KYC framework for each payment method is in [`docs/TOKENOMICS.md`](../docs/TOKENOMICS.md) §"Customer payment options."
+4.3 **Payment.** Customers pay by credit / debit card (via Stripe), bank transfer (Enterprise tier only), USDC on Solana, or $GRID. The discount and KYC framework for each payment method is in [`docs/BUSINESS-STRATEGY.md` §4 Currency model](../docs/BUSINESS-STRATEGY.md#4-currency-model--grid--fiat-hybrid) §"Customer payment options."
 
 4.4 **Taxes.** Pricing is exclusive of VAT, GST, and other applicable transaction taxes. We collect and remit such taxes as required by law. You are responsible for any other taxes applicable to your use of the Service.
 
@@ -87,7 +87,7 @@
 
 5.2 **Rate limits.** Each tier has aggregate and per-endpoint rate limits as published in the Documentation. Rate-limit violations result in HTTP 429 responses, not termination — unless the violation is sustained, intentional, or causes Service disruption (Section 13.2).
 
-5.3 **Provider rate limits.** Independently of your customer-side rate limit, each Provider is rate-limited per destination as specified in [`docs/LEGAL.md`](../docs/LEGAL.md). You acknowledge that some destinations (e.g., LinkedIn, Facebook, Twitter / X, Google) are configured with low per-Provider rate limits (default 10 RPS / Provider / destination) to protect Provider IP reputation. This may reduce achievable throughput for those destinations.
+5.3 **Provider rate limits.** Independently of your customer-side rate limit, each Provider is rate-limited per destination as specified in [`docs/BUSINESS-STRATEGY.md` §6 Legal risk landscape](../docs/BUSINESS-STRATEGY.md#6-legal-risk-landscape--mitigation). You acknowledge that some destinations (e.g., LinkedIn, Facebook, Twitter / X, Google) are configured with low per-Provider rate limits (default 10 RPS / Provider / destination) to protect Provider IP reputation. This may reduce achievable throughput for those destinations.
 
 5.4 **Service-side throttling.** We may temporarily throttle or pause your traffic if we detect patterns indicative of AUP violations or abuse, pending investigation (Section 13).
 
@@ -271,7 +271,7 @@ Mirrors Provider ToS Section 17, except that:
 
 ## 19. Token-payment terms (where applicable)
 
-If you elect to pay in $GRID, you additionally agree to the [token disclaimer](./token-disclaimer.md), incorporated by reference. Discounts for $GRID-paying Customers are described in [`docs/TOKENOMICS.md`](../docs/TOKENOMICS.md). The 20%-discount for $GRID payment is provided for the volume-discount alignment described in the tokenomics doc and is not a discount on the regulated price of any financial product. *[COUNSEL: confirm phrasing doesn't inadvertently treat $GRID as a financial instrument or create a securities-offering nexus.]*
+If you elect to pay in $GRID, you additionally agree to the [token disclaimer](./token-disclaimer.md), incorporated by reference. Discounts for $GRID-paying Customers are described in [`docs/BUSINESS-STRATEGY.md` §4 Currency model](../docs/BUSINESS-STRATEGY.md#4-currency-model--grid--fiat-hybrid). The 20%-discount for $GRID payment is provided for the volume-discount alignment described in the tokenomics doc and is not a discount on the regulated price of any financial product. *[COUNSEL: confirm phrasing doesn't inadvertently treat $GRID as a financial instrument or create a securities-offering nexus.]*
 
 ---
 
