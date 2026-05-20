@@ -241,18 +241,29 @@ export interface CheckoutSessionResponse {
 
 // ---- admin ----------------------------------------------------------------
 
+/**
+ * AbuseFilterRule mirrors the proto-generated JSON shape
+ * (`iogrid.antiabuse.v1.FilterRule`) produced by gateway-bff. Field
+ * names follow Go's encoding/json snake_case tags emitted by
+ * protoc-gen-go (NOT camelCase). See #298 — the previous typing
+ * referenced ghost fields (`pattern`, `kind`, `reason`, `created_at`)
+ * that the backend never populated, so every row rendered blank.
+ */
 export interface AbuseFilterRule {
-  id?: UUIDValue;
-  pattern: string;
-  kind: string;
-  active: boolean;
-  reason: string;
-  createdAt?: string;
+  id: string;
+  slug: string;
+  description: string;
+  version: string;
+  last_updated_at?: string;
 }
 
+/**
+ * ListFiltersResponse mirrors `iogrid.antiabuse.v1.ListFiltersResponse`.
+ * Field names use snake_case to match the proto-generated JSON.
+ */
 export interface ListFiltersResponse {
-  rules: AbuseFilterRule[];
-  rulesetHash?: string;
+  rules?: AbuseFilterRule[];
+  ruleset_hash?: string;
 }
 
 // ---- auto-update (#59) ----------------------------------------------------
