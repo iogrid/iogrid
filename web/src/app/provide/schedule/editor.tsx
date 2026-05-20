@@ -89,7 +89,7 @@ export function ScheduleEditor() {
         const [cfgRes, stateRes] = await Promise.all([
           api
             .get<GetSchedulingConfigResponse>("/api/v1/provide/schedule")
-            .catch((e: ApiError) => {
+            .catch((e: ApiError): GetSchedulingConfigResponse => {
               if (e.status === 404) return { config: undefined };
               throw e;
             }),
