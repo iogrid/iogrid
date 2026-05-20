@@ -2,6 +2,7 @@ import Link from "next/link";
 import * as React from "react";
 import { auth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 /**
  * PortalShell is the chrome shared by every authenticated app surface
@@ -72,34 +73,41 @@ export async function PortalShell({
           >
             iogrid
           </Link>
-          <nav aria-label="Primary" className="hidden gap-2 md:flex">
-            <PortalNavLink href="/provide" active={activeHref?.startsWith("/provide")}>
-              Provide
-            </PortalNavLink>
-            <PortalNavLink
-              href="/customer"
-              active={activeHref?.startsWith("/customer")}
-            >
-              Customer
-            </PortalNavLink>
-            <PortalNavLink href="/vpn" active={activeHref?.startsWith("/vpn")}>
-              VPN
-            </PortalNavLink>
-            <PortalNavLink
-              href="/account"
-              active={activeHref?.startsWith("/account")}
-            >
-              Account
-            </PortalNavLink>
-            {showAdminTab ? (
-              <PortalNavLink
-                href="/admin"
-                active={activeHref?.startsWith("/admin")}
-              >
-                Admin
+          <div className="flex items-center gap-2">
+            <nav aria-label="Primary" className="hidden gap-2 md:flex">
+              <PortalNavLink href="/provide" active={activeHref?.startsWith("/provide")}>
+                Provide
               </PortalNavLink>
-            ) : null}
-          </nav>
+              <PortalNavLink
+                href="/customer"
+                active={activeHref?.startsWith("/customer")}
+              >
+                Customer
+              </PortalNavLink>
+              <PortalNavLink href="/vpn" active={activeHref?.startsWith("/vpn")}>
+                VPN
+              </PortalNavLink>
+              <PortalNavLink
+                href="/account"
+                active={activeHref?.startsWith("/account")}
+              >
+                Account
+              </PortalNavLink>
+              {showAdminTab ? (
+                <PortalNavLink
+                  href="/admin"
+                  active={activeHref?.startsWith("/admin")}
+                >
+                  Admin
+                </PortalNavLink>
+              ) : null}
+            </nav>
+            {/* Theme toggle lives at the right of the global header
+                so it is reachable from every authenticated surface
+                (provide / customer / vpn / account / admin) without
+                duplicating it per-section. Client-side island. */}
+            <ThemeToggle className="ml-2" />
+          </div>
         </div>
       </header>
 

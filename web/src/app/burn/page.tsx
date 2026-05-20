@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { BurnDashboard } from "./dashboard";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 export const metadata = {
   title: "$GRID burn dashboard — iogrid",
@@ -28,9 +29,12 @@ export default function BurnPage() {
           >
             iogrid
           </Link>
-          <p className="text-xs uppercase tracking-wide text-zinc-500">
-            Public burn dashboard
-          </p>
+          <div className="flex items-center gap-4">
+            <p className="text-xs uppercase tracking-wide text-zinc-500">
+              Public burn dashboard
+            </p>
+            <ThemeToggle />
+          </div>
         </div>
       </header>
 

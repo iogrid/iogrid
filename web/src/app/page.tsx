@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 export default function HomePage() {
   return (
@@ -7,28 +8,34 @@ export default function HomePage() {
         <Link href="/" className="text-xl font-bold tracking-tight">
           iogrid
         </Link>
-        <ul className="flex gap-6 text-sm">
-          <li>
-            <Link href="/provide" className="hover:underline">
-              Provide
-            </Link>
-          </li>
-          <li>
-            <Link href="/customer" className="hover:underline">
-              Customer
-            </Link>
-          </li>
-          <li>
-            <Link href="/vpn" className="hover:underline">
-              VPN
-            </Link>
-          </li>
-          <li>
-            <Link href="/account" className="hover:underline">
-              Account
-            </Link>
-          </li>
-        </ul>
+        <div className="flex items-center gap-6">
+          <ul className="flex gap-6 text-sm">
+            <li>
+              <Link href="/provide" className="hover:underline">
+                Provide
+              </Link>
+            </li>
+            <li>
+              <Link href="/customer" className="hover:underline">
+                Customer
+              </Link>
+            </li>
+            <li>
+              <Link href="/vpn" className="hover:underline">
+                VPN
+              </Link>
+            </li>
+            <li>
+              <Link href="/account" className="hover:underline">
+                Account
+              </Link>
+            </li>
+          </ul>
+          {/* Toggle on the marketing landing page too — visitors who
+              already know they prefer dark/light shouldn't have to
+              authenticate to set it. */}
+          <ThemeToggle />
+        </div>
       </nav>
 
       <section>
