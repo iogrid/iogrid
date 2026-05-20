@@ -35,6 +35,15 @@ export interface TimeWindow {
   end?: string;
 }
 
+/**
+ * proto3 `google.protobuf.Timestamp` as marshalled by Go's
+ * `encoding/json` (the path the BFF uses today — NOT `protojson`).
+ * `seconds` is a uint64 that may arrive as either a number or a
+ * decimal string depending on Go's marshaller. `seconds === 0` /
+ * `"0"` / `undefined` means "never observed".
+ */
+export type ProtoTimestamp = { seconds?: string | number; nanos?: number };
+
 // ---- identity / account ---------------------------------------------------
 
 export interface Identifier {
@@ -241,14 +250,70 @@ export interface GetCurrentStateResponse {
 }
 
 /**
- * Phase-0 minimal Provider shape returned by the gateway-bff under
- * `providers: [...]` on /provide/* envelopes. We only need an id +
- * status on the web side today; richer fields land alongside the
- * multi-daemon picker (future).
+ * HostInfo mirrors `iogrid.providers.v1.HostInfo`. Fields use the
+ * snake_case names emitted by `encoding/json` over the generated Go
+ * struct tags (matching the existing #298 / #304 convention). The
+ * daemon does not yet populate any of these — see #318's "card shape
+ * must be ready from day 1" — so every field is optional.
+ */
+export interface HostInfo {
+  platform?: string | number;
+  architecture?: string | number;
+  os_version?: string;
+  daemon_version?: string;
+  total_memory_mib?: string | number;
+  cpu_model?: string;
+  cpu_logical_cores?: number;
+  gpu_models?: string[];
+  docker_available?: boolean;
+  tart_available?: boolean;
+}
+
+/**
+ * NetworkInfo mirrors `iogrid.providers.v1.NetworkInfo`.
+ * inferred_region arrives as `{}` until the provider confirms.
+ */
+export interface NetworkInfo {
+  public_ip?: string;
+  asn?: number;
+  isp?: string;
+  throughput_mbps?: number;
+  latency_ms?: number;
+  inferred_region?: Record<string, unknown>;
+}
+
+/**
+ * CapabilityInventory mirrors `iogrid.providers.v1.CapabilityInventory`.
+ */
+export interface CapabilityInventory {
+  supported_workload_types?: string[];
+  gpu_enabled?: boolean;
+  ios_build_enabled?: boolean;
+}
+
+/**
+ * ProviderRef mirrors `iogrid.providers.v1.Provider` projected onto
+ * the BFF /provide/dashboard envelope. Numeric `status` matches the
+ * `ProviderStatus` enum on the wire (proto3 int32 → JSON number when
+ * marshalled via `encoding/json`, NOT `protojson`). Supersedes the
+ * minimal {id, status} shape introduced in #316 — same field names,
+ * just additional optional metadata for #318's "Paired machines" card.
+ *
+ * Timestamp fields arrive as `{seconds, nanos}` per the same `ProtoTimestamp`
+ * convention used by AbuseFilterRule (#304). `seconds === 0`
+ * indicates "never observed" — the daemon never checked in.
  */
 export interface ProviderRef {
   id?: UUIDValue;
-  status?: string;
+  owner_user_id?: UUIDValue;
+  display_name?: string;
+  /** ProviderStatus enum value (1=ACTIVE, 2=OFFLINE, 3=SUSPENDED, 4=DEACTIVATED, 0=UNSPECIFIED). */
+  status?: number | string;
+  host_info?: HostInfo | null;
+  network_info?: NetworkInfo | null;
+  capabilities?: CapabilityInventory | null;
+  registered_at?: ProtoTimestamp | string | null;
+  last_seen_at?: ProtoTimestamp | string | null;
 }
 
 export interface ProviderDashboard {
@@ -260,7 +325,8 @@ export interface ProviderDashboard {
    * MUST gate on this flag and render the "Install daemon" empty-state
    * instead of the skeleton dashboard with em-dash placeholders.
    * Backed by gateway-bff `providerDashboard.HasProvider` (issues #305
-   * / #313).
+   * / #313). When true, `providers` carries the paired-machine
+   * identities for the "Paired machines" card (#318) above the KPI strip.
    */
   has_provider?: boolean;
   providers?: ProviderRef[] | null;
@@ -340,8 +406,6 @@ export interface CheckoutSessionResponse {
  * stdlib-encoded `*timestamppb.Timestamp` struct
  * `{seconds, nanos}` (#304). Renderers MUST normalise before display.
  */
-export type ProtoTimestamp = { seconds?: string | number; nanos?: number };
-
 export interface AbuseFilterRule {
   id: string;
   slug: string;

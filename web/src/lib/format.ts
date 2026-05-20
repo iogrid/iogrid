@@ -52,6 +52,90 @@ export function formatRelativeTime(
 }
 
 /**
+ * Convert a `google.protobuf.Timestamp` as marshalled by Go's
+ * `encoding/json` ({seconds, nanos}) into milliseconds since epoch.
+ * Accepts an RFC3339 string fallback for when the BFF eventually
+ * switches to `protojson`. Returns `null` if the value is missing or
+ * represents "never observed" (seconds === 0).
+ */
+export function protoTimestampToMillis(
+  ts:
+    | { seconds?: string | number; nanos?: number }
+    | string
+    | null
+    | undefined,
+): number | null {
+  if (ts == null) return null;
+  if (typeof ts === "string") {
+    const parsed = Date.parse(ts);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  const rawSeconds = ts.seconds;
+  if (rawSeconds === undefined || rawSeconds === null) return null;
+  const seconds =
+    typeof rawSeconds === "string" ? Number(rawSeconds) : rawSeconds;
+  if (!Number.isFinite(seconds) || seconds <= 0) return null;
+  const nanos = Number.isFinite(ts.nanos) ? (ts.nanos as number) : 0;
+  return Math.round(seconds * 1000 + nanos / 1_000_000);
+}
+
+/**
+ * Relative-time formatter that accepts either a ProtoTimestamp
+ * {seconds, nanos} or an RFC3339 string. "never observed" / missing
+ * inputs render as `"never"` (not `"—"`) so the paired-machines card
+ * (#318) gives operators a clear "daemon has not checked in yet"
+ * signal instead of an em-dash that's overloaded with "unknown".
+ */
+export function formatProtoTimestampRelative(
+  ts:
+    | { seconds?: string | number; nanos?: number }
+    | string
+    | null
+    | undefined,
+  nowMs: number = Date.now(),
+): string {
+  const ms = protoTimestampToMillis(ts);
+  if (ms === null) return "never";
+  const iso = new Date(ms).toISOString();
+  return formatRelativeTime(iso, nowMs);
+}
+
+/**
+ * Format a ProtoTimestamp as a locale date string ("Mar 14, 2026").
+ * Returns `"—"` when the timestamp is missing or zero.
+ */
+export function formatProtoTimestampAbsolute(
+  ts:
+    | { seconds?: string | number; nanos?: number }
+    | string
+    | null
+    | undefined,
+): string {
+  const ms = protoTimestampToMillis(ts);
+  if (ms === null) return "—";
+  return new Date(ms).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+/**
+ * Truncate a long identifier (UUID, hash, etc.) middle-style:
+ * "808ce330-79c1...5a94d8". Keeps `head` chars at the front and
+ * `tail` chars at the end. Pure / side-effect free.
+ */
+export function truncateMiddle(
+  value: string | undefined | null,
+  head = 8,
+  tail = 4,
+): string {
+  if (!value) return "";
+  if (value.length <= head + tail + 1) return value;
+  return `${value.slice(0, head)}…${value.slice(-tail)}`;
+}
+
+/**
  * Money amounts cross the wire as decimal strings to avoid float
  * rounding. Display them via Intl.NumberFormat for ISO-4217 currencies,
  * with a dedicated branch for the iogrid native token $GRID (which is
