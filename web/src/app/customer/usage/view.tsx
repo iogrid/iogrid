@@ -6,15 +6,22 @@ import { EarningsChart } from "@/components/dashboard/earnings-chart";
 import { StatsCard } from "@/components/dashboard/stats-card";
 import { browserApi } from "@/lib/api";
 import { formatBytes, formatMoney } from "@/lib/format";
-import type { ListUsageResponse, UsageRow, WorkloadType } from "@/lib/types";
+import { WorkloadTypeNames, protoEnumName } from "@/lib/proto-enum";
+import type { ListUsageResponse, UsageRow } from "@/lib/types";
+
+type WorkloadTypeName =
+  | "WORKLOAD_TYPE_BANDWIDTH"
+  | "WORKLOAD_TYPE_DOCKER"
+  | "WORKLOAD_TYPE_GPU"
+  | "WORKLOAD_TYPE_IOS_BUILD";
 
 export function UsageView() {
   const [wsId, setWsId] = React.useState<string | null>(null);
   const [rows, setRows] = React.useState<UsageRow[]>([]);
   const [loading, setLoading] = React.useState(true);
-  const [selectedType, setSelectedType] = React.useState<WorkloadType | "all">(
-    "all",
-  );
+  const [selectedType, setSelectedType] = React.useState<
+    WorkloadTypeName | "all"
+  >("all");
 
   React.useEffect(() => {
     setWsId(localStorage.getItem("iogrid_workspace_id"));
@@ -47,10 +54,15 @@ export function UsageView() {
     );
   }
 
+  // gateway-bff emits enum fields as numeric tags via encoding/json, so
+  // canonicalise both sides of the compare to the proto's SCREAMING_SNAKE_CASE
+  // form before filtering. See #314.
   const visible =
     selectedType === "all"
       ? rows
-      : rows.filter((r) => r.workloadType === selectedType);
+      : rows.filter(
+          (r) => protoEnumName(r.workloadType, WorkloadTypeNames) === selectedType,
+        );
 
   const totalBytes = visible.reduce((acc, r) => acc + Number(r.bytes || 0), 0);
   const totalCost = visible.reduce(
@@ -93,7 +105,7 @@ export function UsageView() {
           id="usage-type"
           value={selectedType}
           onChange={(e) =>
-            setSelectedType(e.target.value as WorkloadType | "all")
+            setSelectedType(e.target.value as WorkloadTypeName | "all")
           }
           className="h-8 rounded-md border border-zinc-300 bg-transparent px-2 text-sm dark:border-zinc-700"
         >

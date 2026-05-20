@@ -9,6 +9,7 @@ import {
   formatBytes,
   formatRelativeTime,
 } from "@/lib/format";
+import { EventKindNames, protoEnumName } from "@/lib/proto-enum";
 import { cn } from "@/lib/utils";
 import type { AuditEvent } from "@/lib/types";
 
@@ -35,20 +36,24 @@ export function AuditEventCard({
   onBlockCustomer,
   onBlockDestination,
 }: AuditEventCardProps) {
+  // gateway-bff emits proto enums as numeric tags via encoding/json, so
+  // normalise to the canonical SCREAMING_SNAKE_CASE name once and branch
+  // on the result. See #314.
+  const kindName = protoEnumName(event.kind, EventKindNames);
   const glyph = eventKindGlyph(event.kind);
-  const isBlocked = event.kind === "EVENT_KIND_WORKLOAD_BLOCKED";
-  const isAbuse = event.kind === "EVENT_KIND_ABUSE_FLAGGED";
+  const isBlocked = kindName === "EVENT_KIND_WORKLOAD_BLOCKED";
+  const isAbuse = kindName === "EVENT_KIND_ABUSE_FLAGGED";
   const accent =
     isBlocked || isAbuse
       ? "border-rose-200 bg-rose-50 dark:border-rose-900 dark:bg-rose-950"
-      : event.kind === "EVENT_KIND_EARNINGS_CREDITED"
+      : kindName === "EVENT_KIND_EARNINGS_CREDITED"
         ? "border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950"
         : "border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900";
 
   return (
     <article
       data-testid="audit-event-card"
-      data-kind={event.kind}
+      data-kind={kindName ?? event.kind}
       className={cn("flex gap-3 rounded-md border p-3 text-sm", accent)}
     >
       <div

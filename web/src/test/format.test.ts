@@ -122,6 +122,23 @@ describe("eventKindLabel/Glyph + categoryLabel", () => {
     expect(eventKindGlyph("EVENT_KIND_EARNINGS_CREDITED")).toBe("$");
   });
 
+  /**
+   * Regression for #314: gateway-bff emits proto enums as numeric tags
+   * via encoding/json. The label/glyph helpers MUST canonicalise the
+   * numeric form back to the proto's full SCREAMING_SNAKE_CASE name.
+   */
+  it("accepts the numeric proto tag (encoding/json wire form)", () => {
+    expect(eventKindLabel(3)).toBe("Workload blocked");
+    expect(eventKindLabel(6)).toBe("Earnings credited");
+    expect(eventKindGlyph(6)).toBe("$");
+    expect(eventKindGlyph(5)).toBe("!");
+  });
+
+  it("falls back to the default branch on unknown numeric tags", () => {
+    expect(eventKindLabel(999)).toBe("Event");
+    expect(eventKindGlyph(999)).toBe("·");
+  });
+
   it("title-cases category slugs", () => {
     expect(categoryLabel("e_commerce")).toBe("E Commerce");
     expect(categoryLabel("seo")).toBe("Seo");
