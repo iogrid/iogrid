@@ -28,6 +28,12 @@ spec:
         prometheus.io/scrape: "true"
         prometheus.io/port: "9090"
         prometheus.io/path: "/metrics"
+        # Bumped by .github/workflows/web-ci.yml on every push to main so the
+        # rolling update fires even when the image digest happens to be
+        # cache-identical. Treated as an opaque ISO-8601 string by the
+        # deploy-bot sed in the workflow — do not hand-edit unless you intend
+        # to roll the pods.
+        kubectl.kubernetes.io/restartedAt: "2026-05-20T00:00:00Z"
     spec:
       serviceAccountName: web
       automountServiceAccountToken: true
@@ -40,8 +46,18 @@ spec:
           type: RuntimeDefault
       containers:
         - name: web
+          # The image reference is rewritten by .github/workflows/web-ci.yml
+          # on every push to main to a fully-qualified digest pin of the form
+          #   ghcr.io/iogrid/web@sha256:<digest>
+          # so that:
+          #   (a) the deployment is bit-exact reproducible from `git show`
+          #   (b) the kustomize-controller detects the change on the next
+          #       5m reconcile interval (gitops/flux/iogrid-kustomization.yaml)
+          #   (c) imagePullPolicy: Always belt-and-braces guarantees the
+          #       node pulls the digest even when the tag string is unchanged
+          # Refs #332.
           image: ghcr.io/iogrid/web:scaffold
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           ports:
             - name: http
               containerPort: 3000
