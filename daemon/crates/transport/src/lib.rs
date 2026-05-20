@@ -765,8 +765,17 @@ fn parse_socket_addr_from_authority(authority: &str) -> Result<SocketAddr, Trans
     let host = parsed
         .host_str()
         .ok_or_else(|| TransportError::InvalidUrl("authority has no host".into()))?;
+    // `url::Url::port()` returns None when the explicit port equals the
+    // scheme's default (e.g. 443 on https) — even when the URL string
+    // CONTAINS `:443` literally. `format_ip_authority` upstream always
+    // emits `https://<ip>:<port>` with the port present, so on a
+    // coordinator dialled at the default 443 we'd come back here and
+    // (pre-fix) bail with "authority has no port" despite the port being
+    // right there in the string. `port_or_known_default()` returns
+    // Some(443) for any https URL whose explicit-or-implicit port is the
+    // scheme default.
     let port = parsed
-        .port()
+        .port_or_known_default()
         .ok_or_else(|| TransportError::InvalidUrl("authority has no port".into()))?;
     // Brackets stripped by url::Url::host_str so v6 literals come back
     // as `::1` not `[::1]`. parse::<IpAddr> handles both v4 and v6.
