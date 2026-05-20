@@ -68,4 +68,129 @@ describe("AuditEventCard", () => {
     expect(card?.className).toContain("rose");
     expect(card?.getAttribute("data-kind")).toBe("EVENT_KIND_WORKLOAD_BLOCKED");
   });
+
+  /**
+   * Regression for #319: the body MUST NOT contain the "Customer-X"
+   * placeholder under any circumstance. Older versions of this card
+   * fell back to it for non-customer event kinds and for customer
+   * events with no display name; both cases now route through the
+   * discriminated renderer.
+   */
+  describe("#319 — no phantom Customer-X placeholder", () => {
+    it("does not render Customer-X on a customer event missing the display name", () => {
+      const { container } = render(
+        <AuditEventCard
+          event={{ ...baseEvent, customerDisplayName: "" }}
+        />,
+      );
+      expect(container.textContent ?? "").not.toContain("Customer-X");
+      // The diagnostic affordance fires instead.
+      expect(screen.getByTestId("audit-unknown-customer")).toBeInTheDocument();
+      expect(screen.getByText(/unknown customer/i)).toBeInTheDocument();
+    });
+
+    it("renders a kind-specific row for SCHEDULER_TRANSITION with from/to metadata", () => {
+      const { container } = render(
+        <AuditEventCard
+          event={{
+            ...baseEvent,
+            kind: "EVENT_KIND_SCHEDULER_TRANSITION",
+            customerDisplayName: "",
+            destinationSummary: "",
+            category: "",
+            metadata: {
+              from: "SCHEDULER_STATE_ACTIVE",
+              to: "SCHEDULER_STATE_PAUSED_USER_ACTIVE",
+            },
+          }}
+        />,
+      );
+      expect(container.textContent ?? "").not.toContain("Customer-X");
+      expect(screen.getByText("Scheduler change")).toBeInTheDocument();
+      expect(screen.getByText("SCHEDULER_STATE_ACTIVE")).toBeInTheDocument();
+      expect(
+        screen.getByText("SCHEDULER_STATE_PAUSED_USER_ACTIVE"),
+      ).toBeInTheDocument();
+      // Category pill must NOT render for non-customer kinds (no
+      // category attached to a scheduler transition).
+      expect(screen.queryByTestId("audit-category")).not.toBeInTheDocument();
+    });
+
+    it("renders a kind-specific row for SCHEDULER_TRANSITION without metadata", () => {
+      const { container } = render(
+        <AuditEventCard
+          event={{
+            ...baseEvent,
+            kind: "EVENT_KIND_SCHEDULER_TRANSITION",
+            customerDisplayName: "",
+            destinationSummary: "",
+            category: "",
+          }}
+        />,
+      );
+      expect(container.textContent ?? "").not.toContain("Customer-X");
+      expect(screen.getByText(/scheduler state changed/i)).toBeInTheDocument();
+    });
+
+    it("renders a debug row for stray KEEPALIVE events", () => {
+      const { container } = render(
+        <AuditEventCard
+          event={{
+            ...baseEvent,
+            kind: "EVENT_KIND_KEEPALIVE",
+            customerDisplayName: "",
+            destinationSummary: "",
+            category: "",
+          }}
+        />,
+      );
+      expect(container.textContent ?? "").not.toContain("Customer-X");
+      expect(screen.getByText(/stream keep-alive/i)).toBeInTheDocument();
+    });
+
+    it("hides the per-customer action buttons on non-customer events", () => {
+      render(
+        <AuditEventCard
+          event={{
+            ...baseEvent,
+            kind: "EVENT_KIND_SCHEDULER_TRANSITION",
+            customerDisplayName: "",
+            destinationSummary: "",
+            category: "",
+          }}
+          onBlockCategory={() => {}}
+          onBlockCustomer={() => {}}
+          onBlockDestination={() => {}}
+        />,
+      );
+      expect(
+        screen.queryByRole("button", { name: /block category/i }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: /block customer/i }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: /block destination/i }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("renders an honest fallback for an unknown numeric kind without inventing a customer", () => {
+      const { container } = render(
+        <AuditEventCard
+          event={{
+            ...baseEvent,
+            // 99 is well past the proto's defined enum range.
+            kind: 99 as unknown as number,
+            customerDisplayName: "",
+            destinationSummary: "",
+            category: "",
+            metadata: { reason: "experimental" },
+          }}
+        />,
+      );
+      expect(container.textContent ?? "").not.toContain("Customer-X");
+      expect(screen.getByText("Event")).toBeInTheDocument();
+      expect(screen.getByText(/reason=experimental/)).toBeInTheDocument();
+    });
+  });
 });
