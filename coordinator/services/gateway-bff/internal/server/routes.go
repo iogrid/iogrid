@@ -176,6 +176,12 @@ func Mount(deps Deps) func(chi.Router) {
 				r.Get("/usage", api.GetCustomerUsage)
 				r.Post("/workloads", api.SubmitWorkload)
 				r.Get("/workloads/{id}/events", api.StreamWorkloadEvents)
+				// /customer/billing — Phase 0 empty-state snapshot so
+				// /customer/billing renders the FREE/trial tier card
+				// instead of a 404 banner. Phase 1 wires this to
+				// billing-svc's subscription read model + Stripe portal
+				// session generator.
+				r.Get("/billing", emptyCustomerBilling)
 			})
 
 			// /admin ------------------------------------------------------
@@ -276,12 +282,19 @@ func Mount(deps Deps) func(chi.Router) {
 			})
 
 			// /staking ----------------------------------------------------
-			// Staking surface (#294). GET / returns an "opted-out, zero
-			// stake" snapshot; opt-in is Phase 1.
+			// Staking surface (#294 + #296). GET / returns an
+			// "opted-out, zero stake" snapshot; GET /positions returns
+			// an empty list so /provide/staking renders the empty
+			// positions table. opt-in + stake/claim/early-unlock are
+			// Phase 1.
 			r.Route("/staking", func(r chi.Router) {
 				r.Use(auth.RequireAuth)
 				r.Get("/", emptyStakingState)
+				r.Get("/positions", emptyStakingPositions)
 				r.Post("/opt-in", unimplemented("staking opt-in"))
+				r.Post("/stake", unimplemented("staking stake"))
+				r.Post("/claim", unimplemented("staking claim"))
+				r.Post("/early-unlock", unimplemented("staking early-unlock"))
 			})
 
 			// /account/step-up --------------------------------------------
@@ -343,6 +356,34 @@ func emptyStakingState(w http.ResponseWriter, _ *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"stake_amount": 0,
 		"opted_in":     false,
+	})
+}
+
+// emptyStakingPositions answers GET /api/v1/staking/positions with an
+// empty positions list + zero total_grid so the /provide/staking
+// positions table renders the "no active stakes" empty state instead
+// of a 404 banner (#296).
+func emptyStakingPositions(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"positions":  []any{},
+		"total_grid": 0,
+	})
+}
+
+// emptyCustomerBilling answers GET /api/v1/customer/billing with a
+// FREE/trial Phase 0 snapshot so the /customer/billing page renders
+// the tier card instead of a 404 banner (#296). Phase 1 swaps this
+// for a billing-svc subscription read + Stripe portal URL mint.
+func emptyCustomerBilling(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"tier":               "FREE",
+		"status":             "trial",
+		"bandwidth_quota_gb": 50,
+		"stripe_portal_url":  "",
 	})
 }
 
