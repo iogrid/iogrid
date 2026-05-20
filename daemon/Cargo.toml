@@ -41,13 +41,27 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
 
-# gRPC + HTTP. We MUST include `tls-roots` — without it, tonic's
-# rustls ClientConfig has an empty root cert store and rejects every
-# server certificate it sees, surfacing as
-#   tls configuration failed: transport error
-# at the very first reconnect. Phase 0 ships against Let's Encrypt
-# (ISRG Root X1) so we want webpki-roots in the channel.
-tonic = { version = "0.12", features = ["tls", "tls-roots", "tls-webpki-roots"] }
+# gRPC + HTTP. Trust store is `tls-webpki-roots` ONLY — see #327.
+#
+# We deliberately DO NOT enable `tls-roots`. That feature drags
+# `rustls-native-certs` into the link map; on macOS the resulting
+# `with_native_roots()` call walks the Keychain via
+# `SecTrustSettingsCopyTrustSettings`, which can block indefinitely
+# under MDM-managed / TCC-protected configurations (rustls-native-certs#75,
+# #110). The daemon never reaches `connect_with_connector`, so the
+# #246/#281 chain-walker can't even surface the cause — the symptom is
+# the daemon going silent after "live dispatch bridge spawned".
+#
+# webpki-roots is the right answer because:
+#   * Phase 0 coordinator is Let's Encrypt-signed (ISRG Root X1/X2) — in
+#     webpki-roots.
+#   * Private-CA deployments set `ConnectConfig::ca_pem` and we layer
+#     the explicit CA via `ClientTlsConfig::ca_certificate(...)` —
+#     independent of any OS trust store.
+#   * Daemons run non-interactively; nothing about the OS trust store
+#     can grant trust to a coordinator the public-CA chain wouldn't
+#     already cover.
+tonic = { version = "0.12", features = ["tls", "tls-webpki-roots"] }
 tonic-build = "0.12"
 prost = "0.13"
 prost-types = "0.13"

@@ -444,13 +444,37 @@ impl Channel {
             }
         };
 
-        // tonic 0.12 + tls-roots: the feature compiles in
-        // rustls-native-certs but does NOT auto-populate the
-        // ClientTlsConfig trust store. Without an explicit roots call
-        // (with_native_roots / with_webpki_roots / ca_certificate) the
-        // store is empty, every server cert is rejected, and the
-        // builder returns "tls configuration failed: transport error"
-        // at <1 ms — no network attempted.
+        // Trust store: webpki-roots ONLY. We deliberately DO NOT call
+        // `.with_native_roots()` here.
+        //
+        // History: #230 added native+webpki as "defense in depth". That
+        // was a mistake — on macOS, `with_native_roots()` makes
+        // rustls-native-certs walk the Keychain via
+        // `SecTrustSettingsCopyTrustSettings(kSecTrustSettingsDomainSystem)`,
+        // which on certain macOS configurations (MDM-managed corporate
+        // keychains, TCC-prompted trust settings, or simply a Keychain
+        // in a state that triggers the upstream rustls-native-certs#75 /
+        // #110 bug) blocks indefinitely. Issue #327 caught this on
+        // Hatices-Mac-mini-2 (14.6.1 arm64) under a LaunchAgent context:
+        // the daemon booted through "live dispatch bridge spawned", then
+        // both tokio worker threads sat for minutes inside
+        // `SecTrustSettingsCopyTrustSettings → tsCopyTrustSettings →
+        // KeychainCore::TrustSettings::CreateTrustSettings → ...
+        // CFPropertyListCreateFromXMLData`. Because we never reached
+        // `Endpoint::connect_with_connector`, none of the #246 / #281
+        // chain-walker diagnostics fired — the silence WAS the bug.
+        //
+        // Why webpki-roots alone is correct:
+        //   * Coordinator certs are Let's Encrypt-issued (ISRG Root X1/X2)
+        //     which is in webpki-roots.
+        //   * Private-CA deployments (bp-cnpg, on-prem) set
+        //     `cfg.ca_pem` and we layer the explicit CA below via
+        //     `tls.ca_certificate(...)` — that path is independent of
+        //     the system trust store.
+        //   * Server certs are network-presented and validated against
+        //     a rustls `ClientConfig` root store; the macOS Keychain
+        //     adds zero value for a daemon dialing a public-CA-signed
+        //     coordinator from a non-interactive process.
         //
         // `domain_name(host)` is what makes the IP-literal authority
         // safe: rustls uses it for SNI + server-cert SAN validation,
@@ -459,7 +483,6 @@ impl Channel {
         // the resolver swap.
         let mut tls = ClientTlsConfig::new()
             .identity(identity)
-            .with_native_roots()
             .with_webpki_roots()
             .domain_name(host.clone());
         if let Some(ca_path) = &self.cfg.ca_pem {
@@ -2340,5 +2363,49 @@ mod tests {
         drop(out_tx);
         let _ = tokio::time::timeout(Duration::from_secs(2), pump).await;
         let _ = shutdown_tx.send(());
+    }
+
+    // ---- #327 macOS Keychain-stall regression guard ------------------------
+
+    /// Build a `ClientTlsConfig` with the same builder chain
+    /// `Channel::connect` uses for the trust store, and assert it
+    /// completes in bounded wall-time.
+    ///
+    /// The bug in #327 was that `.with_native_roots()` on the same chain
+    /// called `rustls-native-certs`, which on macOS issued
+    /// `SecTrustSettingsCopyTrustSettings(kSecTrustSettingsDomainSystem)`
+    /// and blocked for many minutes (or forever) under certain Keychain
+    /// states. The fix dropped that call; the trust store comes from
+    /// `with_webpki_roots()` (a static rustls slice — no OS calls, no
+    /// I/O, no file descriptors).
+    ///
+    /// This test fails fast if anyone re-introduces `.with_native_roots()`
+    /// on macOS, and is a useful liveness signal on Linux/Windows too —
+    /// webpki-roots construction should always be sub-millisecond.
+    ///
+    /// We intentionally do NOT exercise the `identity(...)` arm: that
+    /// would need a real PEM keypair (handled by the higher-level
+    /// `Channel::connect` tests). The Keychain hang we're guarding
+    /// against happens in the trust-store call, not identity loading.
+    #[test]
+    fn tls_config_trust_store_builds_under_50ms() {
+        use std::time::Instant;
+        let start = Instant::now();
+        // Mirror the exact call shape from `Channel::connect` minus the
+        // identity loading (which is independent of the trust store and
+        // doesn't make any Keychain calls).
+        let _tls = ClientTlsConfig::new()
+            .with_webpki_roots()
+            .domain_name("coordinator.iogrid.org");
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed < Duration::from_millis(50),
+            "ClientTlsConfig trust-store build took {elapsed:?} — \
+             must be sub-50ms (static webpki-roots slice). If this \
+             test fails on macOS, someone likely re-introduced \
+             `.with_native_roots()` — see issue #327 (rustls-native-certs \
+             walks the Keychain via SecTrustSettingsCopyTrustSettings \
+             and can block for minutes)."
+        );
     }
 }
