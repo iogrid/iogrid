@@ -64,6 +64,21 @@ export enum EventKind {
    * @generated from enum value: EVENT_KIND_EARNINGS_CREDITED = 6;
    */
   EARNINGS_CREDITED = 6,
+
+  /**
+   * Stream-keepalive heartbeat. Emitted by the server when a
+   * StreamAuditEvents subscription opens (so the response headers flush
+   * immediately on the wire — the EventSource then transitions from
+   * "connecting" to "open" in ms instead of waiting for the first real
+   * workload event, which may be hours away for a freshly paired
+   * provider) and every ~15s of idle thereafter to defeat intermediate
+   * proxy idle-timeouts. KEEPALIVE events MUST be ignored by UIs
+   * rendering the transparency feed — the only consumer signal they
+   * carry is "connection is alive, no new data". See #323.
+   *
+   * @generated from enum value: EVENT_KIND_KEEPALIVE = 7;
+   */
+  KEEPALIVE = 7,
 }
 // Retrieve enum metadata with: proto3.getEnumType(EventKind)
 proto3.util.setEnumType(EventKind, "iogrid.providers.v1.EventKind", [
@@ -74,6 +89,7 @@ proto3.util.setEnumType(EventKind, "iogrid.providers.v1.EventKind", [
   { no: 4, name: "EVENT_KIND_SCHEDULER_TRANSITION" },
   { no: 5, name: "EVENT_KIND_ABUSE_FLAGGED" },
   { no: 6, name: "EVENT_KIND_EARNINGS_CREDITED" },
+  { no: 7, name: "EVENT_KIND_KEEPALIVE" },
 ]);
 
 /**

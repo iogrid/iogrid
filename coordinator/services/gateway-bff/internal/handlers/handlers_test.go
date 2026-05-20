@@ -807,6 +807,103 @@ func TestUpgradeVPN_InvokesStripe(t *testing.T) {
 	}
 }
 
+// --- /provide/audit/stream — KEEPALIVE filter (#323) ---------------------
+
+// fakeAuditEventStream is a deterministic in-memory implementation of
+// clients.AuditEventStream used by the SSE-proxy filter test. It walks
+// a slice of *AuditEvent (or returns false when exhausted).
+type fakeAuditEventStream struct {
+	events []*providersv1.AuditEvent
+	idx    int
+	closed bool
+}
+
+func (s *fakeAuditEventStream) Receive() bool {
+	if s.idx >= len(s.events) {
+		return false
+	}
+	return true
+}
+func (s *fakeAuditEventStream) Msg() *providersv1.AuditEvent {
+	ev := s.events[s.idx]
+	s.idx++
+	return ev
+}
+func (s *fakeAuditEventStream) Err() error   { return nil }
+func (s *fakeAuditEventStream) Close() error { s.closed = true; return nil }
+
+// TestStreamProviderAudit_FiltersKeepalive is the regression test for
+// the BFF half of #323. KEEPALIVE frames flushed by providers-svc to
+// unstick the Connect response headers MUST NOT be forwarded to the
+// browser as SSE `event: audit_event` frames — the SSE handler ticks
+// its own `:keep-alive` comment at the same cadence, so passing the
+// proto KEEPALIVE through would render bogus rows in the transparency
+// feed.
+func TestStreamProviderAudit_FiltersKeepalive(t *testing.T) {
+	pid := uuid.NewString()
+	owned := &providersv1.Provider{
+		Id:          &commonv1.UUID{Value: pid},
+		OwnerUserId: &commonv1.UUID{Value: fakeUserID},
+		Status:      providersv1.ProviderStatus_PROVIDER_STATUS_ACTIVE,
+	}
+	realEventID := uuid.NewString()
+	stream := &fakeAuditEventStream{
+		events: []*providersv1.AuditEvent{
+			// 1) Initial KEEPALIVE that providers-svc emits to flush
+			//    headers — MUST be dropped by the BFF.
+			{
+				ProviderId: &commonv1.UUID{Value: pid},
+				Kind:       providersv1.EventKind_EVENT_KIND_KEEPALIVE,
+			},
+			// 2) A real workload-dispatched event — MUST pass through.
+			{
+				Id:         &commonv1.UUID{Value: realEventID},
+				ProviderId: &commonv1.UUID{Value: pid},
+				Kind:       providersv1.EventKind_EVENT_KIND_WORKLOAD_DISPATCHED,
+			},
+			// 3) Another KEEPALIVE — also dropped.
+			{
+				ProviderId: &commonv1.UUID{Value: pid},
+				Kind:       providersv1.EventKind_EVENT_KIND_KEEPALIVE,
+			},
+		},
+	}
+	set := &clients.Set{
+		ProvidersDashboard: &mockDashboard{
+			streamEvents: func(_ context.Context, _ *providersv1.StreamAuditEventsRequest) (clients.AuditEventStream, error) {
+				return stream, nil
+			},
+		},
+		ProvidersRegistration: staticRegistration(owned),
+	}
+	api := newAPI(t, set)
+	r := withAuth(httptest.NewRequest(http.MethodGet, "/api/v1/provide/audit/stream", nil))
+	w := httptest.NewRecorder()
+	api.StreamProviderAudit(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	// The real event MUST appear in the SSE body.
+	if !strings.Contains(body, realEventID) {
+		t.Fatalf("real audit event id %q missing from SSE body:\n%s", realEventID, body)
+	}
+	// EVENT_KIND_KEEPALIVE proto frames MUST NOT have been written as
+	// SSE `event: audit_event` lines — but the canonical SSE
+	// `:keep-alive` comment is fine. Scan for the proto enum string.
+	if strings.Contains(body, "EVENT_KIND_KEEPALIVE") {
+		t.Fatalf("KEEPALIVE proto frame leaked into SSE body:\n%s", body)
+	}
+	// Count audit_event lines — exactly one (the real event).
+	if got := strings.Count(body, "event: audit_event"); got != 1 {
+		t.Fatalf("expected exactly 1 audit_event SSE frame, got %d:\n%s", got, body)
+	}
+	if !stream.closed {
+		t.Fatal("upstream stream not closed by handler")
+	}
+}
+
 // --- error mapping -------------------------------------------------------
 
 func TestUpstreamErrorMapping_NotFound(t *testing.T) {

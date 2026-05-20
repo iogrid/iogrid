@@ -221,6 +221,17 @@ func (a *API) StreamProviderAudit(w http.ResponseWriter, r *http.Request) {
 			if ev == nil {
 				continue
 			}
+			// Drop providers-svc KEEPALIVE frames at this layer. They
+			// exist solely to flush Connect response headers + tick
+			// against the BFF Connect client's per-call timeout (see
+			// providers-svc dashboard.go #323). The downstream SSE
+			// handler ticks its own `:keep-alive` comments at the
+			// same cadence, so we don't need to push pseudo
+			// audit_event frames at the browser — that would only
+			// muddy the transparency feed.
+			if ev.GetKind() == providersv1.EventKind_EVENT_KIND_KEEPALIVE {
+				continue
+			}
 			id := ""
 			if ev.Id != nil {
 				id = ev.Id.Value

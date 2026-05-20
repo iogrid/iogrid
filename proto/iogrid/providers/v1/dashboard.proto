@@ -26,6 +26,16 @@ enum EventKind {
   EVENT_KIND_ABUSE_FLAGGED = 5;
   // Earnings were credited.
   EVENT_KIND_EARNINGS_CREDITED = 6;
+  // Stream-keepalive heartbeat. Emitted by the server when a
+  // StreamAuditEvents subscription opens (so the response headers flush
+  // immediately on the wire — the EventSource then transitions from
+  // "connecting" to "open" in ms instead of waiting for the first real
+  // workload event, which may be hours away for a freshly paired
+  // provider) and every ~15s of idle thereafter to defeat intermediate
+  // proxy idle-timeouts. KEEPALIVE events MUST be ignored by UIs
+  // rendering the transparency feed — the only consumer signal they
+  // carry is "connection is alive, no new data". See #323.
+  EVENT_KIND_KEEPALIVE = 7;
 }
 
 // AuditEvent is the projection rendered in the transparency feed.

@@ -55,6 +55,18 @@ export function AuditFeed() {
     parse: (raw) => {
       try {
         const parsed = JSON.parse(raw) as AuditEvent;
+        // KEEPALIVE frames carry no user-visible signal — the only
+        // reason they exist is to flush headers on the upstream
+        // Connect stream so this EventSource doesn't sit in
+        // "Connecting" forever (#323). The gateway-bff already
+        // filters these out, so this is defence-in-depth in case a
+        // future change opts to pass them through. Returning null
+        // makes useSSE drop the frame; the EventSource still fires
+        // its own `open` event off the SSE `:open` comment so the
+        // status pill flips to "Live".
+        if (parsed && (parsed.kind === "EVENT_KIND_KEEPALIVE" || parsed.kind === 7)) {
+          return null;
+        }
         return {
           ...parsed,
           occurredAtMs: parsed.occurredAt
