@@ -43,6 +43,14 @@ use thiserror::Error;
 use tokio::sync::{mpsc, RwLock, Semaphore};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::transport::{Channel as TonicChannel, ClientTlsConfig, Endpoint, Identity};
+// #273: pre-resolved-IP connector — see `PinnedAddrConnector` below.
+use http::Uri;
+use hyper_util::rt::TokioIo;
+use std::future::Future;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+use tokio::net::TcpStream;
+use tower_service::Service;
 
 use pb::workloads::v1::workload_dispatch_service_client::WorkloadDispatchServiceClient;
 
@@ -425,13 +433,15 @@ impl Channel {
         //
         // Fallback path: legacy in-loop `resolve_host_for_endpoint`
         // (PR #251) so unit tests + callers that don't wire the arc
-        // still work bit-for-bit identically.
-        let target_authority = match self.cfg.resolved_addr.as_ref() {
-            Some(arc) => {
-                let addr = *arc.read().await;
-                format_socket_addr_authority(addr)
+        // still work bit-for-bit identically. Returns a `SocketAddr`
+        // that the `PinnedAddrConnector` below hands to `TcpStream::connect`,
+        // bypassing hyper-util's resolver step entirely.
+        let pinned_addr: SocketAddr = match self.cfg.resolved_addr.as_ref() {
+            Some(arc) => *arc.read().await,
+            None => {
+                let authority = resolve_host_for_endpoint(&host, port).await?;
+                parse_socket_addr_from_authority(&authority)?
             }
-            None => resolve_host_for_endpoint(&host, port).await?,
         };
 
         // tonic 0.12 + tls-roots: the feature compiles in
@@ -456,7 +466,41 @@ impl Channel {
             let ca = read_pem(ca_path)?;
             tls = tls.ca_certificate(tonic::transport::Certificate::from_pem(ca));
         }
-        let ep = Endpoint::from_shared(target_authority.clone())
+        // #273: ROOT CAUSE — `Endpoint::from_shared("https://<ip>:443")`
+        // combined with `tcp_keepalive` + `http2_keep_alive_interval` +
+        // `keep_alive_while_idle(true)` was producing a tight ~10ms loop
+        // of `Reconnect: idle → connecting → not ready → idle` inside
+        // tonic 0.12 / hyper-util 0.1 / h2 0.4, with each TCP SYN
+        // dropping its connect future after ~150μs (before SYN-ACK
+        // arrives). The kernel then RST'd every incoming SYN-ACK and
+        // the dial never completed. tcpdump on the bastion (2026-05-20)
+        // shows the pattern unambiguously — see #273 for the pcap.
+        //
+        // The matching diagnostic on the wire from grpcurl (same host,
+        // same identity, hostname authority, NO keep-alive overrides)
+        // is a clean SYN → SYN-ACK → ACK → TLS → CoordinatorHello in
+        // <1s. We mirror that contract here:
+        //
+        //   * Hostname authority via `Endpoint::from_shared` so tonic's
+        //     gRPC `:authority` header carries `api.iogrid.org` (some
+        //     edges reject `:authority: <ip>:443` outright).
+        //   * Custom `PinnedAddrConnector` (see below) that hands tonic
+        //     a single `tower::Service<Uri>` whose `call` is just
+        //     `TcpStream::connect(pinned_addr)`. No hyper-util resolver
+        //     layer, no `HttpConnector::poll_ready` ladder for tonic's
+        //     `Reconnect` to spin against. DNS work happens once at
+        //     supervisor startup ([`pre_resolve_addr`]); only the
+        //     address layer uses the pinned IP. Hostname stays in the
+        //     `Uri` for `:authority` + SNI.
+        //   * `connect_timeout(10s)` so a stuck dial errors rather
+        //     than spinning silently.
+        //   * No `tcp_keepalive`, no `http2_keep_alive_interval`, no
+        //     `keep_alive_timeout`, no `keep_alive_while_idle`. h2's
+        //     hyper defaults are correct for a long-lived bidi against
+        //     Traefik (whose ServersTransport edge already runs
+        //     symmetric PINGs per the PR #272 shim). Re-introducing
+        //     these knobs is what triggered the regression.
+        let ep = Endpoint::from_shared(format!("https://{host}:{port}"))
             .map_err(|e| TransportError::InvalidUrl(display_error_chain(&e)))?
             .tls_config(tls)
             .map_err(|e| {
@@ -471,20 +515,10 @@ impl Channel {
                 );
                 TransportError::TlsError(chain)
             })?
-            .timeout(Duration::from_secs(10))
-            .tcp_keepalive(Some(Duration::from_secs(30)))
-            .http2_keep_alive_interval(Duration::from_secs(15))
-            // #271: pair the keep_alive_interval with an explicit
-            // keep_alive_timeout so the client doesn't tear down its own
-            // connection when a single ping ack is slow. The tonic
-            // default (20s) was racing Traefik's 30s default idle h2
-            // stream close, manifesting as `Dispatch` streams that
-            // appeared to "succeed" at TLS but then died within ~7s
-            // before the DaemonHello frame reached workloads-svc. 60s
-            // gives the bidi pump enough slack for two missed pings.
-            .keep_alive_timeout(Duration::from_secs(60))
-            .keep_alive_while_idle(true);
-        let ch = match ep.connect().await {
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(10));
+        let pinned = PinnedAddrConnector::new(pinned_addr);
+        let ch = match ep.connect_with_connector(pinned).await {
             Ok(ch) => ch,
             Err(e) => {
                 let chain = display_error_chain(&e);
@@ -534,7 +568,7 @@ impl Channel {
         self.state = ClientState::Connected;
         tracing::info!(
             coordinator = %self.cfg.coordinator_url,
-            resolved = %target_authority,
+            resolved = %pinned_addr,
             sni = %host,
             "coordinator mTLS channel connected"
         );
@@ -680,12 +714,106 @@ fn format_ip_authority(ip: std::net::IpAddr, port: u16) -> String {
 /// Render a [`SocketAddr`] as the `https://<ip>:<port>` authority tonic's
 /// `Endpoint::from_shared` accepts. Mirrors [`format_ip_authority`] but
 /// avoids splitting+rejoining the port that's already in the address.
+///
+/// Currently only used by tests; production [`Channel::connect`] hands the
+/// pinned [`SocketAddr`] straight to [`PinnedAddrConnector`] without ever
+/// rendering it back into an `https://<ip>:<port>` string (which is the
+/// authority shape that triggered the tonic 0.12 RST-loop, see #273).
+#[allow(dead_code)]
 fn format_socket_addr_authority(addr: SocketAddr) -> String {
     match addr {
         SocketAddr::V4(v4) => format!("https://{}:{}", v4.ip(), v4.port()),
         SocketAddr::V6(v6) => format!("https://[{}]:{}", v6.ip(), v6.port()),
     }
 }
+
+/// Parse a `https://<ip>:<port>` authority string (the shape
+/// [`resolve_host_for_endpoint`] emits) back into a [`SocketAddr`].
+///
+/// Only used by the no-`resolved_addr` fallback path in
+/// [`Channel::connect`]; the steady-state supervisor-pre-resolved path
+/// already has a `SocketAddr` in hand. Returns
+/// [`TransportError::InvalidUrl`] on any parse failure — the same error
+/// variant the caller would have surfaced if `Endpoint::from_shared`
+/// itself had rejected the URL.
+fn parse_socket_addr_from_authority(authority: &str) -> Result<SocketAddr, TransportError> {
+    let parsed = url::Url::parse(authority)
+        .map_err(|e| TransportError::InvalidUrl(format!("authority parse: {e}")))?;
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| TransportError::InvalidUrl("authority has no host".into()))?;
+    let port = parsed
+        .port()
+        .ok_or_else(|| TransportError::InvalidUrl("authority has no port".into()))?;
+    // Brackets stripped by url::Url::host_str so v6 literals come back
+    // as `::1` not `[::1]`. parse::<IpAddr> handles both v4 and v6.
+    let ip: std::net::IpAddr = host
+        .parse()
+        .map_err(|e| TransportError::InvalidUrl(format!("authority ip parse ({host}): {e}")))?;
+    Ok(SocketAddr::new(ip, port))
+}
+
+/// Tonic-compatible `tower::Service<Uri>` that always dials the same
+/// pre-resolved [`SocketAddr`], regardless of the `Uri`'s host.
+///
+/// This is the core of the #273 fix. The bug we saw on the bastion
+/// 2026-05-20 was tonic 0.12 + `Endpoint::from_shared("https://<ip>:443")`
+/// + the `tcp_keepalive` / `http2_keep_alive_interval` /
+/// `keep_alive_while_idle(true)` combo producing a tight ~10ms loop
+/// of tonic's `Reconnect` middleware that dropped each TCP SYN's
+/// connect future after ~150μs (before the SYN-ACK could be received
+/// and ACK'd). The kernel then RST'd every SYN-ACK that arrived on
+/// the closed socket, and the dial never completed.
+///
+/// By feeding `Endpoint::connect_with_connector` a hand-rolled
+/// connector — with a single, simple `TcpStream::connect(addr)`
+/// future and no hyper-util / resolver layer in between — the
+/// problematic interaction with tonic's internal `Reconnect` is
+/// neutralised. The `Uri`'s host stays `api.iogrid.org` so the
+/// gRPC `:authority` header + rustls SNI both target the original
+/// hostname, exactly like grpcurl does.
+///
+/// The connector is **stateless** beyond the cached [`SocketAddr`] —
+/// every `call(uri)` constructs a fresh `TcpStream::connect` future
+/// against the pinned addr. Supervisor-owned addr refresh ([`spawn_addr_refresh`])
+/// continues to mutate the source `Arc<RwLock<SocketAddr>>` in the
+/// background; the daemon re-builds a fresh `PinnedAddrConnector`
+/// (with the latest IP) on every reconnect cycle.
+#[derive(Clone)]
+struct PinnedAddrConnector {
+    addr: SocketAddr,
+}
+
+impl PinnedAddrConnector {
+    fn new(addr: SocketAddr) -> Self {
+        Self { addr }
+    }
+}
+
+impl Service<Uri> for PinnedAddrConnector {
+    type Response = TokioIo<TcpStream>;
+    type Error = std::io::Error;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+
+    fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        // We never need to wait for readiness — `TcpStream::connect`
+        // is itself the async wait. Reporting Ready here keeps tonic's
+        // `Reconnect` from spinning waiting on us (the #273 symptom).
+        Poll::Ready(Ok(()))
+    }
+
+    fn call(&mut self, _uri: Uri) -> Self::Future {
+        let addr = self.addr;
+        Box::pin(async move {
+            let sock = TcpStream::connect(addr).await?;
+            // Match hyper-util's default — most h2 servers expect
+            // TCP_NODELAY for low-latency PING/SETTINGS round-trips.
+            let _ = sock.set_nodelay(true);
+            Ok(TokioIo::new(sock))
+        })
+    }
+}
+
 
 /// Resolve `host:port` to a single [`SocketAddr`] via the OS resolver,
 /// without touching the process-global `RESOLVED_HOST_CACHE`. Used by:

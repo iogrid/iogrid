@@ -35,6 +35,18 @@ iogrid-scheduler = { workspace = true }
 futures = { workspace = true }
 parking_lot = { workspace = true }
 url = { workspace = true }
+# #273: pre-resolved-IP connector for tonic Endpoint. See lib.rs comment
+# on PinnedAddrConnector + Channel::connect for the why. We pull these
+# as direct deps (rather than re-exporting via tonic) because tonic's
+# `Endpoint::connect_with_connector` is generic over `tower::Service<Uri>`
+# and we hand it a hand-rolled connector that overrides the resolver
+# step with the supervisor-pinned IP. `hyper-util` is needed only for
+# `TokioIo` (the hyper rt::Read+rt::Write wrapper around tokio's IO);
+# `http` for the `Uri` type tonic hands the connector; `tower-service`
+# for the `Service` trait the connector implements.
+hyper-util = { version = "0.1", features = ["tokio", "client-legacy"] }
+http = "1"
+tower-service = "0.3"
 
 [build-dependencies]
 tonic-build = { workspace = true }
