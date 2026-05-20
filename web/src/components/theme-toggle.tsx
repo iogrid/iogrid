@@ -6,7 +6,12 @@ import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
 
 /**
- * Three-state theme cycle: light → dark → system → light.
+ * Three-state theme cycle: system → dark → light → system.
+ *
+ * Order chosen so the FIRST click from the default (`theme === "system"`)
+ * always produces a visible change. With a light-first ordering, a
+ * click on a system-light setup would set theme="light" — no visible
+ * change, which reads as broken.
  *
  * Why three states (not the usual two): operators on Linux + macOS
  * who already wire `prefers-color-scheme` at the OS level expect
