@@ -26,3 +26,14 @@ pub mod workloads {
         tonic::include_proto!("iogrid.workloads.v1");
     }
 }
+
+// #311: providers.v1 bindings — needed for the real heartbeat pump that
+// streams against `SchedulingService.StreamHeartbeats` over the same mTLS
+// tonic channel as the workloads dispatch bridge. Includes the
+// `SchedulingServiceClient` stub plus the `Heartbeat` / `HeartbeatAck`
+// prost messages.
+pub mod providers {
+    pub mod v1 {
+        tonic::include_proto!("iogrid.providers.v1");
+    }
+}

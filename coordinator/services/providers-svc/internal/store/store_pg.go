@@ -151,6 +151,26 @@ func (p *pgStore) CreateProvider(ctx context.Context, pr *Provider) error {
 	return nil
 }
 
+// UpdateLastSeen bumps just providers.last_seen_at for one row. Called on
+// every heartbeat (#311) — keep the hot path lean (one tiny UPDATE; no
+// full-row rewrite, no transaction). Returns ErrNotFound when the row is
+// missing so the StreamHeartbeats handler can log a warning instead of
+// silently no-oping.
+func (p *pgStore) UpdateLastSeen(ctx context.Context, idStr string, at time.Time) error {
+	id, err := parseUUID("id", idStr)
+	if err != nil {
+		return ErrNotFound
+	}
+	tag, err := p.pool.Exec(ctx, `UPDATE providers SET last_seen_at = $2 WHERE id = $1`, id, at)
+	if err != nil {
+		return fmt.Errorf("update last_seen_at: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (p *pgStore) UpdateProvider(ctx context.Context, pr *Provider) error {
 	id, err := parseUUID("id", pr.ID)
 	if err != nil {

@@ -135,15 +135,30 @@ func (h *SchedulingHandler) StreamHeartbeats(
 		if id == "" {
 			return connect.NewError(connect.CodeInvalidArgument, errors.New("provider_id required"))
 		}
+		now := time.Now().UTC()
 		h.stateMu.Lock()
 		prev := h.liveStates[id]
 		h.liveStates[id] = liveState{
 			State: hb.GetState(),
 			Usage: hb.GetUsage(),
 			Seq:   hb.GetSequence(),
-			At:    time.Now().UTC(),
+			At:    now,
 		}
 		h.stateMu.Unlock()
+
+		// #311: bump providers.last_seen_at so /admin/providers + every
+		// downstream "is this daemon alive?" check reflects reality. Was
+		// missing — the row stayed frozen at registered_at, so paired
+		// daemons looked offline forever even when the daemon was alive
+		// and pushing heartbeats over the wire. Failure here is
+		// non-fatal: the stream stays open and the next heartbeat (~5s)
+		// retries.
+		if err := h.Store.UpdateLastSeen(ctx, id, now); err != nil {
+			h.Log.Warn("heartbeat: update last_seen_at failed",
+				slog.String("provider_id", id),
+				slog.String("error", err.Error()),
+			)
+		}
 
 		// Emit an audit event on state transitions so the transparency
 		// feed reflects "scheduler paused because bandwidth cap reached".

@@ -167,6 +167,12 @@ type Store interface {
 	GetProvider(ctx context.Context, id string) (*Provider, error)
 	ListProviders(ctx context.Context, opts ListOptions) (providers []*Provider, nextToken string, err error)
 	DeactivateProvider(ctx context.Context, id, reason string) error
+	// UpdateLastSeen bumps providers.last_seen_at for one row. Called on
+	// every heartbeat (#311) so /admin/providers can render a real
+	// "last seen N seconds ago" recency signal. Returns ErrNotFound if
+	// the id doesn't exist (which after pairing should not happen and is
+	// surfaced as a warning by the caller).
+	UpdateLastSeen(ctx context.Context, id string, at time.Time) error
 
 	// Pairing -----------------------------------------------------------
 	IssuePairingToken(ctx context.Context, ownerUserID string, ttl time.Duration) (string, error)
@@ -256,6 +262,21 @@ func (m *memStore) UpdateProvider(_ context.Context, p *Provider) error {
 	}
 	copy := *p
 	m.providers[p.ID] = &copy
+	return nil
+}
+
+// UpdateLastSeen bumps the last_seen_at timestamp on a single provider.
+// Hot path: invoked on every heartbeat tick (~5s per paired daemon), so
+// it intentionally does NOT take the full Provider struct or rewrite all
+// columns — just the recency stamp.
+func (m *memStore) UpdateLastSeen(_ context.Context, id string, at time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	p, ok := m.providers[id]
+	if !ok {
+		return ErrNotFound
+	}
+	p.LastSeenAt = at
 	return nil
 }
 

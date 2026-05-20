@@ -371,24 +371,89 @@ impl Supervisor {
                 .map_err(anyhow::Error::from)
         });
 
-        // Heartbeat pump — in-memory sink until the supervisor wires the
-        // real gRPC stub (follow-up PR).
+        // Heartbeat pump.
+        //
+        // #311: when the daemon has a paired identity + reachable
+        // coordinator URL, route heartbeats over a real bidi gRPC stream
+        // (`SchedulingService.StreamHeartbeats`) so the coordinator's
+        // providers-svc can UPDATE `providers.last_seen_at` on every
+        // tick. Without this, the row stayed frozen at `registered_at`
+        // and `/admin/providers` showed paired daemons as "offline"
+        // forever (the founder DoD bug under #309).
+        //
+        // First-boot / unpaired daemons fall back to the in-memory
+        // [`MemSink`] — there is no identity bundle to mTLS with yet,
+        // so the heartbeats can't leave the box anyway.
         let provider_id = if self.config.provider_id.is_empty() {
             "unpaired".to_string()
         } else {
             self.config.provider_id.clone()
         };
-        let sink = Arc::new(iogrid_transport::MemSink::default());
-        let h_hb = iogrid_transport::spawn_heartbeat_pump(
-            provider_id.clone(),
-            self.scheduler.clone(),
-            sink.clone(),
-            Duration::from_secs(self.config.heartbeat_secs),
-        );
-        tasks.spawn(async move {
-            h_hb.await.map_err(anyhow::Error::from)?;
-            Ok(())
-        });
+        if let Some(hb_cfg) = live_transport_config(&self.config) {
+            let live = iogrid_transport::spawn_live_heartbeats(hb_cfg);
+            let h_hb = iogrid_transport::spawn_heartbeat_pump(
+                provider_id.clone(),
+                self.scheduler.clone(),
+                live.sink.clone(),
+                Duration::from_secs(self.config.heartbeat_secs),
+            );
+            tasks.spawn(async move {
+                h_hb.await.map_err(anyhow::Error::from)?;
+                Ok(())
+            });
+
+            // Consume server-side acks and apply them to the scheduler.
+            // `operations_pause` is the operator override that lets
+            // ops staff pause a misbehaving daemon without a redeploy.
+            // `config_changed` is logged for now — the SchedulingConfig
+            // refresh wire is owned by a separate follow-up; the daemon
+            // currently rereads on next boot.
+            let scheduler_for_ack = self.scheduler.clone();
+            let iogrid_transport::LiveHeartbeatHandle {
+                sink: _,
+                ack_rx,
+                cancel_tx,
+                task,
+            } = live;
+            let mut ack_rx = ack_rx;
+            tasks.spawn(async move {
+                while let Some(ack) = ack_rx.recv().await {
+                    scheduler_for_ack.set_operations_pause(ack.operations_pause);
+                    if ack.config_changed {
+                        tracing::info!("coordinator signalled config_changed in heartbeat ack");
+                    }
+                }
+                Ok(())
+            });
+
+            // Bridge task runs until process exit. Keep the cancel sender
+            // alive in the task so the watch channel stays open without
+            // tying up another JoinSet entry; wiring `cancel_tx` to the
+            // supervisor shutdown path is a follow-up alongside the
+            // dispatch-bridge shutdown wire.
+            tasks.spawn(async move {
+                let _keep = cancel_tx;
+                task.await.map_err(anyhow::Error::from)?;
+                Ok(())
+            });
+            tracing::info!(
+                provider_id = %provider_id,
+                "live heartbeat bridge spawned (SchedulingService.StreamHeartbeats)"
+            );
+        } else {
+            let sink = Arc::new(iogrid_transport::MemSink::default());
+            let h_hb = iogrid_transport::spawn_heartbeat_pump(
+                provider_id.clone(),
+                self.scheduler.clone(),
+                sink.clone(),
+                Duration::from_secs(self.config.heartbeat_secs),
+            );
+            tasks.spawn(async move {
+                h_hb.await.map_err(anyhow::Error::from)?;
+                Ok(())
+            });
+            tracing::info!("heartbeat pump using MemSink (no paired identity yet)");
+        }
 
         // Anti-abuse refresher — coordinator-backed source. Without a paired
         // identity it will simply re-emit empty bundles until pairing
