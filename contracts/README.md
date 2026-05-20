@@ -1,7 +1,7 @@
 # `$GRID` Solana programs
 
 Anchor workspace implementing the five on-chain programs for the `$GRID` token economy. The
-canonical economic parameters live in [`../docs/TOKENOMICS.md`](../docs/TOKENOMICS.md); this
+canonical economic parameters live in [`../docs/BUSINESS-STRATEGY.md` §4](../docs/BUSINESS-STRATEGY.md#4-currency-model--grid--fiat-hybrid); this
 directory is the contract surface that enforces them on Solana.
 
 ## Programs

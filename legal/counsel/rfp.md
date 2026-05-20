@@ -288,8 +288,8 @@ Once a firm is selected, iogrid will provide:
 - This RFP (public).
 - Project README — [`README.md`](../../README.md) (public).
 - Architecture overview — [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) (public).
-- Legal scaffolding spec — [`docs/LEGAL.md`](../../docs/LEGAL.md) (public).
-- Tokenomics — [`docs/TOKENOMICS.md`](../../docs/TOKENOMICS.md) (public).
+- Legal scaffolding spec — [`docs/BUSINESS-STRATEGY.md` §6 Legal risk landscape](../../docs/BUSINESS-STRATEGY.md#6-legal-risk-landscape--mitigation) (public).
+- Tokenomics — [`docs/BUSINESS-STRATEGY.md` §4 Currency model](../../docs/BUSINESS-STRATEGY.md#4-currency-model--grid--fiat-hybrid) (public).
 - All `legal/*.md` drafts (public, in repo).
 - Cayman Foundation operational checklist — [`legal/foundation/cayman-setup.md`](../foundation/cayman-setup.md) (public).
 - Counsel-marker dedup list — [`legal/counsel/issue-list.md`](./issue-list.md) (public).

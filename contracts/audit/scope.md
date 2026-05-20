@@ -2,7 +2,7 @@
 
 This document defines what is **in scope** and what is **out of scope** for the pre-mainnet
 audit (target firm: OtterSec; fallback: Halborn or Neodyme — see
-[`docs/TOKENOMICS.md`](../../docs/TOKENOMICS.md) §"Token launch sequence").
+[`docs/BUSINESS-STRATEGY.md` §4 Currency model](../../docs/BUSINESS-STRATEGY.md#4-currency-model--grid--fiat-hybrid) §"Token launch sequence").
 
 ## In scope
 
