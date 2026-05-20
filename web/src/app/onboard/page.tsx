@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 /**
  * /onboard (no token) — landing page when a user navigates here without
@@ -9,9 +10,12 @@ import Link from "next/link";
 export default function OnboardLandingPage() {
   return (
     <main className="mx-auto max-w-md px-6 py-16">
-      <Link href="/" className="text-sm text-zinc-500 hover:underline">
-        ← Back
-      </Link>
+      <div className="flex items-center justify-between">
+        <Link href="/" className="text-sm text-zinc-500 hover:underline">
+          ← Back
+        </Link>
+        <ThemeToggle />
+      </div>
       <h1 className="mt-6 text-3xl font-bold">Finish iogrid setup</h1>
       <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
         Enter the 6-character code shown by your installer to link this

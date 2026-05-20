@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Toaster } from "sonner";
 import { SolanaWalletProvider } from "@/lib/solana/provider";
+import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -15,21 +16,40 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    // `suppressHydrationWarning` is required by next-themes — the
+    // provider mutates `<html class="...">` and `style.colorScheme`
+    // before React hydrates so the first paint already matches the
+    // resolved theme (system preference or persisted choice).
+    <html lang="en" suppressHydrationWarning>
       <body className="min-h-screen antialiased">
-        {/* SolanaWalletProvider mounts ConnectionProvider +
-            WalletProvider + WalletModalProvider so any client component
-            — wallet-bind flow, balance widget, staking UI — can call
-            `useWallet()` / `useConnection()` without re-wiring. Server
-            Components inside still SSR; the wallet subtree only
-            hydrates on the client. */}
-        <SolanaWalletProvider>
-          {children}
-          {/* Sonner toast container — every mutation (block category, save
-              schedule, create API key, ...) routes through `toast.*` so we
-              can swap implementations without touching call sites. */}
-          <Toaster richColors closeButton position="top-right" />
-        </SolanaWalletProvider>
+        {/* ThemeProvider thinly wraps next-themes so we can centralise
+            its config (class-based strategy, `system` default,
+            enableSystem). The Toaster and Solana provider sit inside
+            so toast surfaces + wallet modals pick up the current
+            theme automatically. */}
+        <ThemeProvider>
+          {/* SolanaWalletProvider mounts ConnectionProvider +
+              WalletProvider + WalletModalProvider so any client
+              component — wallet-bind flow, balance widget, staking UI —
+              can call `useWallet()` / `useConnection()` without
+              re-wiring. Server Components inside still SSR; the
+              wallet subtree only hydrates on the client. */}
+          <SolanaWalletProvider>
+            {children}
+            {/* Sonner toast container — every mutation (block
+                category, save schedule, create API key, ...) routes
+                through `toast.*` so we can swap implementations
+                without touching call sites. `theme="system"` lets
+                Sonner follow the same `prefers-color-scheme` signal
+                as the rest of the UI. */}
+            <Toaster
+              richColors
+              closeButton
+              position="top-right"
+              theme="system"
+            />
+          </SolanaWalletProvider>
+        </ThemeProvider>
       </body>
     </html>
   );
