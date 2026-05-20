@@ -3,6 +3,7 @@ package sse
 import (
 	"bytes"
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -64,11 +65,21 @@ func TestHandler_StreamsAndStopsOnCancel(t *testing.T) {
 	if got := resp.Header.Get("Content-Type"); got != "text/event-stream" {
 		t.Fatalf("content-type: %s", got)
 	}
-	buf := make([]byte, 4096)
-	n, _ := resp.Body.Read(buf)
-	body := string(buf[:n])
-	if !strings.Contains(body, "event: tick") {
-		t.Fatalf("missing event: %q", body)
+	// Drain the full body — the handler emits the initial ": open\n\n"
+	// comment in its own flush before the producer runs (see #293), and
+	// the producer's three ticks land in subsequent flushes. A single
+	// Read can return only the first chunk, so accumulate until EOF
+	// (the handler closes the stream when Produce returns).
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	out := string(body)
+	if !strings.Contains(out, ": open") {
+		t.Fatalf("missing initial open comment: %q", out)
+	}
+	if !strings.Contains(out, "event: tick") {
+		t.Fatalf("missing event: %q", out)
 	}
 }
 
@@ -84,11 +95,16 @@ func TestHandler_ProducerErrorEmitsErrorEvent(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
-	buf := make([]byte, 1024)
-	n, _ := resp.Body.Read(buf)
-	body := string(buf[:n])
-	if !strings.Contains(body, "event: error") {
-		t.Fatalf("expected error event in body: %q", body)
+	// Drain the full body — the handler flushes the initial open
+	// comment (#293) in its own chunk before the error event, so a
+	// single Read can return only the open comment.
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	out := string(body)
+	if !strings.Contains(out, "event: error") {
+		t.Fatalf("expected error event in body: %q", out)
 	}
 }
 
