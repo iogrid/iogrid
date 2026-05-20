@@ -7,6 +7,35 @@ import { formatRelativeTime } from "@/lib/format";
 import type { AbuseFilterRule, ListFiltersResponse } from "@/lib/types";
 
 /**
+ * Coerce the proto-generated `last_updated_at` field into something
+ * React can safely render. gateway-bff serialises responses via Go's
+ * stdlib `encoding/json` rather than `protojson`, so a
+ * `*timestamppb.Timestamp` lands on the wire as the struct
+ * `{"seconds": N, "nanos": M}` — NOT an RFC3339 string (#304). Pass
+ * that object straight into JSX and React stringifies it to the
+ * notorious literal `[object Object]`.
+ *
+ * Accept any of:
+ *   - undefined / null      → "" (collapses to em-dash downstream)
+ *   - string (RFC3339)      → returned as-is (protojson future-proof)
+ *   - { seconds, nanos }    → converted to RFC3339
+ */
+function timestampToIso(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "object") {
+    const v = value as { seconds?: string | number; nanos?: number };
+    const secs = typeof v.seconds === "string" ? Number(v.seconds) : v.seconds;
+    if (typeof secs === "number" && Number.isFinite(secs)) {
+      const ms = secs * 1000 + Math.floor((v.nanos ?? 0) / 1e6);
+      const d = new Date(ms);
+      if (!Number.isNaN(d.getTime())) return d.toISOString();
+    }
+  }
+  return "";
+}
+
+/**
  * AbusePanel renders the antiabuse-svc filter ruleset that gateway-bff
  * exposes via GET /api/v1/admin/abuse-queue. Three render states:
  *
@@ -103,6 +132,7 @@ function EmptyQueueCard() {
  * never render skeleton-shaped rows that imply data we don't have.
  */
 function RuleRow({ rule }: { rule: AbuseFilterRule }) {
+  const iso = timestampToIso(rule.last_updated_at);
   return (
     <li className="flex items-center justify-between p-3 text-sm">
       <div className="min-w-0 flex-1">
@@ -119,9 +149,7 @@ function RuleRow({ rule }: { rule: AbuseFilterRule }) {
             v{rule.version}
           </span>
         ) : null}
-        <span title={rule.last_updated_at ?? ""}>
-          {formatRelativeTime(rule.last_updated_at)}
-        </span>
+        <span title={iso}>{formatRelativeTime(iso || undefined)}</span>
       </div>
     </li>
   );
