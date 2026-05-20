@@ -9,8 +9,9 @@
 //! both representations.
 
 use crate::pb::common::v1 as commonv1;
+use crate::pb::providers::v1 as provv1;
 use crate::pb::workloads::v1 as wlv1;
-use crate::DispatchFrame;
+use crate::{DispatchFrame, Heartbeat};
 use chrono::{DateTime, Utc};
 use prost_types::Timestamp;
 
@@ -101,6 +102,52 @@ fn status_from_slug(s: &str) -> i32 {
         _ => W::Unspecified,
     };
     v as i32
+}
+
+/// Map the daemon's scheduler-state slug (e.g. `"active"`,
+/// `"paused_bandwidth_cap"`) to the proto enum the coordinator expects.
+fn scheduler_state_from_slug(s: &str) -> i32 {
+    use provv1::SchedulerState as S;
+    let v = match s {
+        "active" => S::Active,
+        "paused_bandwidth_cap" => S::PausedBandwidthCap,
+        "paused_cpu_cap" => S::PausedCpuCap,
+        "paused_memory_cap" => S::PausedMemoryCap,
+        "paused_outside_calendar" => S::PausedOutsideCalendar,
+        "paused_user_active" => S::PausedUserActive,
+        "paused_operations" => S::PausedOperations,
+        _ => S::Unspecified,
+    };
+    v as i32
+}
+
+/// Convert a daemon-side [`Heartbeat`] into the wire form.
+///
+/// #311: the prior in-memory test sink ignored the payload entirely, so
+/// the coordinator never saw any heartbeat and `providers.last_seen_at`
+/// was frozen at `registered_at`. The fields we populate here mirror
+/// `iogrid.providers.v1.Heartbeat`: provider_id, scheduler state enum,
+/// the usage snapshot (cpu / memory / idle / bandwidth + observed_at),
+/// and the monotonic sequence number. `active_duration` is left unset —
+/// the scheduler doesn't currently track per-tick active duration; this
+/// is a follow-up (it's used only for billing audit on the server, and
+/// the proto field is optional).
+pub fn heartbeat_to_pb(h: &Heartbeat) -> provv1::Heartbeat {
+    let observed_at = ts_from_rfc3339(&h.emitted_at);
+    provv1::Heartbeat {
+        provider_id: Some(uuid(&h.provider_id)),
+        state: scheduler_state_from_slug(&h.state),
+        usage: Some(provv1::CurrentUsageSnapshot {
+            bandwidth_used_bytes_this_month: h.bandwidth_bytes_this_month,
+            cpu_percent: h.cpu_pct as u32,
+            memory_percent: h.memory_pct as u32,
+            gpu_percent: 0,
+            idle_seconds: h.idle_secs.min(u32::MAX as u64) as u32,
+            observed_at,
+        }),
+        sequence: h.sequence,
+        active_duration: None,
+    }
 }
 
 /// Convert a daemon-side [`DispatchFrame`] into the wire form for sending.

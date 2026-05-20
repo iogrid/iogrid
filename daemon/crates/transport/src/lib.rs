@@ -1065,6 +1065,202 @@ pub fn spawn_heartbeat_pump<S: HeartbeatSink + 'static>(
     })
 }
 
+// =====================================================================
+// #311 — Real heartbeat sink (gRPC bidi to SchedulingService)
+// =====================================================================
+//
+// Background: prior to this issue, `Supervisor::run` wired
+// [`spawn_heartbeat_pump`] to [`MemSink`] (a test stub). Heartbeats never
+// reached the coordinator, so `providers.last_seen_at` was set once at
+// pair time and stayed stale forever. hatice.yildiz@openova.io paired her
+// Mac on 2026-05-19 22:29 and the /admin/providers row showed
+// `lastSeenAt = registered_at` for >24h even though the daemon was alive.
+//
+// Fix shape: a `GrpcHeartbeatSink` that buffers `Heartbeat`s into an mpsc.
+// A long-lived bridge task ([`spawn_live_heartbeats`]) opens a single bidi
+// stream against `iogrid.providers.v1.SchedulingService/StreamHeartbeats`,
+// drains the mpsc into the request stream, and reads `HeartbeatAck`s from
+// the response stream — propagating `config_changed` / `operations_pause`
+// onto the [`SchedulerHandle`] the supervisor already owns. Reconnect /
+// backoff is shared with the dispatch bridge via [`run_with_reconnect`].
+
+/// Heartbeat sink backed by a bounded mpsc; the bridge task drains and
+/// forwards into the live `SchedulingService.StreamHeartbeats` request
+/// stream. `push` is non-blocking — if the mpsc is full (bridge stalled),
+/// the caller logs+drops the heartbeat rather than blocking the scheduler
+/// poller. This matches the at-most-once semantic of UDP-style telemetry:
+/// `last_seen_at` is a best-effort recency signal, not a durable event.
+#[derive(Clone)]
+pub struct GrpcHeartbeatSink {
+    tx: mpsc::Sender<Heartbeat>,
+}
+
+#[async_trait::async_trait]
+impl HeartbeatSink for GrpcHeartbeatSink {
+    async fn push(&self, hb: Heartbeat) -> Result<HeartbeatAck, TransportError> {
+        match self.tx.try_send(hb) {
+            Ok(()) => Ok(HeartbeatAck::default()),
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                // Bridge stuck (reconnecting / slow). The next heartbeat
+                // is only 5s away — dropping is correct.
+                tracing::warn!("heartbeat sink full; dropping (bridge backlogged)");
+                Ok(HeartbeatAck::default())
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => Err(TransportError::Unreachable(
+                "heartbeat bridge channel closed".into(),
+            )),
+        }
+    }
+}
+
+/// Handle returned by [`spawn_live_heartbeats`]. `sink` is the
+/// [`HeartbeatSink`] the supervisor passes to [`spawn_heartbeat_pump`];
+/// `ack_rx` exposes server-pushed ack flags (config-changed /
+/// operations-pause) that the supervisor consumes to drive the scheduler.
+/// Drop the handle to let the bridge task run until process exit; flip
+/// `cancel_tx` to ask it to shut down cleanly.
+pub struct LiveHeartbeatHandle {
+    /// Plug into [`spawn_heartbeat_pump`] as the sink argument.
+    pub sink: Arc<GrpcHeartbeatSink>,
+    /// Server-pushed ack stream — supervisor selects on this to apply
+    /// `config_changed` (refetch config) / `operations_pause` (flip the
+    /// scheduler `operations_pause` flag).
+    pub ack_rx: mpsc::Receiver<HeartbeatAck>,
+    /// Cancel signal — flip to `true` to ask the bridge task to shut down.
+    pub cancel_tx: tokio::sync::watch::Sender<bool>,
+    /// Bridge task handle — caller may join for clean shutdown.
+    pub task: tokio::task::JoinHandle<()>,
+}
+
+/// Spawn the production heartbeat bridge: opens an mTLS [`Channel`] to the
+/// coordinator using `cfg`, opens a [`SchedulingService.StreamHeartbeats`]
+/// bidi stream, and pumps [`Heartbeat`]s from the sink onto the wire while
+/// forwarding [`HeartbeatAck`]s back to the supervisor via `ack_rx`. Backs
+/// off + reconnects per [`run_with_reconnect`].
+pub fn spawn_live_heartbeats(cfg: ConnectConfig) -> LiveHeartbeatHandle {
+    let (hb_tx, hb_rx) = mpsc::channel::<Heartbeat>(64);
+    let (ack_tx, ack_rx) = mpsc::channel::<HeartbeatAck>(64);
+    let sink = Arc::new(GrpcHeartbeatSink { tx: hb_tx });
+    let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+
+    // Share the rx + ack_tx across reconnect attempts. The rx is wrapped
+    // in a tokio Mutex so each connect_once iteration can take exclusive
+    // ownership of the receiver while the stream is alive (same pattern
+    // as the dispatch bridge's out_rx).
+    let hb_rx = std::sync::Arc::new(tokio::sync::Mutex::new(hb_rx));
+    let ack_tx = std::sync::Arc::new(ack_tx);
+
+    let task = tokio::spawn(async move {
+        let init = cfg.initial_backoff;
+        let cap = cfg.max_backoff;
+        let cfg_template = cfg.clone();
+        let hb_rx_outer = hb_rx.clone();
+        let ack_tx_outer = ack_tx.clone();
+        run_with_reconnect(init, cap, cancel_rx, move || {
+            let cfg = cfg_template.clone();
+            let hb_rx = hb_rx_outer.clone();
+            let ack_tx = ack_tx_outer.clone();
+            async move {
+                let mut ch = Channel::new(cfg.clone());
+                ch.connect().await?;
+                let channel = ch
+                    .inner()
+                    .cloned()
+                    .ok_or_else(|| TransportError::Unreachable("channel not bound".into()))?;
+                run_heartbeat_stream(channel, hb_rx, ack_tx).await
+            }
+        })
+        .await;
+    });
+    LiveHeartbeatHandle {
+        sink,
+        ack_rx,
+        cancel_tx,
+        task,
+    }
+}
+
+/// Open the bidi `StreamHeartbeats` RPC and pump Heartbeats out / Acks in
+/// until the wire closes. Extracted so tests can drive it against an
+/// in-process `tonic::transport::Server` if needed.
+async fn run_heartbeat_stream(
+    channel: TonicChannel,
+    hb_rx: std::sync::Arc<tokio::sync::Mutex<mpsc::Receiver<Heartbeat>>>,
+    ack_tx: std::sync::Arc<mpsc::Sender<HeartbeatAck>>,
+) -> Result<(), TransportError> {
+    use pb::providers::v1::scheduling_service_client::SchedulingServiceClient;
+
+    let mut client = SchedulingServiceClient::new(channel);
+    let (req_tx, req_rx) = mpsc::channel::<pb::providers::v1::Heartbeat>(64);
+    let req_stream = ReceiverStream::new(req_rx);
+    tracing::info!("heartbeat stream: opening SchedulingService.StreamHeartbeats RPC");
+    let resp = client.stream_heartbeats(req_stream).await.map_err(|s| {
+        tracing::warn!(
+            grpc_code = ?s.code(),
+            grpc_message = %s.message(),
+            "heartbeat stream: stream_heartbeats() returned error"
+        );
+        TransportError::Unreachable(format!(
+            "stream_heartbeats RPC: {}",
+            display_error_chain(&s)
+        ))
+    })?;
+    let mut resp_stream = resp.into_inner();
+
+    let mut hb_rx_guard = hb_rx.lock().await;
+    loop {
+        tokio::select! {
+            biased;
+            inbound = resp_stream.message() => {
+                match inbound {
+                    Ok(Some(pb_ack)) => {
+                        let ack = HeartbeatAck {
+                            config_changed: pb_ack.config_changed,
+                            operations_pause: pb_ack.operations_pause,
+                        };
+                        if ack_tx.send(ack).await.is_err() {
+                            tracing::debug!("supervisor ack_rx closed; exiting heartbeat pump");
+                            return Ok(());
+                        }
+                    }
+                    Ok(None) => {
+                        tracing::warn!(
+                            "heartbeat stream: server closed mid-flight (Ok(None)) — \
+                             likely h2 idle-timeout or GOAWAY at the edge"
+                        );
+                        return Ok(());
+                    }
+                    Err(s) => {
+                        tracing::warn!(
+                            grpc_code = ?s.code(),
+                            grpc_message = %s.message(),
+                            "heartbeat stream: recv error mid-flight"
+                        );
+                        return Err(TransportError::Unreachable(format!(
+                            "heartbeat stream recv: {}",
+                            display_error_chain(&s)
+                        )));
+                    }
+                }
+            }
+            outbound = hb_rx_guard.recv() => {
+                match outbound {
+                    Some(hb) => {
+                        if req_tx.send(convert::heartbeat_to_pb(&hb)).await.is_err() {
+                            tracing::debug!("heartbeat request stream closed; exiting");
+                            return Ok(());
+                        }
+                    }
+                    None => {
+                        tracing::debug!("heartbeat sink closed; exiting heartbeat pump");
+                        return Ok(());
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Dispatch channel — daemon-side bidi tx/rx pair.
 ///
 /// `tx` is what the supervisor pushes status updates into; `rx` is where

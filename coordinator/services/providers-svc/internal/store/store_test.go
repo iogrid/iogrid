@@ -86,6 +86,48 @@ func TestMemStore_ProviderCRUD(t *testing.T) {
 	}
 }
 
+// #311: heartbeat hot-path bumps last_seen_at without rewriting the rest
+// of the row. Asserts the lean UPDATE actually moves the timestamp and
+// leaves other columns alone.
+func TestMemStore_UpdateLastSeen(t *testing.T) {
+	ctx := context.Background()
+	s := NewInMemory()
+
+	p := &Provider{
+		OwnerUserID: "owner-1",
+		DisplayName: "hatice mbp",
+		HostInfo:    HostInfo{Platform: PlatformMacOS},
+	}
+	if err := s.CreateProvider(ctx, p); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	before, _ := s.GetProvider(ctx, p.ID)
+	originalLastSeen := before.LastSeenAt
+	originalDisplayName := before.DisplayName
+
+	// Sleep a small slice so the timestamp comparison is unambiguous.
+	target := originalLastSeen.Add(42 * time.Second)
+	if err := s.UpdateLastSeen(ctx, p.ID, target); err != nil {
+		t.Fatalf("update last_seen: %v", err)
+	}
+
+	after, err := s.GetProvider(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if !after.LastSeenAt.Equal(target) {
+		t.Fatalf("last_seen_at not updated: got %v want %v", after.LastSeenAt, target)
+	}
+	if after.DisplayName != originalDisplayName {
+		t.Fatalf("UpdateLastSeen clobbered display_name: got %q want %q",
+			after.DisplayName, originalDisplayName)
+	}
+
+	if err := s.UpdateLastSeen(ctx, "no-such-provider", target); err == nil {
+		t.Fatalf("expected ErrNotFound for unknown id")
+	}
+}
+
 func TestMemStore_ListProvidersFilter(t *testing.T) {
 	ctx := context.Background()
 	s := NewInMemory()
