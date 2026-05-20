@@ -538,8 +538,32 @@ impl Channel {
                 );
                 TransportError::TlsError(chain)
             })?
-            .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(10));
+            .connect_timeout(Duration::from_secs(10));
+            // INTENTIONALLY no `.timeout(...)`.
+            //
+            // `tonic::transport::Endpoint::timeout(d)` sets a default
+            // timeout applied to EVERY RPC call on the channel — which
+            // for the long-lived bidi streams (#311
+            // SchedulingService.StreamHeartbeats, #271
+            // WorkloadDispatchService.Dispatch) means the server-side
+            // stream is cancelled after `d` regardless of whether
+            // traffic is flowing.  Concretely, a 10s timeout killed
+            // the heartbeat stream every 10s with
+            // `grpc-code=Cancelled / "Timeout expired"`, holding
+            // `providers.last_seen_at` frozen even after every other
+            // wire-level blocker (TLS hang #327, port parse #346,
+            // Traefik h2c IngressRoute #353, proxy passthrough #350)
+            // was cleared. Diagnosed on Hatices-Mac-mini-2 2026-05-20.
+            //
+            // We KEEP `connect_timeout(10s)` because it only gates the
+            // initial TCP+TLS handshake — once the channel is open it
+            // does not interfere with stream lifetime.  Unary RPCs
+            // that should fail fast set their own per-call timeout at
+            // the call site (e.g. `Request::set_deadline`); the
+            // supervisor's `run_with_reconnect` outer loop catches
+            // server-side stream errors and re-dials.
+            //
+            // Issue #357.
         let pinned = PinnedAddrConnector::new(pinned_addr);
         let ch = match ep.connect_with_connector(pinned).await {
             Ok(ch) => ch,
