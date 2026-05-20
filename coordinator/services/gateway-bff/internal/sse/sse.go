@@ -26,6 +26,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -72,6 +73,16 @@ func (f ProducerFunc) Produce(ctx context.Context, lastEventID string, emit func
 //
 // keepAlive sends a `:keep-alive` comment line every keepAlive duration
 // to defeat idle proxy timeouts. Zero disables keep-alives.
+//
+// The keep-alive runs in a separate goroutine concurrent with the
+// producer's emit() calls, so all writes to the underlying
+// http.ResponseWriter MUST be serialised through a mutex. Without the
+// mutex (the previous implementation, fixed in #292) concurrent writes
+// can corrupt the SSE frame boundary or — worse — race the response
+// writer into a half-written state that nginx/traefik treat as a
+// premature close, causing the browser's EventSource to reconnect.
+// That was the root cause of the 30+ reconnects/10s storm reported in
+// #292.
 func Handler(p Producer, keepAlive time.Duration) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		flusher, ok := w.(http.Flusher)
@@ -89,8 +100,28 @@ func Handler(p Producer, keepAlive time.Duration) http.HandlerFunc {
 		ctx := r.Context()
 		lastEventID := r.Header.Get("Last-Event-ID")
 
-		// Keep-alive ticker — fed via an inner channel so the same
-		// writer goroutine handles both real events and pings.
+		// Single writer mutex: every byte that hits w must pass through
+		// here. Both the producer's emit() and the keep-alive ticker
+		// goroutine share this lock.
+		var writeMu sync.Mutex
+
+		// On entry, immediately emit a comment so the response body has
+		// at least one chunk on the wire. Without this, downstream
+		// proxies (BFF Route Handler → traefik → client) may not flush
+		// any bytes until the first real event, leaving the browser
+		// stuck in "connecting" state. With the comment, EventSource's
+		// `open` listener fires within ms, which lets the frontend
+		// flip "connecting" → "live (no events yet)" immediately.
+		writeMu.Lock()
+		_ = writeComment(w, "open")
+		flusher.Flush()
+		writeMu.Unlock()
+
+		// Keep-alive ticker — feeds a serialised write under the same
+		// mutex as the producer. Defeats idle proxy timeouts AND keeps
+		// the EventSource happy on streams that have zero real events
+		// for long stretches (e.g. a freshly paired provider with no
+		// workloads yet — the #292 trigger).
 		kaCtx, cancelKA := context.WithCancel(ctx)
 		defer cancelKA()
 		if keepAlive > 0 {
@@ -102,19 +133,25 @@ func Handler(p Producer, keepAlive time.Duration) http.HandlerFunc {
 					case <-kaCtx.Done():
 						return
 					case <-t.C:
-						// We can't safely write from another goroutine
-						// concurrent with the producer, so we instead
-						// rely on the emit() path to interleave; the
-						// keep-alive is therefore best-effort via
-						// idle-keepalive-flush below.
-						_ = writeComment(w, "keep-alive")
-						flusher.Flush()
+						writeMu.Lock()
+						err := writeComment(w, "keep-alive")
+						if err == nil {
+							flusher.Flush()
+						}
+						writeMu.Unlock()
+						if err != nil {
+							// Client gone — bail; the producer's
+							// ctx will fire next and unwind too.
+							return
+						}
 					}
 				}
 			}()
 		}
 
 		emit := func(e Event) error {
+			writeMu.Lock()
+			defer writeMu.Unlock()
 			if err := WriteEvent(w, e); err != nil {
 				return err
 			}

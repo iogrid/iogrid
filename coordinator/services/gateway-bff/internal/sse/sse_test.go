@@ -92,6 +92,86 @@ func TestHandler_ProducerErrorEmitsErrorEvent(t *testing.T) {
 	}
 }
 
+// TestHandler_EmitsInitialOpenComment guards #292 — without an upfront
+// flush, EventSource stays in "connecting" until the first real event.
+// On a freshly paired provider with zero events that's forever, and
+// the React layer's option-prop instability churned the EventSource
+// every render. Both ends of that bug needed fixing; this test pins
+// the server half.
+func TestHandler_EmitsInitialOpenComment(t *testing.T) {
+	// Producer that blocks forever (simulates "provider with no events").
+	p := ProducerFunc(func(ctx context.Context, _ string, _ func(Event) error) error {
+		<-ctx.Done()
+		return ctx.Err()
+	})
+	srv := httptest.NewServer(Handler(p, 0))
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	buf := make([]byte, 64)
+	n, err := resp.Body.Read(buf)
+	if err != nil && err.Error() != "EOF" {
+		// First read may block briefly but should NOT hang forever.
+	}
+	body := string(buf[:n])
+	if !strings.Contains(body, ": open") {
+		t.Fatalf("expected initial `: open` comment, got: %q", body)
+	}
+}
+
+// TestHandler_KeepAliveConcurrentWithProducerNoRace exercises the new
+// write mutex. With race detector on (go test -race), the previous
+// implementation would flag concurrent writes to w from the keep-alive
+// goroutine and the producer's emit(). After #292's fix the mutex
+// serialises both.
+func TestHandler_KeepAliveConcurrentWithProducerNoRace(t *testing.T) {
+	ready := make(chan struct{})
+	stop := make(chan struct{})
+	p := ProducerFunc(func(ctx context.Context, _ string, emit func(Event) error) error {
+		close(ready)
+		// Hammer emit() so it overlaps with the keep-alive ticker.
+		ticker := time.NewTicker(2 * time.Millisecond)
+		defer ticker.Stop()
+		for i := 0; i < 50; i++ {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-stop:
+				return nil
+			case <-ticker.C:
+				if err := emit(Event{Kind: "tick", Data: "x"}); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+	// 5ms keep-alive => guaranteed overlap with the 2ms emits.
+	srv := httptest.NewServer(Handler(p, 5*time.Millisecond))
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	<-ready
+	// Drain a chunk to ensure both write paths fire.
+	buf := make([]byte, 8192)
+	_, _ = resp.Body.Read(buf)
+	close(stop)
+}
+
 var errBoom = boomError("boom")
 
 type boomError string

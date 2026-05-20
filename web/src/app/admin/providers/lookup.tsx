@@ -150,13 +150,30 @@ export function ProviderAuditLookup() {
         </p>
       )}
 
-      {streamFor && events.length === 0 && status !== "error" ? (
+      {streamFor && events.length === 0 && status !== "error" && status !== "unavailable" ? (
         <EmptyState
           status={status}
           slowConnect={slowConnect}
           providerMeta={providerMeta}
           providerId={streamFor}
         />
+      ) : null}
+
+      {streamFor && status === "unavailable" ? (
+        <div
+          className="rounded-md border border-rose-300 bg-rose-50 p-4 text-sm text-rose-800 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-200"
+          data-testid="audit-unavailable-banner"
+          role="alert"
+        >
+          <p className="font-medium">Transparency stream unavailable</p>
+          <p className="mt-1 text-xs">
+            The provider&apos;s audit channel closed faster than it could
+            establish (3 fast reconnects). This usually means the provider is
+            inactive, the gateway is rolling, or the audit subsystem is
+            offline. We&apos;ve stopped retrying — refresh the page to try
+            again.
+          </p>
+        </div>
       ) : null}
 
       {events.length > 0 ? (
@@ -220,7 +237,7 @@ function StatusLine({
   hasEvents,
 }: {
   streamFor: string;
-  status: "connecting" | "open" | "closed" | "error";
+  status: "connecting" | "open" | "closed" | "error" | "unavailable";
   slowConnect: boolean;
   hasEvents: boolean;
 }) {
@@ -240,6 +257,8 @@ function StatusLine({
         return "closed";
       case "error":
         return "disconnected — retrying";
+      case "unavailable":
+        return "stream unavailable";
     }
   })();
 
@@ -261,7 +280,7 @@ function EmptyState({
   providerMeta,
   providerId,
 }: {
-  status: "connecting" | "open" | "closed" | "error";
+  status: "connecting" | "open" | "closed" | "error" | "unavailable";
   slowConnect: boolean;
   providerMeta: ProviderSummary | null;
   providerId: string;

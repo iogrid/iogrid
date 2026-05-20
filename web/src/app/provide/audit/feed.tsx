@@ -196,15 +196,16 @@ export function AuditFeed() {
 function StatusPill({
   status,
 }: {
-  status: "connecting" | "open" | "closed" | "error";
+  status: "connecting" | "open" | "closed" | "error" | "unavailable";
 }) {
   const map: Record<string, { dot: string; label: string }> = {
     open: { dot: "bg-emerald-500", label: "Live" },
     connecting: { dot: "bg-amber-500 animate-pulse", label: "Connecting" },
     error: { dot: "bg-rose-500", label: "Disconnected" },
     closed: { dot: "bg-zinc-400", label: "Closed" },
+    unavailable: { dot: "bg-rose-700", label: "Unavailable" },
   };
-  const m = map[status];
+  const m = map[status] ?? map.closed;
   return (
     <span
       className="inline-flex items-center gap-1.5 rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
