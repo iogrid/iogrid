@@ -25,7 +25,10 @@ export interface EarningsChartProps {
 
 export function EarningsChart({
   data,
-  currencyCode = "USD",
+  // Default currency matches the native ledger ($GRID, #312); callers
+  // pass an explicit currencyCode when they know better (e.g. customer
+  // usage chart that shows USD spend).
+  currencyCode = "GRID",
   height = 200,
 }: EarningsChartProps) {
   // Hooks declared at top to satisfy rules-of-hooks; we then early-return.

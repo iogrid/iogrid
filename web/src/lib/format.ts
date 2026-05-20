@@ -47,15 +47,31 @@ export function formatRelativeTime(
 
 /**
  * Money amounts cross the wire as decimal strings to avoid float
- * rounding. Display them via Intl.NumberFormat for currency.
+ * rounding. Display them via Intl.NumberFormat for ISO-4217 currencies,
+ * with a dedicated branch for the iogrid native token $GRID (which is
+ * not ISO-4217 — Intl.NumberFormat would throw on it).
+ *
+ * Phase-0 empty-state contract (#312): when `currencyCode === "GRID"`
+ * and `amount` is undefined / null / empty (proto3 omits int64 zero on
+ * the wire, so `EarningsSummary.totalEarned.micros === 0` arrives as
+ * `amount === undefined`), render `"0 $GRID"` — NOT `"—"`. The em-dash
+ * is reserved for "value genuinely unfetchable" cases (e.g. the live
+ * Solana wallet balance gated on #274).
  */
 export function formatMoney(
   amount: string | number | undefined,
   currencyCode = "USD",
 ): string {
-  if (amount === undefined || amount === null || amount === "") return "—";
+  const isGrid = currencyCode === "GRID";
+  if (amount === undefined || amount === null || amount === "") {
+    // For $GRID, an absent amount means "0 $GRID" (Phase-0 zero-workload
+    // state, see #312). For ISO currencies, keep the legacy "—" so we
+    // don't accidentally claim "$0.00" when the value is unknown.
+    return isGrid ? "0 $GRID" : "—";
+  }
   const n = typeof amount === "string" ? Number(amount) : amount;
-  if (!Number.isFinite(n)) return "—";
+  if (!Number.isFinite(n)) return isGrid ? "0 $GRID" : "—";
+  if (isGrid) return formatGrid(n);
   try {
     return new Intl.NumberFormat("en-US", {
       style: "currency",
@@ -65,6 +81,24 @@ export function formatMoney(
   } catch {
     return `$${n.toFixed(2)}`;
   }
+}
+
+/**
+ * Format a numeric $GRID amount with up to 4 fractional digits (the
+ * token is 6-decimal on Solana but UI fidelity below 4dp is noise).
+ * Trailing zeros are stripped so "1.0000 $GRID" renders as "1 $GRID"
+ * and "0.5000" as "0.5 $GRID". Whole-token amounts get a thousands
+ * separator so "$GRID balance: 12,345" is readable.
+ */
+function formatGrid(n: number): string {
+  // Whole numbers — locale grouping, no decimals.
+  if (Number.isInteger(n)) {
+    return `${new Intl.NumberFormat("en-US").format(n)} $GRID`;
+  }
+  // Fractional — up to 4 decimals, trailing zeros trimmed.
+  const fixed = n.toFixed(4);
+  const trimmed = fixed.replace(/\.?0+$/, "");
+  return `${trimmed} $GRID`;
 }
 
 /** Format an EventKind enum value as a human-readable label. */

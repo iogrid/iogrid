@@ -162,9 +162,9 @@ func TestMemStore_EarningsSummary(t *testing.T) {
 	s := NewInMemory()
 
 	now := time.Now()
-	_ = s.CreditEarnings(ctx, EarningsEntry{ProviderID: "p1", WorkloadType: "bandwidth", OccurredAt: now, Currency: "USD", Micros: 100})
-	_ = s.CreditEarnings(ctx, EarningsEntry{ProviderID: "p1", WorkloadType: "docker", OccurredAt: now, Currency: "USD", Micros: 250})
-	_ = s.CreditEarnings(ctx, EarningsEntry{ProviderID: "p2", WorkloadType: "bandwidth", OccurredAt: now, Currency: "USD", Micros: 999})
+	_ = s.CreditEarnings(ctx, EarningsEntry{ProviderID: "p1", WorkloadType: "bandwidth", OccurredAt: now, Currency: "GRID", Micros: 100})
+	_ = s.CreditEarnings(ctx, EarningsEntry{ProviderID: "p1", WorkloadType: "docker", OccurredAt: now, Currency: "GRID", Micros: 250})
+	_ = s.CreditEarnings(ctx, EarningsEntry{ProviderID: "p2", WorkloadType: "bandwidth", OccurredAt: now, Currency: "GRID", Micros: 999})
 
 	total, byType, currency, err := s.SumEarnings(ctx, "p1", time.Time{}, time.Time{})
 	if err != nil {
@@ -176,7 +176,47 @@ func TestMemStore_EarningsSummary(t *testing.T) {
 	if byType["bandwidth"] != 100 || byType["docker"] != 250 {
 		t.Fatalf("breakdown: %+v", byType)
 	}
-	if currency != "USD" {
+	if currency != "GRID" {
 		t.Fatalf("currency: %q", currency)
+	}
+}
+
+// TestMemStore_EarningsSummary_EmptyProvider asserts that a provider
+// with zero credited entries still gets the Phase-0 native ledger
+// currency back from SumEarnings — NOT "USD". This is what makes the
+// /provide/earnings headline render "0 $GRID" instead of "$0.00" or
+// "—" (#312).
+func TestMemStore_EarningsSummary_EmptyProvider(t *testing.T) {
+	ctx := context.Background()
+	s := NewInMemory()
+	total, byType, currency, err := s.SumEarnings(ctx, "no-such-provider", time.Time{}, time.Time{})
+	if err != nil {
+		t.Fatalf("sum: %v", err)
+	}
+	if total != 0 {
+		t.Fatalf("total: got %d want 0", total)
+	}
+	if len(byType) != 0 {
+		t.Fatalf("byType should be empty, got %+v", byType)
+	}
+	if currency != "GRID" {
+		t.Fatalf("currency: got %q want GRID", currency)
+	}
+}
+
+// TestMemStore_CreditEarnings_DefaultsGrid asserts the credit-time
+// default matches the pgStore — an entry with Currency:"" gets stored
+// as "GRID", not "USD" (#312). Keeps the in-memory test backend
+// faithful to the production Postgres backend.
+func TestMemStore_CreditEarnings_DefaultsGrid(t *testing.T) {
+	ctx := context.Background()
+	s := NewInMemory()
+	_ = s.CreditEarnings(ctx, EarningsEntry{ProviderID: "p1", WorkloadType: "bandwidth", OccurredAt: time.Now(), Currency: "", Micros: 42})
+	_, _, currency, err := s.SumEarnings(ctx, "p1", time.Time{}, time.Time{})
+	if err != nil {
+		t.Fatalf("sum: %v", err)
+	}
+	if currency != "GRID" {
+		t.Fatalf("expected empty-Currency credit to default to GRID, got %q", currency)
 	}
 }

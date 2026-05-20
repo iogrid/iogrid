@@ -66,9 +66,51 @@ describe("formatMoney", () => {
     expect(formatMoney("12.34", "USD")).toBe("$12.34");
   });
 
-  it("returns em-dash for empty inputs", () => {
+  it("returns em-dash for empty ISO-currency inputs", () => {
     expect(formatMoney(undefined)).toBe("—");
     expect(formatMoney("")).toBe("—");
+    expect(formatMoney(undefined, "EUR")).toBe("—");
+  });
+
+  // The $GRID branch is the Phase-0 native ledger currency. The
+  // headline card on /provide/earnings reads `currencyCode ?? "GRID"`,
+  // so this function must produce the "0 $GRID" empty-state copy when
+  // proto3 wire-omits the zero amount — NOT em-dash (#312).
+  describe("$GRID (Phase-0 native ledger)", () => {
+    it("renders '0 $GRID' for an undefined / empty amount", () => {
+      expect(formatMoney(undefined, "GRID")).toBe("0 $GRID");
+      expect(formatMoney(null as unknown as undefined, "GRID")).toBe("0 $GRID");
+      expect(formatMoney("", "GRID")).toBe("0 $GRID");
+    });
+
+    it("renders '0 $GRID' for a literal zero (string or number)", () => {
+      expect(formatMoney("0", "GRID")).toBe("0 $GRID");
+      expect(formatMoney(0, "GRID")).toBe("0 $GRID");
+    });
+
+    it("renders whole $GRID amounts with locale grouping, no decimals", () => {
+      expect(formatMoney("1", "GRID")).toBe("1 $GRID");
+      expect(formatMoney("1234", "GRID")).toBe("1,234 $GRID");
+      expect(formatMoney(1234567, "GRID")).toBe("1,234,567 $GRID");
+    });
+
+    it("renders fractional $GRID amounts, trimming trailing zeros", () => {
+      expect(formatMoney("0.5", "GRID")).toBe("0.5 $GRID");
+      expect(formatMoney("1.25", "GRID")).toBe("1.25 $GRID");
+      expect(formatMoney("1.2500", "GRID")).toBe("1.25 $GRID");
+      // Caps at 4dp.
+      expect(formatMoney("0.12345", "GRID")).toBe("0.1235 $GRID");
+    });
+
+    it("never throws on the GRID code (it is NOT ISO-4217)", () => {
+      // Sanity: confirm Intl.NumberFormat would throw — i.e. the
+      // bespoke branch is load-bearing.
+      expect(() =>
+        new Intl.NumberFormat("en-US", { style: "currency", currency: "GRID" }),
+      ).toThrow();
+      // formatMoney must NOT throw.
+      expect(formatMoney("1", "GRID")).toBe("1 $GRID");
+    });
   });
 });
 
