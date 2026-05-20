@@ -249,8 +249,101 @@ func Mount(deps Deps) func(chi.Router) {
 				// payload) straight to the browser.
 				r.Get("/config-for-platform", api.GetVPNConfigForPlatform)
 			})
+
+			// /identity ---------------------------------------------------
+			// Wallet-binding surface (#294). identity-svc backend is a
+			// Phase 1 deliverable; today we return safe empty-state for
+			// GET /wallets and 501 unimplemented for the mutating verbs
+			// so the browser stops 404'ing on /account/wallets.
+			r.Route("/identity", func(r chi.Router) {
+				r.Use(auth.RequireAuth)
+				r.Get("/wallets", emptyWalletsList)
+				r.Post("/wallets/start-binding", unimplemented("wallet binding"))
+				r.Post("/wallets/complete-binding", unimplemented("wallet binding"))
+				r.Delete("/wallets/{walletAddress}", unimplemented("wallet unbinding"))
+			})
+
+			// /burn -------------------------------------------------------
+			// Burn-audit surface (#294). Phase 0 ships an empty summary
+			// snapshot so the /burn dashboard renders an "all zeros"
+			// empty state; daily + events lists return 501 until the
+			// billing-svc burn ledger ships.
+			r.Route("/burn", func(r chi.Router) {
+				r.Use(auth.RequireAuth)
+				r.Get("/daily", unimplemented("burn ledger"))
+				r.Get("/events", unimplemented("burn ledger"))
+				r.Get("/summary", emptyBurnSummary)
+			})
+
+			// /staking ----------------------------------------------------
+			// Staking surface (#294). GET / returns an "opted-out, zero
+			// stake" snapshot; opt-in is Phase 1.
+			r.Route("/staking", func(r chi.Router) {
+				r.Use(auth.RequireAuth)
+				r.Get("/", emptyStakingState)
+				r.Post("/opt-in", unimplemented("staking opt-in"))
+			})
+
+			// /account/step-up --------------------------------------------
+			// Step-up verification surface (#294). Mounted as a child of
+			// the existing /account route group above is awkward because
+			// /account predates RequireAuth; mounting directly here keeps
+			// the auth gate tight without disturbing the sign-in routes.
+			r.Route("/account/step-up", func(r chi.Router) {
+				r.Use(auth.RequireAuth)
+				r.Post("/request", unimplemented("step-up verification"))
+				r.Post("/verify", unimplemented("step-up verification"))
+			})
 		})
 	}
+}
+
+// unimplemented returns a handler that responds 501 with a stable JSON
+// envelope. The browser distinguishes 501 (feature deferred — show
+// "coming soon") from 404 (chi default — surface looks broken).
+func unimplemented(feature string) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotImplemented)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"code":    "unimplemented",
+			"message": feature + " backend deferred to Phase 1",
+		})
+	}
+}
+
+// emptyWalletsList answers GET /api/v1/identity/wallets with a stable
+// empty-list envelope so /account/wallets renders the "no wallets bound
+// yet" empty state instead of a 404 banner.
+func emptyWalletsList(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"wallets": []any{},
+	})
+}
+
+// emptyBurnSummary answers GET /api/v1/burn/summary with a zero-state
+// snapshot so the dashboard renders the "no burns yet" empty state.
+func emptyBurnSummary(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"total_burned": 0,
+		"period":       "all",
+	})
+}
+
+// emptyStakingState answers GET /api/v1/staking/ with a zero-state
+// "opted-out" snapshot so the provide/staking page renders the opt-in
+// CTA instead of a 404 banner.
+func emptyStakingState(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"stake_amount": 0,
+		"opted_in":     false,
+	})
 }
 
 // indexHandler returns a stable JSON envelope identifying the service.
