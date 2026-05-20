@@ -201,10 +201,12 @@ func main() {
 	// back /account/identifiers + /account/danger-zone in the web plane.
 	idHandler := handlers.NewIdentityHandler(st)
 	// authHandler ships AuthService.{ListSessions, RevokeSession} that
-	// back /account/sessions (issue #322). Other AuthService RPCs keep
-	// flowing through the chi JSON tree on api until each is migrated
-	// to Connect-RPC under EPIC #309.
-	authHandler := handlers.NewAuthHandler(st)
+	// back /account/sessions (issue #322) plus the SIWS wallet RPCs
+	// (StartSiwsBinding, CompleteSiwsBinding, ListBoundWallets,
+	// UnbindWallet) that back /account/wallets (issue #326). Other
+	// AuthService RPCs keep flowing through the chi JSON tree on api
+	// until each is migrated to Connect-RPC under EPIC #309.
+	authHandler := handlers.NewAuthHandler(st, authSvc)
 
 	// --- background: session cleanup ---------------------------------
 	cleanupCtx, cancelCleanup := context.WithCancel(ctx)

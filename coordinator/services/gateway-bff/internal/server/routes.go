@@ -133,6 +133,21 @@ func Mount(deps Deps) func(chi.Router) {
 				r.Get("/sessions", api.ListSessionsForAccount)
 				r.Delete("/sessions/{id}", api.RevokeAccountSession)
 
+				// Wallets surface (issue #326). Real backing for the
+				// /account/wallets page — the $GRID payout target.
+				// Replaces the Phase 0 stubs that used to live under
+				// /identity/wallets in this same router. Auth gate is
+				// inherited from the outer /api/v1 group; the inner
+				// chi router does not add a separate RequireAuth so
+				// the surface keeps a single response shape on 401.
+				r.Route("/wallets", func(r chi.Router) {
+					r.Use(auth.RequireAuth)
+					r.Get("/", api.ListWallets)
+					r.Post("/", api.BindWallet)
+					r.Post("/challenge", api.IssueWalletChallenge)
+					r.Delete("/{address}", api.UnbindWallet)
+				})
+
 				// Auto-update operator surface (#59).
 				r.Route("/updates", func(r chi.Router) {
 					r.Use(auth.RequireAuth)
@@ -270,19 +285,6 @@ func Mount(deps Deps) func(chi.Router) {
 				r.Get("/config-for-platform", api.GetVPNConfigForPlatform)
 			})
 
-			// /identity ---------------------------------------------------
-			// Wallet-binding surface (#294). identity-svc backend is a
-			// Phase 1 deliverable; today we return safe empty-state for
-			// GET /wallets and 501 unimplemented for the mutating verbs
-			// so the browser stops 404'ing on /account/wallets.
-			r.Route("/identity", func(r chi.Router) {
-				r.Use(auth.RequireAuth)
-				r.Get("/wallets", emptyWalletsList)
-				r.Post("/wallets/start-binding", unimplemented("wallet binding"))
-				r.Post("/wallets/complete-binding", unimplemented("wallet binding"))
-				r.Delete("/wallets/{walletAddress}", unimplemented("wallet unbinding"))
-			})
-
 			// /burn -------------------------------------------------------
 			// Burn-audit surface (#294). Phase 0 ships an empty summary
 			// snapshot so the /burn dashboard renders an "all zeros"
@@ -337,17 +339,6 @@ func unimplemented(feature string) http.HandlerFunc {
 			"message": feature + " backend deferred to Phase 1",
 		})
 	}
-}
-
-// emptyWalletsList answers GET /api/v1/identity/wallets with a stable
-// empty-list envelope so /account/wallets renders the "no wallets bound
-// yet" empty state instead of a 404 banner.
-func emptyWalletsList(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"wallets": []any{},
-	})
 }
 
 // emptyBurnSummary answers GET /api/v1/burn/summary with a zero-state

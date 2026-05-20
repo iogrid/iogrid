@@ -54,14 +54,18 @@ func (m *mockIdentity) DeleteAccount(ctx context.Context, req *identityv1.Delete
 }
 
 type mockAuth struct {
-	startGoogle    func(context.Context, *identityv1.StartGoogleSignInRequest) (*identityv1.StartGoogleSignInResponse, error)
-	completeGoogle func(context.Context, *identityv1.CompleteGoogleSignInRequest) (*identityv1.CompleteGoogleSignInResponse, error)
-	requestMagic   func(context.Context, *identityv1.RequestMagicLinkRequest) (*identityv1.RequestMagicLinkResponse, error)
-	completeMagic  func(context.Context, *identityv1.CompleteMagicLinkRequest) (*identityv1.CompleteMagicLinkResponse, error)
-	refresh        func(context.Context, *identityv1.RefreshTokenRequest) (*identityv1.RefreshTokenResponse, error)
-	signOut        func(context.Context, *identityv1.SignOutRequest) (*identityv1.SignOutResponse, error)
-	listSessions   func(context.Context, *identityv1.ListSessionsRequest) (*identityv1.ListSessionsResponse, error)
-	revokeSession  func(context.Context, *identityv1.RevokeSessionRequest) (*identityv1.RevokeSessionResponse, error)
+	startGoogle         func(context.Context, *identityv1.StartGoogleSignInRequest) (*identityv1.StartGoogleSignInResponse, error)
+	completeGoogle      func(context.Context, *identityv1.CompleteGoogleSignInRequest) (*identityv1.CompleteGoogleSignInResponse, error)
+	requestMagic        func(context.Context, *identityv1.RequestMagicLinkRequest) (*identityv1.RequestMagicLinkResponse, error)
+	completeMagic       func(context.Context, *identityv1.CompleteMagicLinkRequest) (*identityv1.CompleteMagicLinkResponse, error)
+	refresh             func(context.Context, *identityv1.RefreshTokenRequest) (*identityv1.RefreshTokenResponse, error)
+	signOut             func(context.Context, *identityv1.SignOutRequest) (*identityv1.SignOutResponse, error)
+	listSessions        func(context.Context, *identityv1.ListSessionsRequest) (*identityv1.ListSessionsResponse, error)
+	revokeSession       func(context.Context, *identityv1.RevokeSessionRequest) (*identityv1.RevokeSessionResponse, error)
+	startSiwsBinding    func(context.Context, *identityv1.StartSiwsBindingRequest) (*identityv1.StartSiwsBindingResponse, error)
+	completeSiwsBinding func(context.Context, *identityv1.CompleteSiwsBindingRequest) (*identityv1.CompleteSiwsBindingResponse, error)
+	listBoundWallets    func(context.Context, *identityv1.ListBoundWalletsRequest) (*identityv1.ListBoundWalletsResponse, error)
+	unbindWallet        func(context.Context, *identityv1.UnbindWalletRequest) (*identityv1.UnbindWalletResponse, error)
 }
 
 func (m *mockAuth) StartGoogleSignIn(ctx context.Context, req *identityv1.StartGoogleSignInRequest) (*identityv1.StartGoogleSignInResponse, error) {
@@ -90,6 +94,30 @@ func (m *mockAuth) RevokeSession(ctx context.Context, req *identityv1.RevokeSess
 		return &identityv1.RevokeSessionResponse{}, nil
 	}
 	return m.revokeSession(ctx, req)
+}
+func (m *mockAuth) StartSiwsBinding(ctx context.Context, req *identityv1.StartSiwsBindingRequest) (*identityv1.StartSiwsBindingResponse, error) {
+	if m.startSiwsBinding == nil {
+		return &identityv1.StartSiwsBindingResponse{}, nil
+	}
+	return m.startSiwsBinding(ctx, req)
+}
+func (m *mockAuth) CompleteSiwsBinding(ctx context.Context, req *identityv1.CompleteSiwsBindingRequest) (*identityv1.CompleteSiwsBindingResponse, error) {
+	if m.completeSiwsBinding == nil {
+		return &identityv1.CompleteSiwsBindingResponse{}, nil
+	}
+	return m.completeSiwsBinding(ctx, req)
+}
+func (m *mockAuth) ListBoundWallets(ctx context.Context, req *identityv1.ListBoundWalletsRequest) (*identityv1.ListBoundWalletsResponse, error) {
+	if m.listBoundWallets == nil {
+		return &identityv1.ListBoundWalletsResponse{}, nil
+	}
+	return m.listBoundWallets(ctx, req)
+}
+func (m *mockAuth) UnbindWallet(ctx context.Context, req *identityv1.UnbindWalletRequest) (*identityv1.UnbindWalletResponse, error) {
+	if m.unbindWallet == nil {
+		return &identityv1.UnbindWalletResponse{}, nil
+	}
+	return m.unbindWallet(ctx, req)
 }
 
 type mockDashboard struct {

@@ -2,9 +2,13 @@
 
 /**
  * /account/wallets — client island that:
- *   - lists bound wallets (GET /api/v1/identity/wallets)
+ *   - lists bound wallets (GET /api/v1/account/wallets)
  *   - exposes the bind handshake via <WalletBindFlow/>
  *   - allows per-wallet unbind
+ *
+ * Issue #326 repointed every wallet RPC from the Phase 0 stub at
+ * /api/v1/identity/wallets onto the real /api/v1/account/wallets
+ * surface that proxies to identity-svc's SIWS Connect-RPC methods.
  *
  * Errors surface inline + via toast so the user gets both a persistent
  * indicator and a transient notification.

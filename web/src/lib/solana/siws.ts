@@ -1,17 +1,22 @@
 /**
  * SIWS (Sign-In-With-Solana) bind-flow helpers.
  *
+ * Issue #326 repointed these from the Phase 0 stub at
+ * `/api/v1/identity/wallets` (which 200'd an empty list and 501'd on
+ * the mutating verbs) onto the real `/api/v1/account/wallets` surface
+ * that proxies to identity-svc's SIWS Connect-RPC methods.
+ *
  * The gateway-bff exposes endpoints implemented by identity-svc:
  *
- *   POST /api/v1/identity/wallets/start-binding
+ *   POST /api/v1/account/wallets/challenge
  *     body: { walletAddress }
  *     returns: {
- *       nonce: string,         // server-issued, single-use
- *       challenge: string,     // human-readable, includes domain+nonce
+ *       nonce: string,         // hex-encoded, single-use (GETDEL on Redis)
+ *       challenge: string,     // canonical SIWS message bytes the wallet signs
  *       expiresAt: string,     // ISO-8601, 5 min window
  *     }
  *
- *   POST /api/v1/identity/wallets/complete-binding
+ *   POST /api/v1/account/wallets
  *     body: {
  *       walletAddress,
  *       nonce,
@@ -19,10 +24,10 @@
  *     }
  *     returns: BoundWallet
  *
- *   GET  /api/v1/identity/wallets
+ *   GET  /api/v1/account/wallets
  *     returns: { wallets: BoundWallet[] }
  *
- *   DELETE /api/v1/identity/wallets/{walletAddress}
+ *   DELETE /api/v1/account/wallets/{walletAddress}
  */
 
 import { ApiClient } from "@/lib/api";
@@ -47,22 +52,21 @@ export interface ListBoundWalletsResponse {
   wallets: BoundWallet[];
 }
 
-const PATH_START = "/api/v1/identity/wallets/start-binding";
-const PATH_COMPLETE = "/api/v1/identity/wallets/complete-binding";
-const PATH_LIST = "/api/v1/identity/wallets";
+const PATH_LIST = "/api/v1/account/wallets";
+const PATH_CHALLENGE = "/api/v1/account/wallets/challenge";
 
 export async function startSiwsBinding(
   client: ApiClient,
   walletAddress: string,
 ): Promise<StartBindingResponse> {
-  return client.post<StartBindingResponse>(PATH_START, { walletAddress });
+  return client.post<StartBindingResponse>(PATH_CHALLENGE, { walletAddress });
 }
 
 export async function completeSiwsBinding(
   client: ApiClient,
   args: { walletAddress: string; nonce: string; signature: string },
 ): Promise<BoundWallet> {
-  return client.post<BoundWallet>(PATH_COMPLETE, args);
+  return client.post<BoundWallet>(PATH_LIST, args);
 }
 
 export async function listBoundWallets(

@@ -65,8 +65,10 @@ describe("WalletBindFlow", () => {
 
     const onBound = vi.fn();
     let captured: Record<string, unknown> | null = null;
+    // Issue #326: routes moved from /api/v1/identity/wallets/{start,complete}-binding
+    // to /api/v1/account/wallets/challenge (start) + /api/v1/account/wallets (complete).
     const client = clientWith((url, init) => {
-      if (url.endsWith("/start-binding")) {
+      if (url.endsWith("/api/v1/account/wallets/challenge")) {
         return new Response(
           JSON.stringify({
             nonce: "n",
@@ -76,7 +78,10 @@ describe("WalletBindFlow", () => {
           { status: 200 },
         );
       }
-      if (url.endsWith("/complete-binding")) {
+      if (
+        (init.method ?? "GET") === "POST" &&
+        url.endsWith("/api/v1/account/wallets")
+      ) {
         captured = JSON.parse(String(init.body));
         return new Response(
           JSON.stringify({

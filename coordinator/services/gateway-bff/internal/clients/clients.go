@@ -55,6 +55,13 @@ type AuthClient interface {
 	// (issue #322). Identity-svc validates ownership in the WHERE
 	// clause of the UPDATE; the BFF only forwards.
 	RevokeSession(ctx context.Context, req *identityv1.RevokeSessionRequest) (*identityv1.RevokeSessionResponse, error)
+	// SIWS wallet binding (issue #326). The /account/wallets surface
+	// backs the $GRID payout promise — every provider must bind a
+	// Solana wallet before billing-svc can route a $GRID payout.
+	StartSiwsBinding(ctx context.Context, req *identityv1.StartSiwsBindingRequest) (*identityv1.StartSiwsBindingResponse, error)
+	CompleteSiwsBinding(ctx context.Context, req *identityv1.CompleteSiwsBindingRequest) (*identityv1.CompleteSiwsBindingResponse, error)
+	ListBoundWallets(ctx context.Context, req *identityv1.ListBoundWalletsRequest) (*identityv1.ListBoundWalletsResponse, error)
+	UnbindWallet(ctx context.Context, req *identityv1.UnbindWalletRequest) (*identityv1.UnbindWalletResponse, error)
 }
 
 // ProvidersDashboardClient backs the /provide/dashboard + audit feed.
@@ -352,6 +359,52 @@ func (a *authAdapter) ListSessions(ctx context.Context, req *identityv1.ListSess
 func (a *authAdapter) RevokeSession(ctx context.Context, req *identityv1.RevokeSessionRequest) (*identityv1.RevokeSessionResponse, error) {
 	return retry(ctx, a.retries, func(ctx context.Context) (*identityv1.RevokeSessionResponse, error) {
 		r, err := a.c.RevokeSession(ctx, connect.NewRequest(req))
+		if err != nil {
+			return nil, err
+		}
+		return r.Msg, nil
+	})
+}
+
+// SIWS wallet RPCs. StartSiwsBinding is idempotent (the second Start
+// overwrites the prior nonce in Redis) so it's safe to retry on
+// transient transport failures. CompleteSiwsBinding is NOT — the
+// challenge GETDELs out of Redis on first call, so a retry would hit
+// CodeFailedPrecondition. We deliberately skip the retry wrapper there.
+func (a *authAdapter) StartSiwsBinding(ctx context.Context, req *identityv1.StartSiwsBindingRequest) (*identityv1.StartSiwsBindingResponse, error) {
+	return retry(ctx, a.retries, func(ctx context.Context) (*identityv1.StartSiwsBindingResponse, error) {
+		r, err := a.c.StartSiwsBinding(ctx, connect.NewRequest(req))
+		if err != nil {
+			return nil, err
+		}
+		return r.Msg, nil
+	})
+}
+
+func (a *authAdapter) CompleteSiwsBinding(ctx context.Context, req *identityv1.CompleteSiwsBindingRequest) (*identityv1.CompleteSiwsBindingResponse, error) {
+	r, err := a.c.CompleteSiwsBinding(ctx, connect.NewRequest(req))
+	if err != nil {
+		return nil, err
+	}
+	return r.Msg, nil
+}
+
+func (a *authAdapter) ListBoundWallets(ctx context.Context, req *identityv1.ListBoundWalletsRequest) (*identityv1.ListBoundWalletsResponse, error) {
+	return retry(ctx, a.retries, func(ctx context.Context) (*identityv1.ListBoundWalletsResponse, error) {
+		r, err := a.c.ListBoundWallets(ctx, connect.NewRequest(req))
+		if err != nil {
+			return nil, err
+		}
+		return r.Msg, nil
+	})
+}
+
+// UnbindWallet is idempotent at the DB layer (DELETE WHERE ... matches
+// zero rows on second call → ErrNotFound → 404), so a retry on
+// Unavailable / DeadlineExceeded is safe.
+func (a *authAdapter) UnbindWallet(ctx context.Context, req *identityv1.UnbindWalletRequest) (*identityv1.UnbindWalletResponse, error) {
+	return retry(ctx, a.retries, func(ctx context.Context) (*identityv1.UnbindWalletResponse, error) {
+		r, err := a.c.UnbindWallet(ctx, connect.NewRequest(req))
 		if err != nil {
 			return nil, err
 		}
