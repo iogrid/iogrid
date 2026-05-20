@@ -7,19 +7,19 @@
 //
 // Each accepted connection runs through the same pipeline:
 //
-//   1. Protocol-specific handshake + credential extraction.
-//   2. Auth via billing-svc.ValidateApiKey (auth.Validator).
-//   3. Outbound port allow/block check (docs/LEGAL.md mandate).
-//   4. antiabuse-svc.CheckUrl pre-flight (CSAM / fraud / rate limit /
-//      domain class).
-//   5. Sticky-session lookup → workloads-svc.SubmitWorkload dispatch
-//      (with sticky_provider_hint propagated).
-//   6. Dial the chosen provider tunnel endpoint.
-//   7. Send the SOCKS5/HTTP "success" reply to the customer.
-//   8. relay.Run bidirectional with metering every 1 MiB.
-//   9. On provider drop or relay error, re-dispatch up to N times
-//      (configurable; default 3) — invisible to the customer except
-//      for a one-time connection reset.
+//  1. Protocol-specific handshake + credential extraction.
+//  2. Auth via billing-svc.ValidateApiKey (auth.Validator).
+//  3. Outbound port allow/block check (docs/LEGAL.md mandate).
+//  4. antiabuse-svc.CheckUrl pre-flight (CSAM / fraud / rate limit /
+//     domain class).
+//  5. Sticky-session lookup → workloads-svc.SubmitWorkload dispatch
+//     (with sticky_provider_hint propagated).
+//  6. Dial the chosen provider tunnel endpoint.
+//  7. Send the SOCKS5/HTTP "success" reply to the customer.
+//  8. relay.Run bidirectional with metering every 1 MiB.
+//  9. On provider drop or relay error, re-dispatch up to N times
+//     (configurable; default 3) — invisible to the customer except
+//     for a one-time connection reset.
 //
 // Everything emits structured AuditEvents to JetStream AUDIT and
 // metering BillingEvents to JetStream BILLING.
@@ -67,6 +67,25 @@ type Server struct {
 	// Dialer is exported so tests can substitute a mock that dials
 	// in-process pipes. Defaults to a 10s timeout TCP dialer.
 	Dialer func(ctx context.Context, network, addr string) (net.Conn, error)
+
+	// EnableForwarderPreamble controls whether the proxy-gateway writes
+	// the IOGRID-TUN/1 preamble (issue #222 wire spec) on every freshly
+	// dialed provider connection BEFORE handing the socket to relay.Run.
+	//
+	// In production the assignment's Endpoint points at workloads-svc's
+	// TCP-over-DispatchFrame forwarder, which expects the preamble line
+	// "IOGRID-TUN/1 <attempt_id> [target_host_port]\n" so it can resolve
+	// the daemon Connection and open a TunnelOpen on the bidi stream.
+	//
+	// Local-dev mode with a StaticPool dispatcher points the endpoint at
+	// a raw TCP target (e.g. an echo server in tests); writing a preamble
+	// would prepend garbage to the byte stream and fail the integration
+	// tests. The flag defaults to false; main.go flips it on when the
+	// real workloads-svc Connect dispatcher is wired.
+	//
+	// Refs iogrid#279 — "forwarder rejects raw TLS bytes from
+	// proxy-gateway — preamble protocol mismatch".
+	EnableForwarderPreamble bool
 
 	// listener captured for graceful shutdown.
 	mu       sync.Mutex
@@ -618,6 +637,43 @@ func (s *Server) dialWithFailover(ctx context.Context, c *auth.Customer, destina
 		conn, dialErr := s.Dialer(dialCtx, "tcp", asg.Endpoint)
 		cancel()
 		if dialErr == nil {
+			// Wire-spec preamble (issue #222) — write the
+			// "IOGRID-TUN/1 <attempt_id> <host>:<port>\n" line BEFORE
+			// the relay starts pumping the customer's raw TLS bytes.
+			// Without this the workloads-svc forwarder rejects with
+			// "malformed preamble" the moment it sees \x16\x03 (the
+			// TLS handshake). Refs iogrid#279.
+			if s.EnableForwarderPreamble && asg.AttemptID != "" {
+				if pErr := writeForwarderPreamble(conn, asg.AttemptID, host, port, s.dialTimeout()); pErr != nil {
+					logger.Warn("forwarder preamble write failed; failing over",
+						slog.String("provider_id", asg.ProviderID),
+						slog.String("endpoint", asg.Endpoint),
+						slog.String("error", pErr.Error()),
+						slog.Int("attempt", attempt+1),
+					)
+					_ = conn.Close()
+					s.emitAudit(ctx, audit.AuditEvent{
+						EventKind:   "failover",
+						Protocol:    "internal",
+						SessionID:   sessionID,
+						CustomerID:  c.CustomerID,
+						WorkspaceID: c.WorkspaceID,
+						ProviderID:  asg.ProviderID,
+						Destination: destination,
+						Reason:      "preamble_write_failed",
+						Metadata: map[string]string{
+							"error":   pErr.Error(),
+							"attempt": fmt.Sprintf("%d", attempt+1),
+						},
+					})
+					excluded[asg.ProviderID] = struct{}{}
+					if s.Sessions != nil {
+						_ = s.Sessions.Invalidate(ctx, c.CustomerID, destination)
+					}
+					sticky = ""
+					continue
+				}
+			}
 			if s.Sessions != nil {
 				_ = s.Sessions.Put(ctx, sessions.Binding{
 					CustomerID:  c.CustomerID,
@@ -656,6 +712,34 @@ func (s *Server) dialWithFailover(ctx context.Context, c *auth.Customer, destina
 		sticky = ""
 	}
 	return nil, nil, fmt.Errorf("proxy: %d failover attempts exhausted", max)
+}
+
+// writeForwarderPreamble writes the IOGRID-TUN/1 preamble line on a
+// freshly-dialed provider connection. Format:
+//
+//	IOGRID-TUN/1 <attempt_id> <host>:<port>\n
+//
+// The trailing newline is REQUIRED — the forwarder's bufio reader uses
+// it as the framing delimiter (see workloads-svc forwarder.go
+// readPreamble). The target host:port is informational; the daemon can
+// also pick the destination from the workload context.
+//
+// A short write deadline guards against a wedged forwarder accepting
+// the TCP socket but never reading. timeout 0 disables the deadline.
+//
+// Refs iogrid#279.
+func writeForwarderPreamble(c net.Conn, attemptID, host string, port uint32, timeout time.Duration) error {
+	if timeout > 0 {
+		_ = c.SetWriteDeadline(time.Now().Add(timeout))
+		defer func() { _ = c.SetWriteDeadline(time.Time{}) }()
+	}
+	target := ""
+	if host != "" && port > 0 {
+		target = fmt.Sprintf(" %s:%d", host, port)
+	}
+	line := fmt.Sprintf("IOGRID-TUN/1 %s%s\n", attemptID, target)
+	_, err := c.Write([]byte(line))
+	return err
 }
 
 // runRelay runs the bidirectional copy + metering.

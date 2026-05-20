@@ -15,9 +15,18 @@ See:
 
 It registers as a provider, keeps the stream alive with periodic ping
 frames, and answers every inbound `WorkloadAssignment` with a synthetic
-`WorkloadStatusUpdate{status: FAILED}` (and every `TunnelOpen` with a
-`TunnelClose`). It deliberately does NOT execute workloads — the goal
-is to prove the dispatch chain end-to-end, not customer-job success.
+`WorkloadStatusUpdate{status: FAILED}`.
+
+On inbound `TunnelOpen` frames it dials the requested `target_host_port`
+directly (egress straight from the daemon's network) and pumps bytes
+both ways via `TunnelData` frames keyed by attempt_id — that is enough
+to make the Phase 0 vCard smoke return a real HTTP response from
+`linkedin.com` (or whichever destination the customer CONNECTed to)
+through the proxy chain. Refs iogrid#279.
+
+The stub still deliberately does NOT execute non-bandwidth workloads;
+every `WorkloadAssignment` is reported `FAILED`. Tunneling is the only
+real customer-job-shaped action it performs.
 
 ## Build
 
@@ -77,6 +86,7 @@ Override knobs (all optional):
    PROXY_URL=proxy.iogrid.org:443 \
    ./vcard-enrich-linux-amd64 -vanity satyanadella -timeout 60s
    ```
-6. Expected output: JSON with `"proxy_used": true` and some structured
-   response from the destination (HTTP error is OK; the goal is to
-   prove the SOCKS5 path is no longer rejected by REP=0x01).
+6. Expected output: JSON with `"proxy_used": true` and a real HTTP
+   response from the destination (`200`/`403`/`429` all count — the
+   goal is proving the byte stream tunnels through end-to-end). A
+   `malformed preamble` error or a bare `EOF` is now a regression.

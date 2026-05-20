@@ -11,14 +11,16 @@
 //     (default https://api.iogrid.org).
 //  4. Sends a DaemonHello frame, reads the CoordinatorHello ack, then
 //     loops:
-//       - every 5s, sends a Ping (server-timestamped liveness frame),
-//       - on inbound Assignment frames, replies with a synthetic
-//         WorkloadStatusUpdate{status: WORKLOAD_STATUS_FAILED, note:
-//         "dev-stub: not executed"} so the dispatcher sees the attempt
-//         was "tried" and can retry / time-out gracefully,
-//       - on inbound TunnelOpen frames, immediately answers with a
-//         TunnelClose{error: "dev-stub: tunneling not implemented"} so
-//         the proxy-gateway forwarder unblocks.
+//     - every 5s, sends a Ping (server-timestamped liveness frame),
+//     - on inbound Assignment frames, replies with a synthetic
+//     WorkloadStatusUpdate{status: WORKLOAD_STATUS_FAILED, note:
+//     "dev-stub: not executed"} so the dispatcher sees the attempt
+//     was "tried" and can retry / time-out gracefully,
+//     - on inbound TunnelOpen frames, dials the requested
+//     target_host_port directly and pumps bytes both ways via
+//     TunnelData frames keyed by attempt_id (iogrid#279). On dial
+//     failure or destination EOF, sends a TunnelClose to the
+//     coordinator so the proxy-gateway-side socket closes cleanly.
 //  5. On SIGINT/SIGTERM, sends a Drain frame and exits cleanly.
 //
 // The point of this stub is to UNBLOCK Phase 0 vCard smoke tests while
@@ -40,6 +42,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -194,6 +197,13 @@ func main() {
 		return stream.Send(f)
 	}
 
+	// Per-attempt tunnel state. The stub now performs real
+	// TCP-over-DispatchFrame tunneling (iogrid#279): on TunnelOpen it
+	// dials target_host_port directly and pumps bytes both ways.
+	// TunnelData frames in either direction are keyed by attempt_id.
+	tun := newTunnels(log, sendFrame)
+	defer tun.closeAll()
+
 	// Heartbeat ticker — emits a Ping (server-timestamped) every
 	// heartbeatInterval, until ctx is cancelled.
 	var wg sync.WaitGroup
@@ -294,21 +304,24 @@ func main() {
 		case f.GetTunnelOpen() != nil:
 			to := f.GetTunnelOpen()
 			aid := to.GetAttemptId().GetValue()
-			log.Info("tunnel_open received — replying TunnelClose (dev-stub does not tunnel)",
+			target := to.GetTargetHostPort()
+			log.Info("tunnel_open received — opening real TCP tunnel",
 				slog.String("attempt_id", aid),
-				slog.String("target", to.GetTargetHostPort()),
+				slog.String("target", target),
 			)
-			tc := &workloadsv1.DispatchFrame{
-				Frame: &workloadsv1.DispatchFrame_TunnelClose{
-					TunnelClose: &workloadsv1.TunnelClose{
-						AttemptId: &commonv1.UUID{Value: aid},
-						Error:     "dev-stub-daemon: tunneling not implemented",
-					},
-				},
-			}
-			if err := sendFrame(tc); err != nil {
-				log.Warn("tunnel_close send failed", slog.String("error", err.Error()))
-			}
+			tun.open(ctx, aid, target)
+		case f.GetTunnelData() != nil:
+			td := f.GetTunnelData()
+			aid := td.GetAttemptId().GetValue()
+			tun.feed(aid, td.GetPayload())
+		case f.GetTunnelClose() != nil:
+			tc := f.GetTunnelClose()
+			aid := tc.GetAttemptId().GetValue()
+			log.Info("tunnel_close received from coordinator",
+				slog.String("attempt_id", aid),
+				slog.String("error", tc.GetError()),
+			)
+			tun.close(aid, tc.GetError())
 		case f.GetCancelWorkloadId() != nil:
 			log.Info("cancel received", slog.String("workload_id", f.GetCancelWorkloadId().GetValue()))
 		case f.GetDrain():
@@ -419,4 +432,198 @@ func readProviderIDFromConfig(path string) (string, error) {
 func fatal(log *slog.Logger, msg string, args ...any) {
 	log.Error(msg, args...)
 	os.Exit(1)
+}
+
+// tunnelChunkSize bounds the size of a single TunnelData payload pushed
+// back up the dispatch stream. Connect-RPC has its own framing on top,
+// so this is purely a memory / latency knob.
+const tunnelChunkSize = 32 * 1024
+
+// tunnelDialTimeout caps how long the stub will wait when dialing the
+// destination host:port. Real daemons should keep this conservative —
+// proxy-gateway's relay is already deadlined.
+const tunnelDialTimeout = 10 * time.Second
+
+// tunnel is a single in-flight TCP-over-DispatchFrame attempt.
+type tunnel struct {
+	attemptID string
+	dest      net.Conn
+	closeOnce sync.Once
+	done      chan struct{}
+}
+
+// tunnels owns the live tunnel map. Frames inbound from the coordinator
+// fan in here keyed by attempt_id; the dialed destination connection's
+// read goroutine pumps payloads back as TunnelData frames.
+type tunnels struct {
+	log       *slog.Logger
+	sendFrame func(f *workloadsv1.DispatchFrame) error
+
+	mu sync.Mutex
+	m  map[string]*tunnel
+}
+
+func newTunnels(log *slog.Logger, send func(f *workloadsv1.DispatchFrame) error) *tunnels {
+	return &tunnels{log: log, sendFrame: send, m: make(map[string]*tunnel)}
+}
+
+// open dials the target_host_port and starts the destination→coordinator
+// pump goroutine. On dial failure the coordinator is informed via a
+// TunnelClose carrying the error string so the proxy-gateway side
+// surfaces a clean failure instead of a half-open socket.
+func (t *tunnels) open(ctx context.Context, attemptID, targetHostPort string) {
+	if attemptID == "" {
+		t.log.Warn("tunnel_open with empty attempt_id; ignoring")
+		return
+	}
+	if targetHostPort == "" {
+		t.log.Warn("tunnel_open with empty target_host_port; closing",
+			slog.String("attempt_id", attemptID))
+		_ = t.sendFrame(closeFrame(attemptID, "empty target_host_port"))
+		return
+	}
+	dialer := &net.Dialer{Timeout: tunnelDialTimeout}
+	dctx, cancel := context.WithTimeout(ctx, tunnelDialTimeout)
+	defer cancel()
+	c, err := dialer.DialContext(dctx, "tcp", targetHostPort)
+	if err != nil {
+		t.log.Warn("tunnel dial failed",
+			slog.String("attempt_id", attemptID),
+			slog.String("target", targetHostPort),
+			slog.String("error", err.Error()),
+		)
+		_ = t.sendFrame(closeFrame(attemptID, "dial "+targetHostPort+": "+err.Error()))
+		return
+	}
+	tun := &tunnel{
+		attemptID: attemptID,
+		dest:      c,
+		done:      make(chan struct{}),
+	}
+	t.mu.Lock()
+	if existing := t.m[attemptID]; existing != nil {
+		// Duplicate open — close the new one, keep the existing.
+		t.mu.Unlock()
+		_ = c.Close()
+		t.log.Warn("duplicate tunnel_open ignored", slog.String("attempt_id", attemptID))
+		return
+	}
+	t.m[attemptID] = tun
+	t.mu.Unlock()
+	t.log.Info("tunnel established",
+		slog.String("attempt_id", attemptID),
+		slog.String("target", targetHostPort),
+	)
+	go t.pumpFromDest(tun)
+}
+
+// feed writes a TunnelData payload to the destination socket.
+func (t *tunnels) feed(attemptID string, payload []byte) {
+	t.mu.Lock()
+	tun := t.m[attemptID]
+	t.mu.Unlock()
+	if tun == nil {
+		t.log.Debug("tunnel_data for unknown attempt; dropping",
+			slog.String("attempt_id", attemptID))
+		return
+	}
+	if _, err := tun.dest.Write(payload); err != nil {
+		t.log.Debug("tunnel dest write failed",
+			slog.String("attempt_id", attemptID),
+			slog.String("error", err.Error()),
+		)
+		t.closeWithReason(tun, "dest_write_failed: "+err.Error(), true)
+	}
+}
+
+// close removes a tunnel by attempt_id without sending a frame back —
+// used when the coordinator sends TunnelClose first.
+func (t *tunnels) close(attemptID, reason string) {
+	t.mu.Lock()
+	tun := t.m[attemptID]
+	delete(t.m, attemptID)
+	t.mu.Unlock()
+	if tun == nil {
+		return
+	}
+	t.closeWithReason(tun, reason, false)
+}
+
+// closeAll tears down every live tunnel on shutdown.
+func (t *tunnels) closeAll() {
+	t.mu.Lock()
+	all := make([]*tunnel, 0, len(t.m))
+	for _, v := range t.m {
+		all = append(all, v)
+	}
+	t.m = map[string]*tunnel{}
+	t.mu.Unlock()
+	for _, tun := range all {
+		t.closeWithReason(tun, "shutdown", false)
+	}
+}
+
+// pumpFromDest reads bytes from the destination socket and emits
+// TunnelData frames keyed by attempt_id. EOF or any read error
+// terminates with a TunnelClose to the coordinator so the
+// proxy-gateway-side socket flushes cleanly.
+func (t *tunnels) pumpFromDest(tun *tunnel) {
+	buf := make([]byte, tunnelChunkSize)
+	for {
+		n, err := tun.dest.Read(buf)
+		if n > 0 {
+			data := append([]byte(nil), buf[:n]...)
+			td := &workloadsv1.DispatchFrame{
+				Frame: &workloadsv1.DispatchFrame_TunnelData{
+					TunnelData: &workloadsv1.TunnelData{
+						AttemptId: &commonv1.UUID{Value: tun.attemptID},
+						Payload:   data,
+					},
+				},
+			}
+			if sendErr := t.sendFrame(td); sendErr != nil {
+				t.log.Debug("tunnel_data send failed",
+					slog.String("attempt_id", tun.attemptID),
+					slog.String("error", sendErr.Error()),
+				)
+				t.closeWithReason(tun, "send_failed: "+sendErr.Error(), true)
+				return
+			}
+		}
+		if err != nil {
+			reason := ""
+			if !errors.Is(err, io.EOF) {
+				reason = "dest_read_failed: " + err.Error()
+			}
+			t.closeWithReason(tun, reason, true)
+			return
+		}
+	}
+}
+
+// closeWithReason closes the destination socket once, optionally emits
+// a TunnelClose back to the coordinator, and unregisters the tunnel.
+func (t *tunnels) closeWithReason(tun *tunnel, reason string, notifyCoord bool) {
+	tun.closeOnce.Do(func() {
+		_ = tun.dest.Close()
+		close(tun.done)
+		t.mu.Lock()
+		delete(t.m, tun.attemptID)
+		t.mu.Unlock()
+		if notifyCoord {
+			_ = t.sendFrame(closeFrame(tun.attemptID, reason))
+		}
+	})
+}
+
+// closeFrame builds a TunnelClose DispatchFrame.
+func closeFrame(attemptID, reason string) *workloadsv1.DispatchFrame {
+	return &workloadsv1.DispatchFrame{
+		Frame: &workloadsv1.DispatchFrame_TunnelClose{
+			TunnelClose: &workloadsv1.TunnelClose{
+				AttemptId: &commonv1.UUID{Value: attemptID},
+				Error:     reason,
+			},
+		},
+	}
 }
