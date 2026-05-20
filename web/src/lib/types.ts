@@ -248,13 +248,20 @@ export interface CheckoutSessionResponse {
  * protoc-gen-go (NOT camelCase). See #298 — the previous typing
  * referenced ghost fields (`pattern`, `kind`, `reason`, `created_at`)
  * that the backend never populated, so every row rendered blank.
+ *
+ * `last_updated_at` may arrive as either an RFC3339 string (if the
+ * upstream ever switches to `protojson`) or — as today — the
+ * stdlib-encoded `*timestamppb.Timestamp` struct
+ * `{seconds, nanos}` (#304). Renderers MUST normalise before display.
  */
+export type ProtoTimestamp = { seconds?: string | number; nanos?: number };
+
 export interface AbuseFilterRule {
   id: string;
   slug: string;
   description: string;
   version: string;
-  last_updated_at?: string;
+  last_updated_at?: string | ProtoTimestamp | null;
 }
 
 /**
