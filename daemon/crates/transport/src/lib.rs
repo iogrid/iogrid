@@ -482,7 +482,7 @@ impl Channel {
             // appeared to "succeed" at TLS but then died within ~7s
             // before the DaemonHello frame reached workloads-svc. 60s
             // gives the bidi pump enough slack for two missed pings.
-            .http2_keep_alive_timeout(Duration::from_secs(60))
+            .keep_alive_timeout(Duration::from_secs(60))
             .keep_alive_while_idle(true);
         let ch = match ep.connect().await {
             Ok(ch) => ch,
@@ -1138,9 +1138,7 @@ async fn run_dispatch_stream(
             )));
         }
         Err(_) => {
-            tracing::warn!(
-                "dispatch stream: 10s timeout waiting for coordinator-hello"
-            );
+            tracing::warn!("dispatch stream: 10s timeout waiting for coordinator-hello");
             return Err(TransportError::Unreachable(
                 "timed out waiting for coordinator-hello (10s)".into(),
             ));
