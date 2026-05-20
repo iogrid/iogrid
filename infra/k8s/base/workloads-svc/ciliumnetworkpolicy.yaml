@@ -42,3 +42,16 @@ spec:
         - ports:
             - port: "9090"
               protocol: TCP
+    # proxy-gateway dials the TCP-over-DispatchFrame forwarder on
+    # port 9091 (see #222 / #267). Cilium L4 allow; the forwarder
+    # preamble enforces L7 attempt-id binding inside the stream.
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: proxy-gateway
+            io.kubernetes.pod.namespace: iogrid
+      authentication:
+        mode: required
+      toPorts:
+        - ports:
+            - port: "9091"
+              protocol: TCP

@@ -20,6 +20,7 @@ package dispatch
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -258,7 +259,14 @@ func (d *ConnectDispatcher) Dispatch(ctx context.Context, req Request) (*Assignm
 		asg.WorkloadID = out.Id.Value
 	}
 	if asg.ProviderID == "" || asg.Endpoint == "" {
-		return nil, ErrNoEligibleProvider
+		// Disambiguate the "workloads-svc returned a successful
+		// Assignment but with empty ProviderID/Endpoint labels" case
+		// from the genuine "scheduler found no eligible provider"
+		// case — both used to produce the literal string
+		// "no eligible provider" with no provenance, costing hours of
+		// triage time (see #267). errors.Is(err, ErrNoEligibleProvider)
+		// still matches via %w.
+		return nil, fmt.Errorf("%w: workloads-svc returned empty assignment (provider_id=%q endpoint=%q) — check WORKLOADS_SVC_PROVIDER_ENDPOINT on the workloads-svc Deployment and that a daemon is connected to this replica", ErrNoEligibleProvider, asg.ProviderID, asg.Endpoint)
 	}
 	_ = durationpb.New(0) // keep import for future deadline plumbing
 	return asg, nil

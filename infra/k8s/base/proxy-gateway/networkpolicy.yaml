@@ -55,6 +55,16 @@ spec:
       ports:
         - protocol: TCP
           port: 8080
+    # proxy-gateway dials workloads-svc's TCP-over-DispatchFrame
+    # forwarder on port 9091 to forward customer bytes to the
+    # daemon connected via that replica. See #222 / #267.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: workloads-svc
+      ports:
+        - protocol: TCP
+          port: 9091
     - to:
         - podSelector:
             matchLabels:
