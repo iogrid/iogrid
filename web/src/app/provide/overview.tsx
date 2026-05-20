@@ -27,13 +27,14 @@ import type { ProviderDashboard } from "@/lib/types";
  * #309 walk on 2026-05-21).
  */
 function pickNum(
-  obj: Record<string, unknown>,
+  obj: object,
   canonical: string,
   snake: string,
 ): number {
+  const bag = obj as Record<string, unknown>;
   const v =
-    (obj[canonical] as number | undefined) ??
-    (obj[snake] as number | undefined) ??
+    (bag[canonical] as number | undefined) ??
+    (bag[snake] as number | undefined) ??
     0;
   return typeof v === "number" && Number.isFinite(v) ? v : 0;
 }
