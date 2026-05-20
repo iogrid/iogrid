@@ -71,7 +71,13 @@ test.describe("/install + proxy onboarding surface", () => {
     await expect(vpnLink).toBeVisible();
 
     await vpnLink.click();
-    await expect(page).toHaveURL(/\/vpn$/);
+    // /vpn permanently redirects to /install — the daemon and the
+    // consumer VPN client are the same binary, so /install is the
+    // canonical SOCKS5 install surface. See PR #308 / issue #306.
+    await expect(page).toHaveURL(/\/install$/);
+    await expect(
+      page.getByRole("heading", { name: /install iogrid/i, level: 1 }),
+    ).toBeVisible();
   });
 
   test("non-existent page returns a 404 not a server crash", async ({
