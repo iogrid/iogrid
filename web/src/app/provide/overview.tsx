@@ -4,6 +4,10 @@ import * as React from "react";
 import Link from "next/link";
 import { AuditEventCard } from "@/components/dashboard/audit-event-card";
 import { StatsCard } from "@/components/dashboard/stats-card";
+import {
+  ProviderEmptyState,
+  PROVIDER_EMPTY_OVERVIEW_SUBTITLE,
+} from "@/components/dashboard/provider-empty-state";
 import { browserApi } from "@/lib/api";
 import { formatBytes, formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -16,12 +20,23 @@ export function ProvideOverview() {
 
   React.useEffect(() => {
     let cancelled = false;
+    let timerId: ReturnType<typeof setInterval> | null = null;
     const load = async () => {
       try {
         const res = await browserApi().get<ProviderDashboard>(
           "/api/v1/provide/dashboard",
         );
-        if (!cancelled) setDash(res);
+        if (!cancelled) {
+          setDash(res);
+          // Stop polling once we know the caller owns zero providers —
+          // the empty-state CTA is static, no point re-fetching every
+          // 15s (#313). Polling resumes on a full page navigation
+          // after the operator installs the daemon.
+          if (res.has_provider === false && timerId !== null) {
+            clearInterval(timerId);
+            timerId = null;
+          }
+        }
       } catch (e) {
         if (!cancelled) setErr((e as Error).message);
       } finally {
@@ -29,10 +44,10 @@ export function ProvideOverview() {
       }
     };
     void load();
-    const id = setInterval(load, 15_000); // live-update every 15s
+    timerId = setInterval(load, 15_000); // live-update every 15s
     return () => {
       cancelled = true;
-      clearInterval(id);
+      if (timerId !== null) clearInterval(timerId);
     };
   }, []);
 
@@ -50,6 +65,15 @@ export function ProvideOverview() {
         running and pointing at this account.
       </div>
     );
+  }
+
+  // Gate on has_provider BEFORE rendering the StatsCard grid — per #313
+  // an operator with zero paired daemons must be pointed at /install,
+  // never handed the em-dash skeleton (which falsely implies their
+  // machine is up but idle). Backend contract: gateway-bff returns
+  // {has_provider: false, providers: null, ...} for this case (#305).
+  if (dash?.has_provider === false) {
+    return <ProviderEmptyState subtitle={PROVIDER_EMPTY_OVERVIEW_SUBTITLE} />;
   }
 
   const state = dash?.state?.state ?? "UNSPECIFIED";

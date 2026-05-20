@@ -4,9 +4,14 @@ import * as React from "react";
 import { toast } from "sonner";
 import { EarningsChart, type EarningsPoint } from "@/components/dashboard/earnings-chart";
 import { StatsCard } from "@/components/dashboard/stats-card";
+import {
+  ProviderEmptyState,
+  PROVIDER_EMPTY_EARNINGS_SUBTITLE,
+} from "@/components/dashboard/provider-empty-state";
 import { Button } from "@/components/ui/button";
 import { browserApi } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
+import { useProviderOwnership } from "@/lib/use-provider-ownership";
 import { cn } from "@/lib/utils";
 import type { GetEarningsSummaryResponse } from "@/lib/types";
 import {
@@ -30,6 +35,7 @@ const PERIODS: { key: Period; label: string; days: number }[] = [
 ];
 
 export function EarningsView() {
+  const ownership = useProviderOwnership();
   const [period, setPeriod] = React.useState<Period>("daily");
   const [summary, setSummary] = React.useState<GetEarningsSummaryResponse | null>(
     null,
@@ -49,6 +55,15 @@ export function EarningsView() {
   }, []);
 
   React.useEffect(() => {
+    // Don't fan out to /api/v1/provide/earnings when we already know
+    // the caller owns zero paired providers — the BFF would just hand
+    // us back an empty envelope and the page would render the
+    // empty-state below anyway. Saves one round-trip per page view
+    // for the not-yet-paired cohort (#313).
+    if (ownership.hasProvider === false) {
+      setLoading(false);
+      return;
+    }
     const cfg = PERIODS.find((p) => p.key === period)!;
     const end = new Date();
     const start = new Date(end.getTime() - cfg.days * 86400_000);
@@ -67,7 +82,14 @@ export function EarningsView() {
         toast.error(`Failed to load earnings: ${err.message}`);
       })
       .finally(() => setLoading(false));
-  }, [period]);
+  }, [period, ownership.hasProvider]);
+
+  // Gate on ownership BEFORE rendering the StatsCard grid — the
+  // skeleton-with-em-dash treatment is misleading for users with zero
+  // paired daemons (#313). Render the "Install daemon" CTA instead.
+  if (ownership.hasProvider === false) {
+    return <ProviderEmptyState subtitle={PROVIDER_EMPTY_EARNINGS_SUBTITLE} />;
+  }
 
   const total = summary?.summary?.totalEarned;
   // Default currency is the native ledger currency ($GRID), NOT USD —

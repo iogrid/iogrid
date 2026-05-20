@@ -5,7 +5,12 @@ import { toast } from "sonner";
 import { useSSE } from "@/lib/sse";
 import { browserApi } from "@/lib/api";
 import { AuditEventCard } from "@/components/dashboard/audit-event-card";
+import {
+  ProviderEmptyState,
+  PROVIDER_EMPTY_AUDIT_SUBTITLE,
+} from "@/components/dashboard/provider-empty-state";
 import { Button } from "@/components/ui/button";
+import { useProviderOwnership } from "@/lib/use-provider-ownership";
 import { cn } from "@/lib/utils";
 import type { AuditEvent, SchedulingConfig } from "@/lib/types";
 
@@ -26,6 +31,7 @@ const SSE_URL =
     : "/api/v1/provide/audit/stream";
 
 export function AuditFeed() {
+  const ownership = useProviderOwnership();
   const [paused, setPaused] = React.useState(false);
   const [filter, setFilter] = React.useState<FilterKey>("all");
   const [nowMs, setNowMs] = React.useState(Date.now());
@@ -36,9 +42,16 @@ export function AuditFeed() {
     return () => clearInterval(id);
   }, []);
 
+  // Don't open the SSE EventSource until we've confirmed the caller
+  // owns at least one provider. Without this, /provide/audit/stream
+  // would 404 in a tight reconnect loop for the not-yet-paired cohort
+  // (gateway-bff returns 404 with code=no_provider in that case).
+  // We pass `paused` to useSSE so it never spawns the EventSource
+  // until ownership resolves true (#313).
+  const sseSuppressed = ownership.hasProvider !== true;
   const { events: liveEvents, status, clear } = useSSE<FeedEvent>({
     url: SSE_URL,
-    paused,
+    paused: paused || sseSuppressed,
     parse: (raw) => {
       try {
         const parsed = JSON.parse(raw) as AuditEvent;
@@ -112,6 +125,13 @@ export function AuditFeed() {
     },
     [],
   );
+
+  // Gate on ownership BEFORE rendering the SSE controls (#313). The
+  // transparency feed is meaningless without a paired daemon producing
+  // events; show the "Install daemon" CTA so the user knows what to do.
+  if (ownership.hasProvider === false) {
+    return <ProviderEmptyState subtitle={PROVIDER_EMPTY_AUDIT_SUBTITLE} />;
+  }
 
   return (
     <div className="space-y-4">
