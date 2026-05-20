@@ -43,11 +43,11 @@ import (
 )
 
 // IdentityHandler implements identityv1connect.IdentityServiceHandler.
-// Today it ships the two RPCs needed to retire the web-side stubs;
-// the remaining methods (GetUser, ListUsers, UpdateUser, DeleteUser,
-// MergeIdentities) stay on UnimplementedIdentityServiceHandler so the
-// service compiles + responds with CodeUnimplemented until each is
-// wired through to the same store.
+// Ships GetUser + RemoveIdentifier + DeleteAccount; the remaining
+// methods (ListUsers, UpdateUser, DeleteUser, MergeIdentities) stay on
+// UnimplementedIdentityServiceHandler so the service compiles +
+// responds with CodeUnimplemented until each is wired through to the
+// same store.
 type IdentityHandler struct {
 	identityv1connect.UnimplementedIdentityServiceHandler
 	Store *store.Store
@@ -59,6 +59,67 @@ func NewIdentityHandler(s *store.Store) *IdentityHandler {
 }
 
 // --- Connect-Go entry points --------------------------------------------
+
+// GetUser returns the canonical User record + every bound Identifier for
+// the supplied user id. Authorization:
+//
+//   - With no id (zero UUID): resolves to the caller's own record. This
+//     is the path gateway-bff exercises for /api/v1/me — the BFF passes
+//     claims.UserID() through but the handler accepts an empty id for
+//     defence-in-depth so future "/api/v1/me" callers cannot leak the
+//     authed user id by accident.
+//   - With id == caller: same as above — caller reading own record.
+//   - With id != caller: requires the caller to hold the
+//     USER_ROLE_ADMIN role; otherwise CodePermissionDenied. Cross-user
+//     reads from the management plane go through this branch (admin
+//     directory; user-impersonation flows).
+//
+// CodeNotFound surfaces when the requested user has been soft-deleted
+// or never existed — the store layer maps pgx.ErrNoRows to
+// store.ErrNotFound which mapStoreError turns into the right Connect
+// code.
+func (h *IdentityHandler) GetUser(
+	ctx context.Context,
+	req *connect.Request[identityv1.GetUserRequest],
+) (*connect.Response[identityv1.GetUserResponse], error) {
+	callerID, ok := authmw.AuthedUser(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing bearer token"))
+	}
+
+	// Resolve the target user id. An empty / nil id resolves to the
+	// caller — this is what gateway-bff.GetMe relies on after stripping
+	// the bearer.
+	targetID := callerID
+	if req.Msg.GetId().GetValue() != "" {
+		parsed, err := uuid.Parse(req.Msg.GetId().GetValue())
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
+		targetID = parsed
+	}
+
+	// Cross-user reads require admin. Self-reads are always allowed.
+	if targetID != callerID && !callerHasRole(ctx, "USER_ROLE_ADMIN") {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("cross-user GetUser requires admin"))
+	}
+
+	if h.Store == nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("identity-svc: store not configured"))
+	}
+	u, err := h.Store.GetUser(ctx, nil, targetID)
+	if err != nil {
+		return nil, mapStoreError(err)
+	}
+	ids, err := h.Store.ListIdentifiersForUser(ctx, nil, targetID)
+	if err != nil {
+		return nil, mapStoreError(err)
+	}
+	return connect.NewResponse(&identityv1.GetUserResponse{
+		User:        userToProto(u),
+		Identifiers: identifiersToProto(ids),
+	}), nil
+}
 
 // RemoveIdentifier deletes a single identifier owned by the caller. The
 // handler enforces "at least one verified identifier remains" inside a
@@ -302,6 +363,71 @@ func parseProtoUUID(u *commonv1.UUID) (uuid.UUID, error) {
 		return uuid.Nil, errors.New("uuid required")
 	}
 	return uuid.Parse(u.GetValue())
+}
+
+// callerHasRole returns true when the authed user's JWT claims carry
+// the supplied SCREAMING_SNAKE_CASE role. Used for cross-user GetUser
+// gating; admin self-impersonation flows pass through.
+//
+// On the service-token shim path (used by the Phase 0 Next.js BFF) no
+// claims are injected, so role-gated branches default to denied. That
+// matches the threat model — the BFF only ever speaks for its own
+// browser session, never on behalf of an admin acting on another user.
+func callerHasRole(ctx context.Context, role string) bool {
+	claims, ok := authmw.AuthedClaims(ctx)
+	if !ok || claims == nil {
+		return false
+	}
+	for _, r := range claims.Roles {
+		if r == role {
+			return true
+		}
+	}
+	return false
+}
+
+// userToProto materialises a store.User as its identity.v1.User proto
+// counterpart. Optional timestamps (LastLoginAt, DeletedAt) round-trip
+// as nil when unset — proto3 lets the field stay absent on the wire.
+func userToProto(u *store.User) *identityv1.User {
+	if u == nil {
+		return nil
+	}
+	out := &identityv1.User{
+		Id:           &commonv1.UUID{Value: u.ID.String()},
+		PrimaryEmail: u.PrimaryEmail,
+		DisplayName:  u.DisplayName,
+		PictureUrl:   u.PictureURL,
+		Roles:        rolesFromStrings(u.Roles),
+		CreatedAt:    timestamppb.New(u.CreatedAt),
+		UpdatedAt:    timestamppb.New(u.UpdatedAt),
+	}
+	if u.LastLoginAt != nil {
+		out.LastLoginAt = timestamppb.New(*u.LastLoginAt)
+	}
+	if u.DeletedAt != nil {
+		out.DeletedAt = timestamppb.New(*u.DeletedAt)
+	}
+	return out
+}
+
+// rolesFromStrings parses the SCREAMING_SNAKE_CASE role names stored
+// in users.roles into their proto3 UserRole enum values. Unknown
+// strings map to USER_ROLE_UNSPECIFIED — a new role added in the proto
+// but not yet rolled out to the store should not panic the handler.
+func rolesFromStrings(in []string) []identityv1.UserRole {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]identityv1.UserRole, 0, len(in))
+	for _, s := range in {
+		if v, ok := identityv1.UserRole_value[s]; ok {
+			out = append(out, identityv1.UserRole(v))
+		} else {
+			out = append(out, identityv1.UserRole_USER_ROLE_UNSPECIFIED)
+		}
+	}
+	return out
 }
 
 func identifiersToProto(in []store.Identifier) []*identityv1.Identifier {
