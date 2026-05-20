@@ -114,6 +114,20 @@ type BillingClient interface {
 	CreateCheckoutSession(ctx context.Context, req *billingv1.CreateCheckoutSessionRequest) (*billingv1.CreateCheckoutSessionResponse, error)
 }
 
+// BillingEarningsClient backs the /provide/earnings headline-card surface
+// (#324). The three RPCs are owned by billing-svc (NOT providers-svc):
+// totals + payout-method election sit on the money side of the bounded-
+// context line. gateway-bff fans
+//
+//	GET /api/v1/provide/earnings/summary → GetEarningsSummary
+//	GET /api/v1/provide/payout-method    → GetPayoutMethod
+//	PUT /api/v1/provide/payout-method    → SetPayoutMethod
+type BillingEarningsClient interface {
+	GetEarningsSummary(ctx context.Context, req *billingv1.GetEarningsSummaryRequest) (*billingv1.GetEarningsSummaryResponse, error)
+	GetPayoutMethod(ctx context.Context, req *billingv1.GetPayoutMethodRequest) (*billingv1.GetPayoutMethodResponse, error)
+	SetPayoutMethod(ctx context.Context, req *billingv1.SetPayoutMethodRequest) (*billingv1.SetPayoutMethodResponse, error)
+}
+
 // WorkspaceClient bundles the WorkspaceService RPCs proxied by
 // /api/v1/workspaces. Defined here so the wiring stays symmetric with
 // the other per-service interfaces; the handler-package mirror
@@ -142,6 +156,7 @@ type Set struct {
 	Workloads             WorkloadsClient
 	Antiabuse             AntiabuseClient
 	Billing               BillingClient
+	BillingEarnings       BillingEarningsClient
 	Workspaces            WorkspaceClient
 }
 
@@ -175,6 +190,7 @@ func New(cfg Config, httpClient *http.Client) *Set {
 	wlRaw := workloadsv1connect.NewWorkloadSubmissionServiceClient(httpClient, cfg.WorkloadsURL)
 	abuseRaw := antiabusev1connect.NewAbuseFilterServiceClient(httpClient, cfg.AntiabuseURL)
 	billRaw := billingv1connect.NewSubscriptionServiceClient(httpClient, cfg.BillingURL)
+	earnRaw := billingv1connect.NewEarningsServiceClient(httpClient, cfg.BillingURL)
 
 	return &Set{
 		Identity:              &identityAdapter{c: identityRaw, retries: cfg.Retries},
@@ -185,6 +201,7 @@ func New(cfg Config, httpClient *http.Client) *Set {
 		Workloads:             &workloadsAdapter{c: wlRaw, retries: cfg.Retries},
 		Antiabuse:             &antiabuseAdapter{c: abuseRaw, retries: cfg.Retries},
 		Billing:               &billingAdapter{c: billRaw, retries: cfg.Retries},
+		BillingEarnings:       &billingEarningsAdapter{c: earnRaw, retries: cfg.Retries},
 		Workspaces:            &workspaceAdapter{c: workspaceRaw, retries: cfg.Retries},
 	}
 }
@@ -519,6 +536,45 @@ func (a *billingAdapter) CreateCheckoutSession(ctx context.Context, req *billing
 		return nil, err
 	}
 	return r.Msg, nil
+}
+
+// --- billing earnings adapter ---------------------------------------------
+
+type billingEarningsAdapter struct {
+	c       billingv1connect.EarningsServiceClient
+	retries int
+}
+
+func (a *billingEarningsAdapter) GetEarningsSummary(ctx context.Context, req *billingv1.GetEarningsSummaryRequest) (*billingv1.GetEarningsSummaryResponse, error) {
+	return retry(ctx, a.retries, func(ctx context.Context) (*billingv1.GetEarningsSummaryResponse, error) {
+		r, err := a.c.GetEarningsSummary(ctx, connect.NewRequest(req))
+		if err != nil {
+			return nil, err
+		}
+		return r.Msg, nil
+	})
+}
+
+func (a *billingEarningsAdapter) GetPayoutMethod(ctx context.Context, req *billingv1.GetPayoutMethodRequest) (*billingv1.GetPayoutMethodResponse, error) {
+	return retry(ctx, a.retries, func(ctx context.Context) (*billingv1.GetPayoutMethodResponse, error) {
+		r, err := a.c.GetPayoutMethod(ctx, connect.NewRequest(req))
+		if err != nil {
+			return nil, err
+		}
+		return r.Msg, nil
+	})
+}
+
+// SetPayoutMethod is idempotent (last-write-wins on user_id) so it's
+// safe to retry on transient transport failures.
+func (a *billingEarningsAdapter) SetPayoutMethod(ctx context.Context, req *billingv1.SetPayoutMethodRequest) (*billingv1.SetPayoutMethodResponse, error) {
+	return retry(ctx, a.retries, func(ctx context.Context) (*billingv1.SetPayoutMethodResponse, error) {
+		r, err := a.c.SetPayoutMethod(ctx, connect.NewRequest(req))
+		if err != nil {
+			return nil, err
+		}
+		return r.Msg, nil
+	})
 }
 
 // --- workspace adapter ----------------------------------------------------

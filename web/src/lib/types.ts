@@ -123,6 +123,54 @@ export interface GetEarningsSummaryResponse {
   summary?: EarningsSummary;
 }
 
+// ---- billing-svc earnings summary (#324) ----------------------------------
+// Distinct from EarningsSummary above: that one (providers-svc) breaks
+// revenue down by workload_type for a TimeWindow; this one (billing-svc)
+// is the headline-card aggregation the /provide/earnings page reads at
+// the top — lifetime / last-30d / last-7d / pending / workload count.
+
+export interface BillingEarningsSummary {
+  providerId?: UUIDValue;
+  totalEarned?: Money;
+  /** Trailing 30 days. proto field name: last_30d. */
+  last30D?: Money;
+  /** Trailing 7 days. proto field name: last_7d. */
+  last7D?: Money;
+  /** Credited but not yet swept by the off-ramp cron. */
+  pendingPayout?: Money;
+  /** int64 → JSON-canonical string. */
+  lifetimeWorkloads?: string | number;
+  computedAt?: string;
+}
+
+export interface BillingGetEarningsSummaryResponse {
+  summary?: BillingEarningsSummary;
+}
+
+export type PayoutMethodKind =
+  | "PAYOUT_METHOD_KIND_UNSPECIFIED"
+  | "PAYOUT_METHOD_KIND_CASH_USDC"
+  | "PAYOUT_METHOD_KIND_FREE_VPN"
+  | "PAYOUT_METHOD_KIND_CHARITY";
+
+export interface PayoutMethod {
+  userId?: UUIDValue;
+  kind: PayoutMethodKind;
+  /** Solana wallet for CASH_USDC; empty otherwise. */
+  destinationAddress?: string;
+  /** Opaque charity id for CHARITY; empty otherwise. */
+  charityId?: string;
+  updatedAt?: string;
+}
+
+export interface GetPayoutMethodResponse {
+  method?: PayoutMethod;
+}
+
+export interface SetPayoutMethodResponse {
+  method?: PayoutMethod;
+}
+
 export interface ResourceCaps {
   bandwidthCapGbPerMonth: number;
   cpuCapPercent: number;

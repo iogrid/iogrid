@@ -165,6 +165,13 @@ func Mount(deps Deps) func(chi.Router) {
 				r.Post("/schedule", api.UpdateProviderSchedule)
 				r.Get("/audit/stream", api.StreamProviderAudit)
 				r.Get("/earnings", api.GetProviderEarnings)
+				// Headline-card surface for /provide/earnings page (#324).
+				// summary returns lifetime/last_30d/last_7d/pending +
+				// workload count; payout-method is the user's election
+				// (CASH_USDC | FREE_VPN | CHARITY | UNSPECIFIED).
+				r.Get("/earnings/summary", api.GetProviderEarningsSummary)
+				r.Get("/payout-method", api.GetProviderPayoutMethod)
+				r.Put("/payout-method", api.SetProviderPayoutMethod)
 			})
 
 			// /customer ---------------------------------------------------

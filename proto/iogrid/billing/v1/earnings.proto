@@ -1,0 +1,99 @@
+// Provider earnings summary + payout-method preference for the
+// /provide/earnings page. Lives in billing-svc (NOT providers-svc)
+// because the canonical money state — including pending-payout balance,
+// lifetime totals, and the user's preferred off-ramp variant — is owned
+// by billing-svc's bounded context.
+//
+// providers-svc keeps its own GetEarningsSummary (proto: providers/v1/
+// dashboard.proto) for the transparency feed: that one breaks revenue
+// down by workload_type for a single TimeWindow. THIS service answers
+// the headline-card shape the management UI shows (totals + rolling
+// windows + payout method).
+syntax = "proto3";
+
+package iogrid.billing.v1;
+
+import "google/protobuf/timestamp.proto";
+import "iogrid/common/v1/types.proto";
+
+option go_package = "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/billing/v1;billingv1";
+
+// EarningsSummary is the headline-card aggregation for /provide/earnings.
+// All Money fields default to currency="GRID" (#312 / #315 — the canonical
+// native ledger currency) when the provider has no recorded earnings yet.
+message EarningsSummary {
+  iogrid.common.v1.UUID provider_id = 1;
+  // Lifetime cumulative — never resets.
+  iogrid.common.v1.Money total_earned = 2;
+  // Trailing 30-day window (start = now - 30d, end = now).
+  iogrid.common.v1.Money last_30d = 3;
+  // Trailing 7-day window (start = now - 7d, end = now).
+  iogrid.common.v1.Money last_7d = 4;
+  // Funds credited but not yet swept to the user's payout method.
+  iogrid.common.v1.Money pending_payout = 5;
+  // Count of distinct workloads served lifetime.
+  int64 lifetime_workloads = 6;
+  // Server-side computation timestamp; clients use this for "as-of" labels.
+  google.protobuf.Timestamp computed_at = 7;
+}
+
+message GetEarningsSummaryRequest {
+  iogrid.common.v1.UUID provider_id = 1;
+}
+message GetEarningsSummaryResponse {
+  EarningsSummary summary = 1;
+}
+
+// PayoutMethodKind is the user-visible payout election. Persisted as a
+// string in billing-svc's payout_methods table; new variants must be
+// appended (never renumbered).
+enum PayoutMethodKind {
+  PAYOUT_METHOD_KIND_UNSPECIFIED = 0;
+  // Off-ramp $GRID → USDC on Solana, send to destination_address.
+  PAYOUT_METHOD_KIND_CASH_USDC = 1;
+  // Burn $GRID into the VPN credit pool — no token leaves the system.
+  PAYOUT_METHOD_KIND_FREE_VPN = 2;
+  // Off-ramp $GRID → USD and forward proceeds to charity_id.
+  PAYOUT_METHOD_KIND_CHARITY = 3;
+}
+
+// PayoutMethod is the per-user payout election. A user that has not yet
+// picked sees PAYOUT_METHOD_KIND_UNSPECIFIED — the web shell shows the
+// "Hold $GRID (default)" tile selected in that case.
+message PayoutMethod {
+  iogrid.common.v1.UUID user_id = 1;
+  PayoutMethodKind kind = 2;
+  // For CASH_USDC: Solana wallet address ($GRID/USDC live on the same
+  // mint family). Empty for FREE_VPN / CHARITY / UNSPECIFIED.
+  string destination_address = 3;
+  // For CHARITY: opaque charity_id (resolved via charity catalog).
+  // Empty for the other variants.
+  string charity_id = 4;
+  google.protobuf.Timestamp updated_at = 5;
+}
+
+message GetPayoutMethodRequest {
+  iogrid.common.v1.UUID user_id = 1;
+}
+message GetPayoutMethodResponse {
+  PayoutMethod method = 1;
+}
+
+message SetPayoutMethodRequest {
+  iogrid.common.v1.UUID user_id = 1;
+  PayoutMethodKind kind = 2;
+  string destination_address = 3;
+  string charity_id = 4;
+}
+message SetPayoutMethodResponse {
+  PayoutMethod method = 1;
+}
+
+// EarningsService is the headline-card surface for /provide/earnings.
+// Read RPCs are safe to retry; SetPayoutMethod is idempotent (last write
+// wins on (user_id) primary key).
+service EarningsService {
+  rpc GetEarningsSummary(GetEarningsSummaryRequest) returns (GetEarningsSummaryResponse);
+  rpc GetPayoutMethod(GetPayoutMethodRequest) returns (GetPayoutMethodResponse);
+  rpc SetPayoutMethod(SetPayoutMethodRequest) returns (SetPayoutMethodResponse);
+}
