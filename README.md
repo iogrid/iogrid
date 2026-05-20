@@ -70,8 +70,12 @@ iogrid/
 │                   identity-svc, providers-svc, workloads-svc, antiabuse-svc,
 │                   billing-svc, telemetry-svc, gateway-bff, proxy-gateway,
 │                   build-gateway.
-├── web/            Next.js 15 management plane — providers + customers + VPN.
-│                   TypeScript, shadcn/ui, Tailwind 4, real-time SSE.
+├── web/            Next.js 15 management plane — providers + customers + VPN
+│                   surfaces, served at app.iogrid.org. TypeScript, shadcn/ui,
+│                   Tailwind 4, real-time SSE.
+├── admin/          Next.js 15 staff console — abuse review, KYC, provider audits,
+│                   finops. Served at admin.iogrid.org as a separate origin
+│                   (split out of web/ in #361, gated by IOGRID_ADMIN_EMAILS).
 ├── proto/          Buf-managed protobuf schemas for all services.
 ├── infra/k8s/      Flux-managed k8s manifests (deployed on OpenOva ecosystem).
 └── docs/           Architecture, roadmap, tech specs, incentive model, legal.
