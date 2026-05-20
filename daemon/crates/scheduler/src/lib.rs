@@ -98,6 +98,36 @@ impl Default for SchedulerConfig {
     }
 }
 
+impl SchedulerConfig {
+    /// Build a `SchedulerConfig` tailored to a deployment profile.
+    ///
+    /// * `"laptop"` (or any unrecognised / empty value): laptop-friendly
+    ///   defaults — same as [`SchedulerConfig::default`]
+    ///   (`idle_only=true`, `cpu_cap_pct=30`, `memory_cap_pct=25`,
+    ///   `idle_threshold_secs=300`). These are correct for real Mac /
+    ///   Windows providers where the daemon must yield to the user.
+    /// * `"headless"`: busy-server defaults — no idle-only gate,
+    ///   higher CPU / memory caps, suitable for CI / smoke / dedicated
+    ///   headless boxes that run the daemon as a service.
+    ///
+    /// Wired into [`crate::Supervisor`] via the
+    /// `IOGRID_SCHEDULER_PROFILE` env var read in
+    /// `iogrid_core::DaemonConfig::load_or_init`. See iogrid#268.
+    pub fn default_for_profile(profile: &str) -> SchedulerConfig {
+        match profile {
+            "headless" => SchedulerConfig {
+                bandwidth_cap_gb: 50,
+                cpu_cap_pct: 80,
+                memory_cap_pct: 80,
+                idle_threshold_secs: 0,
+                idle_only: false,
+                calendar: Vec::new(),
+            },
+            _ => SchedulerConfig::default(),
+        }
+    }
+}
+
 /// One active window on the weekly calendar.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CalendarWindow {
@@ -441,5 +471,59 @@ mod tests {
     fn pause_reason_slugs_are_stable() {
         assert_eq!(PauseReason::BandwidthCapReached.slug(), "bandwidth_cap");
         assert_eq!(PauseReason::ManuallyPaused.slug(), "manually_paused");
+    }
+
+    #[test]
+    fn default_for_profile_laptop_matches_default() {
+        let laptop = SchedulerConfig::default_for_profile("laptop");
+        let dflt = SchedulerConfig::default();
+        assert_eq!(laptop.bandwidth_cap_gb, dflt.bandwidth_cap_gb);
+        assert_eq!(laptop.cpu_cap_pct, dflt.cpu_cap_pct);
+        assert_eq!(laptop.memory_cap_pct, dflt.memory_cap_pct);
+        assert_eq!(laptop.idle_threshold_secs, dflt.idle_threshold_secs);
+        assert_eq!(laptop.idle_only, dflt.idle_only);
+        assert!(laptop.calendar.is_empty());
+    }
+
+    #[test]
+    fn default_for_profile_headless_disables_idle_and_raises_caps() {
+        let h = SchedulerConfig::default_for_profile("headless");
+        assert!(!h.idle_only, "headless profile must NOT gate on idle-only");
+        assert_eq!(h.cpu_cap_pct, 80);
+        assert_eq!(h.memory_cap_pct, 80);
+        assert_eq!(h.idle_threshold_secs, 0);
+        assert_eq!(h.bandwidth_cap_gb, 50);
+        assert!(h.calendar.is_empty());
+    }
+
+    #[test]
+    fn default_for_profile_unknown_falls_back_to_laptop() {
+        let unknown = SchedulerConfig::default_for_profile("totally-bogus");
+        let dflt = SchedulerConfig::default();
+        assert_eq!(unknown.idle_only, dflt.idle_only);
+        assert_eq!(unknown.cpu_cap_pct, dflt.cpu_cap_pct);
+        assert_eq!(unknown.memory_cap_pct, dflt.memory_cap_pct);
+        assert_eq!(unknown.idle_threshold_secs, dflt.idle_threshold_secs);
+    }
+
+    #[test]
+    fn default_for_profile_empty_falls_back_to_laptop() {
+        let empty = SchedulerConfig::default_for_profile("");
+        let dflt = SchedulerConfig::default();
+        assert_eq!(empty.idle_only, dflt.idle_only);
+        assert_eq!(empty.cpu_cap_pct, dflt.cpu_cap_pct);
+    }
+
+    #[test]
+    fn headless_profile_is_active_on_a_busy_unattended_box() {
+        // A bastion-like sensor reading: 50% CPU, 45% memory, user "active"
+        // (idle_secs=0 because there is no real user).  Laptop defaults
+        // would pause; headless defaults must stay Active.
+        let s = sensors(0, 50, 45, 0);
+        let now = Utc.with_ymd_and_hms(2026, 5, 20, 12, 0, 0).unwrap();
+        let laptop = SchedulerConfig::default_for_profile("laptop");
+        let headless = SchedulerConfig::default_for_profile("headless");
+        assert!(matches!(decide(&laptop, s, now), State::Paused(_)));
+        assert_eq!(decide(&headless, s, now), State::Active);
     }
 }

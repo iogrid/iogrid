@@ -136,21 +136,86 @@ impl DaemonConfig {
     }
 
     /// Load config from disk; if missing, write defaults and return them.
+    ///
+    /// In addition, when the `IOGRID_SCHEDULER_PROFILE` environment variable
+    /// is set to a recognised value (currently `headless`), the scheduler
+    /// fields are overridden with that profile's defaults and the result is
+    /// persisted back to `config.toml`. This means subsequent boots on the
+    /// same machine pick up the correct profile even without re-setting the
+    /// env var. Unrecognised values are ignored (laptop defaults stick).
+    /// See iogrid#268.
     pub fn load_or_init(state_dir: &Path) -> anyhow::Result<Self> {
         std::fs::create_dir_all(state_dir)?;
         let path = state_dir.join("config.toml");
-        if path.exists() {
+        let (mut cfg, existed) = if path.exists() {
             let body = std::fs::read_to_string(&path)?;
             let cfg: DaemonConfig = toml::from_str(&body)?;
-            Ok(cfg)
+            (cfg, true)
         } else {
             let cfg = DaemonConfig {
                 state_dir: state_dir.to_path_buf(),
                 ..DaemonConfig::default()
             };
+            (cfg, false)
+        };
+
+        // Apply IOGRID_SCHEDULER_PROFILE override (if set + recognised).
+        // We do this after the on-disk load so that a one-shot env-var run
+        // permanently flips the persisted scheduler fields, matching the
+        // contract described in iogrid#268.
+        let profile_changed = match std::env::var("IOGRID_SCHEDULER_PROFILE") {
+            Ok(p) => cfg.apply_scheduler_profile(&p),
+            Err(_) => false,
+        };
+
+        if !existed || profile_changed {
             cfg.save()?;
-            Ok(cfg)
         }
+        Ok(cfg)
+    }
+
+    /// Overlay the scheduler-related fields from a profile (e.g. `"headless"`).
+    ///
+    /// Returns `true` if any of the four scheduler fields actually changed,
+    /// so the caller can decide whether to re-persist `config.toml`.
+    /// Unrecognised / empty profile names are no-ops and return `false`.
+    pub fn apply_scheduler_profile(&mut self, profile: &str) -> bool {
+        // Only flip the four scheduler-owned fields. Everything else
+        // (coordinator URL, listen addresses, provider id, updater) stays
+        // exactly as loaded so we don't clobber operator overrides.
+        let sched = SchedulerConfig::default_for_profile(profile);
+
+        // `default_for_profile` returns laptop defaults for any unrecognised
+        // value, but we don't want to silently re-stamp a config that the
+        // operator may have hand-edited. So bail unless the caller asked for
+        // an explicitly-recognised non-default profile.
+        let recognised = matches!(profile, "headless");
+        if !recognised {
+            return false;
+        }
+
+        let mut changed = false;
+        if self.bandwidth_cap_gb != sched.bandwidth_cap_gb {
+            self.bandwidth_cap_gb = sched.bandwidth_cap_gb;
+            changed = true;
+        }
+        if self.cpu_cap_pct != sched.cpu_cap_pct {
+            self.cpu_cap_pct = sched.cpu_cap_pct;
+            changed = true;
+        }
+        if self.memory_cap_pct != sched.memory_cap_pct {
+            self.memory_cap_pct = sched.memory_cap_pct;
+            changed = true;
+        }
+        if self.idle_threshold_secs != sched.idle_threshold_secs {
+            self.idle_threshold_secs = sched.idle_threshold_secs;
+            changed = true;
+        }
+        if self.idle_only != sched.idle_only {
+            self.idle_only = sched.idle_only;
+            changed = true;
+        }
+        changed
     }
 
     /// Persist this config to `state_dir/config.toml`.
@@ -763,5 +828,94 @@ mod tests {
         let s = sup.scheduler().config();
         assert_eq!(s.bandwidth_cap_gb, 123);
         assert_eq!(s.cpu_cap_pct, 42);
+    }
+
+    // ---- iogrid#268: IOGRID_SCHEDULER_PROFILE env override ----
+
+    #[test]
+    fn apply_scheduler_profile_headless_flips_fields_and_reports_change() {
+        let mut cfg = DaemonConfig::default();
+        // Sanity: laptop defaults are baked in.
+        assert!(cfg.idle_only);
+        assert_eq!(cfg.cpu_cap_pct, 30);
+
+        let changed = cfg.apply_scheduler_profile("headless");
+        assert!(changed, "headless must flip at least one field");
+        assert!(!cfg.idle_only);
+        assert_eq!(cfg.cpu_cap_pct, 80);
+        assert_eq!(cfg.memory_cap_pct, 80);
+        assert_eq!(cfg.idle_threshold_secs, 0);
+    }
+
+    #[test]
+    fn apply_scheduler_profile_headless_twice_is_idempotent() {
+        let mut cfg = DaemonConfig::default();
+        let first = cfg.apply_scheduler_profile("headless");
+        let second = cfg.apply_scheduler_profile("headless");
+        assert!(first);
+        assert!(!second, "second apply must be a no-op (no field changed)");
+    }
+
+    #[test]
+    fn apply_scheduler_profile_unknown_is_no_op() {
+        let mut cfg = DaemonConfig::default();
+        let before_cpu = cfg.cpu_cap_pct;
+        let before_idle_only = cfg.idle_only;
+        let changed = cfg.apply_scheduler_profile("totally-bogus");
+        assert!(!changed);
+        assert_eq!(cfg.cpu_cap_pct, before_cpu);
+        assert_eq!(cfg.idle_only, before_idle_only);
+    }
+
+    #[test]
+    fn apply_scheduler_profile_preserves_non_scheduler_fields() {
+        let mut cfg = DaemonConfig {
+            provider_id: "00000000-0000-0000-0000-000000000042".into(),
+            coordinator_url: "https://custom.example.com:443".into(),
+            ..DaemonConfig::default()
+        };
+        cfg.apply_scheduler_profile("headless");
+        assert_eq!(cfg.provider_id, "00000000-0000-0000-0000-000000000042");
+        assert_eq!(cfg.coordinator_url, "https://custom.example.com:443");
+    }
+
+    #[test]
+    fn load_or_init_headless_env_persists_and_subsequent_boots_keep_it() {
+        // Combined headless + laptop flows in a single test so the env-var
+        // manipulation isn't racing other tests in the same process. Mirrors
+        // the precedent set by `live_transport_on_when_paired_and_bundle_present`.
+        // SAFETY: this is the only test in the module that touches
+        // IOGRID_SCHEDULER_PROFILE; the env mutation is bounded by set/remove
+        // pairs.
+
+        // --- Laptop (no env var) path: defaults stay laptop. ---
+        std::env::remove_var("IOGRID_SCHEDULER_PROFILE");
+        let dir_laptop = tempfile::tempdir().unwrap();
+        let p_l = dir_laptop.path();
+        let cfg_l = DaemonConfig::load_or_init(p_l).unwrap();
+        assert!(cfg_l.idle_only);
+        assert_eq!(cfg_l.cpu_cap_pct, 30);
+        assert_eq!(cfg_l.memory_cap_pct, 25);
+        assert_eq!(cfg_l.idle_threshold_secs, 300);
+
+        // --- Headless env path: flips fields + persists. ---
+        let dir_hl = tempfile::tempdir().unwrap();
+        let p_h = dir_hl.path();
+        std::env::set_var("IOGRID_SCHEDULER_PROFILE", "headless");
+        let cfg_h1 = DaemonConfig::load_or_init(p_h).unwrap();
+        std::env::remove_var("IOGRID_SCHEDULER_PROFILE");
+
+        assert!(!cfg_h1.idle_only);
+        assert_eq!(cfg_h1.cpu_cap_pct, 80);
+        assert_eq!(cfg_h1.memory_cap_pct, 80);
+        assert_eq!(cfg_h1.idle_threshold_secs, 0);
+
+        // Subsequent boot without env var still reads headless values
+        // because they were persisted to disk on the first boot.
+        let cfg_h2 = DaemonConfig::load_or_init(p_h).unwrap();
+        assert!(!cfg_h2.idle_only);
+        assert_eq!(cfg_h2.cpu_cap_pct, 80);
+        assert_eq!(cfg_h2.memory_cap_pct, 80);
+        assert_eq!(cfg_h2.idle_threshold_secs, 0);
     }
 }
