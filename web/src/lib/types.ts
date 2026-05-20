@@ -101,9 +101,14 @@ export type WorkloadType =
 export interface AuditEvent {
   id?: UUIDValue;
   providerId?: UUIDValue;
-  kind: EventKind;
+  /**
+   * gateway-bff serialises Connect-Go proto structs with `encoding/json`,
+   * so enum fields arrive as numeric tags. The string-union form is
+   * preserved for forwards-compatibility with proto3-JSON callers. See #314.
+   */
+  kind: EventKind | number;
   occurredAt?: string;
-  workloadType: WorkloadType;
+  workloadType: WorkloadType | number;
   category: string;
   customerDisplayName: string;
   destinationSummary: string;
@@ -177,7 +182,12 @@ export interface CurrentUsageSnapshot {
 }
 
 export interface GetCurrentStateResponse {
-  state: SchedulerState;
+  /**
+   * gateway-bff serialises Connect-Go proto structs with `encoding/json`,
+   * which emits enums as numeric tags. We accept either form on the wire
+   * and decode at the call site via `protoEnumName()`. See #314.
+   */
+  state: SchedulerState | number;
   usage?: CurrentUsageSnapshot;
   reason?: string;
 }
@@ -240,7 +250,8 @@ export interface ListAPIKeysResponse {
 }
 
 export interface UsageRow {
-  workloadType: WorkloadType;
+  /** See AuditEvent.kind — same JSON-wire caveat. */
+  workloadType: WorkloadType | number;
   bytes: string;
   computeMillicpuSeconds: string;
   costMicros: string;

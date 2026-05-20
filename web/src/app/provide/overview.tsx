@@ -10,8 +10,9 @@ import {
 } from "@/components/dashboard/provider-empty-state";
 import { browserApi } from "@/lib/api";
 import { formatBytes, formatMoney } from "@/lib/format";
+import { schedulerStateShortName } from "@/lib/proto-enum";
 import { cn } from "@/lib/utils";
-import type { ProviderDashboard, SchedulerState } from "@/lib/types";
+import type { ProviderDashboard } from "@/lib/types";
 
 export function ProvideOverview() {
   const [dash, setDash] = React.useState<ProviderDashboard | null>(null);
@@ -76,7 +77,11 @@ export function ProvideOverview() {
     return <ProviderEmptyState subtitle={PROVIDER_EMPTY_OVERVIEW_SUBTITLE} />;
   }
 
-  const state = dash?.state?.state ?? "UNSPECIFIED";
+  // gateway-bff serialises proto enums via Go's encoding/json, which
+  // emits the numeric tag (e.g. `{"state": 1}`). Map back to the short
+  // canonical name (`"ACTIVE"`) so the switch in StatusPill keeps working.
+  // See #314.
+  const state = schedulerStateShortName(dash?.state?.state) ?? "UNSPECIFIED";
   const usage = dash?.state?.usage;
   const reason = dash?.state?.reason;
   const earnings = dash?.earnings?.summary;
@@ -170,7 +175,7 @@ function QuickLink({
   );
 }
 
-function StatusPill({ state }: { state: SchedulerState | string }) {
+function StatusPill({ state }: { state: string }) {
   const active = state === "ACTIVE";
   return (
     <span

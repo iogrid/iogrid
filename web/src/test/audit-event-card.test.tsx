@@ -53,4 +53,19 @@ describe("AuditEventCard", () => {
     const card = container.querySelector('[data-testid="audit-event-card"]');
     expect(card?.className).toContain("rose");
   });
+
+  /**
+   * Regression for #314: gateway-bff emits proto enums as numeric tags
+   * via encoding/json. The card must still render the right label and
+   * accent when `kind` arrives as a number.
+   */
+  it("accepts numeric proto-tag wire form for kind", () => {
+    const { container } = render(
+      <AuditEventCard event={{ ...baseEvent, kind: 3 as unknown as number }} />,
+    );
+    expect(screen.getByText("Workload blocked")).toBeInTheDocument();
+    const card = container.querySelector('[data-testid="audit-event-card"]');
+    expect(card?.className).toContain("rose");
+    expect(card?.getAttribute("data-kind")).toBe("EVENT_KIND_WORKLOAD_BLOCKED");
+  });
 });

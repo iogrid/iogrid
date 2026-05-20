@@ -4,6 +4,12 @@
  * Server Components — Next.js polyfills it).
  */
 
+import {
+  EventKindNames,
+  WorkloadTypeNames,
+  protoEnumName,
+} from "@/lib/proto-enum";
+
 /**
  * Format a byte count using binary units. We always show 1 decimal so
  * the value stays stable as it grows ("1.4 GB" not "1 GB"→"2 GB").
@@ -101,9 +107,15 @@ function formatGrid(n: number): string {
   return `${trimmed} $GRID`;
 }
 
-/** Format an EventKind enum value as a human-readable label. */
-export function eventKindLabel(kind: string): string {
-  switch (kind) {
+/**
+ * Format an EventKind enum value as a human-readable label.
+ *
+ * Accepts either the numeric proto tag (the form gateway-bff emits via
+ * `encoding/json`) or the canonical SCREAMING_SNAKE_CASE name. See #314.
+ */
+export function eventKindLabel(kind: string | number): string {
+  const name = protoEnumName(kind, EventKindNames);
+  switch (name) {
     case "EVENT_KIND_WORKLOAD_DISPATCHED":
       return "Workload dispatched";
     case "EVENT_KIND_WORKLOAD_COMPLETED":
@@ -130,9 +142,14 @@ export function categoryLabel(slug: string): string {
     .join(" ");
 }
 
-/** Map an event kind to a short single-letter glyph for the row icon. */
-export function eventKindGlyph(kind: string): string {
-  switch (kind) {
+/**
+ * Map an event kind to a short single-letter glyph for the row icon.
+ *
+ * Accepts either numeric proto tag or canonical name. See #314.
+ */
+export function eventKindGlyph(kind: string | number): string {
+  const name = protoEnumName(kind, EventKindNames);
+  switch (name) {
     case "EVENT_KIND_WORKLOAD_DISPATCHED":
       return ">";
     case "EVENT_KIND_WORKLOAD_COMPLETED":
@@ -147,5 +164,26 @@ export function eventKindGlyph(kind: string): string {
       return "$";
     default:
       return "·";
+  }
+}
+
+/**
+ * Format a WorkloadType enum value as a human-readable label.
+ *
+ * Accepts either numeric proto tag or canonical name. See #314.
+ */
+export function workloadTypeLabel(t: string | number): string {
+  const name = protoEnumName(t, WorkloadTypeNames);
+  switch (name) {
+    case "WORKLOAD_TYPE_BANDWIDTH":
+      return "Bandwidth";
+    case "WORKLOAD_TYPE_DOCKER":
+      return "Docker";
+    case "WORKLOAD_TYPE_GPU":
+      return "GPU";
+    case "WORKLOAD_TYPE_IOS_BUILD":
+      return "iOS build";
+    default:
+      return typeof t === "string" ? t : "Workload";
   }
 }

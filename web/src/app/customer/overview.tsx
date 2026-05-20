@@ -5,6 +5,7 @@ import Link from "next/link";
 import { StatsCard } from "@/components/dashboard/stats-card";
 import { browserApi } from "@/lib/api";
 import { formatBytes, formatMoney } from "@/lib/format";
+import { WorkloadTypeNames, protoEnumName } from "@/lib/proto-enum";
 import type { ListUsageResponse } from "@/lib/types";
 
 /**
@@ -157,12 +158,19 @@ export function CustomerOverview() {
     0,
   );
   const totalBytes = rows.reduce((acc, r) => acc + Number(r.bytes || 0), 0);
+  // gateway-bff serialises Connect-Go proto structs with encoding/json,
+  // so r.workloadType arrives as a numeric tag. Canonicalise to the
+  // SCREAMING_SNAKE_CASE name once so the aggregation key + downstream
+  // label switch stay consistent. See #314.
   const byType = new Map<string, { bytes: number; cost: number }>();
   for (const r of rows) {
-    const cur = byType.get(r.workloadType) ?? { bytes: 0, cost: 0 };
+    const key =
+      protoEnumName(r.workloadType, WorkloadTypeNames) ??
+      "WORKLOAD_TYPE_UNSPECIFIED";
+    const cur = byType.get(key) ?? { bytes: 0, cost: 0 };
     cur.bytes += Number(r.bytes || 0);
     cur.cost += Number(r.costMicros || 0);
-    byType.set(r.workloadType, cur);
+    byType.set(key, cur);
   }
 
   return (
