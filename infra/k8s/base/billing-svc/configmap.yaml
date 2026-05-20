@@ -1,0 +1,61 @@
+# billing-svc default config — non-sensitive env vars.
+#
+# Resolved at boot via `envFrom: configMapRef: name=billing-svc-config`.
+# Sensitive values (DATABASE_URL, STRIPE_SECRET_KEY, MOONPAY_API_KEY,
+# GRID_TOKEN_MINT_ADDRESS, …) live in the `billing-svc-secrets` Secret
+# layered on top — Kubernetes' envFrom merges Secret values OVER
+# ConfigMap values, so a Secret key with the same name wins.
+#
+# Phase 0 wires Solana to **devnet** so the daily cron + Jupiter quote
+# code paths exercise on every billing-svc boot but no real $$ moves.
+# Mainnet flip lives in the prod overlay once the TGE multisig is set
+# up (EPIC #87).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: billing-svc-config
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: billing-svc
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: backend
+data:
+  # ---- HTTP / observability ----
+  LISTEN_ADDR: ":8080"
+  LOG_LEVEL: "info"
+
+  # ---- Web base URL (Stripe Checkout return URLs) ----
+  WEB_BASE_URL: "https://app.iogrid.org"
+
+  # ---- Solana — devnet defaults (Phase 0) ----
+  # Public devnet RPC. For higher throughput plug a Helius/Triton devnet
+  # URL into billing-svc-secrets.SOLANA_RPC_URL (Secret value wins).
+  SOLANA_RPC_URL: "https://api.devnet.solana.com"
+  # Where the iogrid-solana-payout Secret's keypair_json key is mounted
+  # as a file (see deployment.yaml volumes section).
+  SOLANA_HOT_WALLET_KEYPAIR_PATH: "/var/run/solana/keypair.json"
+  # $GRID is minted under Token-2022 in production. For devnet the
+  # operator may use either program — the chainClient autodetects.
+  GRID_TOKEN_PROGRAM: "token-2022"
+  # Public Jupiter Quote API. Quotes are read-only; safe on devnet.
+  JUPITER_API_URL: "https://quote-api.jup.ag/v6"
+  # 2% buyback-and-burn (matches docs/TOKENOMICS.md §"Burn loop").
+  BURN_PERCENTAGE: "2"
+  # On devnet the hot wallet is not the mint's burn authority by
+  # default, so route burns through the well-known incinerator instead
+  # of a real SPL BurnChecked. Flip to "false" once the mint is created
+  # with the hot wallet as freeze/mint authority (mainnet TGE).
+  BURN_VIA_INCINERATOR: "true"
+  INCINERATOR_ADDRESS: "1nc1nerator11111111111111111111111111111111"
+
+  # ---- Daily payout cron ----
+  # Enabled at boot so log evidence is present (`solana: daily cron
+  # starting`). In Phase 0 the cron ticks against an empty
+  # `usage_event` table → `RunDailySwapAndDistribute` short-circuits at
+  # `grand == 0 → return nil`. No on-chain calls happen until the
+  # mothership starts ingesting metering events.
+  DAILY_PAYOUT_ENABLED: "true"
+  DAILY_PAYOUT_CRON: "5 0 * * *"
+
+  # ---- NATS — internal mesh ----
+  NATS_URL: "nats://nats.iogrid.svc.cluster.local:4222"

@@ -58,10 +58,19 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
-            - name: LOG_LEVEL
-              value: info
             - name: SERVICE_NAME
               value: billing-svc
+            # GRID_TOKEN_MINT_ADDRESS is co-located with the keypair in
+            # the iogrid-solana-payout Secret so the operator pastes
+            # mint + keypair together. envFrom on the secret would also
+            # slurp the binary `keypair_json` blob into an env var,
+            # which we DON'T want — that's mounted as a file below.
+            - name: GRID_TOKEN_MINT_ADDRESS
+              valueFrom:
+                secretKeyRef:
+                  name: iogrid-solana-payout
+                  key: grid_token_mint_address
+                  optional: true
           envFrom:
             - configMapRef:
                 name: billing-svc-config
@@ -101,9 +110,25 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            # Solana hot-wallet keypair. The Secret's `keypair_json`
+            # key is projected as a file at /var/run/solana/keypair.json
+            # which billing-svc reads via SOLANA_HOT_WALLET_KEYPAIR_PATH.
+            # Optional: when the Secret is missing the volume mounts an
+            # empty dir and billing-svc stays in stub mode (logs SKIP).
+            - name: solana-keypair
+              mountPath: /var/run/solana
+              readOnly: true
       volumes:
         - name: tmp
           emptyDir: {}
+        - name: solana-keypair
+          secret:
+            secretName: iogrid-solana-payout
+            optional: true
+            defaultMode: 0400
+            items:
+              - key: keypair_json
+                path: keypair.json
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname
