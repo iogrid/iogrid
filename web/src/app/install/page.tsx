@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PortalShell } from "@/components/layout/portal-shell";
 
 /**
  * /install — the "grandma button" landing page.
@@ -9,6 +10,11 @@ import Link from "next/link";
  *
  * The page is a Server Component so we can read the User-Agent and pick
  * the default tab, but it falls back gracefully when JS is disabled.
+ *
+ * Wrapped in PortalShell so anyone landing here from the marketing
+ * site (or from the legacy /vpn redirect, see #306) keeps the standard
+ * Provide / Customer / VPN / Account top nav. The VPN tab is marked
+ * active because /vpn redirects here and the daemon is the VPN client.
  */
 export const metadata = {
   title: "Install iogrid",
@@ -55,20 +61,14 @@ const PLATFORMS = [
 
 export default function InstallPage() {
   return (
-    <main className="mx-auto max-w-3xl px-6 py-12">
-      <Link href="/" className="text-sm text-zinc-500 hover:underline">
-        ← Home
-      </Link>
-      <h1 className="mt-4 text-4xl font-bold tracking-tight">
-        Install iogrid
-      </h1>
-      <p className="mt-2 max-w-prose text-zinc-600 dark:text-zinc-400">
-        Pick your platform. The installer drops the daemon, registers it
-        to auto-start, and opens your browser to finish setup. Total time
-        on a 100 Mbit connection: under 2 minutes.
-      </p>
-
-      <div className="mt-8 space-y-8">
+    <PortalShell
+      badge="VPN"
+      title="Install iogrid"
+      subtitle="Pick your platform. The installer drops the daemon, registers it to auto-start, and opens your browser to finish setup. Total time on a 100 Mbit connection: under 2 minutes. The same daemon powers both provider workloads and the iogrid VPN client."
+      nav={[]}
+      activeHref="/vpn"
+    >
+      <div className="space-y-8">
         {PLATFORMS.map((p) => (
           <section
             key={p.id}
@@ -121,7 +121,7 @@ export default function InstallPage() {
         </ol>
       </section>
 
-      <section className="mt-8 text-sm text-zinc-600">
+      <section className="mt-8 flex flex-wrap items-center gap-4 text-sm text-zinc-600">
         <p>
           Already have a pairing code?{" "}
           <Link href="/onboard" className="underline">
@@ -129,7 +129,14 @@ export default function InstallPage() {
           </Link>
           .
         </p>
+        <p>
+          Want a paid VPN tier?{" "}
+          <Link href="/vpn/upgrade" className="underline">
+            Compare plans
+          </Link>
+          .
+        </p>
       </section>
-    </main>
+    </PortalShell>
   );
 }
