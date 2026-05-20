@@ -71,9 +71,17 @@ spec:
                 optional: true
             # CNPG Postgres connection — carries DATABASE_URL. Without
             # this, providers-svc falls back to the in-memory store and
-            # loses every paired daemon on pod restart (issue #242).
+            # loses every paired daemon on pod restart (issue #242, #284).
+            #
+            # Name matches the CNPG-managed Secret on the mothership
+            # (created by the iogrid-pg Cluster's bootstrap step that
+            # provisions one role per service). Earlier versions of this
+            # manifest used the more generic name `iogrid-database`,
+            # which the cluster never had — the pod silently fell back
+            # to memory mode and operators saw paired daemons vanish on
+            # every rollout (regression captured in #284).
             - secretRef:
-                name: iogrid-database
+                name: iogrid-providers-db
                 optional: true
           resources:
             requests:
