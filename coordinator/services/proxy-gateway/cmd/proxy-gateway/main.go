@@ -208,6 +208,12 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*proxy.
 	srv.Sessions = sessStore
 	srv.Emitter = emitter
 	srv.TLSConfig = tlsCfg
+	// When the real workloads-svc Connect dispatcher is wired, the
+	// assignment Endpoint points at workloads-svc's TCP-over-DispatchFrame
+	// forwarder, which expects an IOGRID-TUN/1 preamble (issue #222) before
+	// the customer's raw TLS bytes. In dev mode (StaticPool) the endpoint
+	// is a raw TCP echo target and the preamble is OFF. Refs iogrid#279.
+	srv.EnableForwarderPreamble = cfg.WorkloadsSvcURL != ""
 
 	// Cleanup also stops the proxy server on shutdown.
 	addCleanup(func() { _ = srv.Close() })

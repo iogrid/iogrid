@@ -1,12 +1,18 @@
 package main
 
 import (
+	"context"
+	"io"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 
 	commonv1 "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/common/v1"
+	workloadsv1 "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/workloads/v1"
 )
 
 func TestParseEligibleTypes(t *testing.T) {
@@ -119,5 +125,161 @@ func TestEnvHelpers(t *testing.T) {
 		if boolFromEnv("UNIT_TEST_BOOL") {
 			t.Errorf("boolFromEnv(%q) = true, want false", v)
 		}
+	}
+}
+
+// TestTunnels_EndToEnd_RoundTrip verifies the dev-stub's real
+// TCP-over-DispatchFrame tunneling (iogrid#279):
+//   - on TunnelOpen the stub dials target_host_port,
+//   - TunnelData frames flow to the dialed socket,
+//   - destination-side bytes come back as TunnelData frames,
+//   - destination EOF triggers a TunnelClose with empty error.
+func TestTunnels_EndToEnd_RoundTrip(t *testing.T) {
+	// Spin up a destination echo server. Echoes "ECHO:" + input then
+	// closes so the stub sees EOF and emits a clean TunnelClose.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+	go func() {
+		c, aerr := ln.Accept()
+		if aerr != nil {
+			return
+		}
+		defer c.Close()
+		buf := make([]byte, 64)
+		n, rerr := c.Read(buf)
+		if rerr != nil && rerr != io.EOF {
+			return
+		}
+		_, _ = c.Write([]byte("ECHO:"))
+		_, _ = c.Write(buf[:n])
+	}()
+
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	var mu sync.Mutex
+	var frames []*workloadsv1.DispatchFrame
+	send := func(f *workloadsv1.DispatchFrame) error {
+		mu.Lock()
+		defer mu.Unlock()
+		frames = append(frames, f)
+		return nil
+	}
+
+	tun := newTunnels(log, send)
+	defer tun.closeAll()
+
+	const attemptID = "00000000-0000-0000-0000-000000000001"
+	tun.open(context.Background(), attemptID, ln.Addr().String())
+	tun.feed(attemptID, []byte("hello"))
+
+	// Wait up to 2s for the echo + EOF cycle to materialise as frames.
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		mu.Lock()
+		count := len(frames)
+		mu.Unlock()
+		if count >= 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for frames; got %d", count)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	// First emitted frame must be TunnelData carrying "ECHO:hello".
+	var sawData, sawClose bool
+	var combined []byte
+	for _, f := range frames {
+		if td := f.GetTunnelData(); td != nil {
+			combined = append(combined, td.GetPayload()...)
+			sawData = true
+			continue
+		}
+		if tc := f.GetTunnelClose(); tc != nil {
+			sawClose = true
+			if tc.GetError() != "" {
+				t.Errorf("clean EOF should produce empty reason; got %q", tc.GetError())
+			}
+		}
+	}
+	if !sawData {
+		t.Fatalf("no TunnelData frames emitted; frames=%v", frames)
+	}
+	if !sawClose {
+		t.Fatalf("no TunnelClose frame emitted; frames=%v", frames)
+	}
+	if string(combined) != "ECHO:hello" {
+		t.Errorf("payload mismatch: got %q want %q", string(combined), "ECHO:hello")
+	}
+}
+
+// TestTunnels_DialFailureSendsClose verifies that when the
+// target_host_port is unreachable, the stub sends a TunnelClose with
+// the dial error in `error` rather than leaving the attempt half-open.
+func TestTunnels_DialFailureSendsClose(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	var mu sync.Mutex
+	var frames []*workloadsv1.DispatchFrame
+	send := func(f *workloadsv1.DispatchFrame) error {
+		mu.Lock()
+		defer mu.Unlock()
+		frames = append(frames, f)
+		return nil
+	}
+
+	tun := newTunnels(log, send)
+	defer tun.closeAll()
+
+	// 127.0.0.1:1 — almost certainly unbound.
+	tun.open(context.Background(), "att-fail", "127.0.0.1:1")
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(frames) != 1 {
+		t.Fatalf("expected 1 frame; got %d", len(frames))
+	}
+	tc := frames[0].GetTunnelClose()
+	if tc == nil {
+		t.Fatalf("expected TunnelClose; got %v", frames[0])
+	}
+	if tc.GetError() == "" {
+		t.Fatalf("expected non-empty error on dial failure")
+	}
+	if tc.GetAttemptId().GetValue() != "att-fail" {
+		t.Errorf("attempt id mismatch: %q", tc.GetAttemptId().GetValue())
+	}
+}
+
+// TestTunnels_EmptyTarget rejects a TunnelOpen with no target.
+func TestTunnels_EmptyTarget(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	var mu sync.Mutex
+	var frames []*workloadsv1.DispatchFrame
+	send := func(f *workloadsv1.DispatchFrame) error {
+		mu.Lock()
+		defer mu.Unlock()
+		frames = append(frames, f)
+		return nil
+	}
+	tun := newTunnels(log, send)
+	defer tun.closeAll()
+
+	tun.open(context.Background(), "att-empty", "")
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(frames) != 1 {
+		t.Fatalf("expected 1 frame; got %d", len(frames))
+	}
+	if frames[0].GetTunnelClose() == nil {
+		t.Fatalf("expected TunnelClose for empty target")
 	}
 }
