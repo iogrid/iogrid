@@ -105,6 +105,12 @@ func Mount(deps Deps) func(chi.Router) {
 				}))
 			}
 			r.Use(auth.Middleware(deps.Verifier, deps.Logger))
+			// Bridge auth.Claims → clients.CallerClaims so every
+			// outbound Connect-RPC call automatically forwards the
+			// caller's identity through the header-forwarding
+			// interceptor (issue #321). MUST sit directly after
+			// auth.Middleware so the claims it set are visible.
+			r.Use(clients.PropagateClaimsMiddleware)
 			if deps.AuthedLimiter != nil && deps.AnonLimiter != nil {
 				r.Use(ratelimit.Middleware(deps.AuthedLimiter, deps.AnonLimiter))
 			}

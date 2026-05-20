@@ -26,6 +26,7 @@ package clients
 
 import (
 	"context"
+	"net/http"
 
 	"connectrpc.com/connect"
 
@@ -55,6 +56,32 @@ func WithCallerClaims(ctx context.Context, c *auth.Claims) context.Context {
 func CallerClaims(ctx context.Context) (*auth.Claims, bool) {
 	c, ok := ctx.Value(ctxCallerClaimsKey{}).(*auth.Claims)
 	return c, ok
+}
+
+// PropagateClaimsMiddleware bridges auth.Middleware's request-context
+// claims into the clients-package context key the outbound Connect
+// interceptor reads (newHeaderForwarder above). Without this bridge
+// every handler would need to call WithCallerClaims manually before
+// each downstream call — that was the gap that caused /api/v1/me to
+// 401 end-to-end despite identity-svc's service-token shim working
+// (issue #321).
+//
+// Place this middleware DIRECTLY AFTER auth.Middleware in the chain.
+// On every authenticated request it copies the *auth.Claims out of
+// the request context and re-attaches them under the clients
+// package's ctxCallerClaimsKey, so a downstream call invoked with
+// r.Context() automatically carries them.
+//
+// Anonymous (no claims) requests pass through untouched — downstream
+// services treat the call as service-anonymous and return 401 if the
+// route requires an authed user.
+func PropagateClaimsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if c, ok := auth.FromContext(r.Context()); ok && c != nil {
+			r = r.WithContext(WithCallerClaims(r.Context(), c))
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // newHeaderForwarder returns a Connect UnaryInterceptorFunc that, on
