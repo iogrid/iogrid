@@ -1,0 +1,72 @@
+# proxy.iogrid.org:443 → proxy-gateway:443 (TLS passthrough).
+#
+# This is the Phase-0/Contabo materialisation of the canonical Gateway
+# API intent declared in `infra/k8s/gateways/gateway.yaml` (listener
+# `tls-proxy`) + `infra/k8s/gateways/tlsroute-proxy.yaml`. The Gateway
+# objects describe the end-state; until Cilium Gateway replaces Traefik
+# as the mothership IngressController this Traefik IngressRouteTCP is
+# the live router.
+#
+# Why TLS passthrough (`tls.passthrough: true`)
+# ---------------------------------------------
+# proxy-gateway speaks **SOCKS5 over TLS**: customers run
+# `curl --proxy socks5h://...@proxy.iogrid.org:443 https://target`,
+# and the underlying TCP carries a real client-side TLS handshake to
+# proxy-gateway, which terminates TLS *inside its own pod* (cert
+# `iogrid-proxy-tls`) and then speaks SOCKS5 to the customer. If
+# Traefik terminated TLS at the edge it would (a) need iogrid-proxy-tls
+# loaded as a serving cert AND (b) speak HTTP/L7 to proxy-gateway,
+# which would never get to SOCKS5 framing — TCP+TLS-passthrough is the
+# only correct shape.
+#
+# Why this is NOT in `gateway.yaml` (Cilium Gateway form)
+# ------------------------------------------------------
+# `tls-proxy` Listener + TLSRoute already declare the same intent in
+# the Gateway-API canonical form. They become live the moment the
+# mothership's IngressController flips from Traefik to Cilium Gateway
+# (tracked under the Cilium ClusterMesh migration). At that point this
+# IngressRouteTCP becomes redundant and can be deleted in the cutover
+# PR. Until then this file is what makes `proxy.iogrid.org:443`
+# actually route.
+#
+# Verification (from the bastion or any internet host):
+#
+#   curl -sS --proxy "socks5h://phase0-workspace:ig_live_phase0_<32hex>@proxy.iogrid.org:443" \
+#     https://api.ipify.org
+#
+# Should print a public IPv4 within ~2s (the egress IP of whichever
+# provider proxy-gateway dispatched to). Failure mode pre-this-PR:
+# TCP connects, then hangs until client timeout — Traefik intercepts
+# TLS but has no matching HTTPRoute for SOCKS5-shaped traffic.
+#
+# Refs #350.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRouteTCP
+metadata:
+  name: proxy-iogrid-org-passthrough
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: ingress
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: HostSNI(`proxy.iogrid.org`)
+      services:
+        - name: proxy-gateway
+          # proxy-gateway exposes three named ports per
+          # `infra/k8s/base/proxy-gateway/service.yaml`:
+          #   - tls (443) — SOCKS5 over TLS, the customer-facing port
+          #   - socks5 (1080) — plain SOCKS5, in-cluster only
+          #   - metrics (9090) — Prometheus scrape
+          # We pass through to the TLS port; proxy-gateway terminates
+          # the client-side TLS handshake itself.
+          port: 443
+  tls:
+    # Critical: passthrough mode delegates TLS to the backend.
+    # Without this, Traefik would attempt to terminate TLS at the edge
+    # with whatever cert it has for HostSNI=proxy.iogrid.org — which is
+    # the wrong cert (web's, not proxy-gateway's) AND would consume the
+    # SOCKS5 framing as HTTP, killing the customer connection.
+    passthrough: true
