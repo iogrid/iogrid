@@ -49,7 +49,6 @@ import (
 	"syscall"
 	"time"
 
-	"connectrpc.com/connect"
 	"golang.org/x/net/http2"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
