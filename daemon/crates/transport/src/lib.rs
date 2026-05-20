@@ -814,7 +814,6 @@ impl Service<Uri> for PinnedAddrConnector {
     }
 }
 
-
 /// Resolve `host:port` to a single [`SocketAddr`] via the OS resolver,
 /// without touching the process-global `RESOLVED_HOST_CACHE`. Used by:
 ///
