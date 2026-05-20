@@ -1,0 +1,31 @@
+---
+# admin CiliumNetworkPolicy — SPIFFE-style mutual auth.
+# Companion to networkpolicy.yaml (issue #35).
+#
+# Next.js admin console. Ingress is only from the public Traefik
+# gateway (gateway-system) — a different trust domain. No SPIFFE auth
+# on ingress; the egress side (admin → gateway-bff) is enforced on the
+# gateway-bff CNP, not here (Cilium auth is gated on the destination).
+#
+# See docs/SECURITY-mTLS.md.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: admin-mtls
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: admin
+    app.kubernetes.io/part-of: iogrid
+    iogrid.org/policy-class: spiffe-mtls
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: admin
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: gateway-system
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP

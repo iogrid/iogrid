@@ -20,5 +20,6 @@ resources:
   - vpn-gateway
   - build-gateway
   - web
+  - admin
   - gateway
   - certs

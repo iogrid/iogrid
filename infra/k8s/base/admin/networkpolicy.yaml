@@ -1,0 +1,39 @@
+---
+# Kept as L3/L4 defense-in-depth alongside ./ciliumnetworkpolicy.yaml
+# (issue #35 — Cilium SPIFFE-style service mTLS).
+#
+# admin — Next.js 15 staff console for admin.iogrid.org.
+# Ingress: from Traefik (gateway-system).
+# Egress: gateway-bff (server-side data fetching from RSC + the
+#         same-origin /api/v1/admin/* BFF proxy routes).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: admin-allow
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: admin
+    app.kubernetes.io/part-of: iogrid
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: admin
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: gateway-system
+      ports:
+        - protocol: TCP
+          port: 3000
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: gateway-bff
+      ports:
+        - protocol: TCP
+          port: 8080

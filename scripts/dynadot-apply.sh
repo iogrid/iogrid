@@ -33,7 +33,7 @@ DOMAIN="$(jq -r .domain "$RECORDS_FILE")"
 if [[ "$MODE" == "--verify" ]]; then
   echo "=== Public-resolver lookup for $DOMAIN and subdomains ==="
   for h in "$DOMAIN" \
-           "www.$DOMAIN" "api.$DOMAIN" "app.$DOMAIN" "proxy.$DOMAIN" \
+           "www.$DOMAIN" "api.$DOMAIN" "app.$DOMAIN" "admin.$DOMAIN" "proxy.$DOMAIN" \
            "build.$DOMAIN" "docs.$DOMAIN" "status.$DOMAIN"; do
     printf '%-25s ' "$h"
     dig +short "$h" A @1.1.1.1 | head -1

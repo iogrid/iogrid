@@ -1,0 +1,58 @@
+# admin.iogrid.org → admin Service :3000 (Phase 0 Traefik shim, #361).
+#
+# The admin app was split out of `web/` in #361 so the iogrid staff
+# console lives on its own origin and ships from its own Deployment.
+# This IngressRoute is the live Traefik materialisation of the routing
+# intent for the new host; the canonical Gateway-API form lives in
+# `infra/k8s/gateways/` once iogrid moves to Cilium Gateway.
+#
+# Why no h2c / no long-lived ServersTransport
+# -------------------------------------------
+# The admin app is a plain Next.js HTTP/1.1 surface — no Connect-RPC
+# bidi streaming, no SSE-over-h2c. The default Traefik HTTP/1.1
+# forwarding is correct here. Server-Sent Events for the audit lookup
+# go to the *gateway-bff* endpoint at api.iogrid.org (via the
+# same-origin Next.js route handlers in `src/app/api/v1/admin/*`); the
+# upstream-side h2c + flushInterval treatment is already wired by
+# `ingressroute-providers.yaml`. So this route is a vanilla HTTP/1.1
+# pass-through.
+#
+# TLS
+# ---
+# The shared `iogrid-tls` cert (see
+# `infra/k8s/certificates/iogrid-org-cert.yaml`) lists `admin.iogrid.org`
+# in its SAN set, so terminating TLS here with that secret works on
+# day 1 — cert-manager re-issues the certificate via HTTP-01 once the
+# Dynadot A record (added in the same PR) propagates.
+#
+# Auth
+# ----
+# Auth gating is in-app: the admin Next.js middleware reads the
+# `IOGRID_ADMIN_EMAILS` env var and 403s any session whose email isn't
+# on the allowlist. There is intentionally NO Traefik-level basic-auth
+# / forwardAuth on this route — that would force operators through two
+# challenge prompts (Traefik AND NextAuth) for no security gain.
+# mTLS / WireGuard / Netbird hardening lands in a follow-up per the
+# founder direction in #361.
+#
+# Issue: #361.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: admin-iogrid-org
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: ingress
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - kind: Rule
+      match: Host(`admin.iogrid.org`)
+      priority: 100
+      services:
+        - name: admin
+          port: 3000
+  tls:
+    secretName: iogrid-tls

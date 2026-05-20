@@ -37,13 +37,14 @@ spec:
     - server auth
     - digital signature
     - key encipherment
-  # SAN list. Apex + www + 5 service subdomains. Adding a new subdomain
+  # SAN list. Apex + www + service subdomains. Adding a new subdomain
   # later = append here, commit, Flux reconciles, cert-manager re-issues.
   dnsNames:
     - iogrid.org
     - www.iogrid.org
     - api.iogrid.org
     - app.iogrid.org
+    - admin.iogrid.org
     - build.iogrid.org
     - docs.iogrid.org
     - status.iogrid.org

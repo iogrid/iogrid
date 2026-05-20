@@ -46,6 +46,28 @@ spec:
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
+  name: admin-iogrid-org
+  namespace: gateway-system
+  labels:
+    app.kubernetes.io/part-of: iogrid
+spec:
+  secretName: admin-iogrid-org-tls
+  duration: 2160h
+  renewBefore: 360h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  dnsNames:
+    - admin.iogrid.org
+  issuerRef:
+    name: letsencrypt-prod-http01
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
   name: build-iogrid-org
   namespace: gateway-system
   labels:

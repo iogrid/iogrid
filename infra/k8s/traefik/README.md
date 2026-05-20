@@ -18,6 +18,7 @@ Flux Kustomization once the dispatch chain is stable.
 | `serverstransport-long-lived.yaml` | Disables Traefik→backend idle-conn / read / write timeouts so Connect-RPC bidi streams (`WorkloadDispatchService.Dispatch`) can stay open for the lifetime of a paired daemon (minutes-to-hours). Also enables h2 PING keepalive on the Traefik→backend leg. #271 |
 | `ingressroute-workloads.yaml` | `api.iogrid.org/iogrid.workloads.v1*` → `workloads-svc:8080` (h2c). References the long-lived `ServersTransport` and sets `responseForwarding.flushInterval: 100ms` so server-sent frames (CoordinatorHello, Assignment, TunnelData) reach the daemon within ~100ms instead of being buffered to Traefik's default 1s mark. |
 | `ingressroutetcp-proxy-passthrough.yaml` | `proxy.iogrid.org:443` → `proxy-gateway:443` (TLS passthrough, NOT termination). proxy-gateway speaks SOCKS5-over-TLS; Traefik must NOT terminate TLS at the edge or the SOCKS5 framing gets parsed as HTTP and the customer connection hangs. The Cilium Gateway form of the same intent already lives in `infra/k8s/gateways/tlsroute-proxy.yaml`; this IngressRouteTCP is the live Traefik materialisation until the mothership cuts over. #350 |
+| `ingressroute-admin.yaml` | `admin.iogrid.org` → `admin:3000` (HTTPS terminate). Phase-0 routing for the standalone admin Next.js app split out of `web/` in #361. Vanilla HTTP/1.1 — no h2c / SSE / bidi stream concerns; auth is in-app via `IOGRID_ADMIN_EMAILS`. mTLS hardening deferred to a follow-up. #361 |
 
 ## Why these exist (issue #271)
 

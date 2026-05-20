@@ -1,0 +1,225 @@
+name: admin-ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "admin/**"
+      - ".github/workflows/admin-ci.yml"
+  pull_request:
+    paths:
+      - "admin/**"
+      - ".github/workflows/admin-ci.yml"
+
+concurrency:
+  group: admin-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: admin
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Build
+        run: pnpm build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          # Auth secrets are deliberately empty at build-time; NextAuth.js v5
+          # only reads them at request-time so the build still completes.
+          AUTH_SECRET: ci-placeholder-not-used-at-build-time
+          NEXTAUTH_URL: http://localhost:3000
+
+      - name: Unit tests
+        run: pnpm test
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: quality
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU (for arm64 cross-build)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ghcr.io
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/iogrid/admin
+          tags: |
+            type=sha,format=long
+            type=sha
+            type=ref,event=branch
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ./admin
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name == 'push' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=admin
+          cache-to: type=gha,scope=admin,mode=max
+
+  deploy:
+    # CD bump: rewrite infra/k8s/base/admin/deployment.yaml to pin the freshly
+    # pushed image by digest + bump the kubectl.kubernetes.io/restartedAt
+    # annotation, then push the change back to main so Flux's
+    # kustomize-controller picks it up on the next 5m reconcile interval.
+    #
+    # Same shape as web-ci's deploy step (#332). Skipped on PRs.
+    runs-on: ubuntu-latest
+    needs: docker
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout main (full history for rebase loop)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve digest + timestamp
+        id: vars
+        env:
+          DIGEST: ${{ needs.docker.outputs.digest }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DIGEST:-}" ]; then
+            if [ "${EVENT}" = "pull_request" ]; then
+              DIGEST="sha256:<resolved-on-merge-to-main>"
+            else
+              echo "::error::docker job did not emit a digest output on event=${EVENT}" >&2
+              exit 1
+            fi
+          fi
+          IMAGE="ghcr.io/iogrid/admin@${DIGEST}"
+          RESTARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "image=${IMAGE}"        | tee -a "$GITHUB_OUTPUT"
+          echo "restartedAt=${RESTARTED_AT}" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Preview manifest bump (dry-run on PRs)
+        if: github.event_name == 'pull_request'
+        env:
+          IMAGE: ${{ steps.vars.outputs.image }}
+          RESTARTED_AT: ${{ steps.vars.outputs.restartedAt }}
+        run: |
+          set -euo pipefail
+          echo "── PR dry-run: admin-ci would rewrite infra/k8s/base/admin/deployment.yaml as ──"
+          echo "    image            -> ${IMAGE}"
+          echo "    restartedAt      -> ${RESTARTED_AT}"
+          echo "── (no commit will be pushed on PR builds) ──"
+
+      - name: Rewrite manifest + commit + push (main only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          IMAGE: ${{ steps.vars.outputs.image }}
+          RESTARTED_AT: ${{ steps.vars.outputs.restartedAt }}
+          COMMIT_SHA: ${{ github.sha }}
+          MANIFEST: infra/k8s/base/admin/deployment.yaml
+        run: |
+          set -euo pipefail
+
+          python3 - <<PY
+          import re, sys, pathlib
+          p = pathlib.Path("${MANIFEST}")
+          src = p.read_text()
+
+          # image: ghcr.io/iogrid/admin... -> image: ${IMAGE}
+          img_pat = re.compile(r'(\s+image:\s+)ghcr\.io/iogrid/admin[:@][^\s]+')
+          new_src, n_img = img_pat.subn(r'\g<1>${IMAGE}', src, count=1)
+          if n_img != 1:
+              print(f"::error::image line substitution count={n_img}, expected 1", file=sys.stderr)
+              sys.exit(1)
+
+          ts_pat = re.compile(r'(kubectl\.kubernetes\.io/restartedAt:\s+")[^"]*(")')
+          new_src, n_ts = ts_pat.subn(r'\g<1>${RESTARTED_AT}\g<2>', new_src, count=1)
+          if n_ts != 1:
+              print(f"::error::restartedAt substitution count={n_ts}, expected 1", file=sys.stderr)
+              sys.exit(1)
+
+          p.write_text(new_src)
+          print(f"Rewrote {p}: image={n_img} subs, restartedAt={n_ts} subs")
+          PY
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git diff --quiet "${MANIFEST}"; then
+            echo "Manifest already matches the freshly built image — nothing to commit."
+            exit 0
+          fi
+
+          git add "${MANIFEST}"
+          COMMIT_MSG="infra(admin): deploy ${IMAGE} after CI ${COMMIT_SHA}
+
+          Auto-generated by admin-ci on push to main. Pins the admin
+          Deployment to the freshly built+pushed image digest so Flux's
+          kustomize-controller rolls the pods on the next reconcile interval.
+
+          Refs #361."
+          git commit -m "${COMMIT_MSG}"
+
+          for attempt in 1 2 3 4 5; do
+            if git push origin HEAD:main; then
+              echo "Pushed deploy bump on attempt ${attempt}."
+              exit 0
+            fi
+            echo "Push attempt ${attempt} rejected — rebasing onto origin/main."
+            git fetch origin main
+            git rebase origin/main || {
+              echo "::error::rebase conflict on deploy-bot commit; aborting."
+              git rebase --abort || true
+              exit 1
+            }
+            sleep $((attempt * 2))
+          done
+          echo "::error::failed to push deploy bump after 5 attempts"
+          exit 1
