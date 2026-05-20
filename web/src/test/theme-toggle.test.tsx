@@ -47,18 +47,20 @@ describe("ThemeToggle", () => {
     });
     const btn = screen.getByRole("button");
     expect(btn).toBeEnabled();
-    expect(btn).toHaveAttribute("aria-label", "Switch to dark theme");
+    // Default mockState.theme === "light"; cycle is
+    // system→dark→light→system, so from light the next state is system.
+    expect(btn).toHaveAttribute("aria-label", "Switch to system theme");
     expect(btn).toHaveAttribute("data-theme-toggle", "light");
   });
 
-  it("cycles light → dark → system → light on successive clicks", async () => {
+  it("cycles system → dark → light → system on successive clicks", async () => {
     // Three independent mounts, each starting from a known prior
     // state. We can't drive the cycle in one mount because the
     // useTheme() value is sampled at render time and updating the
     // module-level mock state doesn't trigger a re-render — that's a
     // job for the real next-themes provider, which we are mocking.
 
-    mockState = { theme: "light", resolvedTheme: "light" };
+    mockState = { theme: "system", resolvedTheme: "light" };
     const r1 = render(<ThemeToggle />);
     await act(async () => {
       await Promise.resolve();
@@ -73,16 +75,16 @@ describe("ThemeToggle", () => {
       await Promise.resolve();
     });
     fireEvent.click(screen.getByRole("button"));
-    expect(setThemeSpy).toHaveBeenLastCalledWith("system");
+    expect(setThemeSpy).toHaveBeenLastCalledWith("light");
     r2.unmount();
 
-    mockState = { theme: "system", resolvedTheme: "light" };
+    mockState = { theme: "light", resolvedTheme: "light" };
     render(<ThemeToggle />);
     await act(async () => {
       await Promise.resolve();
     });
     fireEvent.click(screen.getByRole("button"));
-    expect(setThemeSpy).toHaveBeenLastCalledWith("light");
+    expect(setThemeSpy).toHaveBeenLastCalledWith("system");
   });
 
   it("uses the Sun icon under light theme and Moon under dark", async () => {
@@ -102,10 +104,11 @@ describe("ThemeToggle", () => {
     await act(async () => {
       await Promise.resolve();
     });
-    // Going dark → system, so the label should announce "system".
+    // Cycle is system→dark→light→system; from dark the next state is
+    // light, so the label should announce "light".
     expect(screen.getByRole("button")).toHaveAttribute(
       "aria-label",
-      "Switch to system theme",
+      "Switch to light theme",
     );
   });
 
