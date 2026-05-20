@@ -503,6 +503,11 @@ func (m *memStore) SubscribeAuditEvents(providerID string) (<-chan AuditEvent, f
 }
 
 func (m *memStore) CreditEarnings(_ context.Context, e EarningsEntry) error {
+	if e.Currency == "" {
+		// Match the pgStore default — Phase-0 native ledger is $GRID
+		// (see store_pg.go::CreditEarnings, #312).
+		e.Currency = "GRID"
+	}
 	m.mu.Lock()
 	m.earnings = append(m.earnings, e)
 	m.mu.Unlock()
@@ -533,7 +538,9 @@ func (m *memStore) SumEarnings(_ context.Context, providerID string, from, to ti
 		}
 	}
 	if currency == "" {
-		currency = "USD"
+		// Phase-0 native ledger currency is $GRID; see store_pg.go
+		// SumEarnings for the rationale (#312).
+		currency = "GRID"
 	}
 	return total, byType, currency, nil
 }

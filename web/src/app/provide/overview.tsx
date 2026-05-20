@@ -68,7 +68,7 @@ export function ProvideOverview() {
         />
         <StatsCard
           label="Earnings this month"
-          value={formatMoney(earnings?.totalEarned?.amount, earnings?.totalEarned?.currencyCode ?? "USD")}
+          value={formatMoney(earnings?.totalEarned?.amount, earnings?.totalEarned?.currencyCode ?? "GRID")}
           hint="So far this period"
         />
         <StatsCard

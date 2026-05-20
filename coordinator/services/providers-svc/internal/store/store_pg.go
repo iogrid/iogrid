@@ -721,7 +721,12 @@ func (p *pgStore) CreditEarnings(ctx context.Context, e EarningsEntry) error {
 		return err
 	}
 	if e.Currency == "" {
-		e.Currency = "USD"
+		// Phase-0 native ledger currency is $GRID (Solana SPL). Off-ramp
+		// to USD/EUR/etc happens at withdraw time via billing-svc's
+		// monthly cron — never at credit time. Storing USD by default
+		// here would lie about the unit and break the headline rendering
+		// in /provide/earnings (#312).
+		e.Currency = "GRID"
 	}
 	if e.OccurredAt.IsZero() {
 		e.OccurredAt = time.Now().UTC()
@@ -739,7 +744,7 @@ func (p *pgStore) CreditEarnings(ctx context.Context, e EarningsEntry) error {
 func (p *pgStore) SumEarnings(ctx context.Context, providerID string, from, to time.Time) (int64, map[string]int64, string, error) {
 	pid, err := parseUUID("providerID", providerID)
 	if err != nil {
-		return 0, nil, "USD", err
+		return 0, nil, "GRID", err
 	}
 	args := []any{pid}
 	where := []string{fmt.Sprintf("provider_id = $%d", len(args))}
@@ -758,7 +763,7 @@ func (p *pgStore) SumEarnings(ctx context.Context, providerID string, from, to t
 		 WHERE `+strings.Join(where, " AND ")+`
 		 GROUP BY workload_type, currency`, args...)
 	if err != nil {
-		return 0, nil, "USD", fmt.Errorf("sum earnings: %w", err)
+		return 0, nil, "GRID", fmt.Errorf("sum earnings: %w", err)
 	}
 	defer rows.Close()
 
@@ -771,7 +776,7 @@ func (p *pgStore) SumEarnings(ctx context.Context, providerID string, from, to t
 			sum     int64
 		)
 		if err := rows.Scan(&wt, &cur, &sum); err != nil {
-			return 0, nil, "USD", fmt.Errorf("scan earnings: %w", err)
+			return 0, nil, "GRID", fmt.Errorf("scan earnings: %w", err)
 		}
 		total += sum
 		byType[wt] += sum
@@ -780,10 +785,15 @@ func (p *pgStore) SumEarnings(ctx context.Context, providerID string, from, to t
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return 0, nil, "USD", err
+		return 0, nil, "GRID", err
 	}
 	if currency == "" {
-		currency = "USD"
+		// Empty result set (Phase 0: no workload completions credited
+		// yet for this provider). The native ledger currency is $GRID,
+		// not USD — USD would mis-label the headline card in
+		// /provide/earnings and break the 0-$GRID empty-state copy
+		// the founder DoD calls for (#312).
+		currency = "GRID"
 	}
 	return total, byType, currency, nil
 }

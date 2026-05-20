@@ -332,9 +332,9 @@ func TestPgStore_EarningsSummary(t *testing.T) {
 	p1 := uuid.NewString()
 	p2 := uuid.NewString()
 	now := time.Now().UTC()
-	_ = s.CreditEarnings(ctx, EarningsEntry{ProviderID: p1, WorkloadType: "bandwidth", OccurredAt: now, Currency: "USD", Micros: 100})
-	_ = s.CreditEarnings(ctx, EarningsEntry{ProviderID: p1, WorkloadType: "docker", OccurredAt: now, Currency: "USD", Micros: 250})
-	_ = s.CreditEarnings(ctx, EarningsEntry{ProviderID: p2, WorkloadType: "bandwidth", OccurredAt: now, Currency: "USD", Micros: 999})
+	_ = s.CreditEarnings(ctx, EarningsEntry{ProviderID: p1, WorkloadType: "bandwidth", OccurredAt: now, Currency: "GRID", Micros: 100})
+	_ = s.CreditEarnings(ctx, EarningsEntry{ProviderID: p1, WorkloadType: "docker", OccurredAt: now, Currency: "GRID", Micros: 250})
+	_ = s.CreditEarnings(ctx, EarningsEntry{ProviderID: p2, WorkloadType: "bandwidth", OccurredAt: now, Currency: "GRID", Micros: 999})
 
 	total, byType, currency, err := s.SumEarnings(ctx, p1, time.Time{}, time.Time{})
 	if err != nil {
@@ -346,8 +346,37 @@ func TestPgStore_EarningsSummary(t *testing.T) {
 	if byType["bandwidth"] != 100 || byType["docker"] != 250 {
 		t.Fatalf("breakdown: %+v", byType)
 	}
-	if currency != "USD" {
+	if currency != "GRID" {
 		t.Fatalf("currency: %q", currency)
+	}
+
+	// Empty-provider path: a provider with zero credited entries must
+	// still get the Phase-0 native ledger currency (GRID) back, NOT the
+	// legacy "USD" default — that's what makes /provide/earnings render
+	// "0 $GRID" instead of "$0.00" / "—" (#312).
+	noEarnings := uuid.NewString()
+	total, byType, currency, err = s.SumEarnings(ctx, noEarnings, time.Time{}, time.Time{})
+	if err != nil {
+		t.Fatalf("empty sum: %v", err)
+	}
+	if total != 0 || len(byType) != 0 {
+		t.Fatalf("empty provider should have zero earnings, got total=%d byType=%+v", total, byType)
+	}
+	if currency != "GRID" {
+		t.Fatalf("empty-provider currency: got %q want GRID", currency)
+	}
+
+	// Credit-time default: an entry with Currency:"" must be persisted
+	// as "GRID" (not "USD"); regression for the future when workloads-svc
+	// starts crediting earnings without explicitly setting currency.
+	pDefault := uuid.NewString()
+	_ = s.CreditEarnings(ctx, EarningsEntry{ProviderID: pDefault, WorkloadType: "gpu", OccurredAt: now, Currency: "", Micros: 7})
+	_, _, currency, err = s.SumEarnings(ctx, pDefault, time.Time{}, time.Time{})
+	if err != nil {
+		t.Fatalf("default sum: %v", err)
+	}
+	if currency != "GRID" {
+		t.Fatalf("CreditEarnings empty-currency default: got %q want GRID", currency)
 	}
 }
 

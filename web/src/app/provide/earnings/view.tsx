@@ -70,7 +70,11 @@ export function EarningsView() {
   }, [period]);
 
   const total = summary?.summary?.totalEarned;
-  const currency = total?.currencyCode ?? "USD";
+  // Default currency is the native ledger currency ($GRID), NOT USD —
+  // a missing currencyCode means providers-svc returned an empty Money
+  // (proto3 zero-omission) for a Phase-0 zero-workload provider, and
+  // the headline card must render "0 $GRID", not "$0.00" / "—" (#312).
+  const currency = total?.currencyCode ?? "GRID";
   const breakdown = Object.entries(summary?.summary?.byWorkloadType ?? {});
 
   const nextPayout = nextPayoutDate();

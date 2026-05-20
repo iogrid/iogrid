@@ -32,6 +32,11 @@ func TestListAuditEvents_FilterByKind(t *testing.T) {
 	}
 }
 
+// TestGetEarningsSummary_Empty is the regression test for #312: when a
+// caller's provider has zero earnings_entries (the Phase-0 zero-workload
+// state), the headline Money must carry currency="GRID" (not "USD") so
+// the web layer renders "0 $GRID" — not "$0.00" and not "—" (which is
+// what proto3 zero-omission + Intl.NumberFormat("USD") would produce).
 func TestGetEarningsSummary_Empty(t *testing.T) {
 	s := store.NewInMemory()
 	h := NewDashboardHandler(s, nil)
@@ -41,11 +46,14 @@ func TestGetEarningsSummary_Empty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
+	if resp.Msg.Summary.TotalEarned == nil {
+		t.Fatal("TotalEarned must be set even on empty state — frontend reads currencyCode off it")
+	}
 	if resp.Msg.Summary.TotalEarned.Micros != 0 {
 		t.Fatalf("expected 0 micros")
 	}
-	if resp.Msg.Summary.TotalEarned.Currency != "USD" {
-		t.Fatalf("expected USD default, got %q", resp.Msg.Summary.TotalEarned.Currency)
+	if resp.Msg.Summary.TotalEarned.Currency != "GRID" {
+		t.Fatalf("expected GRID default (Phase-0 native ledger currency), got %q", resp.Msg.Summary.TotalEarned.Currency)
 	}
 }
 
@@ -53,8 +61,8 @@ func TestGetEarningsSummary_Breakdown(t *testing.T) {
 	s := store.NewInMemory()
 	ctx := context.Background()
 	now := time.Now()
-	_ = s.CreditEarnings(ctx, store.EarningsEntry{ProviderID: "p1", WorkloadType: "bandwidth", OccurredAt: now, Currency: "USD", Micros: 100})
-	_ = s.CreditEarnings(ctx, store.EarningsEntry{ProviderID: "p1", WorkloadType: "docker", OccurredAt: now, Currency: "USD", Micros: 250})
+	_ = s.CreditEarnings(ctx, store.EarningsEntry{ProviderID: "p1", WorkloadType: "bandwidth", OccurredAt: now, Currency: "GRID", Micros: 100})
+	_ = s.CreditEarnings(ctx, store.EarningsEntry{ProviderID: "p1", WorkloadType: "docker", OccurredAt: now, Currency: "GRID", Micros: 250})
 
 	h := NewDashboardHandler(s, nil)
 	resp, err := h.GetEarningsSummary(ctx, connect.NewRequest(&providersv1.GetEarningsSummaryRequest{
@@ -65,6 +73,9 @@ func TestGetEarningsSummary_Breakdown(t *testing.T) {
 	}
 	if resp.Msg.Summary.TotalEarned.Micros != 350 {
 		t.Fatalf("total: got %d want 350", resp.Msg.Summary.TotalEarned.Micros)
+	}
+	if resp.Msg.Summary.TotalEarned.Currency != "GRID" {
+		t.Fatalf("currency: got %q want GRID", resp.Msg.Summary.TotalEarned.Currency)
 	}
 	if resp.Msg.Summary.ByWorkloadType["bandwidth"].Micros != 100 {
 		t.Fatalf("bandwidth: %v", resp.Msg.Summary.ByWorkloadType["bandwidth"])
