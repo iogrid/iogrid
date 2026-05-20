@@ -6,6 +6,13 @@ on:
     paths:
       - "web/**"
       - ".github/workflows/web-ci.yml"
+    # Avoid an infinite CI loop: the `deploy` job below pushes a commit that
+    # rewrites `infra/k8s/base/web/deployment.yaml`. We do NOT want that
+    # commit to re-trigger web-ci. `paths` only fires when at least one
+    # changed path matches AND none of `paths-ignore` matches alone — by
+    # NOT listing `infra/**` under `paths` we already skip pure-manifest
+    # commits. This is the safer of the two patterns (skip-ci footgun
+    # avoided per founder rule §3.3 / dispatcher brief).
   pull_request:
     paths:
       - "web/**"
@@ -63,6 +70,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@v4
 
@@ -92,6 +101,7 @@ jobs:
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
 
       - name: Build and push
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: ./web
@@ -101,3 +111,152 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=web
           cache-to: type=gha,scope=web,mode=max
+
+  deploy:
+    # CD bump: rewrite infra/k8s/base/web/deployment.yaml to pin the freshly
+    # pushed image by digest + bump the kubectl.kubernetes.io/restartedAt
+    # annotation, then push the change back to main so Flux's
+    # kustomize-controller picks it up on the next 5m reconcile interval.
+    #
+    # Refs #332 — closes the gap where every web/ PR built+pushed a new
+    # image but the deployment kept serving :scaffold.
+    #
+    # Dry-run on PRs: we still compute what the bumped values would be and
+    # echo a preview, so reviewers can sanity-check the substitution logic
+    # without writing to the repo.
+    runs-on: ubuntu-latest
+    needs: docker
+    timeout-minutes: 10
+    permissions:
+      # Write content scope is needed to push the manifest commit back to
+      # main. No new PAT — we lean on the workflow-scoped GITHUB_TOKEN per
+      # founder rule §6 (avoid sprawling PAT secrets unless absolutely
+      # required).
+      contents: write
+    steps:
+      - name: Checkout main (full history for rebase loop)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          # Persist the workflow-scoped token so the eventual `git push`
+          # below authenticates as github-actions[bot].
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve digest + timestamp
+        id: vars
+        env:
+          DIGEST: ${{ needs.docker.outputs.digest }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DIGEST:-}" ]; then
+            echo "::error::docker job did not emit a digest output" >&2
+            exit 1
+          fi
+          # docker/build-push-action emits the digest as "sha256:<hex>"; the
+          # deployment manifest needs the fully-qualified
+          # `ghcr.io/iogrid/web@sha256:<hex>` form.
+          IMAGE="ghcr.io/iogrid/web@${DIGEST}"
+          RESTARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "image=${IMAGE}"        | tee -a "$GITHUB_OUTPUT"
+          echo "restartedAt=${RESTARTED_AT}" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Preview manifest bump (dry-run on PRs)
+        if: github.event_name == 'pull_request'
+        env:
+          IMAGE: ${{ steps.vars.outputs.image }}
+          RESTARTED_AT: ${{ steps.vars.outputs.restartedAt }}
+        run: |
+          set -euo pipefail
+          echo "── PR dry-run: web-ci would rewrite infra/k8s/base/web/deployment.yaml as ──"
+          echo "    image            -> ${IMAGE}"
+          echo "    restartedAt      -> ${RESTARTED_AT}"
+          echo "── (no commit will be pushed on PR builds) ──"
+
+      - name: Rewrite manifest + commit + push (main only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          IMAGE: ${{ steps.vars.outputs.image }}
+          RESTARTED_AT: ${{ steps.vars.outputs.restartedAt }}
+          COMMIT_SHA: ${{ github.sha }}
+          MANIFEST: infra/k8s/base/web/deployment.yaml
+        run: |
+          set -euo pipefail
+
+          # 1. Rewrite the manifest. We anchor on the exact YAML keys to
+          # avoid clobbering unrelated `image:` or `kubectl.kubernetes.io/`
+          # lines that may appear elsewhere in the file (sidecars, init
+          # containers, other annotations).
+          #
+          # The image line we want is the single one under the `web`
+          # container — currently `ghcr.io/iogrid/web:scaffold` or
+          # `ghcr.io/iogrid/web@sha256:...` after the first rewrite. We
+          # match `ghcr.io/iogrid/web[:@][^[:space:]]+` precisely.
+          python3 - <<PY
+          import re, sys, pathlib
+          p = pathlib.Path("${MANIFEST}")
+          src = p.read_text()
+
+          # image: ghcr.io/iogrid/web... -> image: ${IMAGE}
+          img_pat = re.compile(r'(\s+image:\s+)ghcr\.io/iogrid/web[:@][^\s]+')
+          new_src, n_img = img_pat.subn(r'\g<1>${IMAGE}', src, count=1)
+          if n_img != 1:
+              print(f"::error::image line substitution count={n_img}, expected 1", file=sys.stderr)
+              sys.exit(1)
+
+          # kubectl.kubernetes.io/restartedAt: "..."  ->  ... ${RESTARTED_AT}
+          ts_pat = re.compile(r'(kubectl\.kubernetes\.io/restartedAt:\s+")[^"]*(")')
+          new_src, n_ts = ts_pat.subn(r'\g<1>${RESTARTED_AT}\g<2>', new_src, count=1)
+          if n_ts != 1:
+              print(f"::error::restartedAt substitution count={n_ts}, expected 1", file=sys.stderr)
+              sys.exit(1)
+
+          p.write_text(new_src)
+          print(f"Rewrote {p}: image={n_img} subs, restartedAt={n_ts} subs")
+          PY
+
+          # 2. Configure git identity for the deploy-bot commit.
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # 3. No-op guard: if the manifest happens to be byte-identical to
+          # main (e.g. re-run on the same SHA where digest + minute haven't
+          # changed), skip the commit entirely.
+          if git diff --quiet "${MANIFEST}"; then
+            echo "Manifest already matches the freshly built image — nothing to commit."
+            exit 0
+          fi
+
+          git add "${MANIFEST}"
+          COMMIT_MSG="infra(web): deploy ${IMAGE} after CI ${COMMIT_SHA}
+
+          Auto-generated by web-ci on push to main. Pins the web Deployment
+          to the freshly built+pushed image digest so Flux's kustomize-
+          controller rolls the pods on the next reconcile interval.
+
+          Refs #332."
+          git commit -m "${COMMIT_MSG}"
+
+          # 4. Push with rebase loop — parallel merges on main can race the
+          # deploy-bot commit (founder rule §6: wrap in pull --rebase retry).
+          # We retry up to 5 times with backoff; if a real conflict on the
+          # manifest itself happens (e.g. a hand-edit landed mid-flight)
+          # the rebase will surface it and we'll fail loud.
+          for attempt in 1 2 3 4 5; do
+            if git push origin HEAD:main; then
+              echo "Pushed deploy bump on attempt ${attempt}."
+              exit 0
+            fi
+            echo "Push attempt ${attempt} rejected — rebasing onto origin/main."
+            git fetch origin main
+            # We replay the deploy-bot commit on top of whatever else landed.
+            # If a manifest conflict surfaces, fail rather than auto-resolve.
+            git rebase origin/main || {
+              echo "::error::rebase conflict on deploy-bot commit; aborting."
+              git rebase --abort || true
+              exit 1
+            }
+            sleep $((attempt * 2))
+          done
+          echo "::error::failed to push deploy bump after 5 attempts"
+          exit 1
