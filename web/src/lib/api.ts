@@ -95,6 +95,15 @@ export class ApiClient {
     return this.request<T>("POST", path, body, init);
   }
 
+  /**
+   * PUT for idempotent replacement semantics. Used by the payout-method
+   * surface (#324) where the underlying storage is keyed by user_id and
+   * a second call overwrites the first.
+   */
+  async put<T>(path: string, body?: unknown, init?: RequestInit): Promise<T> {
+    return this.request<T>("PUT", path, body, init);
+  }
+
   async del<T>(path: string, init?: RequestInit): Promise<T> {
     return this.request<T>("DELETE", path, undefined, init);
   }

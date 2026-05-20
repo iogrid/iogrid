@@ -94,6 +94,14 @@ func Mount(d Deps) func(chi.Router) {
 		apiKeys := NewApiKeyHandler(d.Store)
 		path, hh := billingv1connect.NewApiKeyServiceHandler(apiKeys)
 		r.Mount(path, hh)
+
+		// Connect-RPC: EarningsService — headline-card surface for
+		// /provide/earnings (#324). gateway-bff fans the three
+		// GET /api/v1/provide/earnings/summary, GET /payout-method,
+		// PUT /payout-method routes onto these RPCs.
+		earnings := NewEarningsHandler(d.Store)
+		ePath, eh := billingv1connect.NewEarningsServiceHandler(earnings)
+		r.Mount(ePath, eh)
 	}
 }
 

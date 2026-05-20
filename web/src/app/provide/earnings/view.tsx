@@ -13,7 +13,13 @@ import { browserApi } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
 import { useProviderOwnership } from "@/lib/use-provider-ownership";
 import { cn } from "@/lib/utils";
-import type { GetEarningsSummaryResponse } from "@/lib/types";
+import type {
+  BillingGetEarningsSummaryResponse,
+  GetEarningsSummaryResponse,
+  GetPayoutMethodResponse,
+  PayoutMethodKind,
+  SetPayoutMethodResponse,
+} from "@/lib/types";
 import {
   WithdrawDrawer,
   loadPendingOffRamps,
@@ -28,6 +34,38 @@ type Period = "daily" | "weekly" | "monthly";
 // billing-svc's monthly cron once #274 lands the founder mint.
 type PayoutMethod = "grid" | "cash" | "charity";
 
+/**
+ * Map the UI's three-state PayoutMethod tag to the canonical proto
+ * enum (#324). "grid" is the default (no off-ramp configured) — it
+ * round-trips as UNSPECIFIED on the wire because billing-svc's
+ * payout_methods.kind defaults to UNSPECIFIED on insert and we treat
+ * UNSPECIFIED as "hold $GRID" everywhere.
+ */
+function toPayoutMethodKind(m: PayoutMethod): PayoutMethodKind {
+  switch (m) {
+    case "grid":
+      return "PAYOUT_METHOD_KIND_UNSPECIFIED";
+    case "cash":
+      return "PAYOUT_METHOD_KIND_CASH_USDC";
+    case "charity":
+      return "PAYOUT_METHOD_KIND_CHARITY";
+  }
+}
+
+function fromPayoutMethodKind(k: PayoutMethodKind | undefined): PayoutMethod {
+  switch (k) {
+    case "PAYOUT_METHOD_KIND_CASH_USDC":
+      return "cash";
+    case "PAYOUT_METHOD_KIND_CHARITY":
+      return "charity";
+    default:
+      // UNSPECIFIED + FREE_VPN both render as the "Hold $GRID" tile
+      // selected; FREE_VPN is functionally equivalent because the user
+      // can burn-for-VPN any time from a $GRID balance.
+      return "grid";
+  }
+}
+
 const PERIODS: { key: Period; label: string; days: number }[] = [
   { key: "daily", label: "Daily (last 14d)", days: 14 },
   { key: "weekly", label: "Weekly (last 8w)", days: 56 },
@@ -40,9 +78,15 @@ export function EarningsView() {
   const [summary, setSummary] = React.useState<GetEarningsSummaryResponse | null>(
     null,
   );
+  // Headline-card aggregation from billing-svc (#324) — distinct from
+  // the providers-svc `summary` above which carries per-workload-type
+  // breakdown but no lifetime/30d/7d/pending rollups.
+  const [headline, setHeadline] =
+    React.useState<BillingGetEarningsSummaryResponse | null>(null);
   const [chart, setChart] = React.useState<EarningsPoint[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [payout, setPayout] = React.useState<PayoutMethod>("grid");
+  const [payoutSaving, setPayoutSaving] = React.useState(false);
   const [withdrawOpen, setWithdrawOpen] = React.useState(false);
   const [pendingOffRamps, setPendingOffRamps] = React.useState<PendingOffRamp[]>(
     [],
@@ -52,6 +96,29 @@ export function EarningsView() {
     // Hydrate pending off-ramps from localStorage on mount; the
     // earnings page persists these across reloads (issue #169).
     setPendingOffRamps(loadPendingOffRamps());
+  }, []);
+
+  // Headline + payout-method are fetched once on mount (they don't
+  // depend on the period selector — period drives only the time-series
+  // chart below).
+  React.useEffect(() => {
+    const api = browserApi();
+    api
+      .get<BillingGetEarningsSummaryResponse>("/api/v1/provide/earnings/summary")
+      .then((res) => setHeadline(res))
+      .catch((err) => {
+        toast.error(`Failed to load earnings summary: ${err.message}`);
+      });
+    api
+      .get<GetPayoutMethodResponse>("/api/v1/provide/payout-method")
+      .then((res) => setPayout(fromPayoutMethodKind(res.method?.kind)))
+      .catch((err) => {
+        // Don't toast on payout-method failure — the user can still
+        // pick a method and save it. Log to the dev console for triage.
+        if (typeof console !== "undefined") {
+          console.warn("payout-method fetch failed", err);
+        }
+      });
   }, []);
 
   React.useEffect(() => {
@@ -91,34 +158,63 @@ export function EarningsView() {
     return <ProviderEmptyState subtitle={PROVIDER_EMPTY_EARNINGS_SUBTITLE} />;
   }
 
-  const total = summary?.summary?.totalEarned;
-  // Default currency is the native ledger currency ($GRID), NOT USD —
-  // a missing currencyCode means providers-svc returned an empty Money
-  // (proto3 zero-omission) for a Phase-0 zero-workload provider, and
-  // the headline card must render "0 $GRID", not "$0.00" / "—" (#312).
+  // Prefer the billing-svc headline (lifetime cumulative) for the top
+  // card; fall back to the providers-svc window total if the headline
+  // hasn't arrived yet. Both default to GRID currency for #312/#315.
+  const headlineTotal = headline?.summary?.totalEarned;
+  const total = headlineTotal ?? summary?.summary?.totalEarned;
   const currency = total?.currencyCode ?? "GRID";
   const breakdown = Object.entries(summary?.summary?.byWorkloadType ?? {});
 
   const nextPayout = nextPayoutDate();
 
+  async function savePayoutMethod() {
+    setPayoutSaving(true);
+    try {
+      await browserApi().put<SetPayoutMethodResponse>(
+        "/api/v1/provide/payout-method",
+        { kind: toPayoutMethodKind(payout) },
+      );
+      toast.success(`Payout method set to: ${payout}`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error(`Failed to save payout method: ${msg}`);
+    } finally {
+      setPayoutSaving(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatsCard
-          label="Total this period"
-          value={formatMoney(total?.amount, currency)}
-          hint={periodHint(period)}
+          label="Total earned (lifetime)"
+          value={formatMoney(
+            headline?.summary?.totalEarned?.amount,
+            headline?.summary?.totalEarned?.currencyCode ?? currency,
+          )}
+          hint={
+            headline?.summary?.lifetimeWorkloads
+              ? `${headline.summary.lifetimeWorkloads} workloads`
+              : "No workloads yet"
+          }
           series={chart.map((p) => p.amount)}
         />
         <StatsCard
-          label="$GRID balance"
-          value={<GridBalanceValue />}
-          hint="Auto-credited per workload completion (devnet)"
+          label="Last 30 days"
+          value={formatMoney(
+            headline?.summary?.last30D?.amount,
+            headline?.summary?.last30D?.currencyCode ?? currency,
+          )}
+          hint="Rolling 30-day window"
         />
         <StatsCard
-          label="Top workload type"
-          value={topLabel(breakdown)}
-          hint="By revenue"
+          label="Pending payout"
+          value={formatMoney(
+            headline?.summary?.pendingPayout?.amount,
+            headline?.summary?.pendingPayout?.currencyCode ?? currency,
+          )}
+          hint={payoutHint(payout)}
         />
         <StatsCard
           label="Next payout"
@@ -237,10 +333,11 @@ export function EarningsView() {
         </div>
         <Button
           className="mt-4"
-          onClick={() => toast.success(`Payout method set to: ${payout}`)}
+          onClick={savePayoutMethod}
+          disabled={payoutSaving}
           aria-label="Save payout method"
         >
-          Save payout method
+          {payoutSaving ? "Saving…" : "Save payout method"}
         </Button>
       </section>
 
@@ -282,12 +379,6 @@ function PayoutOption({
   );
 }
 
-function topLabel(rows: [string, { amount: string }][]): string {
-  if (rows.length === 0) return "—";
-  const top = rows.slice().sort((a, b) => Number(b[1].amount) - Number(a[1].amount))[0];
-  return workloadLabel(top[0]);
-}
-
 function workloadLabel(k: string): string {
   const map: Record<string, string> = {
     WORKLOAD_TYPE_BANDWIDTH: "Bandwidth",
@@ -302,17 +393,6 @@ function workloadLabel(k: string): string {
   return map[k] ?? k;
 }
 
-function periodHint(p: Period): string {
-  switch (p) {
-    case "daily":
-      return "Last 14 days";
-    case "weekly":
-      return "Last 8 weeks";
-    case "monthly":
-      return "Last 12 months";
-  }
-}
-
 function payoutHint(m: PayoutMethod): string {
   switch (m) {
     case "grid":
@@ -322,29 +402,6 @@ function payoutHint(m: PayoutMethod): string {
     case "charity":
       return "Charity forward";
   }
-}
-
-/**
- * Renders the user's $GRID balance in the top stats card. The Solana
- * mint + billing-svc credit cron is gated on #274 (operator-handoff
- * founder mint). Until that ships, we surface an em-dash with a
- * tooltip pointing at docs/SOLANA.md so operators understand why the
- * number is blank — rather than fabricating a zero balance, which
- * would imply the user has been paid 0 $GRID.
- */
-function GridBalanceValue() {
-  return (
-    <span
-      title="Wallet balance fetch is gated on Solana devnet mint — see docs/SOLANA.md (#274)."
-      aria-label="GRID balance unavailable — see docs/SOLANA.md"
-      className="cursor-help"
-    >
-      —
-      <span className="ml-2 align-middle text-xs font-normal text-zinc-500">
-        (devnet)
-      </span>
-    </span>
-  );
 }
 
 function nextPayoutDate(): string {
