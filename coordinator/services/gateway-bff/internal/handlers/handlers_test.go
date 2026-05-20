@@ -117,6 +117,31 @@ func (m *mockScheduling) GetCurrentState(ctx context.Context, req *providersv1.G
 	return m.getState(ctx, req)
 }
 
+// mockRegistration backs the ProviderRegistrationService read-side that
+// /provide/* uses to gate by ownership.
+type mockRegistration struct {
+	listProviders func(context.Context, *providersv1.ListProvidersRequest) (*providersv1.ListProvidersResponse, error)
+}
+
+func (m *mockRegistration) ListProviders(ctx context.Context, req *providersv1.ListProvidersRequest) (*providersv1.ListProvidersResponse, error) {
+	if m.listProviders == nil {
+		return &providersv1.ListProvidersResponse{}, nil
+	}
+	return m.listProviders(ctx, req)
+}
+
+// staticRegistration returns a Registration mock that always reports the
+// given list of providers as owned by the caller. Helper used by the
+// /provide/* fan-out tests so each one doesn't re-declare the same
+// boilerplate.
+func staticRegistration(providers ...*providersv1.Provider) *mockRegistration {
+	return &mockRegistration{
+		listProviders: func(_ context.Context, _ *providersv1.ListProvidersRequest) (*providersv1.ListProvidersResponse, error) {
+			return &providersv1.ListProvidersResponse{Providers: providers}, nil
+		},
+	}
+}
+
 type mockWorkloads struct {
 	submit     func(context.Context, *workloadsv1.SubmitWorkloadRequest) (*workloadsv1.SubmitWorkloadResponse, error)
 	get        func(context.Context, *workloadsv1.GetWorkloadRequest) (*workloadsv1.GetWorkloadResponse, error)
@@ -399,14 +424,23 @@ func TestGetProviderDashboard_FansOut(t *testing.T) {
 	dashCalls := 0
 	earningsCalled := false
 	stateCalled := false
+	pid := uuid.NewString()
+	owned := &providersv1.Provider{
+		Id:          &commonv1.UUID{Value: pid},
+		OwnerUserId: &commonv1.UUID{Value: fakeUserID},
+		Status:      providersv1.ProviderStatus_PROVIDER_STATUS_ACTIVE,
+	}
+	var seenSchedPID, seenEarnPID, seenAuditPID string
 	set := &clients.Set{
 		ProvidersDashboard: &mockDashboard{
-			earningsSummary: func(_ context.Context, _ *providersv1.GetEarningsSummaryRequest) (*providersv1.GetEarningsSummaryResponse, error) {
+			earningsSummary: func(_ context.Context, req *providersv1.GetEarningsSummaryRequest) (*providersv1.GetEarningsSummaryResponse, error) {
 				earningsCalled = true
+				seenEarnPID = req.GetProviderId().GetValue()
 				return &providersv1.GetEarningsSummaryResponse{Summary: &providersv1.EarningsSummary{}}, nil
 			},
-			listEvents: func(_ context.Context, _ *providersv1.ListAuditEventsRequest) (*providersv1.ListAuditEventsResponse, error) {
+			listEvents: func(_ context.Context, req *providersv1.ListAuditEventsRequest) (*providersv1.ListAuditEventsResponse, error) {
 				dashCalls++
+				seenAuditPID = req.GetProviderId().GetValue()
 				return &providersv1.ListAuditEventsResponse{
 					Events: []*providersv1.AuditEvent{
 						{Id: &commonv1.UUID{Value: uuid.NewString()}},
@@ -415,11 +449,13 @@ func TestGetProviderDashboard_FansOut(t *testing.T) {
 			},
 		},
 		ProvidersScheduling: &mockScheduling{
-			getState: func(_ context.Context, _ *providersv1.GetCurrentStateRequest) (*providersv1.GetCurrentStateResponse, error) {
+			getState: func(_ context.Context, req *providersv1.GetCurrentStateRequest) (*providersv1.GetCurrentStateResponse, error) {
 				stateCalled = true
+				seenSchedPID = req.GetProviderId().GetValue()
 				return &providersv1.GetCurrentStateResponse{State: providersv1.SchedulerState_SCHEDULER_STATE_ACTIVE}, nil
 			},
 		},
+		ProvidersRegistration: staticRegistration(owned),
 	}
 	api := newAPI(t, set)
 	r := withAuth(httptest.NewRequest(http.MethodGet, "/api/v1/provide/dashboard", nil))
@@ -430,6 +466,124 @@ func TestGetProviderDashboard_FansOut(t *testing.T) {
 	}
 	if !earningsCalled || !stateCalled || dashCalls != 1 {
 		t.Fatalf("fan-out incomplete earnings=%v state=%v events=%d", earningsCalled, stateCalled, dashCalls)
+	}
+	// Every fan-out leg MUST receive the actual paired provider_id (not
+	// the caller's user_id). This is the regression contract for #305.
+	if seenSchedPID != pid || seenEarnPID != pid || seenAuditPID != pid {
+		t.Fatalf("provider_id not threaded correctly: sched=%s earn=%s audit=%s want=%s", seenSchedPID, seenEarnPID, seenAuditPID, pid)
+	}
+	if seenSchedPID == fakeUserID {
+		t.Fatal("provider_id was leaked as the caller's user_id (#305 regression)")
+	}
+}
+
+// TestGetProviderSchedule_NoProvider_ReturnsNullConfig is the direct
+// regression test for #305: a user with zero paired providers must NOT
+// see a synthesised SchedulingConfig keyed by their user_id. They must
+// see {"config": null, "has_provider": false} so the frontend can render
+// the "Install the daemon" empty state.
+func TestGetProviderSchedule_NoProvider_ReturnsNullConfig(t *testing.T) {
+	schedCalled := false
+	set := &clients.Set{
+		ProvidersScheduling: &mockScheduling{
+			getConfig: func(_ context.Context, _ *providersv1.GetSchedulingConfigRequest) (*providersv1.GetSchedulingConfigResponse, error) {
+				schedCalled = true
+				return &providersv1.GetSchedulingConfigResponse{}, nil
+			},
+		},
+		ProvidersRegistration: staticRegistration(), // ← zero providers owned
+	}
+	api := newAPI(t, set)
+	r := withAuth(httptest.NewRequest(http.MethodGet, "/api/v1/provide/schedule", nil))
+	w := httptest.NewRecorder()
+	api.GetProviderSchedule(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if schedCalled {
+		t.Fatal("GetSchedulingConfig must NOT be called when caller owns no provider (#305)")
+	}
+	var got providerSchedule
+	mustReadJSON(t, w.Body, &got)
+	if got.Config != nil {
+		t.Fatalf("config should be nil when no provider paired, got %#v", got.Config)
+	}
+	if got.HasProvider {
+		t.Fatal("has_provider should be false when caller owns nothing")
+	}
+}
+
+// TestGetProviderSchedule_OwnedProvider_ReturnsRealProviderID asserts the
+// happy path: when the caller owns a paired provider, the schedule
+// upstream is called with THAT provider's id (not the caller's user_id).
+func TestGetProviderSchedule_OwnedProvider_ReturnsRealProviderID(t *testing.T) {
+	pid := uuid.NewString()
+	var seenPID string
+	set := &clients.Set{
+		ProvidersScheduling: &mockScheduling{
+			getConfig: func(_ context.Context, req *providersv1.GetSchedulingConfigRequest) (*providersv1.GetSchedulingConfigResponse, error) {
+				seenPID = req.GetProviderId().GetValue()
+				return &providersv1.GetSchedulingConfigResponse{
+					Config: &providersv1.SchedulingConfig{
+						ProviderId: &commonv1.UUID{Value: pid},
+					},
+				}, nil
+			},
+		},
+		ProvidersRegistration: staticRegistration(&providersv1.Provider{
+			Id:          &commonv1.UUID{Value: pid},
+			OwnerUserId: &commonv1.UUID{Value: fakeUserID},
+			Status:      providersv1.ProviderStatus_PROVIDER_STATUS_ACTIVE,
+		}),
+	}
+	api := newAPI(t, set)
+	r := withAuth(httptest.NewRequest(http.MethodGet, "/api/v1/provide/schedule", nil))
+	w := httptest.NewRecorder()
+	api.GetProviderSchedule(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if seenPID != pid {
+		t.Fatalf("providers-svc got provider_id=%s, want %s", seenPID, pid)
+	}
+	if seenPID == fakeUserID {
+		t.Fatal("provider_id was leaked as caller's user_id (#305 regression)")
+	}
+	var got providerSchedule
+	mustReadJSON(t, w.Body, &got)
+	if !got.HasProvider {
+		t.Fatal("has_provider should be true when caller owns a provider")
+	}
+	if got.Config.GetProviderId().GetValue() != pid {
+		t.Fatalf("returned config.provider_id=%s, want %s", got.Config.GetProviderId().GetValue(), pid)
+	}
+}
+
+// TestGetProviderSchedule_QueryParam_NotOwned_403 ensures a caller can't
+// pivot to read someone else's SchedulingConfig by passing ?provider_id=
+// in the URL.
+func TestGetProviderSchedule_QueryParam_NotOwned_403(t *testing.T) {
+	otherPID := uuid.NewString() // owned by a different user
+	myPID := uuid.NewString()
+	set := &clients.Set{
+		ProvidersScheduling: &mockScheduling{
+			getConfig: func(_ context.Context, _ *providersv1.GetSchedulingConfigRequest) (*providersv1.GetSchedulingConfigResponse, error) {
+				t.Fatal("upstream must not be called when caller does not own the requested provider_id")
+				return nil, nil
+			},
+		},
+		ProvidersRegistration: staticRegistration(&providersv1.Provider{
+			Id:          &commonv1.UUID{Value: myPID},
+			OwnerUserId: &commonv1.UUID{Value: fakeUserID},
+			Status:      providersv1.ProviderStatus_PROVIDER_STATUS_ACTIVE,
+		}),
+	}
+	api := newAPI(t, set)
+	r := withAuth(httptest.NewRequest(http.MethodGet, "/api/v1/provide/schedule?provider_id="+otherPID, nil))
+	w := httptest.NewRecorder()
+	api.GetProviderSchedule(w, r)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("want 403, got %d body=%s", w.Code, w.Body.String())
 	}
 }
 

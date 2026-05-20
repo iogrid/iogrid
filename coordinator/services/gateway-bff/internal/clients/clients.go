@@ -76,6 +76,15 @@ type ProvidersSchedulingClient interface {
 	GetCurrentState(ctx context.Context, req *providersv1.GetCurrentStateRequest) (*providersv1.GetCurrentStateResponse, error)
 }
 
+// ProvidersRegistrationClient is the read-side of the
+// ProviderRegistrationService the BFF needs so /provide/* can gate
+// responses on actual ownership. Without it, /provide/schedule was
+// synthesising a default config keyed by the caller's user_id even when
+// the caller had zero paired providers (#305).
+type ProvidersRegistrationClient interface {
+	ListProviders(ctx context.Context, req *providersv1.ListProvidersRequest) (*providersv1.ListProvidersResponse, error)
+}
+
 // WorkloadsClient backs /customer/workloads and the per-workload stream.
 type WorkloadsClient interface {
 	SubmitWorkload(ctx context.Context, req *workloadsv1.SubmitWorkloadRequest) (*workloadsv1.SubmitWorkloadResponse, error)
@@ -125,14 +134,15 @@ type WorkspaceClient interface {
 
 // Set bundles every per-service client; one Set per gateway-bff process.
 type Set struct {
-	Identity            IdentityClient
-	Auth                AuthClient
-	ProvidersDashboard  ProvidersDashboardClient
-	ProvidersScheduling ProvidersSchedulingClient
-	Workloads           WorkloadsClient
-	Antiabuse           AntiabuseClient
-	Billing             BillingClient
-	Workspaces          WorkspaceClient
+	Identity              IdentityClient
+	Auth                  AuthClient
+	ProvidersDashboard    ProvidersDashboardClient
+	ProvidersScheduling   ProvidersSchedulingClient
+	ProvidersRegistration ProvidersRegistrationClient
+	Workloads             WorkloadsClient
+	Antiabuse             AntiabuseClient
+	Billing               BillingClient
+	Workspaces            WorkspaceClient
 }
 
 // Config bundles the downstream URLs + per-call timeout. Comes from
@@ -161,19 +171,21 @@ func New(cfg Config, httpClient *http.Client) *Set {
 	workspaceRaw := identityv1connect.NewWorkspaceServiceClient(httpClient, cfg.IdentityURL)
 	dashRaw := providersv1connect.NewDashboardServiceClient(httpClient, cfg.ProvidersURL)
 	schedRaw := providersv1connect.NewSchedulingServiceClient(httpClient, cfg.ProvidersURL)
+	regRaw := providersv1connect.NewProviderRegistrationServiceClient(httpClient, cfg.ProvidersURL)
 	wlRaw := workloadsv1connect.NewWorkloadSubmissionServiceClient(httpClient, cfg.WorkloadsURL)
 	abuseRaw := antiabusev1connect.NewAbuseFilterServiceClient(httpClient, cfg.AntiabuseURL)
 	billRaw := billingv1connect.NewSubscriptionServiceClient(httpClient, cfg.BillingURL)
 
 	return &Set{
-		Identity:            &identityAdapter{c: identityRaw, retries: cfg.Retries},
-		Auth:                &authAdapter{c: authRaw, retries: cfg.Retries},
-		ProvidersDashboard:  &dashAdapter{c: dashRaw, retries: cfg.Retries},
-		ProvidersScheduling: &schedAdapter{c: schedRaw, retries: cfg.Retries},
-		Workloads:           &workloadsAdapter{c: wlRaw, retries: cfg.Retries},
-		Antiabuse:           &antiabuseAdapter{c: abuseRaw, retries: cfg.Retries},
-		Billing:             &billingAdapter{c: billRaw, retries: cfg.Retries},
-		Workspaces:          &workspaceAdapter{c: workspaceRaw, retries: cfg.Retries},
+		Identity:              &identityAdapter{c: identityRaw, retries: cfg.Retries},
+		Auth:                  &authAdapter{c: authRaw, retries: cfg.Retries},
+		ProvidersDashboard:    &dashAdapter{c: dashRaw, retries: cfg.Retries},
+		ProvidersScheduling:   &schedAdapter{c: schedRaw, retries: cfg.Retries},
+		ProvidersRegistration: &regAdapter{c: regRaw, retries: cfg.Retries},
+		Workloads:             &workloadsAdapter{c: wlRaw, retries: cfg.Retries},
+		Antiabuse:             &antiabuseAdapter{c: abuseRaw, retries: cfg.Retries},
+		Billing:               &billingAdapter{c: billRaw, retries: cfg.Retries},
+		Workspaces:            &workspaceAdapter{c: workspaceRaw, retries: cfg.Retries},
 	}
 }
 
@@ -375,6 +387,24 @@ func (a *schedAdapter) UpdateSchedulingConfig(ctx context.Context, req *provider
 func (a *schedAdapter) GetCurrentState(ctx context.Context, req *providersv1.GetCurrentStateRequest) (*providersv1.GetCurrentStateResponse, error) {
 	return retry(ctx, a.retries, func(ctx context.Context) (*providersv1.GetCurrentStateResponse, error) {
 		r, err := a.c.GetCurrentState(ctx, connect.NewRequest(req))
+		if err != nil {
+			return nil, err
+		}
+		return r.Msg, nil
+	})
+}
+
+// regAdapter wraps the ProviderRegistrationService client. Only the
+// read-side (ListProviders) is exposed to the BFF; mutating RPCs go
+// through dedicated onboarding handlers.
+type regAdapter struct {
+	c       providersv1connect.ProviderRegistrationServiceClient
+	retries int
+}
+
+func (a *regAdapter) ListProviders(ctx context.Context, req *providersv1.ListProvidersRequest) (*providersv1.ListProvidersResponse, error) {
+	return retry(ctx, a.retries, func(ctx context.Context) (*providersv1.ListProvidersResponse, error) {
+		r, err := a.c.ListProviders(ctx, connect.NewRequest(req))
 		if err != nil {
 			return nil, err
 		}
