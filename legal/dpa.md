@@ -119,7 +119,7 @@ iogrid as Processor agrees to:
 
 6.2 **Third-party auditor.** The Controller may engage a qualified independent third-party auditor (not a competitor of iogrid) to conduct the audit on its behalf.
 
-6.3 **Audit reports in lieu.** iogrid may satisfy its audit obligation by providing recent SOC 2 Type II reports, ISO 27001 certifications, or similar industry-standard third-party audit reports, where these address the matters the Controller wishes to audit. *[COUNSEL: confirm — iogrid does not currently hold SOC 2 / ISO 27001. Per docs/LEGAL.md open items, SOC 2 Type II is a Phase 3 target. Pending that, Customer audits would be direct. Recommend explicitly stating that the in-lieu mechanism is not yet available.]*
+6.3 **Audit reports in lieu.** iogrid may satisfy its audit obligation by providing recent SOC 2 Type II reports, ISO 27001 certifications, or similar industry-standard third-party audit reports, where these address the matters the Controller wishes to audit. *[COUNSEL: confirm — iogrid does not currently hold SOC 2 / ISO 27001. Per docs/BUSINESS-STRATEGY.md §6 open items, SOC 2 Type II is a Phase 3 target. Pending that, Customer audits would be direct. Recommend explicitly stating that the in-lieu mechanism is not yet available.]*
 
 6.4 **Investigation-triggered audits.** Where the Controller has a reasonable, good-faith basis to believe iogrid has materially breached this DPA, the Controller may conduct an audit outside the once-per-year limit, on reasonable shorter notice (not less than 10 business days). If the audit confirms a material breach, iogrid bears the audit cost.
 

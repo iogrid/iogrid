@@ -236,7 +236,7 @@ The Service is provided **"AS IS" and "AS AVAILABLE,"** without warranties of an
 - **(a) The total amount you paid to us during the twelve (12) months immediately preceding the event giving rise to the claim;** or
 - **(b) One hundred US dollars ($100 USD).**
 
-This formula matches the spec in `docs/LEGAL.md` ("customer's most-recent monthly spend × 12") with the understanding that "monthly spend × 12" effectively equals "annual spend" — phrased as the 12-month-trailing total for clarity. *[COUNSEL: confirm whether spec intent is 12-month trailing or strict "most-recent-month × 12" (which produces a different cap for non-stable spend patterns).]*
+This formula matches the spec in `docs/BUSINESS-STRATEGY.md` §6 (Legal risk landscape & mitigation) ("customer's most-recent monthly spend × 12") with the understanding that "monthly spend × 12" effectively equals "annual spend" — phrased as the 12-month-trailing total for clarity. *[COUNSEL: confirm whether spec intent is 12-month trailing or strict "most-recent-month × 12" (which produces a different cap for non-stable spend patterns).]*
 
 16.3 **Indemnity carve-out.** Section 16.2's cap does not apply to your indemnification obligations under Section 7.
 

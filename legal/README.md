@@ -24,7 +24,7 @@ This directory contains **placeholder drafts** of the legal documents required f
 
 | Date | Version | Author | Notes |
 |------|---------|--------|-------|
-| 2026-05-19 | 0.1-draft | iogrid eng (placeholder) | Initial scaffolding from `docs/LEGAL.md` + `docs/TOKENOMICS.md`. Pre-counsel-review. |
+| 2026-05-19 | 0.1-draft | iogrid eng (placeholder) | Initial scaffolding from `docs/BUSINESS-STRATEGY.md` §6 (Legal risk landscape & mitigation) + `docs/BUSINESS-STRATEGY.md` §4 (Currency model — $GRID + fiat hybrid). Pre-counsel-review. |
 
 > **Last legal review:** *Never. Counsel review required before Phase 1 launch.*
 
@@ -34,7 +34,7 @@ This directory contains **placeholder drafts** of the legal documents required f
 
 Before any of these documents may be presented to a provider, customer, or regulator, the following must occur:
 
-- [ ] **Engagement of qualified counsel.** Recommended profile: technology-transactions partner at a firm with current experience in (a) US consumer-facing SaaS terms, (b) GDPR / EU data protection, (c) digital-asset / token regulation (for `token-disclaimer.md`). Suggested firms in the docs/LEGAL.md notes: Cooley, Fenwick, Davis Polk, Latham & Watkins, or local equivalents.
+- [ ] **Engagement of qualified counsel.** Recommended profile: technology-transactions partner at a firm with current experience in (a) US consumer-facing SaaS terms, (b) GDPR / EU data protection, (c) digital-asset / token regulation (for `token-disclaimer.md`). Suggested firms in the docs/BUSINESS-STRATEGY.md §6 notes: Cooley, Fenwick, Davis Polk, Latham & Watkins, or local equivalents.
 - [ ] **Jurisdiction confirmation.** Lock the operating-entity jurisdiction (iogrid as a Dynolabs product line vs. spun out, Cayman Foundation vs. Delaware C-Corp vs. other) before finalizing governing-law clauses across every document.
 - [ ] **Provider ToS review.** Verify consent statement language is enforceable in each launch jurisdiction; verify common-carrier framing does not over-promise immunity; verify indemnification clause is mutual where appropriate.
 - [ ] **Customer ToS review.** Verify liability cap, arbitration clause (class-action waiver enforceability varies), and right-of-refusal are compliant with consumer protection laws.
@@ -47,7 +47,7 @@ Before any of these documents may be presented to a provider, customer, or regul
 
 ---
 
-## Cost estimate (per `docs/LEGAL.md`)
+## Cost estimate (per `docs/BUSINESS-STRATEGY.md` §6 (Legal risk landscape & mitigation))
 
 | Item | Estimated cost (USD) | Notes |
 |------|----------------------|-------|
@@ -56,10 +56,10 @@ Before any of these documents may be presented to a provider, customer, or regul
 | AUP — counsel review | $500 – $1,500 | Usually rolls into ToS engagement |
 | DPA — counsel review (GDPR specialist) | $1,500 – $3,500 | Includes SCC module selection |
 | Privacy Policy — counsel review | $1,500 – $3,000 | |
-| Token disclaimer — crypto-securities counsel | $5,000 – $15,000 | Often packaged with full token legal opinion at $25K–$75K (see `docs/TOKENOMICS.md`) |
+| Token disclaimer — crypto-securities counsel | $5,000 – $15,000 | Often packaged with full token legal opinion at $25K–$75K (see `docs/BUSINESS-STRATEGY.md` §4 (Currency model — $GRID + fiat hybrid)) |
 | Incident response — counsel review | $500 – $1,000 | |
-| **Phase 1 minimum (non-token docs)** | **$5,000 – $10,000** | Matches `docs/LEGAL.md` estimate |
-| **Including token disclaimer scope** | **$30,000 – $90,000** | Matches `docs/TOKENOMICS.md` legal budget |
+| **Phase 1 minimum (non-token docs)** | **$5,000 – $10,000** | Matches `docs/BUSINESS-STRATEGY.md` §6 (Legal risk landscape & mitigation) estimate |
+| **Including token disclaimer scope** | **$30,000 – $90,000** | Matches `docs/BUSINESS-STRATEGY.md` §4 (Currency model — $GRID + fiat hybrid) legal budget |
 
 ---
 

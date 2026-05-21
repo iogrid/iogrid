@@ -13,7 +13,7 @@ Two sign-in paths only — passwords are never stored:
 
 When Google's verified secondaries match an existing magic-link
 identifier we **auto-merge silently** and audit the merge. See
-`docs/TECH.md` for the model.
+`docs/ARCHITECTURE.md` §"Authentication & identity model" for the model.
 
 Tokens:
 - **Access token** — RS256-signed, 15min, includes `sub` + `identifiers`
@@ -273,8 +273,8 @@ matched_email, matched_via, merged_at)`.
 ## Sign-In-With-Solana (SIWS) wallet binding
 
 Providers must bind one or more Solana wallets to their User before they
-can receive native `$GRID` payouts (see `docs/TOKENOMICS.md` "Provider
-payout flow"). identity-svc implements the standard SIWS pattern:
+can receive native `$GRID` payouts (see `docs/BUSINESS-STRATEGY.md` §4
+"Provider payout flow"). identity-svc implements the standard SIWS pattern:
 
 ```
 1) POST /v1/auth/siws/start { user_id?, wallet_address }

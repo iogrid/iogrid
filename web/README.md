@@ -37,7 +37,7 @@ Configuration:
   placeholder so the build compiles before TGE; the balance widget
   reports zero until a real mint is configured.
 
-See `docs/TOKENOMICS.md` for the full token + staking + burn model.
+See `docs/BUSINESS-STRATEGY.md` §4 (Currency model — $GRID + fiat hybrid) for the full token + staking + burn model.
 
 ## i18n
 

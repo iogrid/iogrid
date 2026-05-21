@@ -86,7 +86,7 @@ token. We would like to engage OtterSec for a pre-mainnet audit of our 5 Anchor 
 
 Project context:
   * Whitepaper:        https://github.com/iogrid/iogrid/blob/main/docs/whitepaper.md
-  * Tokenomics:        https://github.com/iogrid/iogrid/blob/main/docs/TOKENOMICS.md
+  * Tokenomics:        https://github.com/iogrid/iogrid/blob/main/docs/BUSINESS-STRATEGY.md#4-currency-model--grid--fiat-hybrid
   * Source:            https://github.com/iogrid/iogrid/tree/v0.1.0-audit/contracts
   * Audit bundle:      attached, sha256 <hash>, manifest <hash>
   * Threat model:      contracts/audit/threat-model.md (in the bundle)

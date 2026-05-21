@@ -222,7 +222,7 @@ The framing emphasises three points:
 2. **Cost honesty.** We undercut Proxycurl ~10× at expected volume
    without claiming hidden-magic on top. The price difference comes
    from non-cash provider payouts (free-VPN tier provides 98% margin —
-   see [`docs/INCENTIVES.md`](./INCENTIVES.md)).
+   see [`docs/BUSINESS-STRATEGY.md` §3 (Unit economics & provider incentives)](BUSINESS-STRATEGY.md#3-unit-economics--provider-incentives)).
 3. **Customer-controlled ToS posture.** Unlike Proxycurl's "we make
    the API call for you" model, iogrid's customers retain control of
    their own outbound requests + headers, so ToS-compliance posture
@@ -240,7 +240,7 @@ Same posture as the demo's README:
   The customer is responsible for ToS compliance on the destinations
   they route through.
 - iogrid enforces **anti-abuse** (CSAM hashes, PhishTank, port
-  restrictions — see [`docs/LEGAL.md`](./LEGAL.md)). iogrid does NOT
+  restrictions — see [`docs/BUSINESS-STRATEGY.md` §6 (Legal risk landscape & mitigation)](BUSINESS-STRATEGY.md#6-legal-risk-landscape--mitigation)). iogrid does NOT
   enforce destination ToS.
 - The [hiQ Labs v. LinkedIn](https://en.wikipedia.org/wiki/HiQ_Labs_v._LinkedIn)
   case held that scraping publicly-accessible LinkedIn data does not
@@ -262,5 +262,5 @@ indemnification against destination-side legal claims.
 - [Bandwidth proxy reference docs](../docs-site/src/content/docs/workloads/proxy.mdx)
   (will be promoted to `https://docs.iogrid.org/workloads/proxy/`)
 - [Phase 0 success criteria — `ROADMAP.md`](./ROADMAP.md#phase-0--internal-pilot-2-weeks)
-- [Anti-abuse policy — `LEGAL.md`](./LEGAL.md)
-- [Incentive economics — `INCENTIVES.md`](./INCENTIVES.md)
+- [Anti-abuse policy — `docs/BUSINESS-STRATEGY.md` §6 (Legal risk landscape & mitigation)](BUSINESS-STRATEGY.md#6-legal-risk-landscape--mitigation)
+- [Incentive economics — `docs/BUSINESS-STRATEGY.md` §3 (Unit economics & provider incentives)](BUSINESS-STRATEGY.md#3-unit-economics--provider-incentives)

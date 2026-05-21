@@ -8,7 +8,7 @@ This is the Cargo workspace for **iogridd**, the iogrid provider-side daemon. Th
 - gating activity on caps + calendar + idle-detection,
 - exposing a localhost HTTP+SSE bridge so the web management plane can read state and mutate config.
 
-The architecture lives in `../docs/TECH.md`. This README is the operator surface for the codebase.
+The architecture lives in `../docs/ARCHITECTURE.md`. This README is the operator surface for the codebase.
 
 ## Layout
 

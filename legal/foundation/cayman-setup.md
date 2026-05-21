@@ -173,7 +173,7 @@ Cayman Foundations must have a stated purpose ("objects"). Draft:
 >    protocol and the $GRID utility token, including the technical, economic, and
 >    governance aspects thereof.
 > 2. To issue, manage, and oversee the $GRID token in accordance with the Tokenomics
->    document published at https://github.com/iogrid/iogrid/blob/main/docs/TOKENOMICS.md
+>    document published at https://github.com/iogrid/iogrid/blob/main/docs/BUSINESS-STRATEGY.md#4-currency-model--grid--fiat-hybrid
 >    (as amended from time to time by the Foundation's governance processes).
 > 3. To hold, manage, and disburse the Foundation's treasury for purposes consistent
 >    with (1) and (2), including funding development grants, ecosystem incentives,
@@ -404,7 +404,7 @@ following the structural precedent set by Wormhole Foundation, Aptos Foundation,
 Foundation, Helium Foundation, and similar Solana-ecosystem projects.
 
 Project background:
-  * Tokenomics:     https://github.com/iogrid/iogrid/blob/main/docs/TOKENOMICS.md
+  * Tokenomics:     https://github.com/iogrid/iogrid/blob/main/docs/BUSINESS-STRATEGY.md#4-currency-model--grid--fiat-hybrid
   * Whitepaper:     https://github.com/iogrid/iogrid/blob/main/docs/whitepaper.md
   * Token disclaimer: https://github.com/iogrid/iogrid/blob/main/legal/token-disclaimer.md
   * Operational checklist: https://github.com/iogrid/iogrid/blob/main/legal/foundation/cayman-setup.md

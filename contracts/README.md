@@ -93,7 +93,7 @@ Until those gates are green, this workspace is dev/devnet-only.
 
 ## Audit preparation
 
-Recommended pre-mainnet audit firms (per `../docs/TOKENOMICS.md` § "Token launch sequence"):
+Recommended pre-mainnet audit firms (per `../docs/BUSINESS-STRATEGY.md` §4 "Token launch sequence"):
 
 - **OtterSec** — leading Solana-native audit firm, audited Phoenix, Squads, Jupiter, MarginFi.
   Strong reputation in the Solana ecosystem; deep Anchor expertise. Typical engagement

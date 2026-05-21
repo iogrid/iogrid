@@ -17,7 +17,7 @@
 Before the first engagement-letter conversation:
 
 1. **Read** the full RFP at `legal/counsel/rfp.md`.
-2. **Read** `docs/LEGAL.md`, `docs/TOKENOMICS.md`, and every file in `legal/`.
+2. **Read** `docs/BUSINESS-STRATEGY.md` §6 (Legal risk landscape & mitigation), `docs/BUSINESS-STRATEGY.md` §4 (Currency model — $GRID + fiat hybrid), and every file in `legal/`.
 3. **Decide** which Phase(s) the founder will engage on this round (Phase 1 only, Phase 2 only, or both — see `legal/counsel/rfp.md` §2).
 4. **Decide** Foundation-jurisdiction preference (Cayman is the documented default; alternatives at `legal/foundation/jurisdiction-comparison.md`).
 5. **Decide** budget envelope (Section 3 of the RFP defaults; founder may tighten or expand).

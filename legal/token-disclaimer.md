@@ -2,7 +2,7 @@
 
 **Status:** Draft v0.1 — pre-counsel-review. Not legal advice. See [`legal/README.md`](./README.md).
 **Effective date:** *[COUNSEL: insert effective date upon finalization]*
-**Operating entity:** *[COUNSEL: confirm — likely a non-profit Foundation jurisdiction (Cayman / BVI / Liechtenstein) per `docs/TOKENOMICS.md` §"Legal risk + mitigation strategy."]*
+**Operating entity:** *[COUNSEL: confirm — likely a non-profit Foundation jurisdiction (Cayman / BVI / Liechtenstein) per `docs/BUSINESS-STRATEGY.md` §6 (Legal risk landscape & mitigation).]*
 
 > **THIS DOCUMENT IS NOT AN OFFER OR SOLICITATION TO SELL SECURITIES. THIS DOCUMENT IS NOT INVESTMENT ADVICE. $GRID IS A UTILITY TOKEN OF THE iogrid NETWORK, NOT A FINANCIAL INSTRUMENT. THE STATEMENTS IN THIS DOCUMENT ARE NOT FORWARD-LOOKING REPRESENTATIONS ABOUT TOKEN PRICE OR PROJECT OUTCOMES.**
 >
@@ -47,7 +47,7 @@ Token prices, including $GRID, can be highly volatile and may decline rapidly, i
 
 ### 4.2 No investment promise
 
-We have not made, and you should not infer, any promise that $GRID will appreciate in value, that the deflationary mechanism will offset emission, that the lockup will produce upside, that DEX liquidity will be sufficient at any future moment, or that any other outcome will obtain. The descriptions in `docs/TOKENOMICS.md` are mechanism descriptions, not promises. The buyback-and-burn rate, the emission curve, and all token-economic parameters may be modified prospectively by the Foundation or by DAO vote (post-handoff).
+We have not made, and you should not infer, any promise that $GRID will appreciate in value, that the deflationary mechanism will offset emission, that the lockup will produce upside, that DEX liquidity will be sufficient at any future moment, or that any other outcome will obtain. The descriptions in `docs/BUSINESS-STRATEGY.md` §4 are mechanism descriptions, not promises. The buyback-and-burn rate, the emission curve, and all token-economic parameters may be modified prospectively by the Foundation or by DAO vote (post-handoff).
 
 ### 4.3 Geographic restrictions
 
@@ -75,7 +75,7 @@ We have designed $GRID to function as a utility token. **However**, regulators i
 
 ### 4.5 Foundation structure and governance
 
-$GRID is intended to be issued by a **non-profit Foundation** to be incorporated in a jurisdiction selected by counsel (Cayman, BVI, or Liechtenstein candidates per `docs/TOKENOMICS.md`). The Foundation is intended to be separate from iogrid's commercial operating entity (Dynolabs Inc. / iogrid Inc.). Foundation governance is by a multisig (Squads Protocol, 3-of-5 signers) until DAO handoff. **You have no rights against the operating entity for Foundation actions, and vice-versa.** The Foundation's failure to obtain licenses, audit completions, banking relationships, or other operational prerequisites could delay or prevent token launch.
+$GRID is intended to be issued by a **non-profit Foundation** to be incorporated in a jurisdiction selected by counsel (Cayman, BVI, or Liechtenstein candidates per `docs/BUSINESS-STRATEGY.md` §4). The Foundation is intended to be separate from iogrid's commercial operating entity (Dynolabs Inc. / iogrid Inc.). Foundation governance is by a multisig (Squads Protocol, 3-of-5 signers) until DAO handoff. **You have no rights against the operating entity for Foundation actions, and vice-versa.** The Foundation's failure to obtain licenses, audit completions, banking relationships, or other operational prerequisites could delay or prevent token launch.
 
 ### 4.6 Smart-contract risk
 
@@ -98,7 +98,7 @@ $GRID's primary trading venue is the Raydium CLMM pool to be seeded at TGE. Liqu
 
 ### 4.9 Lockup risk
 
-If you elect $GRID payouts as a provider, your earned $GRID is subject to mandatory lockup (rolling 30/90-day per `docs/TOKENOMICS.md` §"Mandatory provider-earnings lockup"). During the lockup period:
+If you elect $GRID payouts as a provider, your earned $GRID is subject to mandatory lockup (rolling 30/90-day per `docs/BUSINESS-STRATEGY.md` §4 (Currency model) "Mandatory provider-earnings lockup"). During the lockup period:
 - You cannot sell, transfer, or withdraw the locked $GRID;
 - The price of $GRID may decline materially before your tokens vest;
 - The early-unlock penalty (50% burn) makes liquidating before vesting expensive and reduces your effective compensation.
@@ -115,7 +115,7 @@ iogrid's coordinator infrastructure (which routes Workloads, calculates earnings
 
 ### 4.12 Concentration risk
 
-Token allocation (per `docs/TOKENOMICS.md`):
+Token allocation (per `docs/BUSINESS-STRATEGY.md` §4):
 - 50% provider rewards (vesting linear over 10 years);
 - 15% team (4-year vest, 1-year cliff);
 - 10% treasury;
@@ -131,7 +131,7 @@ iogrid is an early-stage project. We may fail to achieve the milestones describe
 
 ### 4.14 Forward-looking statements
 
-`docs/TOKENOMICS.md`, the iogrid website, marketing materials, and any related communications contain forward-looking statements — descriptions of intended mechanisms, planned launches, expected outcomes. **Forward-looking statements are not promises.** Actual outcomes may differ materially. We undertake no obligation to update forward-looking statements except where required by law.
+`docs/BUSINESS-STRATEGY.md` §4, the iogrid website, marketing materials, and any related communications contain forward-looking statements — descriptions of intended mechanisms, planned launches, expected outcomes. **Forward-looking statements are not promises.** Actual outcomes may differ materially. We undertake no obligation to update forward-looking statements except where required by law.
 
 ### 4.15 Lockup-token characterization risk
 
@@ -159,7 +159,7 @@ By acquiring $GRID or electing $GRID payouts, you specifically represent, warran
 
 5.6 You will safeguard your wallet credentials. iogrid is not responsible for losses arising from your loss, theft, or unauthorized use of your wallet credentials. iogrid does not custody your $GRID after distribution.
 
-5.7 You have not relied on any oral statement, marketing material, social-media post, or other communication beyond this document and `docs/TOKENOMICS.md` in making your decision.
+5.7 You have not relied on any oral statement, marketing material, social-media post, or other communication beyond this document and `docs/BUSINESS-STRATEGY.md` §4 in making your decision.
 
 ---
 
@@ -219,4 +219,4 @@ In the event of conflict between this Token Disclaimer and **mandatory provision
 
 *End of $GRID Token Risk Factors and Legal Disclaimers v0.1-draft.*
 
-*[COUNSEL: full-document review required by qualified crypto-securities counsel. This is the single highest-legal-risk document in the iogrid set. Key open items: securities-classification analysis per jurisdiction (Section 4.4), Foundation jurisdiction selection (Section 4.5), restricted-jurisdiction list (Sections 4.3, 5.2), MiCA white-paper compliance (Section 11), Token-2022 freeze-authority policy and disclosure (Section 7), forward-looking-statements safe-harbor language (Section 4.14). Total `[COUNSEL]` markers: ~10. Expected counsel cost: $25K–75K per `docs/TOKENOMICS.md`.]*
+*[COUNSEL: full-document review required by qualified crypto-securities counsel. This is the single highest-legal-risk document in the iogrid set. Key open items: securities-classification analysis per jurisdiction (Section 4.4), Foundation jurisdiction selection (Section 4.5), restricted-jurisdiction list (Sections 4.3, 5.2), MiCA white-paper compliance (Section 11), Token-2022 freeze-authority policy and disclosure (Section 7), forward-looking-statements safe-harbor language (Section 4.14). Total `[COUNSEL]` markers: ~10. Expected counsel cost: $25K–75K per `docs/BUSINESS-STRATEGY.md` §4.]*

@@ -84,7 +84,7 @@ the provider's IP was implicated in a law-enforcement investigation. Common trig
      in the LEO contact.
    - Customer identifying information (KYC level, account creation date, payment
      instrument).
-   - Pre-flight filter logs (CSAM, phishing, port restrictions — see `docs/LEGAL.md`).
+   - Pre-flight filter logs (CSAM, phishing, port restrictions — see `docs/BUSINESS-STRATEGY.md` §6 (Legal risk landscape & mitigation)).
 6. **Preserve** the audit logs: override the 90-day rolling deletion. Mark the audit-log
    bucket entries with a legal-hold flag.
 7. **Classify** the underlying conduct:

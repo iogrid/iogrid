@@ -8,7 +8,7 @@ Secret that `billing-svc` reads at boot.
 > **Phase 0 = devnet only.** No real money moves. The mainnet TGE
 > (Token Generation Event) is end-state work tracked in
 > [EPIC #87](https://github.com/iogrid/iogrid/issues/87) and described
-> in [docs/TOKENOMICS.md](./TOKENOMICS.md).
+> in [docs/BUSINESS-STRATEGY.md §4 (Currency model — $GRID + fiat hybrid)](./BUSINESS-STRATEGY.md#4-currency-model--grid--fiat-hybrid).
 >
 > Mainnet wiring will replace the single-sig hot-wallet keypair below
 > with a [Squads Protocol](https://squads.so) 2-of-3 multisig — see

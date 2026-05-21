@@ -76,8 +76,8 @@ exactly.
 ## Out-of-band concerns the audit should NOT bless
 
 - The on-chain programs cannot block a legal/regulatory shutdown (SEC reclassification,
-  geo-blocking enforcement). Those are addressed in `docs/TOKENOMICS.md` §"Legal risk +
-  mitigation strategy" and are an operational/legal concern, not a smart-contract concern.
+  geo-blocking enforcement). Those are addressed in `docs/BUSINESS-STRATEGY.md` §6
+  (Legal risk landscape & mitigation) and are an operational/legal concern, not a smart-contract concern.
 - Provider tax obligations are not enforced on-chain. The billing-svc emits
   1099-MISC-equivalent reports — that is an off-chain process.
 
@@ -94,6 +94,6 @@ exactly.
 
 ## Cost + timing
 
-- Budget: $30–60K (OtterSec) per `docs/TOKENOMICS.md` §"Token launch sequence".
+- Budget: $30–60K (OtterSec) per `docs/BUSINESS-STRATEGY.md` §4 "Token launch sequence".
 - Calendar: 4–6 weeks from the engagement signing, including a fix-up round.
 - Engagement must complete BEFORE `transfer_mint_authority` is called on mainnet (issue #97).

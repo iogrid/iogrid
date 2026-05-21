@@ -111,7 +111,7 @@ Apple's standard productbuild workflow. The .pkg:
 * Lays down `/usr/local/iogrid/iogridd`
 * Drops `/Library/LaunchAgents/org.iogrid.daemon.plist` (template, root-owned)
 * Runs `scripts/postinstall` as root which:
-  1. Re-templates the plist into the **installing user's** `~/Library/LaunchAgents/` (user-mode unit — daemon never runs as root per `docs/TECH.md`)
+  1. Re-templates the plist into the **installing user's** `~/Library/LaunchAgents/` (user-mode unit — daemon never runs as root per `docs/ARCHITECTURE.md`)
   2. Deletes the root-owned copy
   3. `launchctl bootstrap gui/<uid>` + `enable` + `kickstart`
   4. Calls `iogridd pair --request` and writes the code to `~/.iogrid/pairing-code.txt`

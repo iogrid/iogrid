@@ -37,7 +37,7 @@ Pursuant to the Memorandum, the Foundation's purposes are:
 1. To promote and govern the development of the iogrid decentralized work-marketplace
    protocol (the "**Protocol**") and the `$GRID` utility token (the "**Token**").
 2. To issue, manage, and oversee the Token in accordance with the Tokenomics document
-   published at https://github.com/iogrid/iogrid/blob/main/docs/TOKENOMICS.md (the
+   published at https://github.com/iogrid/iogrid/blob/main/docs/BUSINESS-STRATEGY.md#4-currency-model--grid--fiat-hybrid (the
    "**Tokenomics**"), as amended from time to time by the Foundation's governance.
 3. To hold, manage, and disburse the Foundation's treasury for purposes consistent with
    (1) and (2).

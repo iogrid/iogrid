@@ -1,7 +1,7 @@
 # antiabuse-svc
 
 iogrid coordinator microservice that runs the **mandatory pre-flight
-filters** required by `docs/LEGAL.md` before any external provider can
+filters** required by `docs/BUSINESS-STRATEGY.md` §6 (Legal risk landscape & mitigation) before any external provider can
 join the grid.
 
 The same wire RPCs (defined in `proto/iogrid/antiabuse/v1/filters.proto`)
@@ -31,7 +31,7 @@ reputation backend in parallel and aggregates the strictest decision —
 a single feed outage cannot collapse the whole pipeline.
 
 Every Check\* call emits an audit event to NATS JetStream (`AUDIT`
-stream, 90-day retention) per `docs/LEGAL.md` — or to slog at INFO
+stream, 90-day retention) per `docs/BUSINESS-STRATEGY.md` §6 — or to slog at INFO
 when `NATS_URL` is unset.
 
 ---
@@ -103,8 +103,8 @@ DB-backed loader (issue #72).
 
 Until NCMEC issues the API key the backend logs a one-shot WARNING on
 first traffic and short-circuits to ALLOW. **This is the highest-priority
-gap to close before Phase 1 onboarding** — see `docs/LEGAL.md` §
-"Mandatory anti-abuse before any external provider joins".
+gap to close before Phase 1 onboarding** — see `docs/BUSINESS-STRATEGY.md` §6
+("Mandatory anti-abuse before any external provider joins").
 
 #### Partnership application process
 
@@ -116,20 +116,20 @@ weeks. The required artefacts are:
 
 1. **Organisation evidence** — Dynolabs's certificate of incorporation,
    doing-business-as evidence for iogrid (we operate iogrid as a
-   product line under Dynolabs per `docs/LEGAL.md`), and contact for
+   product line under Dynolabs per `docs/BUSINESS-STRATEGY.md` §6), and contact for
    the named principal accountable for CSAM response.
 2. **Use-case statement** — a 1–2 page description of *what* iogrid
    relays, *which* surfaces will run PhotoDNA lookups (the
    bandwidth-workload pre-flight path), and *how often* lookups will
    fire. Reviewers want enough specificity to understand the abuse
-   model; rough numbers from `docs/MARKET.md` are sufficient.
+   model; rough numbers from `docs/BUSINESS-STRATEGY.md` §1 (Market) are sufficient.
 3. **Anti-abuse posture** — confirmation that other filters
    (PhishTank / OpenPhish / Google Safe Browsing / domain deny-list /
-   port deny-list / per-customer KYC) are in place. `docs/LEGAL.md` §
-   "Mandatory anti-abuse" is the canonical evidence.
+   port deny-list / per-customer KYC) are in place. `docs/BUSINESS-STRATEGY.md` §6
+   ("Mandatory anti-abuse") is the canonical evidence.
 4. **Audit-log retention commitment** — written attestation that audit
    logs are retained for 90 days with the schema documented in
-   `docs/LEGAL.md`. This package's `internal/audit` +
+   `docs/BUSINESS-STRATEGY.md` §6. This package's `internal/audit` +
    `internal/audit/retention.go` implement that commitment.
 5. **Incident-response plan** — named owner + escalation path when a
    PhotoDNA match occurs. NCMEC requires this so they know who to
@@ -155,7 +155,7 @@ always escapes to the real API call.
 
 ### Audit log retention enforcement
 
-The 90-day retention requirement in `docs/LEGAL.md` is enforced at
+The 90-day retention requirement in `docs/BUSINESS-STRATEGY.md` §6 is enforced at
 three layers:
 
 1. **JetStream `MaxAge`** — the `AUDIT` stream is configured with
@@ -169,7 +169,7 @@ three layers:
    endpoint can force a sweep out-of-band.
 
 The minimum retention is 90 days; values below that are clamped up so
-the legal-shield argument in `docs/LEGAL.md` never silently breaks.
+the legal-shield argument in `docs/BUSINESS-STRATEGY.md` §6 never silently breaks.
 
 ### Quarterly transparency report
 
@@ -236,7 +236,7 @@ go test -tags=integration ./internal/audit/...
 
 ## Liability shield rationale
 
-Per `docs/LEGAL.md`:
+Per `docs/BUSINESS-STRATEGY.md` §6:
 
 > The reason commercial intermediaries take the legal hit is: deeper
 > pockets, stronger anti-abuse defenses, central audit logs that
