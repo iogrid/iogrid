@@ -76,9 +76,9 @@ spec:
               value: proxy-gateway
             # In passthrough mode, proxy-gateway terminates TLS using a server
             # cert sourced from cert-manager via projected secret.
-            - name: TLS_CERT_FILE
+            - name: TLS_CERT_PATH
               value: /etc/proxy-gateway/tls/tls.crt
-            - name: TLS_KEY_FILE
+            - name: TLS_KEY_PATH
               value: /etc/proxy-gateway/tls/tls.key
           envFrom:
             - configMapRef:
