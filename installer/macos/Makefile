@@ -27,6 +27,16 @@ RES_DIR      := Resources
 DIST_DIR     := dist
 APP_BUNDLE_SRC := app
 APP_BUNDLE_STAGED := build/iogridd.app
+STATUSBAR_SRC := statusbar
+STATUSBAR_BUILD_DIR := $(STATUSBAR_SRC)/.build/release
+STATUSBAR_BIN := iogridd-statusbar
+LAUNCHAGENTS_SRC := launchagents
+# CI passes ARCH=arm64 or ARCH=amd64; SwiftPM expects "arm64" / "x86_64".
+ifeq ($(ARCH),amd64)
+SWIFT_ARCH := x86_64
+else
+SWIFT_ARCH := $(ARCH)
+endif
 
 # Apple Developer ID Installer cert from the env. When unset, sign/notarize
 # steps become no-ops so CI builds without secrets still produce an
@@ -49,7 +59,7 @@ COMPONENT_PKG := build/iogrid-component-$(VERSION).pkg
 PRODUCT_PKG   := $(DIST_DIR)/iogrid-$(VERSION)-$(ARCH).pkg
 SIGNED_PKG    := $(DIST_DIR)/iogrid-$(VERSION)-$(ARCH)-signed.pkg
 
-.PHONY: all build app pkg product sign notarize clean
+.PHONY: all build app statusbar pkg product sign notarize clean
 
 all: build pkg product
 	@if [ -n "$(APPLE_DEVELOPER_ID)" ]; then \
@@ -72,6 +82,11 @@ build:
 	cp $(DAEMON_BIN) $(ROOT)/usr/local/iogrid/iogridd
 	chmod 755 $(ROOT)/usr/local/iogrid/iogridd
 	cp templates/org.iogrid.daemon.plist.tmpl $(ROOT)/Library/LaunchAgents/org.iogrid.daemon.plist
+	# Status-bar LaunchAgent template (issue #388). The postinstall
+	# script re-templates this into the installing user's
+	# ~/Library/LaunchAgents/io.iogrid.statusbar.plist and bootstraps
+	# it into the user's GUI domain on install.
+	cp $(LAUNCHAGENTS_SRC)/io.iogrid.statusbar.plist $(ROOT)/Library/LaunchAgents/io.iogrid.statusbar.plist
 	cp scripts/postinstall $(SCRIPTS_DIR)/postinstall
 	chmod 755 $(SCRIPTS_DIR)/postinstall
 	mkdir -p $(DIST_DIR)
@@ -105,10 +120,70 @@ app:
 	# Fetch + stage Sparkle.framework. SPARKLE_TARBALL_SHA256 should be set
 	# in CI so the fetch verifies; local-dev runs see a WARN and continue.
 	./sparkle/fetch-sparkle.sh $(APP_BUNDLE_STAGED)/Contents/Frameworks
+	# Build the SwiftPM status-bar binary against the just-fetched
+	# Sparkle.framework and stage it inside the same bundle. Issue #388.
+	$(MAKE) statusbar SPARKLE_FRAMEWORK_DIR=$(CURDIR)/$(APP_BUNDLE_STAGED)/Contents/Frameworks
+	cp $(STATUSBAR_BUILD_DIR)/$(STATUSBAR_BIN) $(APP_BUNDLE_STAGED)/Contents/MacOS/$(STATUSBAR_BIN)
+	chmod 755 $(APP_BUNDLE_STAGED)/Contents/MacOS/$(STATUSBAR_BIN)
 	# Drop the .app under /Applications/iogridd.app inside the pkg root so
 	# pkgbuild lays it down at the standard location.
 	mv $(APP_BUNDLE_STAGED) $(ROOT)/Applications/iogridd.app
 	@echo "[macos-pkg] iogridd.app staged at $(ROOT)/Applications/iogridd.app"
+
+# Build the Swift status-bar binary (issue #388). Requires:
+#   * Xcode CLI tools / `swift` 5.9+ on PATH (macOS host only — the
+#     SwiftPM target doesn't cross-compile from Linux).
+#   * Sparkle.framework already fetched into SPARKLE_FRAMEWORK_DIR (the
+#     `app` target above arranges that before calling us).
+#
+# SwiftPM's binaryTarget requires .xcframework, so we wrap the plain
+# .framework into a single-platform .xcframework wrapper at build time.
+# The wrapper is just a directory + Info.plist; `xcodebuild -create-xcframework`
+# does it, OR we hand-write the minimal Info.plist. We use the
+# hand-rolled path to avoid the xcodebuild dep on lean CI runners.
+statusbar:
+	@if [ -z "$(SPARKLE_FRAMEWORK_DIR)" ]; then \
+		echo "[macos-pkg] ERROR: statusbar requires SPARKLE_FRAMEWORK_DIR=<path-to-dir-containing-Sparkle.framework>"; \
+		exit 2; \
+	fi
+	@if [ ! -d "$(SPARKLE_FRAMEWORK_DIR)/Sparkle.framework" ]; then \
+		echo "[macos-pkg] ERROR: $(SPARKLE_FRAMEWORK_DIR)/Sparkle.framework not found; run `make app` first"; \
+		exit 2; \
+	fi
+	@echo "[macos-pkg] wrapping Sparkle.framework as Sparkle.xcframework for SwiftPM"
+	rm -rf $(STATUSBAR_SRC)/Sparkle.xcframework
+	mkdir -p $(STATUSBAR_SRC)/Sparkle.xcframework/macos-arm64_x86_64
+	cp -R $(SPARKLE_FRAMEWORK_DIR)/Sparkle.framework $(STATUSBAR_SRC)/Sparkle.xcframework/macos-arm64_x86_64/
+	printf '%s\n' \
+		'<?xml version="1.0" encoding="UTF-8"?>' \
+		'<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+		'<plist version="1.0">' \
+		'<dict>' \
+		'  <key>AvailableLibraries</key>' \
+		'  <array>' \
+		'    <dict>' \
+		'      <key>LibraryIdentifier</key><string>macos-arm64_x86_64</string>' \
+		'      <key>LibraryPath</key><string>Sparkle.framework</string>' \
+		'      <key>SupportedArchitectures</key><array><string>arm64</string><string>x86_64</string></array>' \
+		'      <key>SupportedPlatform</key><string>macos</string>' \
+		'    </dict>' \
+		'  </array>' \
+		'  <key>CFBundlePackageType</key><string>XFWK</string>' \
+		'  <key>XCFrameworkFormatVersion</key><string>1.0</string>' \
+		'</dict>' \
+		'</plist>' \
+		> $(STATUSBAR_SRC)/Sparkle.xcframework/Info.plist
+	@echo "[macos-pkg] swift build (release, arch=$(SWIFT_ARCH))"
+	cd $(STATUSBAR_SRC) && swift build \
+		-c release \
+		--arch $(SWIFT_ARCH)
+	# `swift build --arch` lands the binary under .build/<arch>-apple-macosx/release/.
+	# Normalise to .build/release/<bin> so the caller's cp target is stable
+	# regardless of arch.
+	mkdir -p $(STATUSBAR_BUILD_DIR)
+	cp $(STATUSBAR_SRC)/.build/$(SWIFT_ARCH)-apple-macosx/release/$(STATUSBAR_BIN) \
+		$(STATUSBAR_BUILD_DIR)/$(STATUSBAR_BIN)
+	@echo "[macos-pkg] iogridd-statusbar built at $(STATUSBAR_BUILD_DIR)/$(STATUSBAR_BIN)"
 
 pkg: build
 	@echo "[macos-pkg] building component package -> $(COMPONENT_PKG)"

@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  iogridd status-bar UI LaunchAgent (Phase 2 of EPIC #348).
+
+  Installed by `installer/macos/scripts/postinstall` at:
+      ~/Library/LaunchAgents/io.iogrid.statusbar.plist
+
+  Distinct from `org.iogrid.daemon.plist` because:
+    * The daemon runs headless (no UI session, ProcessType=Background)
+      and ships the workload. It MUST keep running even if the GUI
+      session is suspended (e.g. fast user switch).
+    * This LaunchAgent runs in the user's GUI/Aqua session, owns an
+      `NSStatusItem` in the menu bar, and drives Sparkle's manual
+      "Check for updates…" flow. If the user logs out, the menu bar
+      goes away — exactly the behaviour macOS users expect.
+
+  We deliberately do NOT use LimitLoadToSessionType=Aqua here because
+  postinstall's `launchctl bootstrap gui/$USER_UID …` already targets
+  the user's GUI domain. The key was historically misused as a guard;
+  Apple's current guidance is to use the right domain at bootstrap.
+
+  Placeholder substituted by the postinstall script:
+    __USER_HOME__ = $HOME of the installing user
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>io.iogrid.statusbar</string>
+  <!--
+    ProgramArguments points at the iogridd.app bundle's Mach-O entry
+    for the SwiftPM-built menu-bar binary. We launch the binary
+    directly (not via `open -a`) so launchctl owns the PID for
+    KeepAlive purposes. The .app bundle's Info.plist still gets read
+    by Sparkle via Bundle.main because Cocoa walks up from the
+    executable's path to find the enclosing bundle.
+  -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Applications/iogridd.app/Contents/MacOS/iogridd-statusbar</string>
+  </array>
+  <!--
+    RunAtLoad starts us on each login. KeepAlive=true respawns if we
+    crash (NSStatusItem death == no manual update check). 30-second
+    ThrottleInterval matches the daemon LaunchAgent.
+  -->
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>30</integer>
+  <!--
+    Background processes get reduced QoS by default; a status-bar UI
+    needs Interactive to render the menu without lag.
+  -->
+  <key>ProcessType</key><string>Interactive</string>
+  <key>WorkingDirectory</key><string>__USER_HOME__</string>
+  <key>StandardOutPath</key><string>__USER_HOME__/Library/Logs/iogrid/iogridd-statusbar.out.log</string>
+  <key>StandardErrorPath</key><string>__USER_HOME__/Library/Logs/iogrid/iogridd-statusbar.err.log</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- Sparkle reads SUFeedURL from Info.plist; no env override needed. -->
+    <key>HOME</key><string>__USER_HOME__</string>
+    <key>PATH</key><string>/usr/bin:/bin:/usr/local/bin</string>
+  </dict>
+</dict>
+</plist>
