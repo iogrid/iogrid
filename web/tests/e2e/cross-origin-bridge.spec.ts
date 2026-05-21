@@ -32,12 +32,15 @@ import { test, expect } from "@playwright/test";
  * which lives in the post-deploy smoke set (PHASE0-UNBLOCK step 4d).
  */
 
+// Admin BFF routes (/api/v1/admin/*) moved to the independent admin/
+// app on admin.iogrid.org in EPIC #422 Phase 1 — they're no longer
+// hosted by web/, so they're not asserted here. The admin app gets its
+// own e2e suite in a follow-up (admin/tests/e2e/cross-origin-bridge).
 const PROXY_PATHS = [
   { path: "/api/v1/provide/dashboard", method: "GET" as const },
   { path: "/api/v1/provide/schedule", method: "GET" as const },
   { path: "/api/v1/provide/earnings", method: "GET" as const },
   { path: "/api/v1/provide/audit/stream", method: "GET" as const },
-  { path: "/api/v1/admin/abuse-queue", method: "GET" as const },
 ];
 
 test.describe("cross-origin bridge — same-origin BFF proxy (#237)", () => {
@@ -70,24 +73,26 @@ test.describe("cross-origin bridge — same-origin BFF proxy (#237)", () => {
     });
   }
 
-  test("anon POST /api/v1/admin/abuse/:id/resolve returns 401 (admin gate fires)", async ({
+  // Admin BFF routes (/api/v1/admin/*) live in the independent admin/
+  // app now (EPIC #422 Phase 1). These two assertions are kept as
+  // 404-on-web checks — they MUST 404 here to prove the routes were
+  // actually moved off the user-facing host.
+  test("/api/v1/admin/abuse/:id/resolve returns 404 on web (moved to admin/)", async ({
     page,
   }) => {
     const resp = await page.request.post(
       "/api/v1/admin/abuse/00000000-0000-0000-0000-000000000000/resolve",
       { data: { decision: "allow" } },
     );
-    expect(resp.status()).not.toBe(404);
-    expect(resp.status()).toBe(401);
+    expect(resp.status()).toBe(404);
   });
 
-  test("anon POST /api/v1/admin/providers/list returns 401 (admin gate fires)", async ({
+  test("/api/v1/admin/providers/list returns 404 on web (moved to admin/)", async ({
     page,
   }) => {
     const resp = await page.request.post("/api/v1/admin/providers/list", {
       data: {},
     });
-    expect(resp.status()).not.toBe(404);
-    expect(resp.status()).toBe(401);
+    expect(resp.status()).toBe(404);
   });
 });
