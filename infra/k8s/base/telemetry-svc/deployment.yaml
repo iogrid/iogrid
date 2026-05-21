@@ -34,7 +34,7 @@ spec:
         # cache-identical. Treated as an opaque ISO-8601 string by the
         # deploy-bot — do not hand-edit unless you intend to roll the
         # pods. Refs #335.
-        kubectl.kubernetes.io/restartedAt: "2026-05-21T00:00:00Z"
+        kubectl.kubernetes.io/restartedAt: "2026-05-21T01:35:39Z"
         prometheus.io/port: "8080"
         prometheus.io/path: "/metrics"
     spec:
@@ -50,7 +50,7 @@ spec:
       containers:
         # ---------- telemetry-svc control surface ----------
         - name: telemetry-svc
-          image: ghcr.io/iogrid/telemetry-svc:scaffold
+          image: ghcr.io/iogrid/telemetry-svc@sha256:da8620488c25436401fed94be1b63b3538af3b0305fad7f9ea189cdf760c8c3a
           imagePullPolicy: Always
           ports:
             - name: http
@@ -137,7 +137,7 @@ spec:
         # moment telemetry-svc finishes rendering it on first boot.
         - name: otelcol
           image: otel/opentelemetry-collector-contrib:0.105.0
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           args:
             - --config=/etc/otelcol/config.yaml
           ports:
