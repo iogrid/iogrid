@@ -22,3 +22,4 @@ resources:
   - web
   - gateway
   - certs
+  - sparkle

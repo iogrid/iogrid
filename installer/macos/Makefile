@@ -25,6 +25,8 @@ ROOT         := build/root
 SCRIPTS_DIR  := build/scripts
 RES_DIR      := Resources
 DIST_DIR     := dist
+APP_BUNDLE_SRC := app
+APP_BUNDLE_STAGED := build/iogridd.app
 
 # Apple Developer ID Installer cert from the env. When unset, sign/notarize
 # steps become no-ops so CI builds without secrets still produce an
@@ -36,12 +38,18 @@ APPLE_NOTARY_PROFILE ?= iogrid-notary
 #   make all DAEMON_BIN=../../daemon/target/aarch64-apple-darwin/release/iogridd
 DAEMON_BIN   ?= ../../daemon/target/release/iogridd
 
+# Sparkle EdDSA public key. Embedded as SUPublicEDKey in the .app Info.plist
+# at build time so each release ships its own trust anchor. Defaults to the
+# committed pubkey file (sparkle/pubkey.ed25519); CI can override with
+# SU_PUBLIC_ED_KEY="<base64-of-pubkey>" for ad-hoc / dev builds.
+SU_PUBLIC_ED_KEY ?= $(shell tr -d '[:space:]' < sparkle/pubkey.ed25519)
+
 PKG_ID       := org.iogrid.daemon
 COMPONENT_PKG := build/iogrid-component-$(VERSION).pkg
 PRODUCT_PKG   := $(DIST_DIR)/iogrid-$(VERSION)-$(ARCH).pkg
 SIGNED_PKG    := $(DIST_DIR)/iogrid-$(VERSION)-$(ARCH)-signed.pkg
 
-.PHONY: all build pkg product sign notarize clean
+.PHONY: all build app pkg product sign notarize clean
 
 all: build pkg product
 	@if [ -n "$(APPLE_DEVELOPER_ID)" ]; then \
@@ -52,9 +60,10 @@ all: build pkg product
 
 build:
 	@echo "[macos-pkg] staging payload under $(ROOT)"
-	rm -rf $(ROOT) $(SCRIPTS_DIR)
+	rm -rf $(ROOT) $(SCRIPTS_DIR) $(APP_BUNDLE_STAGED)
 	mkdir -p $(ROOT)/usr/local/iogrid
 	mkdir -p $(ROOT)/Library/LaunchAgents
+	mkdir -p $(ROOT)/Applications
 	mkdir -p $(SCRIPTS_DIR)
 	@if [ ! -f "$(DAEMON_BIN)" ]; then \
 		echo "[macos-pkg] ERROR: $(DAEMON_BIN) not found — pass DAEMON_BIN=<path-to-iogridd>"; \
@@ -67,6 +76,39 @@ build:
 	chmod 755 $(SCRIPTS_DIR)/postinstall
 	mkdir -p $(DIST_DIR)
 	@echo "[macos-pkg] payload ready"
+	$(MAKE) app
+
+# Build the iogridd.app bundle that hosts Sparkle.framework. Sparkle 2's
+# update path needs a real .app Info.plist (with SUFeedURL + SUPublicEDKey)
+# at the bundle root — that's what makes the framework's XPC installer
+# trust the update flow. The bundle's CFBundleExecutable is a copy of the
+# same iogridd binary that's also dropped at /usr/local/iogrid/iogridd; the
+# LaunchAgent keeps targeting the latter for backwards compat. Future PRs
+# can switch the LaunchAgent to launch the .app directly once the status-
+# bar menu lands.
+app:
+	@echo "[macos-pkg] building iogridd.app bundle"
+	rm -rf $(APP_BUNDLE_STAGED)
+	mkdir -p $(APP_BUNDLE_STAGED)/Contents/MacOS
+	mkdir -p $(APP_BUNDLE_STAGED)/Contents/Resources
+	mkdir -p $(APP_BUNDLE_STAGED)/Contents/Frameworks
+	cp $(APP_BUNDLE_SRC)/Contents/PkgInfo $(APP_BUNDLE_STAGED)/Contents/PkgInfo
+	# Substitute SUPublicEDKey + CFBundleShortVersionString + CFBundleVersion
+	# into the Info.plist template. Using `sed` (not PlistBuddy) so the
+	# Linux lint job in installer-ci can dry-run the same substitution.
+	sed \
+		-e "s|__SU_PUBLIC_ED_KEY__|$(SU_PUBLIC_ED_KEY)|g" \
+		-e "s|<string>0.1.0</string>|<string>$(VERSION)</string>|g" \
+		$(APP_BUNDLE_SRC)/Contents/Info.plist > $(APP_BUNDLE_STAGED)/Contents/Info.plist
+	cp $(DAEMON_BIN) $(APP_BUNDLE_STAGED)/Contents/MacOS/iogridd
+	chmod 755 $(APP_BUNDLE_STAGED)/Contents/MacOS/iogridd
+	# Fetch + stage Sparkle.framework. SPARKLE_TARBALL_SHA256 should be set
+	# in CI so the fetch verifies; local-dev runs see a WARN and continue.
+	./sparkle/fetch-sparkle.sh $(APP_BUNDLE_STAGED)/Contents/Frameworks
+	# Drop the .app under /Applications/iogridd.app inside the pkg root so
+	# pkgbuild lays it down at the standard location.
+	mv $(APP_BUNDLE_STAGED) $(ROOT)/Applications/iogridd.app
+	@echo "[macos-pkg] iogridd.app staged at $(ROOT)/Applications/iogridd.app"
 
 pkg: build
 	@echo "[macos-pkg] building component package -> $(COMPONENT_PKG)"
