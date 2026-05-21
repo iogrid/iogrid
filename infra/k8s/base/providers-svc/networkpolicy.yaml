@@ -88,6 +88,20 @@ spec:
       ports:
         - protocol: TCP
           port: 4222
+    # Cluster DNS — required for resolving in-cluster Service names
+    # (e.g. iogrid-pg-rw.iogrid.svc.cluster.local). The default kube-dns
+    # / CoreDNS Pods live in the kube-system namespace and listen on
+    # 53/UDP + 53/TCP. Without this, the goose-migration step at
+    # main.go start can't even resolve the Postgres host (#359 followup).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
     # #359: the geoip-download init container fetches the db-ip.com
     # Lite .mmdb at pod start. NetworkPolicy can't address an external
     # FQDN, so we open HTTPS + DNS to "anywhere outside the cluster"
