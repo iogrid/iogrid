@@ -188,6 +188,23 @@ type Store interface {
 	// freshly-promoted Provider. See #325.
 	SetPrimaryProvider(ctx context.Context, ownerUserID, providerID string) (*Provider, error)
 
+	// GetProviderByOwnerAndDisplayName returns the existing row keyed by
+	// (owner_user_id, display_name) — the natural dedupe key for re-pair
+	// from the same host. The daemon self-reports its OS hostname as the
+	// display_name on pair (see iogrid-transport::identity::
+	// local_display_name); a fresh PairDaemon call from a machine that
+	// was paired before resolves to the same row so /admin/providers
+	// shows ONE row per host instead of accumulating a new ghost on
+	// every daemon reinstall (Hatice's #327 bug).
+	//
+	// Lookup MUST be exact-match (no LIKE / ILIKE). Returns
+	// (nil, ErrNotFound) when no row matches — callers turn that into
+	// "first pair, INSERT a new row". Owner+display_name with empty
+	// display_name returns ErrNotFound immediately so the empty-hostname
+	// fallback path (legacy daemons that don't ship the field) is forced
+	// to create a fresh row rather than colliding on the empty string.
+	GetProviderByOwnerAndDisplayName(ctx context.Context, ownerUserID, displayName string) (*Provider, error)
+
 	// SelectProviderForOwner returns the deterministic "which paired
 	// daemon answers for this user" pick for /provide/* surfaces:
 	//   ORDER BY is_primary DESC,
@@ -395,6 +412,29 @@ func providerBeatsForOwner(cand, cur *Provider) bool {
 		return cand.RegisteredAt.After(cur.RegisteredAt)
 	}
 	return cand.ID < cur.ID
+}
+
+// GetProviderByOwnerAndDisplayName implements the Store contract — see
+// the interface comment. In-memory version: linear scan over the owner's
+// rows, exact-match on display_name. The expected cardinality is
+// ones-to-tens of providers per owner, so the linear cost is negligible.
+func (m *memStore) GetProviderByOwnerAndDisplayName(_ context.Context, ownerUserID, displayName string) (*Provider, error) {
+	if ownerUserID == "" || displayName == "" {
+		// Documented contract: empty display_name MUST NOT collide on
+		// the empty-string. Force the caller into the INSERT path so
+		// legacy daemons that don't ship a hostname don't all stomp on
+		// each other.
+		return nil, ErrNotFound
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, p := range m.providers {
+		if p.OwnerUserID == ownerUserID && p.DisplayName == displayName {
+			out := *p
+			return &out, nil
+		}
+	}
+	return nil, ErrNotFound
 }
 
 func (m *memStore) GetProvider(_ context.Context, id string) (*Provider, error) {

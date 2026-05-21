@@ -570,6 +570,50 @@ func TestPgStore_SelectProviderForOwner_EmptyOwnerReturnsNil(t *testing.T) {
 	}
 }
 
+// TestPgStore_GetProviderByOwnerAndDisplayName_HappyPath proves the
+// (owner_user_id, display_name) lookup against real SQL: a re-pair
+// from the same host can resolve back to its existing row, which is
+// the foundation for the handler-level dedupe that closes the #327
+// duplicate-row regression.
+func TestPgStore_GetProviderByOwnerAndDisplayName_HappyPath(t *testing.T) {
+	pool, _, cleanup := pgFixture(t)
+	defer cleanup()
+	ctx := context.Background()
+	s := NewPostgres(pool)
+
+	owner := uuid.NewString()
+	p := &Provider{OwnerUserID: owner, DisplayName: "Hatices-Mac-mini-2"}
+	if err := s.CreateProvider(ctx, p); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	got, err := s.GetProviderByOwnerAndDisplayName(ctx, owner, "Hatices-Mac-mini-2")
+	if err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
+	if got == nil || got.ID != p.ID {
+		t.Fatalf("expected same row, got %+v", got)
+	}
+}
+
+// TestPgStore_GetProviderByOwnerAndDisplayName_EmptyDisplayNameReturnsNotFound
+// locks the contract that the empty-string display_name path NEVER
+// dedupes — two legacy daemons whose hostname read fails must each
+// get their own row, not collide on the empty key.
+func TestPgStore_GetProviderByOwnerAndDisplayName_EmptyDisplayNameReturnsNotFound(t *testing.T) {
+	pool, _, cleanup := pgFixture(t)
+	defer cleanup()
+	ctx := context.Background()
+	s := NewPostgres(pool)
+
+	owner := uuid.NewString()
+	if err := s.CreateProvider(ctx, &Provider{OwnerUserID: owner, DisplayName: ""}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if _, err := s.GetProviderByOwnerAndDisplayName(ctx, owner, ""); err != ErrNotFound {
+		t.Fatalf("expected ErrNotFound for empty display_name lookup, got %v", err)
+	}
+}
+
 // TestPgStore_PrimaryUniqueConstraint is a backstop verifying the
 // partial unique index actually prevents two-primaries-per-owner
 // drift in the SQL — even if our application code regresses, the

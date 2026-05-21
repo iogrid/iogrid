@@ -387,6 +387,163 @@ func TestSetPrimaryProvider_RequiresOwnerAndProvider(t *testing.T) {
 	}
 }
 
+// --- #327 — re-pair dedupe (owner_user_id + display_name) -----------------
+
+// TestPairDaemon_RePairFromSameHostUpdatesExistingRow is the regression
+// receipt for the founder-visible bug: Hatice's Mac appeared twice in
+// /admin/providers — once as "Hatice's Mac" (legacy row) and once as
+// "provider-a7a93576-…" (fresh row from a daemon reinstall that lost
+// the local keypair). The new daemon now self-reports its OS hostname
+// as display_name, and PairDaemon UPDATEs the existing (owner_user_id,
+// display_name) row instead of INSERTing a duplicate. Net effect: one
+// row per host, surviving any number of daemon reinstalls.
+func TestPairDaemon_RePairFromSameHostUpdatesExistingRow(t *testing.T) {
+	h := newTestHandler(t)
+	ctx := context.Background()
+	const owner = "owner-rePair"
+	const hostname = "Hatices-Mac-mini-2"
+
+	tok1, _ := h.Store.IssuePairingToken(ctx, owner, 0)
+	first, err := h.PairDaemon(ctx, connect.NewRequest(&providersv1.PairDaemonRequest{
+		PairingToken:    tok1,
+		DaemonPublicKey: newDaemonPubKey(t),
+		DisplayName:     hostname,
+		HostInfo: &providersv1.HostInfo{
+			Platform: providersv1.Platform_PLATFORM_MACOS,
+		},
+	}))
+	if err != nil {
+		t.Fatalf("first pair: %v", err)
+	}
+	firstID := first.Msg.GetProvider().GetId().GetValue()
+	if firstID == "" {
+		t.Fatalf("expected first provider id")
+	}
+
+	// Simulate a daemon reinstall: brand-new keypair, brand-new token,
+	// SAME hostname (same machine).
+	tok2, _ := h.Store.IssuePairingToken(ctx, owner, 0)
+	newKey := newDaemonPubKey(t)
+	second, err := h.PairDaemon(ctx, connect.NewRequest(&providersv1.PairDaemonRequest{
+		PairingToken:    tok2,
+		DaemonPublicKey: newKey,
+		DisplayName:     hostname,
+		HostInfo: &providersv1.HostInfo{
+			Platform:      providersv1.Platform_PLATFORM_MACOS,
+			DaemonVersion: "0.1.1", // upgraded since first pair
+		},
+	}))
+	if err != nil {
+		t.Fatalf("re-pair: %v", err)
+	}
+	secondID := second.Msg.GetProvider().GetId().GetValue()
+	if secondID != firstID {
+		t.Fatalf("re-pair must reuse the existing row: first=%q second=%q",
+			firstID, secondID)
+	}
+
+	// Only one row exists for this owner — the dedupe worked.
+	rows, _, err := h.Store.ListProviders(ctx, store.ListOptions{OwnerUserID: owner})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if got := len(rows); got != 1 {
+		t.Fatalf("expected 1 row for owner after re-pair, got %d: %+v", got, rows)
+	}
+
+	// And the row reflects the fresh public key + daemon version.
+	got, err := h.Store.GetProvider(ctx, firstID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if string(got.PublicKey) != string(newKey) {
+		t.Fatalf("public key should have been refreshed to the new keypair")
+	}
+	if got.HostInfo.DaemonVersion != "0.1.1" {
+		t.Fatalf("daemon_version should be refreshed to 0.1.1, got %q",
+			got.HostInfo.DaemonVersion)
+	}
+}
+
+// TestPairDaemon_DifferentHostnamesCreateSeparateRows ensures dedupe is
+// keyed on owner_user_id + display_name — two distinct machines for the
+// same user are kept as separate rows so the operator can promote either
+// one to primary.
+func TestPairDaemon_DifferentHostnamesCreateSeparateRows(t *testing.T) {
+	h := newTestHandler(t)
+	ctx := context.Background()
+	const owner = "owner-two-hosts"
+
+	tok1, _ := h.Store.IssuePairingToken(ctx, owner, 0)
+	first, err := h.PairDaemon(ctx, connect.NewRequest(&providersv1.PairDaemonRequest{
+		PairingToken:    tok1,
+		DaemonPublicKey: newDaemonPubKey(t),
+		DisplayName:     "office-imac",
+	}))
+	if err != nil {
+		t.Fatalf("first pair: %v", err)
+	}
+	tok2, _ := h.Store.IssuePairingToken(ctx, owner, 0)
+	second, err := h.PairDaemon(ctx, connect.NewRequest(&providersv1.PairDaemonRequest{
+		PairingToken:    tok2,
+		DaemonPublicKey: newDaemonPubKey(t),
+		DisplayName:     "living-room-macmini",
+	}))
+	if err != nil {
+		t.Fatalf("second pair: %v", err)
+	}
+	if first.Msg.GetProvider().GetId().GetValue() == second.Msg.GetProvider().GetId().GetValue() {
+		t.Fatalf("distinct hostnames must produce distinct rows")
+	}
+	rows, _, err := h.Store.ListProviders(ctx, store.ListOptions{OwnerUserID: owner})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if got := len(rows); got != 2 {
+		t.Fatalf("expected 2 rows for owner with 2 distinct hosts, got %d", got)
+	}
+}
+
+// TestPairDaemon_EmptyDisplayNameUsesFallbackAndDoesNotDedupe locks the
+// safety contract: when the daemon ships an empty display_name (legacy
+// daemon or hostname-read failure on the device) the server falls back
+// to `provider-<short-id>` AND skips the dedupe lookup so two distinct
+// machines for the same owner never silently collide on the same fallback.
+func TestPairDaemon_EmptyDisplayNameUsesFallbackAndDoesNotDedupe(t *testing.T) {
+	h := newTestHandler(t)
+	ctx := context.Background()
+	const owner = "owner-fallback"
+
+	tok1, _ := h.Store.IssuePairingToken(ctx, owner, 0)
+	first, err := h.PairDaemon(ctx, connect.NewRequest(&providersv1.PairDaemonRequest{
+		PairingToken:    tok1,
+		DaemonPublicKey: newDaemonPubKey(t),
+		// DisplayName intentionally omitted.
+	}))
+	if err != nil {
+		t.Fatalf("first pair: %v", err)
+	}
+	tok2, _ := h.Store.IssuePairingToken(ctx, owner, 0)
+	second, err := h.PairDaemon(ctx, connect.NewRequest(&providersv1.PairDaemonRequest{
+		PairingToken:    tok2,
+		DaemonPublicKey: newDaemonPubKey(t),
+	}))
+	if err != nil {
+		t.Fatalf("second pair: %v", err)
+	}
+	if first.Msg.GetProvider().GetId().GetValue() == second.Msg.GetProvider().GetId().GetValue() {
+		t.Fatalf("empty display_name MUST NOT dedupe; got same id %q for two distinct pairs",
+			first.Msg.GetProvider().GetId().GetValue())
+	}
+	rows, _, err := h.Store.ListProviders(ctx, store.ListOptions{OwnerUserID: owner})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if got := len(rows); got != 2 {
+		t.Fatalf("empty-display_name pairs must create separate rows; got %d", got)
+	}
+}
+
 // errorAs is a tiny helper around errors.As that returns the bool so we
 // can write `if !errorAs(err, &ce)` cleanly.
 func errorAs(err error, target interface{}) bool {

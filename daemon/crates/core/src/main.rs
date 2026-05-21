@@ -175,9 +175,18 @@ async fn run_pair(
 
     let url = format!("{}/api/v1/providers/pair", cfg.coordinator_url);
     let client = iogrid_transport::identity::PairingClient { pair_endpoint: url };
+    // Self-report the OS hostname as our preferred display_name. The
+    // coordinator uses it as the operator-visible label AND as the
+    // dedupe key on re-pair (owner_user_id + display_name): a fresh
+    // pair on the same machine UPDATES the existing row instead of
+    // INSERTing a duplicate, so /admin/providers stops accumulating
+    // ghost rows after every daemon reinstall. Empty string -> server
+    // falls back to `provider-<short-id>` (legacy behaviour preserved).
+    let display_name = iogrid_transport::identity::local_display_name();
     let req = iogrid_transport::identity::PairingRequest {
         pairing_token: token.to_string(),
         csr_pem: local.csr_pem.clone(),
+        display_name,
     };
     match client.pair(req, state_dir).await {
         Ok(resp) => {
