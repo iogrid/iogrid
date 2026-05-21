@@ -21,9 +21,7 @@ import { test, expect } from "@playwright/test";
  * redirects depending on the request method.
  */
 test.describe("middleware — protected route gate (no edge crash)", () => {
-  // /admin moved to its own Next.js app (admin.iogrid.org) in #361, so
-  // this spec only covers the two surfaces still inside `web/`.
-  for (const target of ["/provide", "/customer"]) {
+  for (const target of ["/provide", "/customer", "/admin"]) {
     test(`unauthenticated GET ${target} redirects to /account`, async ({
       page,
     }) => {
