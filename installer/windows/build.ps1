@@ -48,6 +48,15 @@ iogrid client - Apache License 2.0
 https://github.com/iogrid/iogrid/blob/main/LICENSE
 "@
 
+# Phase 2 of EPIC #348 (Windows track #389): stage the Squirrel.Windows
+# Update.exe runtime so iogrid.wxs can lay it down at the install root.
+# Update.exe (~1 MB) is what the daemon supervisor invokes for subsequent
+# in-place side-by-side updates (`Update.exe --update <RELEASES-URL>`)
+# without re-running msiexec. SHA-256-verified against SQUIRREL_TARBALL_SHA256
+# env var when set; WARN-but-continue when unset (local dev).
+& (Join-Path $PSScriptRoot 'squirrel\fetch-squirrel.ps1') -OutDir $stage
+if ($LASTEXITCODE -ne 0) { throw "fetch-squirrel.ps1 failed (exit $LASTEXITCODE)" }
+
 # WiX needs RTF. Smallest valid RTF that renders in WixUI_Minimal.
 @"
 {\rtf1\ansi\deff0

@@ -1,0 +1,28 @@
+# Authenticode signer identity for the iogridd Windows .nupkg + .msi.
+#
+# This file documents the CN (Common Name) of the Authenticode certificate
+# the Windows track signs with. Squirrel.Windows verifies Authenticode
+# signatures against the Windows trust store at install time; the CA root
+# of the cert must chain to a Microsoft-trusted CA.
+#
+# Phase 2 ships UNSIGNED — the EV-cert below is a placeholder. The first
+# real release tag MUST update this file (and the WINDOWS_CERT_PFX_BASE64
+# + WINDOWS_CERT_PASSWORD GH-secrets) to reference a real EV-cert.
+#
+# Procurement is tracked as follow-up issue #389-windows-authenticode-ev-cert
+# (filed alongside PR shipping Phase 2 of EPIC #348).
+#
+# When the real cert lands:
+#   1. Sectigo / DigiCert / SSL.com EV-cert validation completes (typ.
+#      2-3 weeks for an Inc. with DUNS + notarized articles).
+#   2. The CA emits a .pfx; founder bases64s it -> GH-secret
+#      WINDOWS_CERT_PFX_BASE64; passphrase -> WINDOWS_CERT_PASSWORD.
+#   3. Update the CN line below to the real subject.
+#   4. Push a v0.2.0 tag — installer-ci's nupkg + msi steps will now
+#      embed the Authenticode signature.
+
+cn=iogrid Inc.
+issuer=Sectigo Public Code Signing CA EV R36
+type=EV
+status=NOT-YET-ACQUIRED
+follow_up_issue=389-windows-authenticode-ev-cert

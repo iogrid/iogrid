@@ -309,6 +309,132 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      # ----- Phase 2 of EPIC #348: Squirrel.Windows .nupkg + RELEASES -----
+      # Repacks the SAME iogridd.exe build into a Squirrel-flavoured .nupkg
+      # under installer/windows/dist/Releases/, then emits a per-build
+      # RELEASES-line fragment that publish-windows-installers (below)
+      # aggregates into the final RELEASES index on tag push.
+      #
+      # Authenticode signing on the .nupkg is gated on the same
+      # WINDOWS_CERT_PFX_BASE64 + WINDOWS_CERT_PASSWORD secrets the .msi
+      # signing uses. Absent => unsigned .nupkg artifact (smoke only).
+      # See installer/windows/squirrel/README.md for the design rationale.
+      - name: Build Squirrel .nupkg
+        shell: pwsh
+        run: |
+          ./installer/windows/squirrel/build-nupkg.ps1 `
+            -DaemonExe daemon/target/x86_64-pc-windows-msvc/release/iogridd.exe `
+            -Arch x64 `
+            -Version 0.1.0 `
+            -OutDir installer/windows/dist
+        env:
+          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+          # SHA-256 pin of the Squirrel.Windows runtime tarball. Empty in
+          # Phase 2 (WARN-but-continue); platform team fills in the pin
+          # via follow-up #389-windows-squirrel-pin after first reviewer
+          # confirms the upstream binary.
+          SQUIRREL_TARBALL_SHA256: ""
+
+      - name: Generate per-build RELEASES line
+        shell: pwsh
+        run: |
+          # build-nupkg.ps1 already emitted a *.RELEASES-line fragment;
+          # generate-releases.ps1 collapses any number of them into the
+          # final RELEASES index. On a single-shard build like this one
+          # the index has exactly one entry.
+          ./installer/windows/squirrel/generate-releases.ps1 `
+            -ReleasesDir installer/windows/dist/Releases
+
+      - name: Upload .nupkg + RELEASES
+        uses: actions/upload-artifact@v4
+        with:
+          name: iogrid-windows-x64-nupkg
+          path: |
+            installer/windows/dist/Releases/*.nupkg
+            installer/windows/dist/Releases/RELEASES
+            installer/windows/dist/Releases/*.RELEASES-line
+          if-no-files-found: error
+          retention-days: 14
+
+  # ---------------------------------------------------------------------
+  # Phase 2 of EPIC #348 (Windows track #389): publish the Squirrel
+  # `RELEASES` manifest + .nupkg + .msi as a GitHub Release asset on tag
+  # push. Mirrors the publish-repo job's pattern for the Linux side: the
+  # releases.iogrid.org/windows/ Deployment from #393 will redirect to
+  # this asset, providing a stable URL Squirrel's Update.exe can poll.
+  #
+  # Runs always (so PRs get the unsigned smoke-test); GitHub-Release
+  # upload step is gated on the `v*` tag-push.
+  # ---------------------------------------------------------------------
+  publish-windows-installers:
+    name: publish windows .msi + Squirrel .nupkg
+    needs: windows-msi
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download windows .msi artifact
+        uses: actions/download-artifact@v4
+        with:
+          pattern: iogrid-windows-*-msi
+          path: installer/windows/dist/
+          merge-multiple: true
+
+      - name: Download windows .nupkg artifact
+        uses: actions/download-artifact@v4
+        with:
+          pattern: iogrid-windows-*-nupkg
+          path: installer/windows/dist/Releases/
+          merge-multiple: true
+
+      - name: Layout smoke
+        run: |
+          set -euxo pipefail
+          ls -la installer/windows/dist/
+          ls -la installer/windows/dist/Releases/
+          # RELEASES must exist + be non-empty + each line must have 3
+          # space-separated fields (Squirrel's parser is strict).
+          test -s installer/windows/dist/Releases/RELEASES
+          awk 'NF != 3 { print "MALFORMED LINE:", $0; exit 1 }' \
+            installer/windows/dist/Releases/RELEASES
+          echo "Windows installer tree OK ($(wc -l < installer/windows/dist/Releases/RELEASES) RELEASES entries)"
+
+      - name: Publish to GitHub Release (tag push only)
+        # On `v*` tag push the .msi + Squirrel tree is uploaded to a
+        # well-known GitHub Release named `windows-installers`, providing
+        # a stable URL Squirrel's Update.exe can poll. Switches to
+        # releases.iogrid.org/windows/ once #393 lands.
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euxo pipefail
+          tar -C installer/windows/dist -czf /tmp/iogrid-windows-installers.tar.gz \
+              --exclude='*.RELEASES-line' \
+              .
+
+          if ! gh release view windows-installers --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              gh release create windows-installers \
+                  --repo "$GITHUB_REPOSITORY" \
+                  --title "Windows .msi + Squirrel auto-update repo (rolling)" \
+                  --notes "Phase 2 of EPIC #348 (Windows track #389) — rolling .msi + Squirrel .nupkg + RELEASES manifest built by installer-ci." \
+                  --prerelease
+          fi
+          gh release upload windows-installers /tmp/iogrid-windows-installers.tar.gz \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+          # Also upload the raw RELEASES + individual .nupkg as separate
+          # assets so Squirrel clients can fetch RELEASES directly without
+          # un-tarring (Update.exe expects a flat URL space).
+          gh release upload windows-installers \
+              installer/windows/dist/Releases/RELEASES \
+              installer/windows/dist/Releases/*.nupkg \
+              installer/windows/dist/*.msi \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+
   # ---------------------------------------------------------------------
   # Linux: build via nfpm in a Ubuntu container. Builds .deb + .rpm + .apk
   # for both amd64 and arm64. Cosign signing gated on COSIGN_KEY_FILE.
