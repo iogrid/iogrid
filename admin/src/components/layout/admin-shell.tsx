@@ -59,8 +59,8 @@ export async function AdminShell({
   const email = session?.user?.email ?? null;
 
   return (
-    <div className="min-h-screen bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50">
-      <header className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+    <div className="min-h-screen bg-background text-foreground dark:bg-foreground dark:text-background">
+      <header className="border-b border-border bg-white dark:border-foreground dark:bg-foreground">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
           <Link
             href="/"
@@ -68,11 +68,11 @@ export async function AdminShell({
             aria-label="iogrid admin home"
           >
             <span>iogrid</span>
-            <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white dark:bg-zinc-100 dark:text-zinc-900">
+            <span className="rounded bg-foreground px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white dark:bg-muted dark:text-foreground">
               admin
             </span>
           </Link>
-          <div className="flex items-center gap-3 text-xs text-zinc-500">
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
             {email ? (
               <span className="hidden sm:inline" data-testid="admin-shell-email">
                 {email}
@@ -80,7 +80,7 @@ export async function AdminShell({
             ) : null}
             <Link
               href="/api/auth/signout"
-              className="rounded-md border border-zinc-200 px-2 py-1 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800"
+              className="rounded-md border border-border px-2 py-1 text-foreground hover:bg-muted dark:border-foreground dark:text-muted-foreground dark:hover:bg-foreground"
             >
               Sign out
             </Link>
@@ -92,13 +92,13 @@ export async function AdminShell({
         <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
           <div>
             {badge ? (
-              <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 {badge}
               </p>
             ) : null}
             <h1 className="mt-1 text-3xl font-bold tracking-tight">{title}</h1>
             {subtitle ? (
-              <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+              <p className="mt-1 text-sm text-foreground dark:text-muted-foreground">
                 {subtitle}
               </p>
             ) : null}
@@ -111,7 +111,7 @@ export async function AdminShell({
         {nav.length > 0 ? (
           <nav
             aria-label="Section"
-            className="mt-6 flex flex-wrap gap-1 border-b border-zinc-200 dark:border-zinc-800"
+            className="mt-6 flex flex-wrap gap-1 border-b border-border dark:border-foreground"
           >
             {nav.map((item) => (
               <SectionTab
@@ -142,8 +142,8 @@ function SectionTab({
       className={cn(
         "border-b-2 px-3 py-2 text-sm font-medium",
         active
-          ? "border-zinc-900 text-zinc-900 dark:border-zinc-100 dark:text-zinc-100"
-          : "border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:hover:border-zinc-700 dark:hover:text-zinc-300",
+          ? "border-foreground text-foreground dark:border-muted dark:text-muted"
+          : "border-transparent text-muted-foreground hover:border-border hover:text-foreground dark:hover:border-foreground dark:hover:text-border",
       )}
     >
       {item.label}

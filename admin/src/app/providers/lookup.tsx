@@ -148,7 +148,7 @@ export function ProviderAuditLookup() {
           hasEvents={events.length > 0}
         />
       ) : (
-        <p className="text-xs text-zinc-500">
+        <p className="text-xs text-muted-foreground">
           Enter a provider UUID and press Audit to open their transparency
           stream.
         </p>
@@ -165,7 +165,7 @@ export function ProviderAuditLookup() {
 
       {streamFor && status === "unavailable" ? (
         <div
-          className="rounded-md border border-rose-300 bg-rose-50 p-4 text-sm text-rose-800 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-200"
+          className="rounded-md border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive-foreground dark:border-destructive-foreground dark:bg-destructive/15 dark:text-destructive/20"
           data-testid="audit-unavailable-banner"
           role="alert"
         >
@@ -205,20 +205,20 @@ function HelpBlock({
   onToggle: () => void;
 }) {
   return (
-    <div className="rounded-md border border-zinc-200 bg-zinc-50 text-sm dark:border-zinc-800 dark:bg-zinc-900/40">
+    <div className="rounded-md border border-border bg-background text-sm dark:border-foreground dark:bg-foreground/40">
       <button
         type="button"
         onClick={onToggle}
         aria-expanded={open}
-        className="flex w-full items-center justify-between px-3 py-2 text-left font-medium text-zinc-800 dark:text-zinc-100"
+        className="flex w-full items-center justify-between px-3 py-2 text-left font-medium text-foreground dark:text-muted"
       >
         <span>What is an audit event?</span>
-        <span aria-hidden className="text-xs text-zinc-500">
+        <span aria-hidden className="text-xs text-muted-foreground">
           {open ? "Hide" : "Show"}
         </span>
       </button>
       {open ? (
-        <div className="space-y-2 border-t border-zinc-200 px-3 py-2 text-xs leading-relaxed text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">
+        <div className="space-y-2 border-t border-border px-3 py-2 text-xs leading-relaxed text-foreground dark:border-foreground dark:text-border">
           <p>
             Every workload assignment, completion, failure, or abuse flag a
             provider&apos;s daemon receives is recorded here in real time.
@@ -268,7 +268,7 @@ function StatusLine({
 
   return (
     <p
-      className="text-xs text-zinc-500"
+      className="text-xs text-muted-foreground"
       data-testid="audit-status-line"
       data-status={status}
     >
@@ -300,7 +300,7 @@ function EmptyState({
   if (status === "connecting" && !slowConnect) {
     return (
       <div
-        className="rounded-md border border-dashed border-zinc-300 p-4 text-sm text-zinc-500 dark:border-zinc-700"
+        className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground dark:border-foreground"
         data-testid="audit-empty-state"
         data-variant="connecting"
       >
@@ -311,25 +311,25 @@ function EmptyState({
 
   return (
     <div
-      className="space-y-2 rounded-md border border-dashed border-zinc-300 p-4 text-sm dark:border-zinc-700"
+      className="space-y-2 rounded-md border border-dashed border-border p-4 text-sm dark:border-foreground"
       data-testid="audit-empty-state"
       data-variant={status === "open" ? "live" : "stalled"}
     >
-      <p className="font-medium text-zinc-800 dark:text-zinc-100">
+      <p className="font-medium text-foreground dark:text-muted">
         No transparency events recorded yet.
       </p>
-      <p className="text-zinc-600 dark:text-zinc-400">
+      <p className="text-foreground dark:text-muted-foreground">
         Once this provider accepts a workload, dispatch, completion, failure,
         and abuse-flag events will appear here in real time.
       </p>
       {since ? (
-        <p className="text-xs text-zinc-500">
+        <p className="text-xs text-muted-foreground">
           Provider <code className="font-mono">{providerId}</code> has been
           paired since <span className="font-medium">{since}</span> but has
           not yet accepted any workloads.
         </p>
       ) : (
-        <p className="text-xs text-zinc-500">
+        <p className="text-xs text-muted-foreground">
           Provider <code className="font-mono">{providerId}</code> has no
           workload history on record.
         </p>
