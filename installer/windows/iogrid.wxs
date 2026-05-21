@@ -116,15 +116,18 @@
                      squirrel/fetch-squirrel.ps1 before the wix build, which
                      SHA-256-verifies + stages Update.exe under
                      installer/windows/staging/Update.exe. Update.exe is what
-                     the daemon supervisor invokes as
-                     "Update.exe --update <IOGRID_UPDATE_FEED_URL>" to apply
-                     subsequent side-by-side updates without re-running
-                     the .msi. iogrid#399 ships the daemon-side driver in
-                     `daemon/crates/core/src/update_windows.rs` — it
-                     probes for Update.exe next to iogridd.exe (the
-                     install root resolved via `std::env::current_exe`)
-                     with a fallback to the literal install path the
-                     <Directory Id="INSTALLDIR"> above lays down. -->
+                     the daemon supervisor invokes (with the "update" CLI
+                     flag and the IOGRID_UPDATE_FEED_URL env var as the
+                     manifest URL) to apply subsequent side-by-side updates
+                     without re-running the .msi. iogrid#399 ships the
+                     daemon-side driver in daemon/crates/core/src/update_windows.rs.
+                     It probes for Update.exe next to iogridd.exe (install
+                     root resolved via std::env::current_exe) with a
+                     fallback to the literal install path the Directory
+                     element with Id INSTALLDIR above lays down.
+                     XML-comment-spec note: cannot use the double-hyphen
+                     CLI prefix inside a comment, so spelled out as "update"
+                     CLI flag. -->
                 <Component Id="SquirrelUpdate" Guid="*">
                     <File Id="Update.exe"
                           Source="staging/Update.exe"
