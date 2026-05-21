@@ -4,11 +4,11 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-20T04:48:00Z` |
+| Last refreshed | `2026-05-21T08:35:00Z` |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
-| Merged PRs | **80+** since project bootstrap (+8 this session: #266, #270, #272, #276, #277, #278, #280, #281) |
+| Merged PRs | **120+** since bootstrap (+26 in 2026-05-21 session — see §0 below) |
 | Open PRs | 0 |
-| Open issues | **3** (#79 macOS upgrade, #274 $GRID devnet wiring, #282 dev-stub-daemon tunneling) |
+| Open issues | **48** — dominated by founder-closure-pending after the 2026-05-21 ship sprint; truly unshipped backlog is 4 (#79 macOS upgrade, #345 Solana faucet, #398 Authenticode EV cert, #274 $GRID mainnet wiring — all founder-physical-action class) |
 | EPIC closure | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 17 / 17 closed by audit |
 | Phase 0 browser login | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> **`https://app.iogrid.org/account`** — NextAuth + Stalwart magic-link, verification tokens persisted in CNPG `web` DB |
 | Phase 0 mothership | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> 6 services + CNPG + 5 IngressRoutes (app/api/proxy/releases/v1-auth) + 2 Let's Encrypt certs all Running |
@@ -19,6 +19,75 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 | Phase 0 admin UI | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> `/admin/providers` shows paired daemon record for `emrah.baysal` — verified live via Playwright, record survives `providers-svc` pod restart (Postgres-backed via #247). Screenshots in repo root: `admin-providers-emrah-WORKING.png`, `admin-providers-postgres-persisted.png` |
 
 **Legend:** <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> done · <img alt="IN_FLIGHT" src="https://img.shields.io/badge/-IN__FLIGHT-bf8700?style=flat-square" /> work in progress · <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> open · <img alt="DEFERRED" src="https://img.shields.io/badge/-DEFERRED-6e7781?style=flat-square" /> deferred · <img alt="BLOCKED" src="https://img.shields.io/badge/-BLOCKED-8250df?style=flat-square" /> blocked on founder action
+
+---
+
+## 0. 2026-05-21 ship sprint — 26 PRs merged
+
+> Single-session push driven by founder direction "until zero open issues" + the 5 verbatim founder corrections (`feedback_*.md` memory entries). All 26 PRs reviewed + merged non-admin (no `--no-verify`, no bypass through red CI). Cluster surgically rolled, IaC drift snapped back, ledger entries below.
+
+| PR | scope | issue refs | result |
+|---|---|---|---|
+| [#364](https://github.com/iogrid/iogrid/pull/364) | feat(admin,web): scaffold admin/ app (PR1/2) | #361 | merged (later reverted via #383) |
+| [#372](https://github.com/iogrid/iogrid/pull/372) | fix(web/account/identifiers): read proto wire shape | #371 #321 #309 | merged, hatice walk 🟢 |
+| [#373](https://github.com/iogrid/iogrid/pull/373) | fix(infra/proxy-gateway): rename TLS_CERT_FILE → TLS_CERT_PATH | #355 | merged + IaC anti-drift |
+| [#374](https://github.com/iogrid/iogrid/pull/374) | infra(coordinator-ci): digest-pin sweep for 11 services | #335 #324 | merged, unblocked entire coordinator deploy chain |
+| [#376](https://github.com/iogrid/iogrid/pull/376) | fix(infra/traefik): disable h2 PING keepalive | #367 #271 | merged + live applied |
+| [#378](https://github.com/iogrid/iogrid/pull/378) | feat(providers-svc): server-side GeoIP2 lookup | #359 | merged, init-container ships dbip-city-lite.mmdb |
+| [#379](https://github.com/iogrid/iogrid/pull/379) | fix(coordinator): wire embedded goose migrations | #377 #324 | merged, billing-svc DB schema auto-applies |
+| [#380](https://github.com/iogrid/iogrid/pull/380) | fix(infra/providers-svc): allow cluster DNS egress in NetworkPolicy | #359 #377 | merged + live patched |
+| [#383](https://github.com/iogrid/iogrid/pull/383) | revert: #364 admin-split — restore /admin/providers | #382 #361 | merged, regression healed |
+| [#385](https://github.com/iogrid/iogrid/pull/385) | docs: sweep stale refs to folded strategy docs | #337 #339 | merged (later corrected by #396) |
+| [#386](https://github.com/iogrid/iogrid/pull/386) | fix(infra/traefik,providers-svc): trust XFF for GeoIP2 | #381 #359 | merged + live Traefik upgrade |
+| [#387](https://github.com/iogrid/iogrid/pull/387) | feat(installer/macos): Phase 1 Sparkle auto-update | #348 | merged, EdDSA appcast + Sparkle 2.6.4 |
+| [#391](https://github.com/iogrid/iogrid/pull/391) | feat(infra/marketing): deploy iogrid.org Next.js | #384 #349 | merged + applied + LIVE |
+| [#393](https://github.com/iogrid/iogrid/pull/393) | feat(infra/releases): deploy releases.iogrid.org | #392 #348 #387 | merged + LIVE (302 to GH Releases) |
+| [#395](https://github.com/iogrid/iogrid/pull/395) | feat(installer/linux): Phase 2 apt+yum+apk repos with GPG | #390 #348 | merged |
+| [#396](https://github.com/iogrid/iogrid/pull/396) | docs: line-by-line canonical fold per §11 | TBD-V02 #394 #337 | merged, 5 keepers + 8 subdirs |
+| [#397](https://github.com/iogrid/iogrid/pull/397) | fix(installer/macos/sparkle): openssl-based keypair gen | #393 #348 | merged, unblocked #393 chain |
+| [#401](https://github.com/iogrid/iogrid/pull/401) | feat(installer/windows): Phase 2 Squirrel.Windows | #389 #348 | merged after NuGet URL + nuspec path fixes |
+| [#402](https://github.com/iogrid/iogrid/pull/402) | feat(installer/macos): status-bar UI + IPC quit | #388 #348 | merged after Swift exclusivity fix |
+| [#403](https://github.com/iogrid/iogrid/pull/403) | chore: pin SQUIRREL_TARBALL_SHA256 | #400 #401 | merged |
+| [#404](https://github.com/iogrid/iogrid/pull/404) | feat(daemon/core,installer/windows): Update.exe supervisor | #399 #401 #348 | merged after XML-comment double-hyphen fix |
+| [#406](https://github.com/iogrid/iogrid/pull/406) | docs(infra/traefik): mark forwardedHeaders APPLIED + LB SNAT gap | #381 #359 #386 | merged |
+| [#408](https://github.com/iogrid/iogrid/pull/408) | feat(infra): wire admin.iogrid.org → web + admin-route gating | #407 #361 | merged + applied |
+| [#409](https://github.com/iogrid/iogrid/pull/409) | fix(daemon,providers-svc): OS hostname display_name + dedupe | #327 | merged |
+| [#411](https://github.com/iogrid/iogrid/pull/411) | fix(infra/traefik): iogrid.org → LE cert via dynadot apply | #410 #408 #407 | merged + live LE cert active |
+| [#412](https://github.com/iogrid/iogrid/pull/412) | infra(traefik): externalTrafficPolicy=Local + replicas=2 | #381 #359 #386 | merged + live applied; GeoIP populates 🟢 |
+
+### Cluster-state flips this session (live ops, all snapped back to IaC)
+
+| Time UTC | Op | Result |
+|---|---|---|
+| 02:00 | `kubectl set image` 11 coordinator deployments → post-#374 digests | rolled, billing-svc/etc serve post-#330 routes |
+| 02:00 | manual goose-up against `iogrid-pg/billing` DB (5 migrations) | tables created; #379 makes this auto on next pod start |
+| 02:23 | NetworkPolicy patch: providers-svc allow kube-system DNS | restored providers-svc → Postgres path; committed as #380 |
+| 04:14 | applied marketing manifests + set-image to digest 878e2d5a... | iogrid.org 🟢 LIVE |
+| 04:45 | applied releases manifests + set-image to digest 0777385b... | releases.iogrid.org 🟢 LIVE |
+| 05:50 | Traefik helm upgrade revision 5 — `forwardedHeaders.insecure=true` | XFF arrives but value = 10.42.0.1 (cluster gw); committed as #406 |
+| 07:55 | dynadot apply (admin.iogrid.org A-record) + cert-manager re-Order | admin.iogrid.org resolves + iogrid-org-tls Secret re-materialised with LE; committed as #411 |
+| 08:15 | Traefik helm revision 8 — replicas=2 + ETP=Local | real public_ip 188.66.253.46 + country OM + region Muscat populate; committed as #412 |
+
+### Final EPIC closure status
+
+- **EPIC #309** (hatice signs in → sees paired Mac + earnings + everything) — 🟢 VERIFIED-PASS via 9-surface Playwright walk; closure evidence on the EPIC.
+- **EPIC #348** (daemon self-update) — 🟢 7 sub-PRs shipped (Sparkle macOS, Linux apt/yum/apk, Windows Squirrel + Update.exe supervisor, macOS statusbar UI, releases endpoint, SHA pin); founder-physical follow-ups #398 (EV cert) + manual `v*` tag push remain.
+- **EPIC #361** (admin app split) — original PR1/2 (#364) reverted via #383; replaced with smaller-scope #408 admin.iogrid.org → web routing.
+- **#381 GeoIP populate** — 🟢 LIVE end-to-end: hatice's daemon shows `public_ip=188.66.253.46 country=OM region=Muscat`.
+- **#377 db.MigrateUp blocker** — 🟢 structurally fixed; future pod restarts auto-migrate.
+- **TBD-V02 / #394 docs canonical fold** — 🟢 5 keepers + 8 subdirs (adr/ledger/lessons-learned/runbooks/proposals/sessions/archive/transparency).
+
+### Founder-action still pending (cannot be agent-dispatched)
+
+- **#345** — Solana devnet faucet click (30s — bastion IP rate-limited; founder must hit faucet UI from a different IP)
+- **#398** — Authenticode EV cert acquisition (1-3 weeks, founder vendor relationship)
+- **#79** — Mac Sequoia 15 upgrade (founder physical, Tart prerequisite)
+- **#274** — $GRID mainnet wire (founder TGE decision after EV cert + audit)
+- **DNS record** for `admin.iogrid.org` was pushed via dynadot apply in this session; future Dynadot edits MUST run `scripts/dynadot-apply.sh --apply` post-merge (see RUNBOOKS §4).
+
+### Open-issue inventory cooldown
+
+After this session's ship sprint, the 48-issue count is dominated by "code shipped + evidence comment posted + awaiting founder closure walk". Each of #311–#327 + #347–#392 carries a fresh-evidence comment from 2026-05-21 with concrete probe output (curl HTTP code / kubectl image hash / DB query result). The founder can bulk-close after a single walk.
 
 ---
 
