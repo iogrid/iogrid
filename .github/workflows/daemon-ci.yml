@@ -142,8 +142,14 @@ jobs:
     needs: build-release
     runs-on: macos-latest
     timeout-minutes: 15
-    # Run on every push so PR diff lint still happens, but the upload step
-    # is tag-gated below.
+    # Run on every push so PR diff lint still happens, but the upload + GH
+    # Release publish steps are tag-gated below.
+    permissions:
+      # contents:write is required for `gh release upload` on tag push —
+      # the publish step writes appcast.xml + .pkg files as assets on
+      # the matching v* release. PR runs only need contents:read; the
+      # publish step is guarded on startsWith(github.ref, 'refs/tags/v').
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - name: Download release artifacts
@@ -185,7 +191,69 @@ jobs:
           echo "::group::appcast.xml"
           cat "$KEYDIR/appcast.xml"
           echo "::endgroup::"
-      - name: Generate + upload real appcast (tag push only)
+      # -----------------------------------------------------------------
+      # Publish path — only fires on `v*` tag pushes.
+      #
+      # Hosting model (decided in #392):
+      #   - GitHub Releases is the source-of-truth blob store. We `gh
+      #     release upload` the signed appcast.xml + both arch-specific
+      #     .pkg files onto the v<tag> Release.
+      #   - releases.iogrid.org (nginx redirect server, infra/k8s/base/releases/)
+      #     translates Sparkle's poll URL into a 302 pointing at the GH
+      #     Release asset. See ingressroute-releases.yaml + releases/nginx.conf.
+      #
+      # Why GH Releases and not S3/R2/PVC:
+      #   - Free for public OSS repos with no per-egress cost.
+      #   - Object durability + CDN distribution come for free.
+      #   - Provenance: the GH Release asset URL embeds the tag, which
+      #     matches the Sparkle <enclosure url=...> attribute generated
+      #     by generate-appcast.sh — same identifier across the whole
+      #     pipeline. Mirrors how Phase-0 installers shipped already
+      #     (see docs/TRACKER.md "Phase 0 installers" row).
+      # -----------------------------------------------------------------
+      - name: Download installer-ci .pkg artifacts (tag push only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euxo pipefail
+          # installer-ci builds the same SHA the tag points at and
+          # uploads `iogrid-macos-{arm64,amd64}-pkg` workflow artifacts.
+          # Find that workflow run (it fires on the same tag push) and
+          # pull its .pkg artifacts.
+          mkdir -p /tmp/pkgs
+          # The installer-ci run for this tag may still be in progress;
+          # wait up to 25 min for the macos-pkg job to finish before we
+          # try to grab its artifacts. Resilient to ordering since GH
+          # Actions doesn't currently support cross-workflow `needs`.
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            INSTALLER_RUN_ID="$(gh run list \
+                --workflow=installer-ci.yml \
+                --branch="$TAG" \
+                --event=push \
+                --limit=1 \
+                --json databaseId,status,conclusion \
+                --jq '.[0] | select(.status=="completed" and .conclusion=="success") | .databaseId')"
+            if [ -n "${INSTALLER_RUN_ID:-}" ]; then
+              echo "[appcast] installer-ci run for tag $TAG: $INSTALLER_RUN_ID"
+              break
+            fi
+            echo "[appcast] installer-ci for $TAG not green yet (attempt $attempt/10); sleeping 90s"
+            sleep 90
+          done
+          if [ -z "${INSTALLER_RUN_ID:-}" ]; then
+            echo "::error::installer-ci did not complete-successfully for $TAG within 15 min — cannot build appcast"
+            exit 1
+          fi
+          gh run download "$INSTALLER_RUN_ID" \
+              --name "iogrid-macos-arm64-pkg" \
+              --dir /tmp/pkgs/arm64
+          gh run download "$INSTALLER_RUN_ID" \
+              --name "iogrid-macos-amd64-pkg" \
+              --dir /tmp/pkgs/amd64
+          ls -la /tmp/pkgs/arm64 /tmp/pkgs/amd64
+      - name: Generate + sign appcast.xml (tag push only)
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           IOGRID_VERSION: ${{ github.ref_name }}
@@ -198,18 +266,77 @@ jobs:
         run: |
           set -euxo pipefail
           if [ -z "${SPARKLE_ED_PRIVKEY_B64}" ]; then
-            echo "[appcast] SPARKLE_ED_PRIVKEY_B64 unset — cannot sign release appcast"
-            echo "[appcast] (this is expected on fork PRs; the trunk CI run will sign + publish)"
-            exit 0
+            echo "::error::SPARKLE_ED_PRIVKEY_B64 unset — cannot sign release appcast"
+            echo "::error::(this secret must be present on the trunk CI run; fork PRs cannot publish)"
+            exit 1
           fi
           KEYDIR="$(mktemp -d)"
           printf "%s" "$SPARKLE_ED_PRIVKEY_B64" | base64 -d > "$KEYDIR/privkey.ed25519"
-          # In a real release, installer-ci's macos-pkg job uploads the .pkg
-          # artifacts; we pull them with gh CLI here. Placeholder: the
-          # exact gh-run-id wiring lands in PR #348 follow-up
-          # (#348-release-pipeline-glue) — Phase 1 only validates the
-          # script + secret plumbing.
-          echo "[appcast] Phase 1: signing wiring shipped; release-pipeline glue tracked in #348-release-pipeline-glue"
+          chmod 600 "$KEYDIR/privkey.ed25519"
+          # Locate the .pkg files downloaded by the previous step. The
+          # GitHub Actions artifact-download tool drops the file under
+          # /tmp/pkgs/<arch>/iogrid-<version>-<arch>.pkg.
+          PKG_ARM64="$(ls /tmp/pkgs/arm64/*.pkg | head -n1)"
+          PKG_AMD64="$(ls /tmp/pkgs/amd64/*.pkg | head -n1)"
+          test -f "$PKG_ARM64"
+          test -f "$PKG_AMD64"
+          IOGRID_PKG_ARM64="$PKG_ARM64" \
+          IOGRID_PKG_AMD64="$PKG_AMD64" \
+          SPARKLE_ED_PRIVKEY_PATH="$KEYDIR/privkey.ed25519" \
+          IOGRID_APPCAST_OUT="/tmp/appcast.xml" \
+            ./installer/macos/sparkle/generate-appcast.sh
+          # Defence-in-depth: re-check well-formedness on the prod render.
+          xmllint --noout /tmp/appcast.xml
+          # Stash the .pkg paths for the upload step.
+          {
+            echo "PKG_ARM64=$PKG_ARM64"
+            echo "PKG_AMD64=$PKG_AMD64"
+          } >> "$GITHUB_ENV"
+      - name: Publish appcast.xml + .pkg blobs to GH Release (tag push only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euxo pipefail
+          # `gh release upload --clobber` is idempotent — re-running the
+          # workflow on the same tag overwrites the asset rather than
+          # erroring on a name collision. Required so a CI retry after a
+          # transient ed25519 sign_update fetch failure doesn't strand
+          # the previous attempt's appcast.xml on the Release.
+          gh release upload "$TAG" \
+              /tmp/appcast.xml \
+              "$PKG_ARM64" \
+              "$PKG_AMD64" \
+              --clobber
+          echo "[appcast] published to https://github.com/iogrid/iogrid/releases/tag/$TAG"
+          echo "[appcast] reachable at https://releases.iogrid.org/macos/appcast.xml"
+      - name: Verify Sparkle feed publicly resolves (tag push only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euxo pipefail
+          # Walk the 302 chain end-to-end. releases.iogrid.org/macos/appcast.xml
+          # MUST redirect to a GH Release asset URL containing the just-
+          # uploaded blob. If the cert SAN is missing the hostname (the
+          # cert-manager re-issue lags Flux reconcile on first deploy)
+          # this step surfaces the gap before it ships silently. Allow
+          # a 30s warm-up for the GH CDN to materialise the asset.
+          sleep 30
+          for attempt in 1 2 3 4 5; do
+            if curl --proto '=https' --tlsv1.2 -sSfL --max-redirs 5 \
+                   -o /tmp/appcast.published.xml \
+                   "https://releases.iogrid.org/macos/appcast.xml"; then
+              break
+            fi
+            echo "[verify] attempt $attempt curl failed; sleeping 30s"
+            sleep 30
+          done
+          xmllint --noout /tmp/appcast.published.xml
+          grep -q "sparkle:edSignature" /tmp/appcast.published.xml
+          grep -q "$TAG" /tmp/appcast.published.xml
+          echo "[verify] releases.iogrid.org/macos/appcast.xml resolves to the $TAG appcast"
       - name: Upload smoke appcast.xml as artifact
         uses: actions/upload-artifact@v4
         with:
