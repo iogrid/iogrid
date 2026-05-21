@@ -45,13 +45,16 @@ spec:
     # Time we wait to establish the TCP connection to the backend.
     # Kept short so deployment rolls (Pending pods) don't get picked.
     dialTimeout: "5s"
-    # Interval between h2 PING frames on idle connections. Setting a
-    # positive value enables Traefik's own h2 keepalive — this matches
-    # the daemon's `http2_keep_alive_interval(15s)` so the round-trip
-    # is symmetric and a single missed pong from either side resets
-    # the connection cleanly instead of stranding the bidi stream.
-    readIdleTimeout: "30s"
-    # How long to wait for a PING pong before declaring the connection
-    # dead. 60s == the same value we ship on the daemon side after
-    # #271 (`http2_keep_alive_timeout(60s)`).
-    pingTimeout: "60s"
+    # Disable Traefik's own h2 PING keepalive. The daemon already ships
+    # `http2_keep_alive_interval(15s)` + `http2_keep_alive_timeout(60s)`
+    # in `daemon/crates/transport/src/lib.rs`, which is sufficient to
+    # detect dead connections from the data-plane side. Traefik's PING
+    # path goes through Go's stdlib h2 framer talking to providers-svc's
+    # `h2c.NewHandler` wrapper — the latter does not always forward PING
+    # frames to the underlying h2 server in a way that produces a
+    # PING-ACK, so Traefik perceives every healthy 60s window as a
+    # missed pong and emits RST_STREAM with INTERNAL_ERROR (see #367).
+    # `0s` means "never send a PING from Traefik" — symmetric with the
+    # idleConnTimeout=0 + responseHeaderTimeout=0 above.
+    readIdleTimeout: "0s"
+    pingTimeout: "0s"
