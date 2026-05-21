@@ -26,5 +26,5 @@ A new PR against a claimed-done surface flips it back to 🔴 UNVERIFIED.
 | `/account/wallets` (hatice walk) | 🟢 VERIFIED-PASS | 2026-05-21 | [#326 comment](https://github.com/iogrid/iogrid/issues/326#issuecomment-4504154098) | PR #341 |
 | `/account/sessions` (hatice walk) | 🟢 VERIFIED-PASS | 2026-05-21 | [#322 comment](https://github.com/iogrid/iogrid/issues/322#issuecomment-4504566224) | PR #336 |
 | `/provide/audit` (hatice walk) | 🟢 VERIFIED-PASS | 2026-05-21 | [#323 comment](https://github.com/iogrid/iogrid/issues/323#issuecomment-4504566384) | PR #366 |
-| GeoIP populates country/region | 🔴 UNVERIFIED | — | PR #386 shipped; needs Traefik `forwardedHeaders.insecure=true` (founder operator step) | Refs #381 |
+| GeoIP populates country/region | 🟢 VERIFIED-PASS | 2026-05-21 | `provider-a7a93576` reconnect post-rollout: `public_ip=188.66.253.46 country_code=OM region_name=Muscat` ([providers-svc log](https://github.com/iogrid/iogrid/issues/381)) | Refs #381 — Traefik chart revision 8 = ETP=Local + replicas=2 + forwardedHeaders.insecure=true |
 | EPIC #309 end-to-end hatice walk | 🟢 VERIFIED-PASS | 2026-05-21 | [#309 comment](https://github.com/iogrid/iogrid/issues/309#issuecomment-4504157052) | 7 surfaces green |

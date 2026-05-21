@@ -67,14 +67,25 @@
 # reconnected, the next `heartbeat: stream opened` log line in
 # providers-svc DID carry a non-empty `client_ip` — but resolved to
 # `10.42.0.1` (Cilium cluster-internal gateway), NOT the real client
-# public IP. Root cause: `Service traefik` in kube-system has
+# public IP. Root cause: `Service traefik` in kube-system had
 # `externalTrafficPolicy: Cluster` (default), so the Hetzner LB → node
-# hop rewrites source via SNAT BEFORE Traefik sees the packet.
+# hop rewrote source via SNAT BEFORE Traefik saw the packet.
 #
-# Follow-up #381 documents two options to preserve real source IP:
-#   (1) externalTrafficPolicy: Local on Service/traefik (needs replicas≥2)
-#   (2) Hetzner LB PROXY-protocol annotation + Traefik proxyProtocol
-# Neither is applied yet (cluster-wide change, founder-action class).
+# RESOLVED 2026-05-21 08:24Z (chart revision 8, this PR):
+#   `Service traefik` flipped to `externalTrafficPolicy: Local` after
+#   bumping `deployment.replicas` to 2 (so the per-node LB healthcheck
+#   doesn't flap during a Traefik rollout). Hetzner LB CCM honored the
+#   ETP flip — its healthCheckNodePort gates per-node forwarding to
+#   only nodes with healthy Traefik pods, preserving source IP through
+#   the LB → node → Pod hop. Persisted via `HelmChart/traefik`
+#   `spec.valuesContent` in kube-system (k3s helm-controller's CR is
+#   the durable source-of-truth; see `infra/k8s/traefik/README.md` for
+#   the canonical fragment).
+#
+#   Live verification: `provider-a7a93576` (hatice's daemon) reconnected
+#   after the post-flip providers-svc rollout and the next heartbeat
+#   carried `peer_addr=188.66.253.46 xff=188.66.253.46`, resolving to
+#   `country_code=OM region_slug=om-muscat` in `providers`. PR #386.
 #
 # Issue: #352 (this file's intent). Refs #271 (sibling for workloads),
 # #381 (XFF/geo plumbing), #378 (the GeoIP2 ship this unblocks).
