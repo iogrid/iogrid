@@ -4,12 +4,13 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-21T11:30:00Z` |
+| Last refreshed | `2026-05-21T13:10:00Z` |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
-| Merged PRs | **120+** since bootstrap (+29 in 2026-05-21 session — see §0 below) |
+| Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
 | Open PRs | 0 |
-| Open issues | **54** — dominated by founder-closure-pending; **NEW active EPIC #422** (drop `app.iogrid.org`, independent `admin.iogrid.org`, full UX revamp — founder verbatim 2026-05-21 10:30Z). 2 agents in flight: Phase 1 (admin/ Next.js scaffold) + Phase 2.1 (design system + landing redesign). Truly-unshipped founder-physical: #79 macOS upgrade, #345 Solana faucet, #398 Authenticode EV cert, #274 $GRID mainnet. |
-| Prior false-progress | <img alt="REVERTED" src="https://img.shields.io/badge/-FALSE-cf222e?style=flat-square" /> PRs #364 (admin scaffold-only) / #383 (revert) / #408 (host-aliased admin) — none satisfy founder's "INDEPENDENT admin app" criterion. To be unwound by #422 Phase 1. |
+| Open issues | **55** — **EPIC #422 5/6 phases shipped** (Phases 1, 2.1, 2.2, 3, 4.1 LIVE). Remaining: Phase 2.3 (admin surfaces redesign — agent in flight). Founder-physical blockers: #79 macOS, #345 Solana faucet, #398 Authenticode cert, #274 $GRID mainnet, **#426 (founder-action: flip `iogrid/admin` ghcr package → PUBLIC, 30s, unblocks `admin.iogrid.org`)**. |
+| Live URL state post-#428 | <img alt="LIVE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> `iogrid.org` serves product app (was marketing). `app.iogrid.org` 301 → `iogrid.org`. `admin.iogrid.org` 503 (waiting #426 ghcr unblock). Marketing folded into web/ — `marketing/` workspace deleted. New design system live across landing + provide/customer/vpn/account/install. |
+| Prior false-progress | <img alt="REVERTED" src="https://img.shields.io/badge/-FALSE-cf222e?style=flat-square" /> PRs #364 / #383 / #408 — none satisfied founder's "INDEPENDENT admin app" criterion. Replaced by #425 (real separate admin codebase + Deployment + CI). |
 | EPIC closure | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 17 / 17 closed by audit |
 | Phase 0 browser login | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> **`https://app.iogrid.org/account`** — NextAuth + Stalwart magic-link, verification tokens persisted in CNPG `web` DB |
 | Phase 0 mothership | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> 6 services + CNPG + 5 IngressRoutes (app/api/proxy/releases/v1-auth) + 2 Let's Encrypt certs all Running |
@@ -20,6 +21,34 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 | Phase 0 admin UI | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> `/admin/providers` shows paired daemon record for `emrah.baysal` — verified live via Playwright, record survives `providers-svc` pod restart (Postgres-backed via #247). Screenshots in repo root: `admin-providers-emrah-WORKING.png`, `admin-providers-postgres-persisted.png` |
 
 **Legend:** <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> done · <img alt="IN_FLIGHT" src="https://img.shields.io/badge/-IN__FLIGHT-bf8700?style=flat-square" /> work in progress · <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> open · <img alt="DEFERRED" src="https://img.shields.io/badge/-DEFERRED-6e7781?style=flat-square" /> deferred · <img alt="BLOCKED" src="https://img.shields.io/badge/-BLOCKED-8250df?style=flat-square" /> blocked on founder action
+
+---
+
+## 0.6. EPIC #422 — 6 PRs shipped (Phases 1, 2.1, 2.2, 3, 4.1) + cluster live (2026-05-21 12:00-13:10Z)
+
+| PR | merged | scope |
+|---|---|---|
+| [#423](https://github.com/iogrid/iogrid/pull/423) | 11:53Z | Phase 2.1 — design system tokens + landing redesign (Linear/Notion/Vercel) |
+| [#425](https://github.com/iogrid/iogrid/pull/425) | 12:02Z | Phase 1 — independent `admin/` Next.js app + admin routes moved out of web/ |
+| [#427](https://github.com/iogrid/iogrid/pull/427) | 12:24Z | Phase 4.1 — separation invariant doc + E2E enforcement |
+| [#428](https://github.com/iogrid/iogrid/pull/428) | 12:33Z | Phase 3 — fold marketing into web/ + `app.iogrid.org` 301→`iogrid.org` |
+| [#429](https://github.com/iogrid/iogrid/pull/429) | 13:09Z | Phase 2.2 — design system applied to all product surfaces (provide/customer/vpn/account/install) |
+
+### Cluster ops applied LIVE post-PRs
+
+| Time | Op |
+|---|---|
+| 12:25Z | `kubectl apply` admin/ manifests (sa/svc/deploy/np/hpa); IngressRoute admin.iogrid.org repointed web→admin |
+| 12:33Z | apex IngressRoute + app→301 redirect applied; marketing manifests deleted |
+| 12:33Z | verified `curl iogrid.org` 200, `curl app.iogrid.org` 301→apex |
+
+### #426 founder action (30s, blocks admin.iogrid.org pod)
+
+Open https://github.com/orgs/iogrid/packages/container/admin/settings → flip to **Public**. After: `kubectl rollout restart deploy/admin -n iogrid` and admin.iogrid.org goes 200.
+
+### Phase 2.3 in flight
+
+Agent `a503bd60317e68668` migrating admin/ source from zinc-* to design tokens. PR expected ~30 min.
 
 ---
 
