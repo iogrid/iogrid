@@ -63,7 +63,7 @@ export function AuditEventCard({
   const isCustomerKind = kindName !== undefined && CUSTOMER_KINDS.has(kindName);
   const accent =
     isBlocked || isAbuse
-      ? "border-destructive/20 bg-destructive/10 dark:border-destructive-foreground dark:bg-destructive/15
+      ? "border-destructive/20 bg-destructive/10 dark:border-destructive-foreground dark:bg-destructive/15"
       : kindName === "EVENT_KIND_EARNINGS_CREDITED"
         ? "border-success/20 bg-success/10 dark:border-success/30 dark:bg-success/15"
         : "border-border bg-white dark:border-foreground dark:bg-foreground";
