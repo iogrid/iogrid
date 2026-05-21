@@ -18,11 +18,11 @@ export function SignInPanel({
 }) {
   return (
     <main className="mx-auto max-w-md px-6 py-16">
-      <Link href="/" className="text-sm text-zinc-500 hover:underline">
+      <Link href="/" className="text-sm text-muted-foreground hover:underline">
         ← Back
       </Link>
       <h1 className="mt-6 text-3xl font-bold">Sign in to iogrid</h1>
-      <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+      <p className="mt-2 text-sm text-muted-foreground dark:text-muted-foreground">
         One account for both providing and consuming compute. Sign in with
         Google or email — your role (provider / customer / both) is chosen
         after first login.
@@ -49,13 +49,13 @@ export function SignInPanel({
       </div>
 
       {callbackUrl ? (
-        <p className="mt-4 text-xs text-zinc-500">
+        <p className="mt-4 text-xs text-muted-foreground">
           You&apos;ll return to <code className="font-mono">{callbackUrl}</code>{" "}
           after sign-in.
         </p>
       ) : null}
 
-      <p className="mt-6 text-xs text-zinc-500">
+      <p className="mt-6 text-xs text-muted-foreground">
         By continuing you agree to the iogrid Terms and Acceptable Use Policy.
       </p>
     </main>

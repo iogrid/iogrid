@@ -19,8 +19,8 @@ export const metadata = {
  */
 export default function BurnPage() {
   return (
-    <div className="min-h-screen bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50">
-      <header className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+    <div className="min-h-screen bg-muted text-foreground dark:bg-background dark:text-foreground">
+      <header className="border-b border-border bg-card dark:border-border">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-3">
           <Link
             href="/"
@@ -30,7 +30,7 @@ export default function BurnPage() {
             iogrid
           </Link>
           <div className="flex items-center gap-4">
-            <p className="text-xs uppercase tracking-wide text-zinc-500">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">
               Public burn dashboard
             </p>
             <ThemeToggle />
@@ -40,7 +40,7 @@ export default function BurnPage() {
 
       <div className="mx-auto max-w-5xl px-6 py-8">
         <h1 className="text-3xl font-bold tracking-tight">$GRID burn ledger</h1>
-        <p className="mt-2 max-w-2xl text-sm text-zinc-600 dark:text-zinc-400">
+        <p className="mt-2 max-w-2xl text-sm text-muted-foreground dark:text-muted-foreground">
           Every $GRID burn event is visible on-chain at the Solana
           incinerator address. iogrid permanently removes tokens via
           buyback-and-burn (2% of revenue), early-unlock penalties

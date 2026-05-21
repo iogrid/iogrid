@@ -99,6 +99,15 @@
     --accent-foreground: var(--color-foreground);
     --destructive: var(--color-danger);
     --destructive-foreground: var(--gray-0);
+    /* Semantic status aliases — published as Tailwind utility classes
+       (`bg-success`, `text-warning`, …) via the @theme bridge so call
+       sites stay token-only and never touch a raw hue (emerald/amber/
+       rose) again. This is the seam product surfaces use for status
+       badges (active/pending/error) instead of hardcoding a hue ramp. */
+    --success: var(--color-success);
+    --success-foreground: var(--gray-0);
+    --warning: var(--color-warning);
+    --warning-foreground: var(--gray-900);
     --border: var(--color-border);
     --input: var(--color-border);
     --ring: var(--color-accent);
@@ -207,6 +216,10 @@
     --accent-foreground: var(--color-foreground);
     --destructive: var(--color-danger);
     --destructive-foreground: var(--gray-0);
+    --success: var(--color-success);
+    --success-foreground: var(--gray-0);
+    --warning: var(--color-warning);
+    --warning-foreground: var(--gray-900);
     --border: var(--color-border);
     --input: var(--color-border);
     --ring: var(--color-accent);

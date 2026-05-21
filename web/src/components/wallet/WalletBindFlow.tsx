@@ -109,7 +109,7 @@ export function WalletBindFlow({ onBound, apiClient, className }: WalletBindFlow
         {label}
       </Button>
       {status.kind === "error" ? (
-        <p className="mt-2 text-sm text-rose-600" data-testid="wallet-bind-error">
+        <p className="mt-2 text-sm text-destructive" data-testid="wallet-bind-error">
           {status.message}
         </p>
       ) : null}

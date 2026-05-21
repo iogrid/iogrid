@@ -73,7 +73,7 @@ export default function InstallPage() {
           <section
             key={p.id}
             id={p.id}
-            className="rounded-lg border border-zinc-200 p-6"
+            className="rounded-lg border border-border p-6"
             aria-labelledby={`install-${p.id}`}
           >
             <h2
@@ -81,7 +81,7 @@ export default function InstallPage() {
               className="text-xl font-semibold tracking-tight"
             >
               {p.label}
-              <span className="ml-2 text-sm font-normal text-zinc-500">
+              <span className="ml-2 text-sm font-normal text-muted-foreground">
                 {p.sub}
               </span>
             </h2>
@@ -91,19 +91,19 @@ export default function InstallPage() {
                 <a
                   key={pkg.url}
                   href={pkg.url}
-                  className="flex items-center justify-between rounded-md border border-zinc-200 px-3 py-2 text-sm hover:bg-zinc-50"
+                  className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm hover:bg-muted"
                 >
                   <span>{pkg.arch}</span>
-                  <span className="text-xs text-zinc-500">Download ↓</span>
+                  <span className="text-xs text-muted-foreground">Download ↓</span>
                 </a>
               ))}
             </div>
 
             <details className="mt-4 text-sm">
-              <summary className="cursor-pointer text-zinc-700">
+              <summary className="cursor-pointer text-foreground">
                 Prefer the terminal?
               </summary>
-              <pre className="mt-2 overflow-x-auto rounded-md bg-zinc-900 px-3 py-2 font-mono text-xs text-zinc-100">
+              <pre className="mt-2 overflow-x-auto rounded-md bg-foreground px-3 py-2 font-mono text-xs text-background">
                 {p.curl}
               </pre>
             </details>
@@ -111,9 +111,9 @@ export default function InstallPage() {
         ))}
       </div>
 
-      <section className="mt-12 rounded-lg bg-zinc-50 p-6">
+      <section className="mt-12 rounded-lg bg-muted p-6">
         <h2 className="text-lg font-semibold">After install</h2>
-        <ol className="mt-2 list-decimal space-y-1 pl-6 text-sm text-zinc-700">
+        <ol className="mt-2 list-decimal space-y-1 pl-6 text-sm text-foreground">
           <li>A browser tab opens with a 6-character pairing code in the URL.</li>
           <li>Sign in with Google or email (we send a one-tap magic link).</li>
           <li>Pick three sensible defaults — bandwidth cap, categories, payout.</li>
@@ -121,7 +121,7 @@ export default function InstallPage() {
         </ol>
       </section>
 
-      <section className="mt-8 flex flex-wrap items-center gap-4 text-sm text-zinc-600">
+      <section className="mt-8 flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
         <p>
           Already have a pairing code?{" "}
           <Link href="/onboard" className="underline">

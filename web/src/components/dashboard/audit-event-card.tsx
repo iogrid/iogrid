@@ -63,10 +63,10 @@ export function AuditEventCard({
   const isCustomerKind = kindName !== undefined && CUSTOMER_KINDS.has(kindName);
   const accent =
     isBlocked || isAbuse
-      ? "border-rose-200 bg-rose-50 dark:border-rose-900 dark:bg-rose-950"
+      ? "border-destructive/30 bg-destructive/10 dark:border-destructive/40 dark:bg-destructive/15"
       : kindName === "EVENT_KIND_EARNINGS_CREDITED"
-        ? "border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950"
-        : "border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900";
+        ? "border-success/30 bg-success/10 dark:border-success/40 dark:bg-success/15"
+        : "border-border bg-card dark:border-border";
 
   return (
     <article
@@ -76,7 +76,7 @@ export function AuditEventCard({
     >
       <div
         aria-hidden
-        className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-zinc-100 font-mono text-base dark:bg-zinc-800"
+        className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-muted font-mono text-base dark:bg-muted"
       >
         {glyph}
       </div>
@@ -85,13 +85,13 @@ export function AuditEventCard({
           <span className="font-medium">{eventKindLabel(event.kind)}</span>
           {isCustomerKind ? (
             <span
-              className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+              className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-foreground dark:bg-muted dark:text-muted-foreground"
               data-testid="audit-category"
             >
               {categoryLabel(event.category)}
             </span>
           ) : null}
-          <span className="text-xs text-zinc-500">
+          <span className="text-xs text-muted-foreground">
             {formatRelativeTime(event.occurredAt, nowMs)}
           </span>
         </div>
@@ -163,7 +163,7 @@ function AuditEventBody({
       // than a fake customer entry — clicking it is harmless.
       return (
         <p
-          className="mt-1 truncate text-xs italic text-zinc-500"
+          className="mt-1 truncate text-xs italic text-muted-foreground"
           data-testid="audit-event-body"
         >
           stream keep-alive
@@ -190,14 +190,14 @@ function CustomerEventBody({ event }: { event: AuditEvent }) {
   return (
     <>
       <p
-        className="mt-1 truncate text-zinc-700 dark:text-zinc-300"
+        className="mt-1 truncate text-foreground dark:text-muted-foreground"
         data-testid="audit-event-body"
       >
         {hasCustomer ? (
           <span className="font-medium">{event.customerDisplayName}</span>
         ) : (
           <span
-            className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-300"
+            className="inline-flex items-center gap-1 text-warning dark:text-warning"
             data-testid="audit-unknown-customer"
             title="Upstream event arrived without a customer display name"
           >
@@ -207,13 +207,13 @@ function CustomerEventBody({ event }: { event: AuditEvent }) {
         )}
         {event.destinationSummary ? (
           <>
-            <span className="mx-1.5 text-zinc-400">→</span>
+            <span className="mx-1.5 text-muted-foreground">→</span>
             <span className="font-mono text-xs">{event.destinationSummary}</span>
           </>
         ) : null}
       </p>
       {event.bytes && event.bytes !== "0" ? (
-        <p className="mt-0.5 text-xs text-zinc-500">
+        <p className="mt-0.5 text-xs text-muted-foreground">
           {formatBytes(event.bytes)} transferred
         </p>
       ) : null}
@@ -234,7 +234,7 @@ function SchedulerTransitionBody({ event }: { event: AuditEvent }) {
   const reason = md["reason"];
   return (
     <p
-      className="mt-1 truncate text-zinc-700 dark:text-zinc-300"
+      className="mt-1 truncate text-foreground dark:text-muted-foreground"
       data-testid="audit-event-body"
     >
       {from && to ? (
@@ -244,12 +244,12 @@ function SchedulerTransitionBody({ event }: { event: AuditEvent }) {
           <span className="font-mono text-xs">{to}</span>
         </>
       ) : (
-        <span className="italic text-zinc-500">scheduler state changed</span>
+        <span className="italic text-muted-foreground">scheduler state changed</span>
       )}
       {reason ? (
         <>
-          <span className="mx-1.5 text-zinc-400">•</span>
-          <span className="text-xs text-zinc-500">{reason}</span>
+          <span className="mx-1.5 text-muted-foreground">•</span>
+          <span className="text-xs text-muted-foreground">{reason}</span>
         </>
       ) : null}
     </p>
@@ -266,7 +266,7 @@ function GenericEventBody({ event }: { event: AuditEvent }) {
   if (entries.length === 0) {
     return (
       <p
-        className="mt-1 truncate text-xs italic text-zinc-500"
+        className="mt-1 truncate text-xs italic text-muted-foreground"
         data-testid="audit-event-body"
       >
         no additional detail
@@ -275,7 +275,7 @@ function GenericEventBody({ event }: { event: AuditEvent }) {
   }
   return (
     <p
-      className="mt-1 truncate font-mono text-xs text-zinc-600 dark:text-zinc-400"
+      className="mt-1 truncate font-mono text-xs text-muted-foreground dark:text-muted-foreground"
       data-testid="audit-event-body"
     >
       {entries.map(([k, v]) => `${k}=${v}`).join(" ")}

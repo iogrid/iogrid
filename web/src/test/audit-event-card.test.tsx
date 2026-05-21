@@ -44,14 +44,18 @@ describe("AuditEventCard", () => {
     expect(blockDest).toHaveBeenCalledWith("api.example.com");
   });
 
-  it("applies the rose accent on blocked events", () => {
+  it("applies the destructive accent on blocked events", () => {
+    // EPIC #422 Phase 2.2: status hues moved off the raw `rose-*`
+    // palette and onto the semantic `destructive` token so the card
+    // participates in the unified design system. The accent is still
+    // emitted; the class name just spells "destructive" now.
     const { container } = render(
       <AuditEventCard
         event={{ ...baseEvent, kind: "EVENT_KIND_WORKLOAD_BLOCKED" }}
       />,
     );
     const card = container.querySelector('[data-testid="audit-event-card"]');
-    expect(card?.className).toContain("rose");
+    expect(card?.className).toContain("destructive");
   });
 
   /**
@@ -65,7 +69,7 @@ describe("AuditEventCard", () => {
     );
     expect(screen.getByText("Workload blocked")).toBeInTheDocument();
     const card = container.querySelector('[data-testid="audit-event-card"]');
-    expect(card?.className).toContain("rose");
+    expect(card?.className).toContain("destructive");
     expect(card?.getAttribute("data-kind")).toBe("EVENT_KIND_WORKLOAD_BLOCKED");
   });
 

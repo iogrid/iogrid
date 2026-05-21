@@ -247,22 +247,22 @@ export function WithdrawDrawer({
       className="fixed inset-0 z-50 flex"
     >
       <div
-        className="flex-1 bg-zinc-900/40 dark:bg-black/60"
+        className="flex-1 bg-foreground/10 dark:bg-background/80"
         onClick={close}
         aria-hidden="true"
       />
-      <aside className="flex w-full max-w-md flex-col border-l border-zinc-200 bg-white shadow-xl dark:border-zinc-800 dark:bg-zinc-950">
-        <header className="flex items-center justify-between border-b border-zinc-200 p-4 dark:border-zinc-800">
+      <aside className="flex w-full max-w-md flex-col border-l border-border bg-background shadow-xl dark:border-border">
+        <header className="flex items-center justify-between border-b border-border p-4 dark:border-border">
           <div>
             <h2 className="text-lg font-semibold">Withdraw to bank</h2>
-            <p className="mt-1 text-xs text-zinc-500">
+            <p className="mt-1 text-xs text-muted-foreground">
               Swap $GRID → fiat via a partner off-ramp.
             </p>
           </div>
           <button
             type="button"
             aria-label="Close"
-            className="rounded-md p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-900"
+            className="rounded-md p-1 text-muted-foreground hover:bg-muted dark:hover:bg-card"
             onClick={close}
             disabled={submitting}
           >
@@ -274,7 +274,7 @@ export function WithdrawDrawer({
           <div>
             <label
               htmlFor="amount"
-              className="block text-sm font-medium text-zinc-800 dark:text-zinc-200"
+              className="block text-sm font-medium text-foreground dark:text-foreground"
             >
               Amount ($GRID)
             </label>
@@ -286,14 +286,14 @@ export function WithdrawDrawer({
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               placeholder="0.0"
-              className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900"
+              className="mt-1 w-full rounded-md border border-border-strong bg-card px-3 py-2 text-sm focus:border-muted-foreground focus:outline-none dark:border-border-strong"
             />
           </div>
 
           <div>
             <label
               htmlFor="fiat"
-              className="block text-sm font-medium text-zinc-800 dark:text-zinc-200"
+              className="block text-sm font-medium text-foreground dark:text-foreground"
             >
               Receive in
             </label>
@@ -301,7 +301,7 @@ export function WithdrawDrawer({
               id="fiat"
               value={fiat}
               onChange={(e) => setFiat(e.target.value)}
-              className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+              className="mt-1 w-full rounded-md border border-border-strong bg-card px-3 py-2 text-sm dark:border-border-strong"
             >
               {FIAT_OPTIONS.map((o) => (
                 <option key={o.code} value={o.code}>
@@ -312,16 +312,16 @@ export function WithdrawDrawer({
           </div>
 
           <div>
-            <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
+            <p className="text-sm font-medium text-foreground dark:text-foreground">
               Partner
             </p>
-            <p className="mt-1 text-xs text-zinc-500">
+            <p className="mt-1 text-xs text-muted-foreground">
               Choose an off-ramp partner. Each handles KYC + swap + fiat
               settlement on its own platform.
             </p>
             <div className="mt-3 space-y-2">
               {providersLoading && providers.length === 0 ? (
-                <div className="text-sm text-zinc-500">Loading partners…</div>
+                <div className="text-sm text-muted-foreground">Loading partners…</div>
               ) : (
                 providers.map((p) => (
                   <ProviderOption
@@ -338,7 +338,7 @@ export function WithdrawDrawer({
           </div>
         </div>
 
-        <footer className="border-t border-zinc-200 p-4 dark:border-zinc-800">
+        <footer className="border-t border-border p-4 dark:border-border">
           <Button
             className="w-full"
             onClick={submit}
@@ -347,7 +347,7 @@ export function WithdrawDrawer({
           >
             {submitting ? "Redirecting…" : "Continue to partner"}
           </Button>
-          <p className="mt-2 text-xs text-zinc-500">
+          <p className="mt-2 text-xs text-muted-foreground">
             You will be redirected to the partner to complete KYC + receive
             funds. iogrid never custodies your $GRID.
           </p>
@@ -377,24 +377,24 @@ function ProviderOption({
       className={cn(
         "w-full rounded-md border p-3 text-left transition-colors",
         selected && !disabled
-          ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950"
-          : "border-zinc-200 bg-white hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900",
+          ? "border-success/40 bg-success/10 dark:bg-success/15"
+          : "border-border bg-card hover:border-foreground/40 dark:border-border",
         disabled && "cursor-not-allowed opacity-60",
       )}
     >
       <div className="flex items-center justify-between">
         <span className="text-sm font-medium">{provider.label}</span>
         {disabled ? (
-          <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-zinc-500 dark:bg-zinc-800">
+          <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase text-muted-foreground dark:bg-muted">
             Coming soon
           </span>
         ) : (
-          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald-700 dark:bg-emerald-900 dark:text-emerald-200">
+          <span className="rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-semibold uppercase text-success dark:bg-success/15 dark:text-success">
             Available
           </span>
         )}
       </div>
-      <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+      <p className="mt-1 text-xs text-muted-foreground dark:text-muted-foreground">
         {provider.description}
       </p>
     </button>

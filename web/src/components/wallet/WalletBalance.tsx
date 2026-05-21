@@ -50,13 +50,13 @@ export function WalletBalance({
       </CardHeader>
       <CardContent>
         {!connected ? (
-          <p className="text-sm text-zinc-500" data-testid="wallet-balance-empty">
+          <p className="text-sm text-muted-foreground" data-testid="wallet-balance-empty">
             Connect a Solana wallet to view balances.
           </p>
         ) : error ? (
-          <p className="text-sm text-rose-600">Couldn&apos;t load balances: {error}</p>
+          <p className="text-sm text-destructive">Couldn&apos;t load balances: {error}</p>
         ) : !balances ? (
-          <p className="text-sm text-zinc-500">{loading ? "Loading…" : "—"}</p>
+          <p className="text-sm text-muted-foreground">{loading ? "Loading…" : "—"}</p>
         ) : (
           <ul className="space-y-2" data-testid="wallet-balance-list">
             <BalanceRow
@@ -84,12 +84,12 @@ function BalanceRow({
 }) {
   return (
     <li
-      className="flex items-center justify-between rounded-md border border-zinc-100 bg-zinc-50 px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-900"
+      className="flex items-center justify-between rounded-md border border-border bg-muted px-3 py-2 text-sm dark:border-border dark:bg-card"
       data-symbol={symbol}
     >
       <div>
         <p className="font-medium">{symbol}</p>
-        {hint ? <p className="text-xs text-zinc-500">{hint}</p> : null}
+        {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
       </div>
       <p className="font-mono tabular-nums" data-testid={`balance-${symbol}`}>
         {formatToken(balance.uiAmount, symbol === "SOL" ? 4 : 2)}

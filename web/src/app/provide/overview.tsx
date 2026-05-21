@@ -79,14 +79,14 @@ export function ProvideOverview() {
 
   if (loading && !dash) {
     return (
-      <div className="rounded-md border border-zinc-200 p-8 text-center text-sm text-zinc-500 dark:border-zinc-800">
+      <div className="rounded-md border border-border p-8 text-center text-sm text-muted-foreground dark:border-border">
         Loading dashboard…
       </div>
     );
   }
   if (err && !dash) {
     return (
-      <div className="rounded-md border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-300">
+      <div className="rounded-md border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive dark:border-destructive/40 dark:bg-destructive/15 dark:text-destructive">
         Couldn&apos;t load the dashboard: {err}. Make sure the iogrid daemon is
         running and pointing at this account.
       </div>
@@ -161,14 +161,14 @@ export function ProvideOverview() {
           <h2 className="text-lg font-semibold">Recent activity</h2>
           <Link
             href="/provide/audit"
-            className="text-sm text-zinc-600 hover:underline dark:text-zinc-400"
+            className="text-sm text-muted-foreground hover:underline dark:text-muted-foreground"
           >
             Open transparency feed →
           </Link>
         </div>
         <ul className="mt-3 space-y-2">
           {recent.length === 0 ? (
-            <li className="rounded-md border border-dashed border-zinc-300 p-4 text-center text-sm text-zinc-500 dark:border-zinc-700">
+            <li className="rounded-md border border-dashed border-border-strong p-4 text-center text-sm text-muted-foreground dark:border-border-strong">
               No audit events recorded yet. Once your daemon connects and
               starts accepting workloads, the live feed will populate here.
             </li>
@@ -203,10 +203,10 @@ function QuickLink({
   return (
     <Link
       href={href}
-      className="rounded-md border border-zinc-200 bg-white p-4 transition-colors hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900"
+      className="rounded-md border border-border bg-card p-4 transition-colors hover:border-foreground/40 dark:border-border"
     >
       <p className="text-sm font-medium">{label}</p>
-      <p className="mt-0.5 text-xs text-zinc-500">{description}</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
     </Link>
   );
 }
@@ -220,14 +220,14 @@ function StatusPill({ state }: { state: string }) {
       className={cn(
         "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold",
         active
-          ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
-          : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+          ? "bg-success/15 text-success dark:bg-success/15 dark:text-success"
+          : "bg-warning/15 text-warning dark:bg-warning/15 dark:text-warning",
       )}
     >
       <span
         className={cn(
           "h-1.5 w-1.5 rounded-full",
-          active ? "bg-emerald-500" : "bg-amber-500",
+          active ? "bg-success" : "bg-warning",
         )}
         aria-hidden
       />
@@ -267,18 +267,18 @@ function BandwidthProgressBar({ usedBytes }: { usedBytes: string }) {
   const cap = 50 * 1024 ** 3; // default 50 GB until real cap is fetched
   const pct = Math.min(100, (used / cap) * 100);
   return (
-    <div className="rounded-md border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+    <div className="rounded-md border border-border bg-card p-4 dark:border-border">
       <div className="flex items-baseline justify-between">
         <p className="text-sm font-medium">Bandwidth this month</p>
-        <p className="text-xs text-zinc-500">
+        <p className="text-xs text-muted-foreground">
           {formatBytes(used)} / {formatBytes(cap)}
         </p>
       </div>
-      <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
+      <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-muted dark:bg-muted">
         <div
           className={cn(
             "h-full transition-all",
-            pct < 70 ? "bg-emerald-500" : pct < 90 ? "bg-amber-500" : "bg-rose-500",
+            pct < 70 ? "bg-success" : pct < 90 ? "bg-warning" : "bg-destructive",
           )}
           style={{ width: `${pct}%` }}
           aria-valuenow={Math.round(pct)}

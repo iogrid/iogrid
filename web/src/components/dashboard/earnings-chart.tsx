@@ -36,7 +36,7 @@ export function EarningsChart({
 
   if (data.length === 0) {
     return (
-      <div className="flex h-48 items-center justify-center rounded-md border border-dashed border-zinc-300 text-sm text-zinc-500 dark:border-zinc-700">
+      <div className="flex h-48 items-center justify-center rounded-md border border-dashed border-border-strong text-sm text-muted-foreground dark:border-border-strong">
         No earnings recorded yet.
       </div>
     );
@@ -68,7 +68,7 @@ export function EarningsChart({
 
   return (
     <figure
-      className="w-full overflow-x-auto rounded-md border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900"
+      className="w-full overflow-x-auto rounded-md border border-border bg-card p-3 dark:border-border"
       aria-label="Earnings time-series"
     >
       <svg
@@ -77,7 +77,7 @@ export function EarningsChart({
         height={h}
         role="img"
         onMouseLeave={() => setHover(null)}
-        className="text-zinc-600 dark:text-zinc-400"
+        className="text-muted-foreground dark:text-muted-foreground"
       >
         {/* y-axis grid */}
         {ticks.map((t, i) => (
@@ -148,7 +148,7 @@ export function EarningsChart({
       {hover !== null ? (
         <figcaption
           aria-live="polite"
-          className="mt-1 text-xs text-zinc-600 dark:text-zinc-400"
+          className="mt-1 text-xs text-muted-foreground dark:text-muted-foreground"
         >
           {data[hover].bucket}:{" "}
           <strong className="font-semibold">
@@ -156,7 +156,7 @@ export function EarningsChart({
           </strong>
         </figcaption>
       ) : (
-        <figcaption className="mt-1 text-xs text-zinc-500">
+        <figcaption className="mt-1 text-xs text-muted-foreground">
           Hover a point to see the bucket value.
         </figcaption>
       )}

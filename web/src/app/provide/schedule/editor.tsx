@@ -288,7 +288,7 @@ export function ScheduleEditor() {
 
   if (loading) {
     return (
-      <div className="rounded-md border border-zinc-200 p-8 text-center text-sm text-zinc-500 dark:border-zinc-800">
+      <div className="rounded-md border border-border p-8 text-center text-sm text-muted-foreground dark:border-border">
         Loading current schedule…
       </div>
     );
@@ -440,7 +440,7 @@ export function ScheduleEditor() {
         <h2 id="dest-heading" className="text-lg font-semibold">
           Destination blocklist
         </h2>
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+        <p className="text-sm text-muted-foreground dark:text-muted-foreground">
           One pattern per line. Globs (<code>*.example.com</code>) and regex
           (<code>/^api\\./</code>) are both accepted. Customers cannot relay
           to anything matching a blocklist entry.
@@ -450,11 +450,11 @@ export function ScheduleEditor() {
           onChange={(e) => setForm({ ...form, blocklist: e.target.value })}
           rows={6}
           spellCheck={false}
-          className="block w-full rounded-md border border-zinc-300 bg-transparent px-3 py-2 font-mono text-xs placeholder:text-zinc-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 dark:border-zinc-700"
+          className="block w-full rounded-md border border-border-strong bg-transparent px-3 py-2 font-mono text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-strong dark:border-border-strong"
           placeholder="*.chase.com&#10;*.linkedin.com&#10;/^api\.example\.com$/"
         />
-        <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900">
-          <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+        <div className="rounded-md border border-border bg-muted p-3 dark:border-border dark:bg-card">
+          <label className="text-xs font-medium text-foreground dark:text-muted-foreground">
             Test a destination
           </label>
           <div className="mt-1 flex gap-2">
@@ -500,7 +500,7 @@ export function ScheduleEditor() {
         </label>
       </section>
 
-      <div className="sticky bottom-0 flex items-center justify-end gap-2 border-t border-zinc-200 bg-white py-3 dark:border-zinc-800 dark:bg-zinc-950">
+      <div className="sticky bottom-0 flex items-center justify-end gap-2 border-t border-border bg-background py-3 dark:border-border">
         <Button type="submit" disabled={saving} data-testid="save-button">
           {saving ? "Saving…" : "Save schedule"}
         </Button>
@@ -534,7 +534,7 @@ function CapSlider({
     <div>
       <div className="flex items-baseline justify-between text-sm">
         <label className="font-medium">{label}</label>
-        <span className="font-mono text-xs text-zinc-600 dark:text-zinc-400">
+        <span className="font-mono text-xs text-muted-foreground dark:text-muted-foreground">
           {capFormat(value)}
         </span>
       </div>
@@ -547,7 +547,7 @@ function CapSlider({
         className="mt-1 w-full accent-emerald-600"
         aria-label={label}
       />
-      <div className="flex items-center justify-between text-xs text-zinc-500">
+      <div className="flex items-center justify-between text-xs text-muted-foreground">
         <span>
           0{unit} ··· {max}
           {unit}
@@ -558,7 +558,7 @@ function CapSlider({
           </span>
         ) : null}
       </div>
-      {error ? <p className="mt-1 text-xs text-rose-600">{error}</p> : null}
+      {error ? <p className="mt-1 text-xs text-destructive">{error}</p> : null}
     </div>
   );
 }
@@ -602,7 +602,7 @@ function BlocklistTester({
 
   if (!probe) {
     return (
-      <span className="self-center text-xs text-zinc-500">
+      <span className="self-center text-xs text-muted-foreground">
         Type a host to test.
       </span>
     );
@@ -610,14 +610,14 @@ function BlocklistTester({
   return matched ? (
     <span
       data-testid="blocklist-match"
-      className="self-center rounded-full bg-rose-100 px-2 py-0.5 text-xs font-medium text-rose-700 dark:bg-rose-950 dark:text-rose-300"
+      className="self-center rounded-full bg-destructive/15 px-2 py-0.5 text-xs font-medium text-destructive dark:bg-destructive/15 dark:text-destructive"
     >
       Blocked by <code>{matched}</code>
     </span>
   ) : (
     <span
       data-testid="blocklist-clean"
-      className="self-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+      className="self-center rounded-full bg-success/15 px-2 py-0.5 text-xs font-medium text-success dark:bg-success/15 dark:text-success"
     >
       Would be allowed
     </span>

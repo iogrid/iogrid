@@ -49,21 +49,21 @@ export function PairedMachinesCard({
       data-testid="paired-machines-card"
       aria-label="Paired machines"
       className={cn(
-        "rounded-lg border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900",
+        "rounded-lg border border-border bg-card shadow-sm dark:border-border",
         className,
       )}
     >
-      <header className="flex items-center justify-between border-b border-zinc-100 px-5 py-3 dark:border-zinc-800">
-        <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+      <header className="flex items-center justify-between border-b border-border px-5 py-3 dark:border-border">
+        <h2 className="text-sm font-semibold text-foreground dark:text-foreground">
           Paired machines
         </h2>
-        <span className="text-xs text-zinc-500 dark:text-zinc-400">
+        <span className="text-xs text-muted-foreground dark:text-muted-foreground">
           {providers.length === 1
             ? "1 daemon"
             : `${providers.length} daemons`}
         </span>
       </header>
-      <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
+      <ul className="divide-y divide-border dark:divide-border">
         {providers.map((p, i) => (
           <PairedMachineRow
             key={p.id?.value ?? `provider-${i}`}
@@ -91,7 +91,7 @@ function PairedMachineRow({
     <li className="flex flex-col gap-1 px-5 py-4">
       <div className="flex items-center justify-between gap-3">
         <p
-          className="text-base font-semibold text-zinc-900 dark:text-zinc-50"
+          className="text-base font-semibold text-foreground dark:text-foreground"
           data-testid="paired-machine-name"
         >
           {name}
@@ -100,20 +100,20 @@ function PairedMachineRow({
       </div>
       {idValue ? (
         <p
-          className="font-mono text-xs text-zinc-500 dark:text-zinc-400"
+          className="font-mono text-xs text-muted-foreground dark:text-muted-foreground"
           data-testid="paired-machine-id"
           title={idValue}
         >
           {truncateMiddle(idValue, 8, 4)}
         </p>
       ) : null}
-      <p className="text-xs text-zinc-600 dark:text-zinc-400">
+      <p className="text-xs text-muted-foreground dark:text-muted-foreground">
         Last seen{" "}
         <span data-testid="paired-machine-last-seen">
           {formatProtoTimestampRelative(provider.last_seen_at, nowMs)}
         </span>
       </p>
-      <p className="text-xs text-zinc-600 dark:text-zinc-400">
+      <p className="text-xs text-muted-foreground dark:text-muted-foreground">
         Registered{" "}
         <span data-testid="paired-machine-registered">
           {formatProtoTimestampAbsolute(provider.registered_at)}
@@ -121,7 +121,7 @@ function PairedMachineRow({
       </p>
       {platformLine ? (
         <p
-          className="text-xs text-zinc-600 dark:text-zinc-400"
+          className="text-xs text-muted-foreground dark:text-muted-foreground"
           data-testid="paired-machine-platform"
         >
           {platformLine}
@@ -228,10 +228,10 @@ function ProviderStatusBadge({ status }: { status?: number | string }) {
   const shape = decodeStatus(status);
   const palette = {
     active:
-      "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
-    idle: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
-    offline: "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300",
-    neutral: "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
+      "bg-success/15 text-success dark:bg-success/15 dark:text-success",
+    idle: "bg-warning/15 text-warning dark:bg-warning/15 dark:text-warning",
+    offline: "bg-destructive/15 text-destructive dark:bg-destructive/15 dark:text-destructive",
+    neutral: "bg-muted text-foreground dark:bg-muted dark:text-muted-foreground",
   } as const;
   return (
     <span
@@ -246,12 +246,12 @@ function ProviderStatusBadge({ status }: { status?: number | string }) {
         className={cn(
           "h-1.5 w-1.5 rounded-full",
           shape.tone === "active"
-            ? "bg-emerald-500"
+            ? "bg-success"
             : shape.tone === "idle"
-              ? "bg-amber-500"
+              ? "bg-warning"
               : shape.tone === "offline"
-                ? "bg-rose-500"
-                : "bg-zinc-400",
+                ? "bg-destructive"
+                : "bg-muted-foreground",
         )}
         aria-hidden
       />

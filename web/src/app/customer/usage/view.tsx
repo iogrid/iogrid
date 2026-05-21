@@ -48,7 +48,7 @@ export function UsageView() {
 
   if (!wsId) {
     return (
-      <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+      <div className="rounded-md border border-warning/30 bg-warning/10 p-4 text-sm text-warning dark:border-warning/40 dark:bg-warning/15 dark:text-warning">
         Bind a workspace on the Overview tab first.
       </div>
     );
@@ -107,7 +107,7 @@ export function UsageView() {
           onChange={(e) =>
             setSelectedType(e.target.value as WorkloadTypeName | "all")
           }
-          className="h-8 rounded-md border border-zinc-300 bg-transparent px-2 text-sm dark:border-zinc-700"
+          className="h-8 rounded-md border border-border-strong bg-transparent px-2 text-sm dark:border-border-strong"
         >
           <option value="all">All</option>
           <option value="WORKLOAD_TYPE_BANDWIDTH">Bandwidth</option>
@@ -118,11 +118,11 @@ export function UsageView() {
       </div>
 
       {loading ? (
-        <div className="rounded-md border border-zinc-200 p-8 text-center text-sm text-zinc-500 dark:border-zinc-800">
+        <div className="rounded-md border border-border p-8 text-center text-sm text-muted-foreground dark:border-border">
           Loading…
         </div>
       ) : chartPoints.length === 0 ? (
-        <div className="rounded-md border border-dashed border-zinc-300 p-8 text-center text-sm text-zinc-500 dark:border-zinc-700">
+        <div className="rounded-md border border-dashed border-border-strong p-8 text-center text-sm text-muted-foreground dark:border-border-strong">
           No usage in this window.
         </div>
       ) : (

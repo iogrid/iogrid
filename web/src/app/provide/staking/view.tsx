@@ -124,7 +124,7 @@ export function StakingView() {
           <CardHeader className="flex flex-row items-start justify-between space-y-0">
             <div>
               <CardTitle>Open a new stake</CardTitle>
-              <p className="mt-1 text-sm text-zinc-500">
+              <p className="mt-1 text-sm text-muted-foreground">
                 Locked tokens count toward routing-priority weight for
                 the full period.
               </p>
@@ -134,7 +134,7 @@ export function StakingView() {
           <CardContent>
             {!connected ? (
               <p
-                className="rounded-md border border-dashed border-zinc-300 p-4 text-center text-sm text-zinc-500 dark:border-zinc-700"
+                className="rounded-md border border-dashed border-border-strong p-4 text-center text-sm text-muted-foreground dark:border-border-strong"
                 data-testid="staking-needs-wallet"
               >
                 Connect a wallet to open stake positions. Manage bound
@@ -155,7 +155,7 @@ export function StakingView() {
       </div>
 
       {loadError ? (
-        <p className="text-sm text-rose-600" data-testid="staking-load-error">
+        <p className="text-sm text-destructive" data-testid="staking-load-error">
           Couldn&apos;t load positions: {loadError}
         </p>
       ) : null}

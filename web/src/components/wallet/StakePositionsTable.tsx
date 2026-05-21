@@ -58,10 +58,10 @@ export function StakePositionsTable({
       </CardHeader>
       <CardContent>
         {loading ? (
-          <p className="text-sm text-zinc-500">Loading…</p>
+          <p className="text-sm text-muted-foreground">Loading…</p>
         ) : positions.length === 0 ? (
           <p
-            className="rounded-md border border-dashed border-zinc-300 p-4 text-center text-sm text-zinc-500 dark:border-zinc-700"
+            className="rounded-md border border-dashed border-border-strong p-4 text-center text-sm text-muted-foreground dark:border-border-strong"
             data-testid="stake-positions-empty"
           >
             No active stake positions. Use the form above to open one.
@@ -70,7 +70,7 @@ export function StakePositionsTable({
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-zinc-200 text-left text-xs uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
+                <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground dark:border-border">
                   <th className="py-2 pr-3 font-medium">Position</th>
                   <th className="py-2 pr-3 font-medium">Amount</th>
                   <th className="py-2 pr-3 font-medium">Tier</th>
@@ -83,24 +83,24 @@ export function StakePositionsTable({
                 {positions.map((p) => (
                   <tr
                     key={p.id}
-                    className="border-b border-zinc-100 last:border-0 dark:border-zinc-800"
+                    className="border-b border-border last:border-0 dark:border-border"
                     data-testid={`stake-position-${p.id}`}
                   >
-                    <td className="py-2 pr-3 font-mono text-xs text-zinc-500">
+                    <td className="py-2 pr-3 font-mono text-xs text-muted-foreground">
                       {p.id.slice(0, 8)}…
                     </td>
                     <td className="py-2 pr-3 font-mono tabular-nums">
                       {formatToken(p.amountUi)} $GRID
                     </td>
                     <td className="py-2 pr-3">
-                      <span className="inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 text-xs dark:bg-zinc-800">
+                      <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs dark:bg-muted">
                         {p.lockPeriodDays}d · {p.tierMultiplier.toFixed(2)}×
                       </span>
                     </td>
                     <td
                       className={cn(
                         "py-2 pr-3 font-mono tabular-nums",
-                        p.unlocked ? "text-emerald-600" : "",
+                        p.unlocked ? "text-success" : "",
                       )}
                     >
                       {formatRemainingLock(p.unlocksAt)}
@@ -127,7 +127,7 @@ export function StakePositionsTable({
                           disabled={busyId === p.id}
                           onClick={() => setPendingEarlyUnlock(p)}
                           data-testid={`stake-early-unlock-${p.id}`}
-                          className="text-rose-700"
+                          className="text-destructive"
                         >
                           Early unlock
                         </Button>
@@ -171,22 +171,22 @@ function EarlyUnlockModal({
       aria-modal="true"
       aria-labelledby="early-unlock-title"
       data-testid="early-unlock-modal"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-900/40 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/10 p-4 backdrop-blur-sm"
     >
-      <div className="w-full max-w-md rounded-lg border border-zinc-200 bg-white p-6 shadow-xl dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="w-full max-w-md rounded-lg border border-border bg-card p-6 shadow-xl dark:border-border">
         <h2
           id="early-unlock-title"
-          className="text-lg font-semibold text-rose-700"
+          className="text-lg font-semibold text-destructive"
         >
           Early unlock — 50% burn warning
         </h2>
-        <p className="mt-3 text-sm text-zinc-600 dark:text-zinc-300">
+        <p className="mt-3 text-sm text-muted-foreground dark:text-muted-foreground">
           You&apos;re ending this stake position early. Half of the
           principal — <strong>{formatToken(burned)} $GRID</strong> — will
           be permanently burned to the Solana incinerator address. The
           other half returns to your wallet immediately.
         </p>
-        <p className="mt-3 text-xs text-zinc-500">
+        <p className="mt-3 text-xs text-muted-foreground">
           You can perform an early-unlock at most once per 12 months per
           provider. See docs/TOKENOMICS.md §Layer-3 for the full rules.
         </p>
@@ -199,7 +199,7 @@ function EarlyUnlockModal({
             onClick={onConfirm}
             disabled={confirming}
             data-testid="early-unlock-confirm"
-            className="bg-rose-600 text-white hover:bg-rose-500"
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
           >
             {confirming ? "Burning…" : "Burn 50% and unlock"}
           </Button>

@@ -150,7 +150,7 @@ export function OnboardingWizard({ token }: { token: string }) {
       {error && (
         <div
           role="alert"
-          className="rounded-md border border-red-300 bg-red-50 p-4 text-sm text-red-900"
+          className="rounded-md border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive"
         >
           {error}
         </div>
@@ -202,10 +202,10 @@ function ProgressBar({ step }: { step: WizardStep }) {
             key={label}
             className={`flex items-center gap-2 rounded-md border px-3 py-2 ${
               active
-                ? "border-zinc-900 bg-zinc-900 text-white"
+                ? "border-foreground bg-foreground text-background"
                 : done
-                  ? "border-zinc-300 bg-zinc-100 text-zinc-700"
-                  : "border-zinc-200 text-zinc-500"
+                  ? "border-border-strong bg-muted text-foreground"
+                  : "border-border text-muted-foreground"
             }`}
           >
             <span className="font-mono">{n}</span>
@@ -227,11 +227,11 @@ function StepCaps({
   onNext: () => void;
 }) {
   return (
-    <fieldset className="space-y-4 rounded-lg border border-zinc-200 p-6">
-      <legend className="px-2 text-sm font-medium text-zinc-700">
+    <fieldset className="space-y-4 rounded-lg border border-border p-6">
+      <legend className="px-2 text-sm font-medium text-foreground">
         Step 1 of 3 — Resource caps
       </legend>
-      <p className="text-sm text-zinc-600 dark:text-zinc-400">
+      <p className="text-sm text-muted-foreground dark:text-muted-foreground">
         We use sensible defaults that won&apos;t slow down your machine. Adjust
         if you want.
       </p>
@@ -253,7 +253,7 @@ function StepCaps({
           className="w-full"
           aria-label="Bandwidth cap in gigabytes per month"
         />
-        <div className="text-xs text-zinc-500">
+        <div className="text-xs text-muted-foreground">
           Current: <strong>{defaults.bandwidth_cap_gb} GB / month</strong>{" "}
           (typical home plan is 1–2 TB)
         </div>
@@ -276,7 +276,7 @@ function StepCaps({
           className="w-full"
           aria-label="CPU cap in percent"
         />
-        <div className="text-xs text-zinc-500">
+        <div className="text-xs text-muted-foreground">
           Current: <strong>{defaults.cpu_cap_pct}%</strong> (lower = your apps
           stay snappier)
         </div>
@@ -302,7 +302,7 @@ function StepCaps({
         <button
           type="button"
           onClick={onNext}
-          className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700"
+          className="rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background hover:bg-foreground/80"
         >
           Next
         </button>
@@ -323,11 +323,11 @@ function StepCategories({
   onNext: () => void;
 }) {
   return (
-    <fieldset className="space-y-4 rounded-lg border border-zinc-200 p-6">
-      <legend className="px-2 text-sm font-medium text-zinc-700">
+    <fieldset className="space-y-4 rounded-lg border border-border p-6">
+      <legend className="px-2 text-sm font-medium text-foreground">
         Step 2 of 3 — What kinds of traffic do you accept?
       </legend>
-      <p className="text-sm text-zinc-600 dark:text-zinc-400">
+      <p className="text-sm text-muted-foreground dark:text-muted-foreground">
         Anti-abuse + CSAM filtering applies to all categories. You can change
         these any time.
       </p>
@@ -335,7 +335,7 @@ function StepCategories({
         {DEFAULT_CATEGORIES.map((c) => (
           <label
             key={c.id}
-            className="flex items-start gap-3 rounded-md border border-zinc-200 px-3 py-2 hover:bg-zinc-50"
+            className="flex items-start gap-3 rounded-md border border-border px-3 py-2 hover:bg-muted"
           >
             <input
               type="checkbox"
@@ -351,14 +351,14 @@ function StepCategories({
         <button
           type="button"
           onClick={onBack}
-          className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium hover:bg-zinc-50"
+          className="rounded-md border border-border-strong px-4 py-2 text-sm font-medium hover:bg-muted"
         >
           Back
         </button>
         <button
           type="button"
           onClick={onNext}
-          className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700"
+          className="rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background hover:bg-foreground/80"
         >
           Next
         </button>
@@ -383,11 +383,11 @@ function StepPayout({
   linked: boolean;
 }) {
   return (
-    <fieldset className="space-y-4 rounded-lg border border-zinc-200 p-6">
-      <legend className="px-2 text-sm font-medium text-zinc-700">
+    <fieldset className="space-y-4 rounded-lg border border-border p-6">
+      <legend className="px-2 text-sm font-medium text-foreground">
         Step 3 of 3 — How would you like to be paid?
       </legend>
-      <p className="text-sm text-zinc-600 dark:text-zinc-400">
+      <p className="text-sm text-muted-foreground dark:text-muted-foreground">
         Pick now or pick later from your dashboard.
       </p>
       <div className="space-y-2">
@@ -414,8 +414,8 @@ function StepPayout({
             key={opt.id}
             className={`flex cursor-pointer items-start gap-3 rounded-md border px-3 py-3 ${
               defaults.payout_tier === opt.id
-                ? "border-zinc-900 bg-zinc-50"
-                : "border-zinc-200 hover:bg-zinc-50"
+                ? "border-foreground bg-muted"
+                : "border-border hover:bg-muted"
             }`}
           >
             <input
@@ -430,14 +430,14 @@ function StepPayout({
             />
             <span>
               <span className="block text-sm font-medium">{opt.label}</span>
-              <span className="block text-xs text-zinc-500">{opt.hint}</span>
+              <span className="block text-xs text-muted-foreground">{opt.hint}</span>
             </span>
           </label>
         ))}
       </div>
 
       {!linked && (
-        <p className="text-xs text-yellow-700">
+        <p className="text-xs text-warning">
           Linking this device to your account… you can still submit;
           we&apos;ll finish linking in the background.
         </p>
@@ -447,7 +447,7 @@ function StepPayout({
         <button
           type="button"
           onClick={onBack}
-          className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium hover:bg-zinc-50"
+          className="rounded-md border border-border-strong px-4 py-2 text-sm font-medium hover:bg-muted"
           disabled={submitting}
         >
           Back
@@ -455,7 +455,7 @@ function StepPayout({
         <button
           type="button"
           onClick={onFinish}
-          className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-50"
+          className="rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background hover:bg-foreground/80 disabled:opacity-50"
           disabled={submitting}
         >
           {submitting ? "Saving…" : "Finish setup"}
@@ -467,7 +467,7 @@ function StepPayout({
 
 function Welcome() {
   return (
-    <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-8 text-center">
+    <div className="rounded-lg border border-border bg-muted p-8 text-center">
       <div
         aria-hidden="true"
         className="mx-auto mb-4 text-5xl"
@@ -476,7 +476,7 @@ function Welcome() {
         🎉
       </div>
       <h2 className="text-2xl font-bold">You&apos;re set up.</h2>
-      <p className="mt-2 text-sm text-zinc-600">
+      <p className="mt-2 text-sm text-muted-foreground">
         Your machine will start picking up workloads when it&apos;s idle.
         Taking you to your dashboard…
       </p>

@@ -22,7 +22,7 @@ export function BurnTimeseries({ data, height = 220 }: BurnTimeseriesProps) {
   if (data.length === 0) {
     return (
       <div
-        className="flex h-48 items-center justify-center rounded-md border border-dashed border-zinc-300 text-sm text-zinc-500 dark:border-zinc-700"
+        className="flex h-48 items-center justify-center rounded-md border border-dashed border-border-strong text-sm text-muted-foreground dark:border-border-strong"
         data-testid="burn-timeseries-empty"
       >
         No burns recorded yet.
@@ -46,7 +46,7 @@ export function BurnTimeseries({ data, height = 220 }: BurnTimeseriesProps) {
 
   return (
     <figure
-      className="w-full overflow-x-auto rounded-md border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900"
+      className="w-full overflow-x-auto rounded-md border border-border bg-card p-3 dark:border-border"
       aria-label="Daily $GRID burn time-series"
       data-testid="burn-timeseries"
     >
@@ -55,7 +55,7 @@ export function BurnTimeseries({ data, height = 220 }: BurnTimeseriesProps) {
         width="100%"
         height={h}
         role="img"
-        className="text-zinc-600 dark:text-zinc-400"
+        className="text-muted-foreground dark:text-muted-foreground"
       >
         {yTicks.map((t, i) => (
           <g key={i}>

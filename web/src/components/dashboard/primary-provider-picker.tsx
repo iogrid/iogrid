@@ -78,12 +78,12 @@ export function PrimaryProviderPicker({
       <p
         data-testid="primary-provider-pill"
         className={cn(
-          "text-sm text-zinc-600 dark:text-zinc-400",
+          "text-sm text-muted-foreground dark:text-muted-foreground",
           className,
         )}
       >
         Editing schedule for{" "}
-        <span className="font-medium text-zinc-900 dark:text-zinc-100">
+        <span className="font-medium text-foreground dark:text-foreground">
           {resolvedName}
         </span>
       </p>
@@ -95,13 +95,13 @@ export function PrimaryProviderPicker({
       data-testid="primary-provider-picker"
       aria-labelledby="primary-provider-picker-heading"
       className={cn(
-        "rounded-md border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900",
+        "rounded-md border border-border bg-muted p-4 dark:border-border dark:bg-card",
         className,
       )}
     >
       <h3
         id="primary-provider-picker-heading"
-        className="text-sm font-semibold text-zinc-900 dark:text-zinc-100"
+        className="text-sm font-semibold text-foreground dark:text-foreground"
       >
         Editing schedule for
       </h3>
@@ -114,7 +114,7 @@ export function PrimaryProviderPicker({
           data-testid="primary-provider-select"
           value={resolvedId}
           onChange={(e) => onSelect(e.target.value)}
-          className="h-9 rounded-md border border-zinc-300 bg-white px-2 text-sm dark:border-zinc-700 dark:bg-zinc-950"
+          className="h-9 rounded-md border border-border-strong bg-background px-2 text-sm dark:border-border-strong"
         >
           {providers.map((p, i) => {
             const id = p.id?.value ?? `provider-${i}`;
@@ -139,16 +139,16 @@ export function PrimaryProviderPicker({
             <li
               key={id}
               data-testid="primary-provider-row"
-              className="flex items-center justify-between gap-3 rounded-md border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950"
+              className="flex items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2 dark:border-border"
             >
               <span className="flex items-center gap-2">
-                <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                <span className="font-medium text-foreground dark:text-foreground">
                   {displayName(p)}
                 </span>
                 {isPrimary ? (
                   <span
                     data-testid="primary-provider-badge"
-                    className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+                    className="inline-flex items-center rounded-full bg-success/15 px-2 py-0.5 text-xs font-medium text-success dark:bg-success/15 dark:text-success"
                   >
                     Primary
                   </span>

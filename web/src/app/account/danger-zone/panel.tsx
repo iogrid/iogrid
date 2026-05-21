@@ -67,11 +67,11 @@ export function DangerZonePanel() {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-md border border-rose-300 bg-rose-50 p-4 dark:border-rose-900 dark:bg-rose-950">
-        <h2 className="text-sm font-semibold text-rose-900 dark:text-rose-200">
+      <div className="rounded-md border border-destructive/40 bg-destructive/10 p-4 dark:border-destructive/40 dark:bg-destructive/15">
+        <h2 className="text-sm font-semibold text-destructive dark:text-destructive">
           Delete account
         </h2>
-        <p className="mt-1 text-xs text-rose-800 dark:text-rose-300">
+        <p className="mt-1 text-xs text-destructive dark:text-destructive">
           Deletes your identity, all provider earnings credits, customer
           workloads, and API keys. Cannot be undone. Active subscriptions
           must be cancelled in Billing first.
@@ -79,7 +79,7 @@ export function DangerZonePanel() {
         <div className="mt-3 space-y-2">
           <label htmlFor="del-confirm" className="block text-xs font-medium">
             Type{" "}
-            <span className="font-mono text-rose-700 dark:text-rose-300">
+            <span className="font-mono text-destructive dark:text-destructive">
               {CONFIRMATION}
             </span>{" "}
             to confirm
@@ -106,7 +106,7 @@ export function DangerZonePanel() {
             onClick={onDelete}
             disabled={!ok || submitting}
             data-testid="confirm-delete"
-            className="bg-rose-600 text-white hover:bg-rose-500"
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
           >
             {submitting ? "Submitting…" : "Permanently delete account"}
           </Button>

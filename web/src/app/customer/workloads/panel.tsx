@@ -73,7 +73,7 @@ export function WorkloadsPanel() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-md border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+      <section className="rounded-md border border-border bg-card p-4 dark:border-border">
         <h2 className="text-sm font-medium">Submit workload</h2>
         <form
           onSubmit={(e) => {
@@ -83,13 +83,13 @@ export function WorkloadsPanel() {
           className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3"
         >
           <label className="text-sm">
-            <span className="block text-xs font-medium text-zinc-600 dark:text-zinc-400">
+            <span className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground">
               Type
             </span>
             <select
               value={type}
               onChange={(e) => setType(e.target.value as WorkloadType)}
-              className="mt-1 h-10 w-full rounded-md border border-zinc-300 bg-transparent px-2 text-sm dark:border-zinc-700"
+              className="mt-1 h-10 w-full rounded-md border border-border-strong bg-transparent px-2 text-sm dark:border-border-strong"
             >
               {TYPES.map((t) => (
                 <option key={t} value={t}>
@@ -99,7 +99,7 @@ export function WorkloadsPanel() {
             </select>
           </label>
           <label className="text-sm">
-            <span className="block text-xs font-medium text-zinc-600 dark:text-zinc-400">
+            <span className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground">
               Category
             </span>
             <Input
@@ -111,7 +111,7 @@ export function WorkloadsPanel() {
             />
           </label>
           <label className="text-sm">
-            <span className="block text-xs font-medium text-zinc-600 dark:text-zinc-400">
+            <span className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground">
               Destination
             </span>
             <Input
@@ -137,7 +137,7 @@ export function WorkloadsPanel() {
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             aria-label="Filter by type"
-            className="h-8 rounded-md border border-zinc-300 bg-transparent px-2 text-xs dark:border-zinc-700"
+            className="h-8 rounded-md border border-border-strong bg-transparent px-2 text-xs dark:border-border-strong"
           >
             <option value="all">All types</option>
             {TYPES.map((t) => (
@@ -147,9 +147,9 @@ export function WorkloadsPanel() {
             ))}
           </select>
         </div>
-        <ul className="mt-3 divide-y divide-zinc-200 rounded-md border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
+        <ul className="mt-3 divide-y divide-border rounded-md border border-border dark:divide-border dark:border-border">
           {filtered.length === 0 ? (
-            <li className="p-4 text-sm text-zinc-500">
+            <li className="p-4 text-sm text-muted-foreground">
               Nothing submitted from this browser yet. Workloads queued via
               the API show up in /customer/usage with full historical
               accounting once they bill.
@@ -160,16 +160,16 @@ export function WorkloadsPanel() {
                 <div className="min-w-0 flex-1">
                   <p className="font-medium">{TYPE_LABELS[r.type] ?? r.type}</p>
                   {r.destination ? (
-                    <p className="text-xs text-zinc-500">
+                    <p className="text-xs text-muted-foreground">
                       → <span className="font-mono">{r.destination}</span>
                     </p>
                   ) : null}
                 </div>
                 <div className="text-right">
-                  <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                  <p className="text-xs font-medium text-muted-foreground dark:text-muted-foreground">
                     {r.status}
                   </p>
-                  <p className="text-xs text-zinc-500">
+                  <p className="text-xs text-muted-foreground">
                     {formatRelativeTime(r.submittedAt)}
                   </p>
                 </div>
