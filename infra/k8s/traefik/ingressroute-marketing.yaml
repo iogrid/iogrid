@@ -1,0 +1,56 @@
+---
+# iogrid.org + www.iogrid.org -> marketing-site:80 (Next.js static
+# export served by nginx).
+#
+# Issue #384. Before this file, both apex and www returned Traefik's
+# default 404 because no IngressRoute matched the Host. The Cilium
+# Gateway form of the same intent already lives in
+# `infra/k8s/gateways/httproute-apex-www.yaml`; this IngressRoute is
+# the live Traefik materialisation per the shim convention documented
+# in `infra/k8s/traefik/README.md`.
+#
+# Service target: `marketing-site` :80 (same name as the HTTPRoute
+# backendRef, so the future Gateway cutover is a no-op on that side).
+#
+# Refs #384 #349. Closes the apex 404 reported by founder during the
+# public-launch readiness walk.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: iogrid-org-marketing
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/part-of: iogrid
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    # /install/* -> 308 to app.iogrid.org/install/* — keep the existing
+    # install-page surface under app.iogrid.org alive while the marketing
+    # site's own /install/* routes (built into the static export by #349)
+    # are confirmed end-to-end on the apex. Higher priority (200) than
+    # the catch-all below.
+    - kind: Rule
+      match: (Host(`iogrid.org`) || Host(`www.iogrid.org`)) && PathPrefix(`/install`)
+      priority: 200
+      middlewares:
+        - name: install-redirect-to-app
+      services:
+        # backendRef is required even with a middleware-only flow; point
+        # at the same Service so Traefik's selector validation passes
+        # and a future flip (drop the middleware to serve in-site
+        # /install/*) is a one-line delete.
+        - name: marketing-site
+          port: 80
+    # Catch-all -> marketing static export.
+    - kind: Rule
+      match: Host(`iogrid.org`) || Host(`www.iogrid.org`)
+      priority: 100
+      services:
+        - name: marketing-site
+          port: 80
+  tls:
+    # cert-manager Certificate lives in
+    # `infra/k8s/certificates/iogrid-org-cert.yaml` — secretName
+    # `iogrid-org-tls` SANs both iogrid.org and www.iogrid.org.
+    secretName: iogrid-org-tls

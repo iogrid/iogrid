@@ -1,0 +1,28 @@
+---
+# Redirect iogrid.org/install/* to app.iogrid.org/install/* — SEO
+# continuity for the OS-detect download UX that shipped under #349
+# while the marketing static export is still being primed.
+#
+# Once the marketing site's own /install/* routes are confirmed alive on
+# iogrid.org (post-PR #384 deploy), this middleware can be retired in
+# favour of in-site routing. Keeping the redirect in place is harmless
+# (it's a 308 to a same-path destination) but the cutover is a one-line
+# delete here + drop from `routes[].middlewares` on the IngressRoute.
+#
+# Refs #349 #384.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: install-redirect-to-app
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/part-of: iogrid
+spec:
+  redirectRegex:
+    # iogrid.org/install/...  -> https://app.iogrid.org/install/...
+    # iogrid.org/install      -> https://app.iogrid.org/install
+    # Permanent (308) preserves the request method so HEAD/GET both
+    # surface the artefact URL on the app subdomain.
+    regex: "^https?://(?:www\\.)?iogrid\\.org/install(/.*)?$"
+    replacement: "https://app.iogrid.org/install${1}"
+    permanent: true
