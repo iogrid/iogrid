@@ -82,3 +82,28 @@ func TestTLSDisabledWithoutBothPaths(t *testing.T) {
 		t.Fatal("TLSEnabled() should require BOTH cert and key")
 	}
 }
+
+// TestLoad_AntiabuseFailOpen — issue #360: the env knob must default
+// OFF (fail-closed kill switch) and accept the standard truthy
+// spellings.
+func TestLoad_AntiabuseFailOpen(t *testing.T) {
+	// Default OFF.
+	c := Load()
+	if c.AntiabuseFailOpen {
+		t.Fatal("AntiabuseFailOpen default = true; want false (fail-closed)")
+	}
+	for _, v := range []string{"1", "true", "TRUE", "on", "yes", "y"} {
+		t.Setenv("ANTIABUSE_FAIL_OPEN", v)
+		c := Load()
+		if !c.AntiabuseFailOpen {
+			t.Errorf("ANTIABUSE_FAIL_OPEN=%q parsed false", v)
+		}
+	}
+	for _, v := range []string{"0", "false", "off", "no", "n", "bogus"} {
+		t.Setenv("ANTIABUSE_FAIL_OPEN", v)
+		c := Load()
+		if c.AntiabuseFailOpen {
+			t.Errorf("ANTIABUSE_FAIL_OPEN=%q parsed true", v)
+		}
+	}
+}

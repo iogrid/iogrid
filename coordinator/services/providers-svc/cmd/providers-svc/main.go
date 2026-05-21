@@ -25,6 +25,7 @@ import (
 	pdb "github.com/iogrid/iogrid/coordinator/services/providers-svc/internal/db"
 	"github.com/iogrid/iogrid/coordinator/services/providers-svc/internal/server"
 	"github.com/iogrid/iogrid/coordinator/services/providers-svc/internal/store"
+	"github.com/iogrid/iogrid/coordinator/services/providers-svc/internal/transparency"
 	"github.com/iogrid/iogrid/coordinator/shared/db"
 	"github.com/iogrid/iogrid/coordinator/shared/health"
 	"github.com/iogrid/iogrid/coordinator/shared/log"
@@ -89,6 +90,25 @@ func main() {
 		logger.Error("ca bootstrap failed", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
+
+	// Transparency bridge — subscribes to proxy-gateway's
+	// "iogrid.audit.proxy.abuse_flagged" subject and projects every
+	// blocked-by-antiabuse event into the providers-svc audit_events
+	// table so the per-provider transparency feed surfaces the kill
+	// switch firing in real time (issue #360). Failure to wire NATS
+	// is non-fatal — the per-provider feed simply stays empty for
+	// abuse events; the proxy-gateway's AUDIT stream remains the
+	// legal-retention source of truth.
+	bridge := &transparency.Bridge{Store: st}
+	bridgeCleanup, err := transparency.Start(ctx, bridge, transparency.Options{
+		NATSURL: os.Getenv("NATS_URL"),
+		Logger:  logger,
+	})
+	if err != nil {
+		logger.Warn("transparency abuse bridge: start returned error (continuing)",
+			slog.String("error", err.Error()))
+	}
+	defer bridgeCleanup()
 
 	hr.MarkReady()
 

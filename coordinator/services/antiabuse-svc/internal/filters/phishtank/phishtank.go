@@ -32,6 +32,25 @@ import (
 // Name is the canonical backend identifier.
 const Name = "phishtank"
 
+// syntheticPhishHosts is the small built-in test corpus that lets the
+// proxy-gateway integration test prove the phishing deny path is wired
+// without registering for PhishTank's real feed (which requires a
+// signed application — see #360 Part A scope guard). Any URL whose
+// host matches an entry returns BLOCK. Production traffic should never
+// hit these hosts.
+//
+//   - malware.testing.google.test — Google's published synthetic
+//     malware test domain (https://testsafebrowsing.appspot.com)
+//   - phishing-test.iogrid.org    — our own integration-test host
+//
+// The real PhishTank feed remains the authoritative source — these
+// synthetics layer on top of it so cluster operators can verify the
+// pre-flight wire-up at any time.
+var syntheticPhishHosts = map[string]struct{}{
+	"malware.testing.google.test": {},
+	"phishing-test.iogrid.org":    {},
+}
+
 // Backend implements filters.Backend against the PhishTank feed.
 type Backend struct {
 	apiKey   string
@@ -170,6 +189,14 @@ func (b *Backend) LastSync() time.Time {
 
 // CheckURL performs the lookup against the cached set.
 func (b *Backend) CheckURL(ctx context.Context, target string) filters.Result {
+	// Synthetic test hosts win first — operators can verify the
+	// phishing deny path without registering for PhishTank.
+	if host := hostOf(target); host != "" {
+		if _, hit := syntheticPhishHosts[host]; hit {
+			return filters.NewBlock(Name, "phishtank_listed",
+				"synthetic phish test host matched (proxy-gateway integration test)")
+		}
+	}
 	if !b.enabled {
 		return filters.NewAllow(Name)
 	}
@@ -187,9 +214,44 @@ func (b *Backend) CheckURL(ctx context.Context, target string) filters.Result {
 	return filters.NewAllow(Name)
 }
 
-// CheckDomain is a no-op: PhishTank operates on URLs.
+// CheckDomain hook — phishtank is URL-only, but we DO honour the
+// synthetic test corpus on the domain path too so SOCKS5 / CONNECT
+// flows (which only know host:port) can prove the deny path.
+
+// CheckDomain is mostly a no-op (PhishTank's real feed operates on
+// URLs), but it DOES match the synthetic test corpus so SOCKS5 /
+// HTTP-CONNECT flows (which surface host-only, no URL) can prove the
+// deny path end-to-end. See syntheticPhishHosts.
 func (b *Backend) CheckDomain(ctx context.Context, domain string) filters.Result {
+	if _, hit := syntheticPhishHosts[strings.ToLower(strings.TrimSpace(domain))]; hit {
+		return filters.NewBlock(Name, "phishtank_listed",
+			"synthetic phish test host matched (proxy-gateway integration test)")
+	}
 	return filters.NewAllow(Name)
+}
+
+// hostOf returns the lower-cased host of a URL, or "" if the input
+// isn't parseable.
+func hostOf(raw string) string {
+	raw = strings.TrimSpace(strings.ToLower(raw))
+	if raw == "" {
+		return ""
+	}
+	// Quick parse — full url.Parse handles edge cases the integration
+	// test never produces, so keep this tight.
+	if i := strings.Index(raw, "://"); i >= 0 {
+		raw = raw[i+3:]
+	}
+	if i := strings.IndexAny(raw, "/?#"); i >= 0 {
+		raw = raw[:i]
+	}
+	if i := strings.LastIndex(raw, "@"); i >= 0 {
+		raw = raw[i+1:]
+	}
+	if i := strings.Index(raw, ":"); i >= 0 {
+		raw = raw[:i]
+	}
+	return raw
 }
 
 // normalizeURL lower-cases and strips a trailing slash so feed entries

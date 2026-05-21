@@ -37,6 +37,14 @@ type Config struct {
 	// AntiabuseSvcURL is the base URL of antiabuse-svc. Empty enables
 	// allow-everything stub (test only).
 	AntiabuseSvcURL string
+	// AntiabuseFailOpen flips the proxy from fail-closed to fail-open
+	// when antiabuse-svc is unreachable (RPC error / timeout / empty
+	// verdict). Default false — docs/LEGAL.md mandates fail-closed so
+	// a control-plane outage can't silently disable the legal-defence
+	// kill switch. Operators MAY flip this to true via env during a
+	// declared antiabuse-svc incident to keep the data plane flowing.
+	// See issue #360.
+	AntiabuseFailOpen bool
 	// BillingSvcURL is the base URL of billing-svc. Empty enables the
 	// in-memory ApiKey stub.
 	BillingSvcURL string
@@ -105,6 +113,7 @@ func Load() Config {
 	c.TLSKeyPath = os.Getenv("TLS_KEY_PATH")
 	c.WorkloadsSvcURL = os.Getenv("WORKLOADS_SVC_URL")
 	c.AntiabuseSvcURL = os.Getenv("ANTIABUSE_SVC_URL")
+	c.AntiabuseFailOpen = boolEnv("ANTIABUSE_FAIL_OPEN", c.AntiabuseFailOpen)
 	c.BillingSvcURL = os.Getenv("BILLING_SVC_URL")
 	c.RedisURL = os.Getenv("REDIS_URL")
 	c.SessionTTL = durationEnv("SESSION_TTL", c.SessionTTL)
@@ -148,6 +157,20 @@ func durationEnv(key string, fallback time.Duration) time.Duration {
 		if d, err := time.ParseDuration(v); err == nil && d > 0 {
 			return d
 		}
+	}
+	return fallback
+}
+
+func boolEnv(key string, fallback bool) bool {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return fallback
+	}
+	switch strings.ToLower(v) {
+	case "1", "t", "true", "yes", "y", "on":
+		return true
+	case "0", "f", "false", "no", "n", "off":
+		return false
 	}
 	return fallback
 }

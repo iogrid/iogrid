@@ -293,17 +293,32 @@ func (s *Server) handleSocks5(ctx context.Context, conn net.Conn, br *bufio.Read
 	}
 	destination := req.String()
 
+	// Look up any sticky-session binding BEFORE dispatch so that
+	// abuse_flagged audit events can be attributed to the would-be
+	// provider — the transparency feed needs a provider_id to surface
+	// the entry, and the dispatcher would have picked the sticky
+	// provider next anyway. If no binding exists the event still lands
+	// in the AUDIT stream for legal retention; per-provider feeds
+	// simply don't see this customer's first-block-ever.
+	stickyProviderID := ""
+	if s.Sessions != nil {
+		if b, err := s.Sessions.Get(ctx, customer.CustomerID, destination); err == nil {
+			stickyProviderID = b.ProviderID
+		}
+	}
+
 	if !s.portAllowed(int(req.Port)) {
 		_ = socks5.WriteReply(rw, socks5.ReplyConnNotAllowed, nil)
 		s.emitAudit(ctx, audit.AuditEvent{
-			EventKind:   "rejected",
+			EventKind:   "abuse_flagged",
 			Protocol:    "socks5",
 			ClientAddr:  conn.RemoteAddr().String(),
 			SessionID:   sessionID,
 			CustomerID:  customer.CustomerID,
 			WorkspaceID: customer.WorkspaceID,
+			ProviderID:  stickyProviderID,
 			Destination: destination,
-			Reason:      "port_blocked",
+			Reason:      "outbound_port_blocked",
 			Decision:    "block",
 			TraceID:     traceID,
 		})
@@ -313,14 +328,15 @@ func (s *Server) handleSocks5(ctx context.Context, conn net.Conn, br *bufio.Read
 	// Pre-flight anti-abuse check (after we know dest host + port).
 	verdict, _ := s.preflight(ctx, customer, req.Host, uint32(req.Port), traceID)
 	if verdict.Decision == abuse.DecisionBlock || verdict.Decision == abuse.DecisionRateLimit {
-		_ = socks5.WriteReply(rw, socks5.ReplyConnNotAllowed, nil)
+		_ = socks5.WriteReply(rw, socks5.ReplyGeneralFailure, nil)
 		s.emitAudit(ctx, audit.AuditEvent{
-			EventKind:   "rejected",
+			EventKind:   "abuse_flagged",
 			Protocol:    "socks5",
 			ClientAddr:  conn.RemoteAddr().String(),
 			SessionID:   sessionID,
 			CustomerID:  customer.CustomerID,
 			WorkspaceID: customer.WorkspaceID,
+			ProviderID:  stickyProviderID,
 			Destination: destination,
 			Reason:      verdict.Reason,
 			Decision:    "block",
@@ -435,17 +451,26 @@ func (s *Server) handleHTTPConnect(ctx context.Context, conn net.Conn, br *bufio
 		return
 	}
 
+	// Sticky-binding peek — see SOCKS5 path for rationale.
+	stickyProviderID := ""
+	if s.Sessions != nil {
+		if b, err := s.Sessions.Get(ctx, customer.CustomerID, req.Target()); err == nil {
+			stickyProviderID = b.ProviderID
+		}
+	}
+
 	if !s.portAllowed(int(req.Port)) {
 		_ = httpconnect.WriteError(conn, 403, "Forbidden")
 		s.emitAudit(ctx, audit.AuditEvent{
-			EventKind:   "rejected",
+			EventKind:   "abuse_flagged",
 			Protocol:    "http_connect",
 			ClientAddr:  conn.RemoteAddr().String(),
 			SessionID:   sessionID,
 			CustomerID:  customer.CustomerID,
 			WorkspaceID: customer.WorkspaceID,
+			ProviderID:  stickyProviderID,
 			Destination: req.Target(),
-			Reason:      "port_blocked",
+			Reason:      "outbound_port_blocked",
 			Decision:    "block",
 			TraceID:     traceID,
 		})
@@ -456,12 +481,13 @@ func (s *Server) handleHTTPConnect(ctx context.Context, conn net.Conn, br *bufio
 	if verdict.Decision == abuse.DecisionBlock {
 		_ = httpconnect.WriteError(conn, 403, "Forbidden")
 		s.emitAudit(ctx, audit.AuditEvent{
-			EventKind:   "rejected",
+			EventKind:   "abuse_flagged",
 			Protocol:    "http_connect",
 			ClientAddr:  conn.RemoteAddr().String(),
 			SessionID:   sessionID,
 			CustomerID:  customer.CustomerID,
 			WorkspaceID: customer.WorkspaceID,
+			ProviderID:  stickyProviderID,
 			Destination: req.Target(),
 			Reason:      verdict.Reason,
 			Decision:    "block",
@@ -472,12 +498,13 @@ func (s *Server) handleHTTPConnect(ctx context.Context, conn net.Conn, br *bufio
 	if verdict.Decision == abuse.DecisionRateLimit {
 		_ = httpconnect.WriteError(conn, 429, "Too Many Requests")
 		s.emitAudit(ctx, audit.AuditEvent{
-			EventKind:   "rejected",
+			EventKind:   "abuse_flagged",
 			Protocol:    "http_connect",
 			ClientAddr:  conn.RemoteAddr().String(),
 			SessionID:   sessionID,
 			CustomerID:  customer.CustomerID,
 			WorkspaceID: customer.WorkspaceID,
+			ProviderID:  stickyProviderID,
 			Destination: req.Target(),
 			Reason:      verdict.Reason,
 			Decision:    "block",
@@ -559,8 +586,22 @@ func (s *Server) validate(ctx context.Context, apiKey string) (*auth.Customer, e
 	return c, nil
 }
 
-// preflight runs the antiabuse-svc.CheckUrl pre-flight check. Failing
-// CLOSED is the docs/LEGAL.md mandate — RPC errors return DecisionBlock.
+// preflight runs the antiabuse-svc.CheckUrl pre-flight check.
+//
+// Fail-mode policy is EXPLICIT (per the §3.3 anti-pattern catalog: a
+// filter that fails open must declare it):
+//
+//   - Default = fail CLOSED. RPC error / timeout / empty verdict →
+//     DecisionBlock with reason="antiabuse_unavailable". This is the
+//     docs/LEGAL.md mandate — a control-plane outage MUST NOT silently
+//     disable the legal-defence kill switch (issue #360).
+//   - Opt-in fail OPEN via ANTIABUSE_FAIL_OPEN=true. Operators flip
+//     this during a declared antiabuse-svc incident to keep the data
+//     plane flowing; every fail-open is still audited so the
+//     transparency feed records the gap.
+//
+// Either way the returned Verdict.Decision is one of Allow / Review /
+// Block / RateLimit — DecisionError is collapsed inside this function.
 func (s *Server) preflight(ctx context.Context, c *auth.Customer, host string, port uint32, traceID string) (abuse.Verdict, error) {
 	if s.Filter == nil {
 		return abuse.Verdict{Decision: abuse.DecisionAllow, Reason: "allow_no_filter"}, nil
@@ -569,7 +610,7 @@ func (s *Server) preflight(ctx context.Context, c *auth.Customer, host string, p
 	if len(c.AllowedCategories) > 0 {
 		category = c.AllowedCategories[0]
 	}
-	return s.Filter.Check(ctx, abuse.CheckInput{
+	v, err := s.Filter.Check(ctx, abuse.CheckInput{
 		CustomerID:  c.CustomerID,
 		WorkspaceID: c.WorkspaceID,
 		Category:    category,
@@ -578,6 +619,23 @@ func (s *Server) preflight(ctx context.Context, c *auth.Customer, host string, p
 		Port:        port,
 		TraceID:     traceID,
 	})
+	if v.Decision == abuse.DecisionError {
+		if s.Config.AntiabuseFailOpen {
+			s.Logger.Warn("antiabuse-svc unreachable; failing OPEN per ANTIABUSE_FAIL_OPEN",
+				slog.String("reason", v.Reason),
+				slog.String("trace_id", traceID),
+				slog.String("destination", fmt.Sprintf("%s:%d", host, port)),
+			)
+			return abuse.Verdict{Decision: abuse.DecisionAllow, Reason: "antiabuse_fail_open"}, err
+		}
+		s.Logger.Warn("antiabuse-svc unreachable; failing CLOSED (default)",
+			slog.String("reason", v.Reason),
+			slog.String("trace_id", traceID),
+			slog.String("destination", fmt.Sprintf("%s:%d", host, port)),
+		)
+		return abuse.Verdict{Decision: abuse.DecisionBlock, Reason: "antiabuse_unavailable"}, err
+	}
+	return v, err
 }
 
 // portAllowed checks the configured port allow/block lists.
