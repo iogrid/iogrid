@@ -1,0 +1,118 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: releases
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: releases
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: releases
+spec:
+  # 2 replicas so a single node drain / image pull failure doesn't black-
+  # hole Sparkle clients' appcast.xml polls. The releases server is
+  # latency-insensitive (Sparkle polls hourly by default) but
+  # availability-sensitive — a stalled redirect = silently outdated
+  # daemons in the field for the duration of the outage.
+  replicas: 2
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: releases
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: releases
+        app.kubernetes.io/part-of: iogrid
+        app.kubernetes.io/component: releases
+      annotations:
+        # Bumped by .github/workflows/releases-ci.yml on every push to
+        # main so the rolling update fires even when the image digest is
+        # cache-identical. Mirror of the marketing-ci convention (#384).
+        # Refs #392.
+        kubectl.kubernetes.io/restartedAt: "2026-05-21T00:00:00Z"
+    spec:
+      serviceAccountName: releases
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        # nginx:1.27-alpine ships an unprivileged 'nginx' user (uid 101).
+        # The image's default port 80 is privileged; we override the
+        # listener to 8080 in nginx.conf so the container runs rootless.
+        runAsUser: 101
+        runAsGroup: 101
+        fsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: releases
+          # Image is rewritten by .github/workflows/releases-ci.yml on
+          # every push to main to a fully-qualified digest pin:
+          #   ghcr.io/iogrid/releases@sha256:<digest>
+          # Same deploy-bot mechanic as marketing-ci (#384).
+          # Refs #392.
+          image: ghcr.io/iogrid/releases:scaffold
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          resources:
+            # The releases server only emits 302 redirects (no body
+            # rendering, no upstream proxy) — its memory footprint is
+            # ~20 MiB steady-state.
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            # nginx needs writable /var/cache/nginx + /var/run + /tmp
+            # under readOnlyRootFilesystem: true. All ephemeral per-pod.
+            - name: cache
+              mountPath: /var/cache/nginx
+            - name: run
+              mountPath: /var/run
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: cache
+          emptyDir: {}
+        - name: run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: releases

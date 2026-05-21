@@ -21,6 +21,7 @@ resources:
   - build-gateway
   - web
   - marketing
+  - releases
   - gateway
   - certs
   - sparkle

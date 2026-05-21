@@ -37,8 +37,13 @@ spec:
     - server auth
     - digital signature
     - key encipherment
-  # SAN list. Apex + www + 5 service subdomains. Adding a new subdomain
+  # SAN list. Apex + www + 7 service subdomains. Adding a new subdomain
   # later = append here, commit, Flux reconciles, cert-manager re-issues.
+  #
+  # releases / updates appended per #392 — Sparkle (macOS) + the future
+  # Linux/Windows manifestd auto-update channels need a publicly-routed
+  # TLS-terminated hostname; both A-records are already at the
+  # mothership LB IP (see infra/dynadot/iogrid-org-records.json).
   dnsNames:
     - iogrid.org
     - www.iogrid.org
@@ -47,6 +52,8 @@ spec:
     - build.iogrid.org
     - docs.iogrid.org
     - status.iogrid.org
+    - releases.iogrid.org
+    - updates.iogrid.org
 ---
 # proxy.iogrid.org gets its OWN certificate because it serves TLS
 # passthrough — the residential-proxy frontend terminates TLS on its

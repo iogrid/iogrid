@@ -1,0 +1,26 @@
+---
+# releases — single ClusterIP Service for the static-redirect server.
+#
+# Unlike marketing-site (which exposes both :80 and :8080 to cover
+# Cilium Gateway HTTPRoute + Traefik IngressRoute shim), releases is
+# only referenced by the Traefik IngressRoute today. A future Cilium
+# Gateway HTTPRoute can target the same Service on :8080 without a
+# second name. Refs #392.
+apiVersion: v1
+kind: Service
+metadata:
+  name: releases
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: releases
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: releases
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: releases
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
