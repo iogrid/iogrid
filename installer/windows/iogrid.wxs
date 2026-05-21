@@ -77,6 +77,28 @@
                             ResetPeriodInDays="1"/>
                     </ServiceInstall>
 
+                    <!-- Service-scoped env var. The Windows SCM reads a
+                         REG_MULTI_SZ value named "Environment" under
+                         the service's registry key and projects every
+                         line into the service process's environment
+                         block at start time. iogrid#399: the Rust
+                         supervisor's update_windows::feed_url() reads
+                         this so it knows which RELEASES manifest to
+                         hand to the Update.exe update invocation
+                         (note: XML comments cannot contain double-
+                         hyphen, so we describe the flag as 'update
+                         invocation' rather than spelling out the CLI
+                         switch). Hard-coded fallback in the binary
+                         keeps things working if a hand-rolled install
+                         misses this key. -->
+                    <RegistryValue
+                        Root="HKLM"
+                        Key="SYSTEM\CurrentControlSet\Services\iogridd"
+                        Name="Environment"
+                        Type="multiString"
+                        Value="IOGRID_UPDATE_FEED_URL=https://releases.iogrid.org/windows/"
+                        Action="write"/>
+
                     <ServiceControl
                         Id="StartiogriddService"
                         Name="iogridd"
@@ -94,10 +116,18 @@
                      squirrel/fetch-squirrel.ps1 before the wix build, which
                      SHA-256-verifies + stages Update.exe under
                      installer/windows/staging/Update.exe. Update.exe is what
-                     the daemon supervisor (or an admin) invokes as
-                     "Update.exe -update [RELEASES-URL]" to apply
-                     subsequent side-by-side updates without re-running
-                     the .msi. -->
+                     the daemon supervisor invokes (with the "update" CLI
+                     flag and the IOGRID_UPDATE_FEED_URL env var as the
+                     manifest URL) to apply subsequent side-by-side updates
+                     without re-running the .msi. iogrid#399 ships the
+                     daemon-side driver in daemon/crates/core/src/update_windows.rs.
+                     It probes for Update.exe next to iogridd.exe (install
+                     root resolved via std::env::current_exe) with a
+                     fallback to the literal install path the Directory
+                     element with Id INSTALLDIR above lays down.
+                     XML-comment-spec note: cannot use the double-hyphen
+                     CLI prefix inside a comment, so spelled out as "update"
+                     CLI flag. -->
                 <Component Id="SquirrelUpdate" Guid="*">
                     <File Id="Update.exe"
                           Source="staging/Update.exe"
