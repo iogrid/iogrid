@@ -1,21 +1,20 @@
 import Link from "next/link";
 import * as React from "react";
+import { auth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 /**
- * PortalShell is the chrome shared by every authenticated app surface
- * (/provide, /customer, /account, /vpn). It enforces a single layout
- * pattern so sub-agents and follow-up PRs cannot reintroduce bespoke
- * top-bars or sidebars.
+ * AdminShell — chrome shared by every page in the admin app.
  *
- * Server-component-safe (async). Interactive bits (user menu, sign-out)
- * live in dedicated client islands.
+ * Slim sibling of `web/src/components/layout/portal-shell.tsx`. The
+ * admin app only has the staff section, so the top-bar nav is just the
+ * admin sub-routes (Abuse / Customers / Providers / Finops / Settings).
+ * The web app's Provide/Customer/VPN tabs are intentionally absent —
+ * this is admin.iogrid.org, a separate origin for a separate audience.
  *
- * The staff console moved to its own Next.js app at admin.iogrid.org
- * in #361 — that's why there's no admin tab here anymore. Operators
- * navigate to the admin app by hostname; the IOGRID_ADMIN_EMAILS
- * allowlist gates entry on that separate origin.
+ * Server-component-safe (async). Interactive bits (theme toggle, future
+ * user menu) live in dedicated client islands.
  */
 
 export interface NavItem {
@@ -24,7 +23,7 @@ export interface NavItem {
   description?: string;
 }
 
-export interface PortalShellProps {
+export interface AdminShellProps {
   title: string;
   subtitle?: string;
   nav: NavItem[];
@@ -36,7 +35,7 @@ export interface PortalShellProps {
   children: React.ReactNode;
 }
 
-export async function PortalShell({
+export async function AdminShell({
   title,
   subtitle,
   nav,
@@ -44,44 +43,34 @@ export async function PortalShell({
   badge,
   actions,
   children,
-}: PortalShellProps) {
+}: AdminShellProps) {
+  const session = await auth();
+  const userEmail = session?.user?.email ?? null;
+
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50">
       <header className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
           <Link
             href="/"
-            className="text-lg font-bold tracking-tight"
-            aria-label="iogrid home"
+            className="flex items-baseline gap-2 text-lg font-bold tracking-tight"
+            aria-label="iogrid admin home"
           >
-            iogrid
+            <span>iogrid</span>
+            <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-white dark:bg-zinc-100 dark:text-zinc-900">
+              admin
+            </span>
           </Link>
-          <div className="flex items-center gap-2">
-            <nav aria-label="Primary" className="hidden gap-2 md:flex">
-              <PortalNavLink href="/provide" active={activeHref?.startsWith("/provide")}>
-                Provide
-              </PortalNavLink>
-              <PortalNavLink
-                href="/customer"
-                active={activeHref?.startsWith("/customer")}
+          <div className="flex items-center gap-3">
+            {userEmail ? (
+              <span
+                className="hidden text-xs text-zinc-500 sm:inline"
+                aria-label="Signed-in admin email"
               >
-                Customer
-              </PortalNavLink>
-              <PortalNavLink href="/vpn" active={activeHref?.startsWith("/vpn")}>
-                VPN
-              </PortalNavLink>
-              <PortalNavLink
-                href="/account"
-                active={activeHref?.startsWith("/account")}
-              >
-                Account
-              </PortalNavLink>
-            </nav>
-            {/* Theme toggle lives at the right of the global header
-                so it is reachable from every authenticated surface
-                (provide / customer / vpn / account) without
-                duplicating it per-section. Client-side island. */}
-            <ThemeToggle className="ml-2" />
+                {userEmail}
+              </span>
+            ) : null}
+            <ThemeToggle />
           </div>
         </div>
       </header>
@@ -112,7 +101,11 @@ export async function PortalShell({
             className="mt-6 flex flex-wrap gap-1 border-b border-zinc-200 dark:border-zinc-800"
           >
             {nav.map((item) => (
-              <SectionTab key={item.href} item={item} active={activeHref === item.href} />
+              <SectionTab
+                key={item.href}
+                item={item}
+                active={activeHref === item.href}
+              />
             ))}
           </nav>
         ) : null}
@@ -120,30 +113,6 @@ export async function PortalShell({
         <main className="mt-6">{children}</main>
       </div>
     </div>
-  );
-}
-
-function PortalNavLink({
-  href,
-  active,
-  children,
-}: {
-  href: string;
-  active?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <Link
-      href={href}
-      className={cn(
-        "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-        active
-          ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-          : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800",
-      )}
-    >
-      {children}
-    </Link>
   );
 }
 

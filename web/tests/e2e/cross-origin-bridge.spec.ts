@@ -32,12 +32,15 @@ import { test, expect } from "@playwright/test";
  * which lives in the post-deploy smoke set (PHASE0-UNBLOCK step 4d).
  */
 
+// /api/v1/admin/* routes moved to the standalone admin app
+// (admin.iogrid.org) in #361. The bridge contract for those routes is
+// now covered by the admin app's own E2E suite — this web/ E2E only
+// exercises the surfaces that remain inside app.iogrid.org.
 const PROXY_PATHS = [
   { path: "/api/v1/provide/dashboard", method: "GET" as const },
   { path: "/api/v1/provide/schedule", method: "GET" as const },
   { path: "/api/v1/provide/earnings", method: "GET" as const },
   { path: "/api/v1/provide/audit/stream", method: "GET" as const },
-  { path: "/api/v1/admin/abuse-queue", method: "GET" as const },
 ];
 
 test.describe("cross-origin bridge — same-origin BFF proxy (#237)", () => {
@@ -69,25 +72,4 @@ test.describe("cross-origin bridge — same-origin BFF proxy (#237)", () => {
       }
     });
   }
-
-  test("anon POST /api/v1/admin/abuse/:id/resolve returns 401 (admin gate fires)", async ({
-    page,
-  }) => {
-    const resp = await page.request.post(
-      "/api/v1/admin/abuse/00000000-0000-0000-0000-000000000000/resolve",
-      { data: { decision: "allow" } },
-    );
-    expect(resp.status()).not.toBe(404);
-    expect(resp.status()).toBe(401);
-  });
-
-  test("anon POST /api/v1/admin/providers/list returns 401 (admin gate fires)", async ({
-    page,
-  }) => {
-    const resp = await page.request.post("/api/v1/admin/providers/list", {
-      data: {},
-    });
-    expect(resp.status()).not.toBe(404);
-    expect(resp.status()).toBe(401);
-  });
 });
