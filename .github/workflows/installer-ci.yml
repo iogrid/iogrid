@@ -202,6 +202,14 @@ jobs:
 
       - name: Build .pkg
         working-directory: installer/macos
+        env:
+          # Sparkle 2.6.4 official tarball SHA-256 (from GH release). Pinned
+          # so a tarball-substitution attack on github.com cannot slip a
+          # malicious framework into our .pkg. Bump in lockstep with
+          # installer/macos/sparkle/SPARKLE_VERSION.
+          # Phase 1 ships with empty SHA = WARN-but-continue; the platform
+          # team rotates this constant in the same PR as a Sparkle bump.
+          SPARKLE_TARBALL_SHA256: ""
         run: |
           make all VERSION=0.1.0 ARCH=${{ matrix.arch }} \
               DAEMON_BIN=../../daemon/target/${{ matrix.target }}/release/iogridd
