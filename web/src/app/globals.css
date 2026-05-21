@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "../styles/design-tokens.css";
 
 /*
  * Tailwind 4 dark variant — bind to a `.dark` class on <html> instead of
@@ -11,87 +12,45 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /*
- * Semantic token palette — shadcn/ui canonical names, stored as raw
- * HSL triplets (without `hsl()`) so callers compose with arbitrary
- * alpha via `hsl(var(--token) / <alpha>)`. Light theme is the default;
- * `.dark` overrides each token in lockstep so every consumer page
- * flips together with zero per-component changes.
+ * Tailwind 4 @theme bridge — exposes the design-tokens.css L2/L3
+ * variables to Tailwind's utility generator so writing
+ * `bg-background`, `text-foreground`, `border-border`, `bg-primary`,
+ * etc. resolves to the semantic tokens rather than the legacy
+ * zinc-* palette. This is the seam that lets every product surface
+ * adopt the new aesthetic by switching utility classes only.
+ *
+ * Note on dual-shadcn alias: existing shadcn components reference
+ * `--background` / `--foreground` / etc. directly via inline
+ * `hsl(var(--background))`. Those still work because
+ * design-tokens.css continues to define those names. The @theme block
+ * here additionally publishes them as Tailwind utility classes
+ * (`bg-background`, …) so new pages can drop the inline hsl().
  */
-:root {
-  --background: 0 0% 100%;
-  --foreground: 222 47% 11%;
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
 
-  --card: 0 0% 100%;
-  --card-foreground: 222 47% 11%;
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
 
-  --popover: 0 0% 100%;
-  --popover-foreground: 222 47% 11%;
-
-  --primary: 222 47% 11%;
-  --primary-foreground: 0 0% 100%;
-
-  --secondary: 210 40% 96%;
-  --secondary-foreground: 222 47% 11%;
-
-  --muted: 210 40% 96%;
-  --muted-foreground: 215 16% 47%;
-
-  --accent: 210 40% 96%;
-  --accent-foreground: 222 47% 11%;
-
-  --destructive: 0 84% 60%;
-  --destructive-foreground: 0 0% 100%;
-
-  --border: 214 32% 91%;
-  --input: 214 32% 91%;
-  --ring: 222 47% 11%;
-}
-
-.dark {
-  --background: 222 47% 11%;
-  --foreground: 210 40% 98%;
-
-  --card: 222 47% 13%;
-  --card-foreground: 210 40% 98%;
-
-  --popover: 222 47% 13%;
-  --popover-foreground: 210 40% 98%;
-
-  --primary: 210 40% 98%;
-  --primary-foreground: 222 47% 11%;
-
-  --secondary: 217 33% 18%;
-  --secondary-foreground: 210 40% 98%;
-
-  --muted: 217 33% 18%;
-  --muted-foreground: 215 20% 65%;
-
-  --accent: 217 33% 18%;
-  --accent-foreground: 210 40% 98%;
-
-  --destructive: 0 63% 50%;
-  --destructive-foreground: 0 0% 100%;
-
-  --border: 217 33% 22%;
-  --input: 217 33% 22%;
-  --ring: 212 27% 84%;
-}
-
-html,
-body {
-  background: hsl(var(--background));
-  color: hsl(var(--foreground));
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-    sans-serif;
-}
-
-/*
- * Brief cross-fade when the .dark class flips so the toggle does not
- * snap-flash. 150ms keeps the change feeling instant.
- */
-html.theme-transitioning,
-html.theme-transitioning * {
-  transition-property: background-color, border-color, color, fill, stroke;
-  transition-duration: 150ms;
-  transition-timing-function: ease;
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
 }
