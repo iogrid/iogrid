@@ -47,9 +47,9 @@
          contents of `app-<version>\` after install. The .NET framework
          folder name is a historical Squirrel artifact — we don't actually
          ship managed code. -->
-    <file src="staging\iogridd.exe" target="lib\net45\iogridd.exe" />
-    <file src="staging\Update.exe" target="lib\net45\Squirrel.exe" />
-    <file src="staging\LICENSE.txt" target="lib\net45\LICENSE.txt" />
-    <file src="staging\version.txt" target="lib\net45\version.txt" />
+    <file src="iogridd.exe" target="lib\net45\iogridd.exe" />
+    <file src="Update.exe" target="lib\net45\Squirrel.exe" />
+    <file src="LICENSE.txt" target="lib\net45\LICENSE.txt" />
+    <file src="version.txt" target="lib\net45\version.txt" />
   </files>
 </package>
