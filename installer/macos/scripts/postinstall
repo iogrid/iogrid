@@ -38,28 +38,43 @@ log "postinstall for user=$USER_NAME home=$USER_HOME uid=$USER_UID"
 
 # 1) Stage user-scoped LaunchAgent
 SRC_PLIST="/Library/LaunchAgents/org.iogrid.daemon.plist"
+SRC_SB_PLIST="/Library/LaunchAgents/io.iogrid.statusbar.plist"
 USER_LA_DIR="$USER_HOME/Library/LaunchAgents"
 USER_PLIST="$USER_LA_DIR/org.iogrid.daemon.plist"
+USER_SB_PLIST="$USER_LA_DIR/io.iogrid.statusbar.plist"
 
 mkdir -p "$USER_LA_DIR"
 mkdir -p "$USER_HOME/Library/Logs/iogrid"
 mkdir -p "$USER_HOME/Library/Application Support/iogrid"
 mkdir -p "$USER_HOME/.iogrid"
+# UDS dir for the status-bar <-> daemon IPC (issue #388). Pre-created
+# with the installing user's ownership so the daemon's bind() succeeds
+# the first time without a setuid dance.
+mkdir -p "$USER_HOME/.iogrid/run"
 
-# Substitute placeholders in the template.
+# Substitute placeholders in the templates.
 /usr/bin/sed \
     -e "s|@USER_HOME@|$USER_HOME|g" \
     -e "s|@USER_NAME@|$USER_NAME|g" \
     "$SRC_PLIST" > "$USER_PLIST"
 
+# Status-bar LaunchAgent template (issue #388). Uses __USER_HOME__
+# placeholder for the log paths; no @USER_NAME@ because the agent
+# inherits the GUI session's UID via launchctl bootstrap.
+if [ -f "$SRC_SB_PLIST" ]; then
+    /usr/bin/sed \
+        -e "s|__USER_HOME__|$USER_HOME|g" \
+        "$SRC_SB_PLIST" > "$USER_SB_PLIST"
+fi
+
 chown -R "$USER_NAME":staff "$USER_LA_DIR" "$USER_HOME/Library/Logs/iogrid" "$USER_HOME/Library/Application Support/iogrid" "$USER_HOME/.iogrid"
 
-# 2) Remove the root-owned copy under /Library/LaunchAgents (the system
-# location runs as root which is the WRONG behaviour for the provider
-# daemon; we deliberately install per-user).
-rm -f "$SRC_PLIST" || true
+# 2) Remove the root-owned copies under /Library/LaunchAgents (the
+# system location runs as root which is the WRONG behaviour for both
+# the daemon and the status-bar UI; we deliberately install per-user).
+rm -f "$SRC_PLIST" "$SRC_SB_PLIST" || true
 
-# 3) Bootstrap / enable / kickstart under the user's GUI domain.
+# 3) Bootstrap / enable / kickstart the daemon under the user's GUI domain.
 TARGET="gui/$USER_UID/org.iogrid.daemon"
 
 /bin/launchctl bootout "$TARGET" 2>/dev/null || true
@@ -69,6 +84,22 @@ fi
 /bin/launchctl enable "$TARGET" 2>/dev/null || true
 /bin/launchctl kickstart -k "$TARGET" 2>/dev/null \
     || log "WARN: launchctl kickstart returned non-zero"
+
+# 3b) Bootstrap the status-bar UI (issue #388). Best-effort: if the
+# .app bundle wasn't laid down (older .pkg without the SwiftPM target)
+# the plist will reference a nonexistent binary; launchd will fail
+# silently and the user can still install future updates via Sparkle's
+# background-check path. We don't fail the install in that case.
+if [ -f "$USER_SB_PLIST" ]; then
+    SB_TARGET="gui/$USER_UID/io.iogrid.statusbar"
+    /bin/launchctl bootout "$SB_TARGET" 2>/dev/null || true
+    if ! /bin/launchctl bootstrap "gui/$USER_UID" "$USER_SB_PLIST"; then
+        log "WARN: launchctl bootstrap (statusbar) returned non-zero (already loaded?)"
+    fi
+    /bin/launchctl enable "$SB_TARGET" 2>/dev/null || true
+    /bin/launchctl kickstart -k "$SB_TARGET" 2>/dev/null \
+        || log "WARN: launchctl kickstart (statusbar) returned non-zero — menu-bar icon will appear on next login"
+fi
 
 # 4) Mint pairing code via daemon CLI. Daemon may not have come up yet
 # (kickstart is async), so retry briefly. The `_i` loop var is named with

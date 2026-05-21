@@ -39,6 +39,13 @@ pub use workloads::{ActiveAssignment, ActiveRegistry, WorkloadRouter, WorkloadRo
 pub mod pair;
 pub mod updater;
 
+// macOS-only IPC server for the status-bar menu app (issue #388 /
+// EPIC #348 Phase 2-mac). Compiled out on every other target so the
+// public surface stays identical and Linux / Windows builds carry
+// zero extra deps.
+#[cfg(target_os = "macos")]
+pub mod ipc_mac;
+
 /// Top-level supervisor state. Mirrors the public dashboard chip in the web UI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SupervisorState {
@@ -340,7 +347,9 @@ impl Supervisor {
     }
 
     /// Drive the supervisor to completion. Returns when shutdown is
-    /// requested (SIGINT / SIGTERM on Unix, Ctrl+C on Windows).
+    /// requested (SIGINT / SIGTERM on Unix, Ctrl+C on Windows, or the
+    /// macOS status-bar UI's `Quit` action via the [`ipc_mac`] UDS
+    /// listener — see issue #388).
     pub async fn run(mut self) -> anyhow::Result<()> {
         tracing::info!(
             coordinator = %self.config.coordinator_url,
@@ -350,6 +359,27 @@ impl Supervisor {
         );
         self.state = SupervisorState::Connected;
         let mut tasks: JoinSet<anyhow::Result<()>> = JoinSet::new();
+
+        // Status-bar IPC shutdown signal (macOS only). Built here even
+        // when the listener doesn't spawn so the macOS-only branch and
+        // the wait_for_shutdown call below share one Arc<Notify> — and
+        // so non-macOS builds don't need to feature-gate the call site.
+        let ipc_shutdown = Arc::new(tokio::sync::Notify::new());
+
+        // Spawn the menu-bar IPC listener on macOS. The listener fires
+        // `ipc_shutdown.notify_waiters()` when the user picks Quit from
+        // the status-bar menu, which `wait_for_shutdown` awaits alongside
+        // SIGINT/SIGTERM. On every other platform this block compiles to
+        // nothing — there's no status-bar UI to host.
+        #[cfg(target_os = "macos")]
+        {
+            let sock = ipc_mac::socket_path(&self.config.state_dir);
+            let handle = ipc_mac::spawn_listener(sock, ipc_shutdown.clone());
+            tasks.spawn(async move {
+                handle.await.map_err(anyhow::Error::from)??;
+                Ok(())
+            });
+        }
 
         // Idle + sysinfo poller.
         let h_poll = iogrid_scheduler::spawn_poller(
@@ -633,9 +663,10 @@ impl Supervisor {
             }
         });
 
-        // Block on Ctrl+C / SIGTERM. We don't kill in-flight workloads —
-        // the JoinSet drains on drop and tasks see the cancellation token.
-        wait_for_shutdown().await;
+        // Block on Ctrl+C / SIGTERM / status-bar Quit. We don't kill
+        // in-flight workloads — the JoinSet drains on drop and tasks
+        // see the cancellation token.
+        wait_for_shutdown(ipc_shutdown.clone()).await;
         tracing::info!("iogridd shutdown requested");
         // Best-effort: cancel everything still in-flight.
         router.revoke_all("daemon_shutdown").await;
@@ -692,7 +723,17 @@ pub fn live_transport_config(cfg: &DaemonConfig) -> Option<TransportConfig> {
     })
 }
 
-async fn wait_for_shutdown() {
+/// Park until any of the recognised shutdown triggers fires:
+///   * SIGTERM / SIGINT (Unix, including macOS)
+///   * Ctrl+C (Windows)
+///   * `ipc_shutdown.notify_waiters()` — fired by the macOS status-bar
+///     UI's `Quit` action via the `ipc_mac` UDS listener. On non-macOS
+///     targets nothing ever fires this Notify, so it stays a benign
+///     no-op branch in the `select!`.
+async fn wait_for_shutdown(ipc_shutdown: Arc<tokio::sync::Notify>) {
+    let ipc_notified = ipc_shutdown.notified();
+    tokio::pin!(ipc_notified);
+
     #[cfg(unix)]
     {
         use tokio::signal::unix::{signal, SignalKind};
@@ -701,11 +742,15 @@ async fn wait_for_shutdown() {
         tokio::select! {
             _ = term.recv() => {}
             _ = intr.recv() => {}
+            _ = ipc_notified => {}
         }
     }
     #[cfg(not(unix))]
     {
-        let _ = tokio::signal::ctrl_c().await;
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = ipc_notified => {}
+        }
     }
 }
 

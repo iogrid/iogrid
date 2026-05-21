@@ -24,7 +24,7 @@
     <choice id="org.iogrid.daemon"
             visible="false"
             title="iogrid daemon"
-            description="The iogrid provider daemon and its LaunchAgent.">
+            description="The iogrid provider daemon, its LaunchAgent, and the macOS menu-bar status app that drives Check-for-Updates via Sparkle (issue #388).">
         <pkg-ref id="org.iogrid.daemon"/>
     </choice>
 </installer-gui-script>

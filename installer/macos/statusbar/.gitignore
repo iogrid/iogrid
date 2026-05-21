@@ -1,0 +1,9 @@
+# SwiftPM
+.build/
+.swiftpm/
+Package.resolved
+
+# Generated at build time by installer/macos/Makefile's `statusbar` target;
+# wraps the fetched Sparkle.framework into the .xcframework shape SwiftPM
+# requires for binaryTarget. Not source.
+Sparkle.xcframework/
