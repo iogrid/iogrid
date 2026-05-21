@@ -244,19 +244,17 @@ Buf lints + breaking-change detection runs in CI. Generated Go bindings to `coor
 
 ### 4.1 Audience split
 
-The management plane is split across **two co-located Next.js apps** in this monorepo, each serving its own origin so the deploy cadence, container image, and (in a follow-up) the network-layer isolation can evolve independently. End-user surfaces land on `app.iogrid.org` from `web/`; the staff console lands on `admin.iogrid.org` from `admin/` (split out in #361 per founder direction #8).
+The web management plane serves **two distinct user types** through a single Next.js app, route-segmented:
 
-| Origin | App | Route(s) | Audience | Surface |
-|--------|-----|----------|----------|---------|
-| `app.iogrid.org` | `web/` | `/provide/*` | Providers | Earnings dashboard, schedule editor, opt-in categories, transparency feed, payout settings |
-| `app.iogrid.org` | `web/` | `/customer/*` | B2B customers | API keys, usage metrics, billing, audit logs, support |
-| `app.iogrid.org` | `web/` | `/account/*` | Both | Identity management (linked emails / OAuth providers), preferences |
-| `app.iogrid.org` | `web/` | `/vpn/*` | Consumer VPN | Download links, account upgrade, server selection (for paid Plus/Pro tiers) |
-| `admin.iogrid.org` | `admin/` | `/`, `/abuse`, `/customers`, `/providers`, `/finops`, `/settings` | iogrid staff | Abuse review, customer KYC, provider audits, financial ops |
+| Route prefix | Audience | Surface |
+|--------------|----------|---------|
+| `/provide/*` | Providers | Earnings dashboard, schedule editor, opt-in categories, transparency feed, payout settings |
+| `/customer/*` | B2B customers | API keys, usage metrics, billing, audit logs, support |
+| `/account/*` | Both | Identity management (linked emails / OAuth providers), preferences |
+| `/vpn/*` | Consumer VPN | Download links, account upgrade, server selection (for paid Plus/Pro tiers) |
+| `/admin/*` | iogrid staff | Abuse review, customer KYC, financial ops |
 
-Single sign-in flow (Google OAuth or magic-link) → user lands on context-appropriate dashboard based on their primary role. Role-switching available in nav (a provider who is also a customer can toggle). The two apps share the same Postgres NextAuth tables (`user` / `account` / `session` / `verificationToken`), so an operator who signs in at `app.iogrid.org` is the same row as the one signing in at `admin.iogrid.org`; the `IOGRID_ADMIN_EMAILS` env-var allowlist (enforced by the admin app's edge middleware AND defense-in-depth by gateway-bff's `RequireRole("ADMIN")`) gates entry to the staff surface.
-
-Phase 0 keeps the admin app on the same cluster behind a vanilla Traefik IngressRoute (`infra/k8s/traefik/ingressroute-admin.yaml`). mTLS / WireGuard / Netbird hardening of the admin origin lands in a follow-up per #361's founder direction.
+Single sign-in flow (Google OAuth or magic-link) → user lands on context-appropriate dashboard based on their primary role. Role-switching available in nav (a provider who is also a customer can toggle).
 
 ### 4.2 Stack
 

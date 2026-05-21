@@ -1,6 +1,5 @@
 packages:
   - "web"
-  - "admin"
   - "marketing"
   - "docs-site"
   - "sdks/typescript"
