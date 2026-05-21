@@ -37,6 +37,7 @@ pub use iogrid_ui_bridge::{
 pub use workloads::{ActiveAssignment, ActiveRegistry, WorkloadRouter, WorkloadRouterRunners};
 
 pub mod pair;
+pub mod update_windows;
 pub mod updater;
 
 /// Top-level supervisor state. Mirrors the public dashboard chip in the web UI.
@@ -606,6 +607,46 @@ impl Supervisor {
                 manifest_url = %self.config.updater.manifest_url,
                 "auto-update polling enabled"
             );
+        }
+
+        // Windows-only: daily Squirrel.Windows in-place update tick.
+        //
+        // On Windows the .msi shipped in PR #401 installs
+        // `Update.exe` (Squirrel's renamed Setup.exe) at install root
+        // `C:\Program Files\iogrid\Update.exe`. Instead of using the
+        // cross-platform `crate::updater` atomic-replace flow above —
+        // which bypasses Squirrel's side-by-side `app-X.Y.Z\`
+        // convention — we hand off to `Update.exe --update <FEED>`
+        // once per day. Squirrel stages the new `iogridd.exe` next to
+        // the current one + atomically flips the `current` pointer;
+        // the Windows SCM picks up the new exe on next service
+        // restart. Tracking: iogrid#399.
+        //
+        // Feed URL is sourced from `IOGRID_UPDATE_FEED_URL` (set as a
+        // Windows service env var by `installer/windows/iogrid.wxs`'s
+        // `<ServiceConfig>` so operators can point a fleet at an
+        // internal mirror without editing the binary). Default:
+        // https://releases.iogrid.org/windows/.
+        #[cfg(target_os = "windows")]
+        {
+            tasks.spawn(async move {
+                let feed_url = std::env::var("IOGRID_UPDATE_FEED_URL")
+                    .unwrap_or_else(|_| "https://releases.iogrid.org/windows/".to_string());
+                tracing::info!(
+                    feed_url = %feed_url,
+                    "Windows Update.exe daily tick enabled",
+                );
+                let mut ticker = tokio::time::interval(Duration::from_secs(24 * 60 * 60));
+                // `interval` fires immediately on first .tick(); we
+                // want a stagger so a freshly-installed daemon doesn't
+                // race the .msi finalizer for the install dir lock.
+                ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                tokio::time::sleep(Duration::from_secs(5 * 60)).await;
+                loop {
+                    ticker.tick().await;
+                    let _ = update_windows::check_for_updates(&feed_url).await;
+                }
+            });
         }
 
         // Scheduler-pause watcher — if scheduler flips to Paused, revoke

@@ -76,6 +76,26 @@
                         Stop="both"
                         Remove="uninstall"
                         Wait="yes"/>
+
+                    <!-- Windows service environment variables.
+                         Picked up by the Service Control Manager when
+                         it spawns iogridd.exe. REG_MULTI_SZ shape;
+                         each NUL-separated entry is one `KEY=VALUE`.
+
+                         IOGRID_UPDATE_FEED_URL is consumed by the
+                         supervisor's Windows-only `Update.exe --update`
+                         daily tick (`daemon/crates/core/src/lib.rs`,
+                         `update_windows.rs`). Defaults baked into the
+                         daemon match this value; the env var lets
+                         operators repoint a fleet at an internal
+                         mirror without rebuilding the binary.
+                         Refs iogrid#399. -->
+                    <RegistryValue
+                        Root="HKLM"
+                        Key="SYSTEM\CurrentControlSet\Services\iogridd"
+                        Name="Environment"
+                        Type="multiString"
+                        Value="IOGRID_UPDATE_FEED_URL=https://releases.iogrid.org/windows/"/>
                 </Component>
 
                 <Component Id="LicenseTxt" Guid="*">
