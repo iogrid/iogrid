@@ -4,11 +4,12 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-21T08:35:00Z` |
+| Last refreshed | `2026-05-21T11:30:00Z` |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
-| Merged PRs | **120+** since bootstrap (+26 in 2026-05-21 session — see §0 below) |
+| Merged PRs | **120+** since bootstrap (+29 in 2026-05-21 session — see §0 below) |
 | Open PRs | 0 |
-| Open issues | **48** — dominated by founder-closure-pending after the 2026-05-21 ship sprint; truly unshipped backlog is 4 (#79 macOS upgrade, #345 Solana faucet, #398 Authenticode EV cert, #274 $GRID mainnet wiring — all founder-physical-action class) |
+| Open issues | **54** — dominated by founder-closure-pending; **NEW active EPIC #422** (drop `app.iogrid.org`, independent `admin.iogrid.org`, full UX revamp — founder verbatim 2026-05-21 10:30Z). 2 agents in flight: Phase 1 (admin/ Next.js scaffold) + Phase 2.1 (design system + landing redesign). Truly-unshipped founder-physical: #79 macOS upgrade, #345 Solana faucet, #398 Authenticode EV cert, #274 $GRID mainnet. |
+| Prior false-progress | <img alt="REVERTED" src="https://img.shields.io/badge/-FALSE-cf222e?style=flat-square" /> PRs #364 (admin scaffold-only) / #383 (revert) / #408 (host-aliased admin) — none satisfy founder's "INDEPENDENT admin app" criterion. To be unwound by #422 Phase 1. |
 | EPIC closure | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 17 / 17 closed by audit |
 | Phase 0 browser login | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> **`https://app.iogrid.org/account`** — NextAuth + Stalwart magic-link, verification tokens persisted in CNPG `web` DB |
 | Phase 0 mothership | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> 6 services + CNPG + 5 IngressRoutes (app/api/proxy/releases/v1-auth) + 2 Let's Encrypt certs all Running |
@@ -19,6 +20,40 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 | Phase 0 admin UI | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> `/admin/providers` shows paired daemon record for `emrah.baysal` — verified live via Playwright, record survives `providers-svc` pod restart (Postgres-backed via #247). Screenshots in repo root: `admin-providers-emrah-WORKING.png`, `admin-providers-postgres-persisted.png` |
 
 **Legend:** <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> done · <img alt="IN_FLIGHT" src="https://img.shields.io/badge/-IN__FLIGHT-bf8700?style=flat-square" /> work in progress · <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> open · <img alt="DEFERRED" src="https://img.shields.io/badge/-DEFERRED-6e7781?style=flat-square" /> deferred · <img alt="BLOCKED" src="https://img.shields.io/badge/-BLOCKED-8250df?style=flat-square" /> blocked on founder action
+
+---
+
+## 0.5. 2026-05-21 late session — EPIC #422 active + 3 more PRs (post §0)
+
+> Founder rage at 10:00Z + UX-revamp clarification at 10:30Z exposed that PRs #364 / #383 / #408 were FALSE PROGRESS (admin-split scaffold → revert → host-aliased). New EPIC #422 (drop app.iogrid.org + independent admin app + full UX revamp) now active.
+
+| PR | merged | scope | issue refs |
+|---|---|---|---|
+| [#420](https://github.com/iogrid/iogrid/pull/420) | 10:09Z | fix(coordinator,web,infra): canonical IOGRID_GATEWAY_BFF_{URL,TOKEN} env vars | #416 |
+| [#421](https://github.com/iogrid/iogrid/pull/421) | 10:13Z | fix(web/customer/billing): render explicit error state instead of "?? FREE" silent fallback | #417 |
+| [#412](https://github.com/iogrid/iogrid/pull/412) | (in §0 already) | listed in §0 — moved to ensure complete record below | #381 |
+
+### Issues filed post §0
+
+| # | filed | scope |
+|---|---|---|
+| [#416](https://github.com/iogrid/iogrid/issues/416) | 09:30Z | quality: gateway-bff env var name drift (4 spellings) |
+| [#417](https://github.com/iogrid/iogrid/issues/417) | 09:30Z | quality: `?? "FREE"` fallback masks billing-svc failure |
+| [#418](https://github.com/iogrid/iogrid/issues/418) | 09:30Z | quality: docs.iogrid.org runbook URLs hardcoded x5 |
+| [#419](https://github.com/iogrid/iogrid/issues/419) | 09:30Z | quality: 2 unattached TODOs in production code |
+| [#422](https://github.com/iogrid/iogrid/issues/422) | 10:50Z | **EPIC: drop app.iogrid.org + independent admin.iogrid.org + full UX revamp** (founder verbatim) |
+
+### EPIC #422 — phases in flight (as agent work)
+
+| Phase | scope | status |
+|---|---|---|
+| 1 | Scaffold independent `admin/` Next.js app, move admin routes out of `web/`, separate Deployment + CI + cookie scope | <img alt="IN_FLIGHT" src="https://img.shields.io/badge/-IN__FLIGHT-bf8700?style=flat-square" /> agent `aa80f1a544e9a4876` |
+| 2.1 | Design system + landing page redesign — Linear/Notion/Vercel aesthetic, drop "techy geek illustrations" | <img alt="IN_FLIGHT" src="https://img.shields.io/badge/-IN__FLIGHT-bf8700?style=flat-square" /> agent `ab955a67623c6e657` |
+| 2.2 | Product surfaces redesign (provide / customer / vpn / account) | <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> queued after Phase 2.1 |
+| 2.3 | Admin surfaces redesign (apply design system to admin app) | <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> queued after Phase 1 + 2.1 |
+| 3.1 | `app.iogrid.org/*` → 301 → `iogrid.org/*` (DNS, IngressRoute, cert SAN, cookie-domain) | <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> queued |
+| 3.2 | Sunset `app.iogrid.org` ingress after redirect grace period | <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> queued |
+| 4.1 | Cross-context nav audit + separation invariant doc | <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> queued |
 
 ---
 
