@@ -23,9 +23,11 @@ test.describe("Public marketing routes", () => {
   }) => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
 
+    // Phase 2.1 redesign (#422 / #423): hero h1 reads
+    // "Rent your idle machine. Or rent the whole network."
     await expect(
       page.getByRole("heading", {
-        name: /distributed compute mesh/i,
+        name: /rent your idle machine/i,
         level: 1,
       }),
     ).toBeVisible();
@@ -34,21 +36,23 @@ test.describe("Public marketing routes", () => {
       await expect(page.locator(`a[href="${href}"]`).first()).toBeVisible();
     }
 
-    // Both primary CTAs.
+    // Both primary CTAs in the hero:
+    //   1. Primary  → /install     ("Install the daemon")
+    //   2. Secondary → /customer   ("For customers")
     await expect(
-      page.getByRole("link", { name: /install — become a provider/i }),
+      page.getByRole("link", { name: /install the daemon/i }),
     ).toBeVisible();
     await expect(
-      page.getByRole("link", { name: /run workloads/i }),
+      page.getByRole("link", { name: /for customers/i }),
     ).toBeVisible();
   });
 
-  test("clicking 'Install — become a provider' lands on /install", async ({
+  test("clicking 'Install the daemon' lands on /install", async ({
     page,
   }) => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
     await page
-      .getByRole("link", { name: /install — become a provider/i })
+      .getByRole("link", { name: /install the daemon/i })
       .click();
     await expect(page).toHaveURL(/\/install$/);
     await expect(
