@@ -33,12 +33,22 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/iogrid/iogrid/coordinator/services/antiabuse-svc/internal/filters"
 )
+
+// SyntheticCSAMFixtureToken is the URL substring proxy-gateway integration
+// tests use to prove the CSAM deny path is wired end-to-end without
+// touching real NCMEC infrastructure. Any URL whose path or host contains
+// this token returns a deterministic BLOCK, regardless of whether
+// PHOTODNA_API_KEY is set. Production traffic NEVER contains this token
+// (it includes "csam-test-fixture" — operators searching their access
+// logs for that string find ONLY synthetic test traffic). See #360 Part A.
+const SyntheticCSAMFixtureToken = "/csam-test-fixture/"
 
 // Name is the canonical backend identifier.
 const Name = "ncmec_photodna"
@@ -161,6 +171,16 @@ func (b *Backend) Enabled() bool { return b.apiKey != "" }
 // Test code can inject deterministic positives via InjectMatch.
 func (b *Backend) CheckURL(ctx context.Context, url string) filters.Result {
 	b.checks.Add(1)
+	// Synthetic CSAM fixture: integration tests POST a URL containing
+	// "/csam-test-fixture/" to prove the deny path is wired without
+	// touching real NCMEC data. Real production URLs never contain this
+	// token. The check runs even when the backend is in stub mode so
+	// the integration test does not require an NCMEC API key.
+	if strings.Contains(strings.ToLower(url), SyntheticCSAMFixtureToken) {
+		b.matches.Add(1)
+		return filters.NewBlock(Name, "csam_hash_match",
+			"synthetic CSAM test fixture matched (proxy-gateway integration test)")
+	}
 	if !b.Enabled() {
 		b.warnOnce()
 		return filters.NewAllow(Name)

@@ -228,8 +228,98 @@ func TestSocks5_BlockedDestination(t *testing.T) {
 	_, _ = c.Write(connReq)
 	reply := make([]byte, 10)
 	io.ReadFull(c, reply) //nolint:errcheck
-	if reply[1] != 0x02 {
-		t.Fatalf("expected ConnNotAllowed (0x02); got 0x%02x", reply[1])
+	// Issue #360: antiabuse-flagged destinations get
+	// ReplyGeneralFailure (0x01), distinct from port-block 0x02 —
+	// so customer-side libraries can tell "policy denial" from
+	// "antiabuse kill switch fired".
+	if reply[1] != 0x01 {
+		t.Fatalf("expected GeneralFailure (0x01); got 0x%02x", reply[1])
+	}
+}
+
+// TestSocks5_AntiabuseUnavailable_FailsClosed — when the antiabuse
+// filter returns DecisionError (RPC unreachable), the default policy
+// is fail-closed: the proxy must emit ReplyGeneralFailure (0x01) and
+// audit-tag the reason as antiabuse_unavailable. This is the legal-
+// defence kill switch invariant from docs/LEGAL.md (issue #360).
+func TestSocks5_AntiabuseUnavailable_FailsClosed(t *testing.T) {
+	pool := dispatch.NewStaticPool([]dispatch.ProviderEntry{
+		{ID: "prov-1", Endpoint: "127.0.0.1:1", Online: true},
+	})
+	srv, ln := buildServer(t, pool, &abuse.StaticFilter{
+		Verdict: abuse.Verdict{Decision: abuse.DecisionError, Reason: "antiabuse_unavailable"},
+		Err:     errors.New("rpc timeout"),
+	})
+	// Explicit default: AntiabuseFailOpen is false.
+	defer ln.Close()
+	go srv.Serve(context.Background(), ln) //nolint:errcheck
+
+	c, err := net.DialTimeout("tcp", ln.Addr().String(), 2*time.Second)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer c.Close()
+
+	_, _ = c.Write([]byte{0x05, 0x01, 0x02})
+	io.ReadFull(c, make([]byte, 2)) //nolint:errcheck
+	r := []byte{0x01, 0x02, 'w', 's', byte(len("sk_live_abc"))}
+	r = append(r, []byte("sk_live_abc")...)
+	_, _ = c.Write(r)
+	io.ReadFull(c, make([]byte, 2)) //nolint:errcheck
+	host := "any.example"
+	connReq := []byte{0x05, 0x01, 0x00, 0x03, byte(len(host))}
+	connReq = append(connReq, []byte(host)...)
+	connReq = append(connReq, 0x01, 0xbb)
+	_, _ = c.Write(connReq)
+	reply := make([]byte, 10)
+	io.ReadFull(c, reply) //nolint:errcheck
+	if reply[1] != 0x01 {
+		t.Fatalf("fail-closed: expected GeneralFailure (0x01); got 0x%02x", reply[1])
+	}
+}
+
+// TestSocks5_AntiabuseUnavailable_FailsOpenWhenConfigured — operators
+// can flip ANTIABUSE_FAIL_OPEN=true to keep the data plane flowing
+// during a declared antiabuse-svc incident. The proxy then relays
+// the request to the provider even when the filter is unreachable.
+// docs/LEGAL.md acknowledges this opt-in escape valve; every fail-
+// open should land in the audit log so the gap is recorded.
+func TestSocks5_AntiabuseUnavailable_FailsOpenWhenConfigured(t *testing.T) {
+	echoAddr, stopEcho := startEchoServer(t, "OPEN/")
+	defer stopEcho()
+	pool := dispatch.NewStaticPool([]dispatch.ProviderEntry{
+		{ID: "prov-1", Endpoint: echoAddr, Online: true},
+	})
+	srv, ln := buildServer(t, pool, &abuse.StaticFilter{
+		Verdict: abuse.Verdict{Decision: abuse.DecisionError, Reason: "antiabuse_unavailable"},
+	})
+	// FLIP fail-open ON for this test.
+	srv.Config.AntiabuseFailOpen = true
+	defer ln.Close()
+	go srv.Serve(context.Background(), ln) //nolint:errcheck
+
+	c, err := net.DialTimeout("tcp", ln.Addr().String(), 2*time.Second)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer c.Close()
+
+	_, _ = c.Write([]byte{0x05, 0x01, 0x02})
+	io.ReadFull(c, make([]byte, 2)) //nolint:errcheck
+	r := []byte{0x01, 0x02, 'w', 's', byte(len("sk_live_abc"))}
+	r = append(r, []byte("sk_live_abc")...)
+	_, _ = c.Write(r)
+	io.ReadFull(c, make([]byte, 2)) //nolint:errcheck
+
+	host := "any.example"
+	connReq := []byte{0x05, 0x01, 0x00, 0x03, byte(len(host))}
+	connReq = append(connReq, []byte(host)...)
+	connReq = append(connReq, 0x01, 0xbb)
+	_, _ = c.Write(connReq)
+	reply := make([]byte, 10)
+	io.ReadFull(c, reply) //nolint:errcheck
+	if reply[1] != 0x00 {
+		t.Fatalf("fail-open: expected Succeeded (0x00); got 0x%02x", reply[1])
 	}
 }
 

@@ -11,6 +11,8 @@ import (
 	commonv1 "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/common/v1"
 	"github.com/iogrid/iogrid/coordinator/services/antiabuse-svc/internal/domains"
 	"github.com/iogrid/iogrid/coordinator/services/antiabuse-svc/internal/filters"
+	"github.com/iogrid/iogrid/coordinator/services/antiabuse-svc/internal/filters/photodna"
+	"github.com/iogrid/iogrid/coordinator/services/antiabuse-svc/internal/filters/phishtank"
 	"github.com/iogrid/iogrid/coordinator/services/antiabuse-svc/internal/ports"
 	"github.com/iogrid/iogrid/coordinator/services/antiabuse-svc/internal/ratelimit"
 	"github.com/iogrid/iogrid/coordinator/services/antiabuse-svc/internal/registry"
@@ -231,5 +233,155 @@ func TestCheckUrl_InvalidArgs(t *testing.T) {
 	_, err = s.CheckDomain(context.Background(), connect.NewRequest(&antiabusev1.CheckDomainRequest{Domain: ""}))
 	if err == nil {
 		t.Error("empty domain should error")
+	}
+}
+
+// TestCheckUrl_BlocksOutboundSMTPPort — issue #360 acceptance criterion
+// #2: SOCKS5 to port 25 returns BLOCK with reason="outbound_port_blocked".
+// The reason slug must match what the proxy-gateway audit emitter
+// will surface to the customer-visible audit log + transparency feed.
+func TestCheckUrl_BlocksOutboundSMTPPort(t *testing.T) {
+	s := newTestService()
+	resp, err := s.CheckUrl(context.Background(), connect.NewRequest(&antiabusev1.CheckUrlRequest{
+		Context: &antiabusev1.FilterContext{TraceId: "trace-smtp"},
+		Url:     "tcp://mail.example:25/",
+	}))
+	if err != nil {
+		t.Fatalf("CheckUrl err: %v", err)
+	}
+	if resp.Msg.Verdict.Decision != antiabusev1.FilterDecision_FILTER_DECISION_BLOCK {
+		t.Fatalf("port 25: Decision = %v, want BLOCK", resp.Msg.Verdict.Decision)
+	}
+	if resp.Msg.Verdict.Reason != "destination_port_blocked" {
+		t.Errorf("port 25: Reason = %q", resp.Msg.Verdict.Reason)
+	}
+}
+
+// TestCheckUrl_BlocksAllOutboundSMTPVariants — every SMTP variant in
+// docs/LEGAL.md MUST block. Caught a regression in scaffold rev where
+// only 25 was wired (587/465/2525 silently passed).
+func TestCheckUrl_BlocksAllOutboundSMTPVariants(t *testing.T) {
+	s := newTestService()
+	for _, p := range []uint32{25, 465, 587, 2525, 6667, 6697, 9001, 9030} {
+		req := &antiabusev1.CheckDomainRequest{
+			Context: &antiabusev1.FilterContext{},
+			Domain:  "any.example",
+			Port:    p,
+		}
+		resp, err := s.CheckDomain(context.Background(), connect.NewRequest(req))
+		if err != nil {
+			t.Fatalf("CheckDomain port=%d err: %v", p, err)
+		}
+		if resp.Msg.Verdict.Decision != antiabusev1.FilterDecision_FILTER_DECISION_BLOCK {
+			t.Errorf("port %d: Decision = %v, want BLOCK", p, resp.Msg.Verdict.Decision)
+		}
+	}
+}
+
+// TestCheckUrl_SyntheticPhishHosts — issue #360 acceptance criterion
+// #1: SOCKS5 / HTTP CONNECT to a known-phish destination returns
+// BLOCK with reason="phishtank_listed". The proxy-gateway integration
+// test uses these synthetic hosts to verify the full deny path
+// without registering for PhishTank's real feed.
+func TestCheckUrl_SyntheticPhishHosts(t *testing.T) {
+	pt := phishtank.New(phishtank.Options{}) // no API key, no live feed
+	pd := photodna.New(photodna.Options{})   // stub mode
+	s := &Service{
+		Domains:    domains.NewDefaultPolicy(),
+		Ports:      ports.NewDefaultPolicy(),
+		Limiter:    ratelimit.New(ratelimit.Config{DefaultCustomerRate: 1000}, nil),
+		Reputation: filters.NewOrchestrator(pt, pd),
+		Registry:   registry.NewDefaultPolicy(),
+	}
+	for _, host := range []string{
+		"malware.testing.google.test",
+		"phishing-test.iogrid.org",
+	} {
+		// CheckUrl path
+		resp, err := s.CheckUrl(context.Background(), connect.NewRequest(&antiabusev1.CheckUrlRequest{
+			Context: &antiabusev1.FilterContext{},
+			Url:     "https://" + host + "/payload",
+		}))
+		if err != nil {
+			t.Fatalf("host=%s err: %v", host, err)
+		}
+		if resp.Msg.Verdict.Decision != antiabusev1.FilterDecision_FILTER_DECISION_BLOCK {
+			t.Errorf("host=%s CheckUrl Decision = %v, want BLOCK", host, resp.Msg.Verdict.Decision)
+		}
+		if resp.Msg.Verdict.Reason != "phishtank_listed" {
+			t.Errorf("host=%s CheckUrl Reason = %q, want phishtank_listed", host, resp.Msg.Verdict.Reason)
+		}
+		// CheckDomain path (SOCKS5/CONNECT exercise this)
+		dr, err := s.CheckDomain(context.Background(), connect.NewRequest(&antiabusev1.CheckDomainRequest{
+			Context: &antiabusev1.FilterContext{},
+			Domain:  host,
+			Port:    443,
+		}))
+		if err != nil {
+			t.Fatalf("host=%s domain err: %v", host, err)
+		}
+		if dr.Msg.Verdict.Decision != antiabusev1.FilterDecision_FILTER_DECISION_BLOCK {
+			t.Errorf("host=%s CheckDomain Decision = %v, want BLOCK", host, dr.Msg.Verdict.Decision)
+		}
+	}
+}
+
+// TestCheckUrl_SyntheticCSAMFixture — issue #360 Part A. The
+// "/csam-test-fixture/" URL token triggers a deterministic BLOCK
+// even with PHOTODNA_API_KEY unset, so the proxy-gateway integration
+// test can prove the CSAM-deny path without an NCMEC partnership.
+func TestCheckUrl_SyntheticCSAMFixture(t *testing.T) {
+	pt := phishtank.New(phishtank.Options{}) // no API key
+	pd := photodna.New(photodna.Options{})   // stub mode
+	s := &Service{
+		Domains:    domains.NewDefaultPolicy(),
+		Ports:      ports.NewDefaultPolicy(),
+		Limiter:    ratelimit.New(ratelimit.Config{DefaultCustomerRate: 1000}, nil),
+		Reputation: filters.NewOrchestrator(pt, pd),
+		Registry:   registry.NewDefaultPolicy(),
+	}
+	resp, err := s.CheckUrl(context.Background(), connect.NewRequest(&antiabusev1.CheckUrlRequest{
+		Context: &antiabusev1.FilterContext{},
+		Url:     "https://image-host.example/csam-test-fixture/sample.jpg",
+	}))
+	if err != nil {
+		t.Fatalf("CheckUrl err: %v", err)
+	}
+	if resp.Msg.Verdict.Decision != antiabusev1.FilterDecision_FILTER_DECISION_BLOCK {
+		t.Fatalf("CSAM fixture: Decision = %v, want BLOCK", resp.Msg.Verdict.Decision)
+	}
+	if resp.Msg.Verdict.Reason != "csam_hash_match" {
+		t.Errorf("CSAM fixture: Reason = %q, want csam_hash_match", resp.Msg.Verdict.Reason)
+	}
+}
+
+// TestCheckUrl_DecisionMergeBlocksWin — when several filters disagree
+// (e.g. port allowed + domain class clean + reputation BLOCK), the
+// merged verdict MUST be the strictest. This is the legal-defence
+// invariant from docs/LEGAL.md: a single fired filter is enough to
+// kill the request.
+func TestCheckUrl_DecisionMergeBlocksWin(t *testing.T) {
+	// Inject a reputation backend that BLOCKs.
+	block := &stubBackend{name: "stub-block", res: filters.NewBlock("stub-block", "csam_hash_match", "test")}
+	allow := &stubBackend{name: "stub-allow", res: filters.NewAllow("stub-allow")}
+	s := &Service{
+		Domains:    domains.NewDefaultPolicy(),
+		Ports:      ports.NewDefaultPolicy(),
+		Limiter:    ratelimit.New(ratelimit.Config{DefaultCustomerRate: 1000}, nil),
+		Reputation: filters.NewOrchestrator(allow, block, allow),
+		Registry:   registry.NewDefaultPolicy(),
+	}
+	resp, err := s.CheckUrl(context.Background(), connect.NewRequest(&antiabusev1.CheckUrlRequest{
+		Context: &antiabusev1.FilterContext{},
+		Url:     "https://example.com/", // domain class = clean, port 443 = allowed
+	}))
+	if err != nil {
+		t.Fatalf("CheckUrl err: %v", err)
+	}
+	if resp.Msg.Verdict.Decision != antiabusev1.FilterDecision_FILTER_DECISION_BLOCK {
+		t.Fatalf("merge decision = %v, want BLOCK (strictest wins)", resp.Msg.Verdict.Decision)
+	}
+	if resp.Msg.Verdict.Reason != "csam_hash_match" {
+		t.Errorf("Reason = %q, want csam_hash_match", resp.Msg.Verdict.Reason)
 	}
 }

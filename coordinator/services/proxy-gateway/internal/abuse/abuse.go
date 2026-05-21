@@ -39,11 +39,25 @@ const (
 	DecisionAllow Decision = iota
 	// DecisionReview — relay permitted but flagged for audit review.
 	DecisionReview
-	// DecisionBlock — relay denied; emit SOCKS5 0x02 / HTTP 403.
+	// DecisionBlock — relay denied; emit SOCKS5 0x01 (General SOCKS
+	// server failure, distinct from the 0x02 ConnNotAllowed reserved
+	// for port-policy blocks) / HTTP 403. Per issue #360 the deny
+	// code differs by reason so customer-side libraries can tell
+	// "policy denial" from "antiabuse kill switch fired".
 	DecisionBlock
-	// DecisionRateLimit — denied; emit SOCKS5 0x02 / HTTP 429 with
+	// DecisionRateLimit — denied; emit SOCKS5 0x01 / HTTP 429 with
 	// the RetryAfter timestamp on the verdict.
 	DecisionRateLimit
+	// DecisionError — the filter could not produce a verdict (RPC
+	// error, transport timeout, empty response). proxy.go translates
+	// this to DecisionBlock (fail-closed, default per docs/LEGAL.md)
+	// or DecisionAllow (fail-open, opt-in via ANTIABUSE_FAIL_OPEN env)
+	// based on operator policy. The distinction is preserved here so
+	// the proxy can attach a `antiabuse_unavailable` reason on the
+	// audit row, separate from `phishtank_listed` etc — operators
+	// reading the abuse_audit feed need to tell "filter said no" from
+	// "filter couldn't reach the backend". See issue #360.
+	DecisionError
 )
 
 // Verdict is the proxy-side decision envelope.
@@ -104,7 +118,7 @@ func NewConnectFilter(baseURL string, httpClient connect.HTTPClient) *ConnectFil
 // Check implements Filter.
 func (c *ConnectFilter) Check(ctx context.Context, in CheckInput) (Verdict, error) {
 	if c == nil || c.Client == nil {
-		return Verdict{Decision: DecisionBlock, Reason: "antiabuse_unavailable"}, errors.New("antiabuse client nil")
+		return Verdict{Decision: DecisionError, Reason: "antiabuse_unavailable"}, errors.New("antiabuse client nil")
 	}
 	pctx := &antiabusev1.FilterContext{
 		Category: categorySlug(in.Category),
@@ -129,11 +143,11 @@ func (c *ConnectFilter) Check(ctx context.Context, in CheckInput) (Verdict, erro
 		Method:  strings.ToUpper(in.Method),
 	}))
 	if err != nil {
-		return Verdict{Decision: DecisionBlock, Reason: "antiabuse_rpc_error"}, err
+		return Verdict{Decision: DecisionError, Reason: "antiabuse_unavailable"}, err
 	}
 	v := resp.Msg.GetVerdict()
 	if v == nil {
-		return Verdict{Decision: DecisionBlock, Reason: "antiabuse_empty_verdict"}, nil
+		return Verdict{Decision: DecisionError, Reason: "antiabuse_unavailable"}, nil
 	}
 	out := Verdict{Reason: v.Reason}
 	switch v.Decision {

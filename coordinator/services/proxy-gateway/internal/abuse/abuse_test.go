@@ -66,3 +66,21 @@ func TestNewConnectFilter_NilClient(t *testing.T) {
 		t.Fatal("expected non-nil filter and client")
 	}
 }
+
+// TestConnectFilter_NilClient_ReturnsDecisionError — issue #360: when
+// the filter cannot reach antiabuse-svc the Verdict MUST be
+// DecisionError (not DecisionBlock), so proxy.go can route through
+// the configurable fail-open / fail-closed policy.
+func TestConnectFilter_NilClient_ReturnsDecisionError(t *testing.T) {
+	cf := &ConnectFilter{}
+	v, err := cf.Check(context.Background(), CheckInput{Host: "any.example", Port: 443})
+	if err == nil {
+		t.Fatal("expected error from nil-client path")
+	}
+	if v.Decision != DecisionError {
+		t.Fatalf("Decision = %v, want DecisionError", v.Decision)
+	}
+	if v.Reason != "antiabuse_unavailable" {
+		t.Fatalf("Reason = %q, want antiabuse_unavailable", v.Reason)
+	}
+}
