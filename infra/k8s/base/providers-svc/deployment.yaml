@@ -31,7 +31,7 @@ spec:
         # cache-identical. Treated as an opaque ISO-8601 string by the
         # deploy-bot — do not hand-edit unless you intend to roll the
         # pods. Refs #335.
-        kubectl.kubernetes.io/restartedAt: "2026-05-21T01:35:26Z"
+        kubectl.kubernetes.io/restartedAt: "2026-05-21T02:17:07Z"
         prometheus.io/port: "9090"
         prometheus.io/path: "/metrics"
     spec:
@@ -64,7 +64,7 @@ spec:
       initContainers:
         - name: geoip-download
           image: curlimages/curl:8.10.1
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           args:
             - sh
             - -c
@@ -137,7 +137,7 @@ spec:
               mountPath: /tmp
       containers:
         - name: providers-svc
-          image: ghcr.io/iogrid/providers-svc@sha256:fd3f3f562331a3ad3fe4f8f0748bfa77e8127e864220cd9707061264e53fc7d7
+          image: ghcr.io/iogrid/providers-svc@sha256:f7f004cc43be110230ec87cc1fbf48cc7f94805ff4846b51f689b000de06e263
           imagePullPolicy: Always
           ports:
             - name: http
