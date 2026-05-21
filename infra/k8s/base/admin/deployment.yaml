@@ -64,7 +64,7 @@ spec:
               value: admin
             # admin/ pins the NextAuth session cookie to this host so
             # admin sessions can NEVER bleed into the user-facing app
-            # on iogrid.org / app.iogrid.org. See admin/src/auth.config.ts.
+            # on iogrid.org. See admin/src/auth.config.ts.
             - name: IOGRID_ADMIN_HOST
               value: admin.iogrid.org
           envFrom:

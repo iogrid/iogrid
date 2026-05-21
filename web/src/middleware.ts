@@ -17,9 +17,14 @@ import { authConfig } from "@/auth.config";
  * admin.iogrid.org (EPIC #422 Phase 1). web/ no longer carries /admin
  * routes or host-aware admin redirects — the host split is enforced
  * at the IngressRoute layer (admin.iogrid.org → admin Service,
- * iogrid.org/app.iogrid.org → web Service) with separate cookie
- * scopes per host. If a stale link sends a user to /admin on web/,
- * Next.js renders the standard 404 — admin is not findable here.
+ * iogrid.org → web Service) with separate cookie scopes per host. If
+ * a stale link sends a user to /admin on web/, Next.js renders the
+ * standard 404 — admin is not findable here.
+ *
+ * EPIC #422 Phase 3 dropped the app.iogrid.org subdomain entirely;
+ * the product app moved to the apex (iogrid.org). app.iogrid.org now
+ * 308-redirects to iogrid.org (path+query preserved) — see
+ * `infra/k8s/traefik/ingressroute-app-redirect.yaml`.
  */
 const { auth } = NextAuth(authConfig);
 

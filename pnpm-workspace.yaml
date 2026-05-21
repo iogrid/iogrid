@@ -1,7 +1,9 @@
 packages:
   - "admin"
   - "web"
-  - "marketing"
+  # marketing/ workspace was folded into web/ in EPIC #422 Phase 3.
+  # The product app now serves the apex (iogrid.org) and carries the
+  # public landing + about + pricing + legal + status pages.
   - "docs-site"
   - "sdks/typescript"
 

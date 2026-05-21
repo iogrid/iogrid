@@ -1,0 +1,39 @@
+---
+# iogrid.org + www.iogrid.org → web:3000 (Next.js 15 RSC frontend).
+#
+# EPIC #422 Phase 3 folded the marketing/ workspace into web/. The
+# product app now serves the apex (iogrid.org + www.iogrid.org) and
+# carries the public landing + about + pricing + legal/* + status
+# pages alongside the authenticated /provide, /customer, /vpn,
+# /account, /install surfaces.
+#
+# The companion ingressroute-app-redirect.yaml redirects all
+# app.iogrid.org/* traffic to iogrid.org/* with a 308.
+#
+# Refs #422 (Phase 3). Supersedes the previous marketing-site
+# IngressRoute (was `iogrid-org-marketing`, #384) which routed apex
+# to the static-export marketing-site Service. That Deployment +
+# Service have been removed in this same change.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: iogrid-org-apex
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/part-of: iogrid
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - kind: Rule
+      match: Host(`iogrid.org`) || Host(`www.iogrid.org`)
+      priority: 100
+      services:
+        - name: web
+          port: 3000
+  tls:
+    # cert-manager Certificate lives in
+    # `infra/k8s/certificates/iogrid-org-cert.yaml` — secretName
+    # `iogrid-org-tls` carries SANs for iogrid.org, www.iogrid.org,
+    # and (during the 90-day grace period) app.iogrid.org.
+    secretName: iogrid-org-tls

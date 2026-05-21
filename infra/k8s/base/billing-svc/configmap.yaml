@@ -25,7 +25,11 @@ data:
   LOG_LEVEL: "info"
 
   # ---- Web base URL (Stripe Checkout return URLs) ----
-  WEB_BASE_URL: "https://app.iogrid.org"
+  # EPIC #422 Phase 3 moved the product app from app.iogrid.org to
+  # the apex (iogrid.org). app.iogrid.org now 301s to iogrid.org
+  # during the 90-day redirect grace, so old Checkout sessions
+  # already in flight will still complete cleanly.
+  WEB_BASE_URL: "https://iogrid.org"
 
   # ---- Solana — devnet defaults (Phase 0) ----
   # Public devnet RPC. For higher throughput plug a Helius/Triton devnet

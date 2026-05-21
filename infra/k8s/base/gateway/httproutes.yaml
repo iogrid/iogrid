@@ -24,11 +24,48 @@ spec:
           port: 8080
           weight: 100
 ---
-# app.iogrid.org → web (Next.js 15 RSC frontend).
+# iogrid.org + www.iogrid.org → web (Next.js 15 RSC frontend).
+#
+# EPIC #422 Phase 3 folded marketing/ into web/ and retired the
+# app.iogrid.org subdomain — the product app now serves the apex.
+# Both apex and www route to the same `web` Service. The companion
+# HTTPRoute below 301-redirects app.iogrid.org/* → iogrid.org/*.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
-  name: app-iogrid-org
+  name: iogrid-org-apex
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/part-of: iogrid
+spec:
+  parentRefs:
+    - name: iogrid
+      namespace: gateway-system
+      sectionName: apex-https
+    - name: iogrid
+      namespace: gateway-system
+      sectionName: www-https
+  hostnames:
+    - iogrid.org
+    - www.iogrid.org
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: web
+          port: 3000
+          weight: 100
+---
+# app.iogrid.org → iogrid.org 301 redirect (EPIC #422 Phase 3).
+# Preserves path + query (Cilium Gateway implementation does not
+# pass the path through when `path:` is absent from the redirect —
+# the default behaviour preserves the requested path).
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: app-iogrid-org-redirect
   namespace: iogrid
   labels:
     app.kubernetes.io/part-of: iogrid
@@ -40,14 +77,12 @@ spec:
   hostnames:
     - app.iogrid.org
   rules:
-    - matches:
-        - path:
-            type: PathPrefix
-            value: /
-      backendRefs:
-        - name: web
-          port: 3000
-          weight: 100
+    - filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            hostname: iogrid.org
+            statusCode: 301
 ---
 # build.iogrid.org → build-gateway (iOS-build submissions, large multipart uploads).
 apiVersion: gateway.networking.k8s.io/v1

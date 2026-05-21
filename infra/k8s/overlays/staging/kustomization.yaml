@@ -63,14 +63,35 @@ patches:
       - op: replace
         path: /spec/hostnames/0
         value: api.staging.iogrid.org
+  # iogrid.org + www.iogrid.org → web. EPIC #422 Phase 3 renamed the
+  # apex HTTPRoute from `app-iogrid-org` to `iogrid-org-apex` and
+  # widened it to cover both apex and www. Staging rewrites both
+  # hostnames to staging variants.
   - target:
       kind: HTTPRoute
       group: gateway.networking.k8s.io
-      name: app-iogrid-org
+      name: iogrid-org-apex
+    patch: |-
+      - op: replace
+        path: /spec/hostnames/0
+        value: staging.iogrid.org
+      - op: replace
+        path: /spec/hostnames/1
+        value: www.staging.iogrid.org
+  # app.iogrid.org → iogrid.org redirect (90-day grace) — staging
+  # rewrites both source + destination host to the staging subdomain
+  # so we exercise the redirect behaviour in non-prod too.
+  - target:
+      kind: HTTPRoute
+      group: gateway.networking.k8s.io
+      name: app-iogrid-org-redirect
     patch: |-
       - op: replace
         path: /spec/hostnames/0
         value: app.staging.iogrid.org
+      - op: replace
+        path: /spec/rules/0/filters/0/requestRedirect/hostname
+        value: staging.iogrid.org
   - target:
       kind: HTTPRoute
       group: gateway.networking.k8s.io
