@@ -18,6 +18,14 @@
     wix build iogrid.wxs -arch x64 -out iogrid.msi
   Sign:
     signtool sign /fd SHA256 /a /tr http://timestamp.digicert.com /td SHA256 iogrid.msi
+
+  Phase 2 of EPIC #348 (Windows track #389): when staging/Update.exe is
+  present (build.ps1 calls fetch-squirrel.ps1 to drop it there before
+  invoking wix), it is laid down at the install root so the Squirrel
+  side-by-side auto-update flow (Update.exe -update [RELEASES-URL]) is
+  wired on first install. Squirrel.Windows convention also creates
+  per-version app-X.Y.Z subdirs under INSTALLDIR at update time — those
+  are managed by Update.exe at runtime, not by the .msi.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
@@ -82,6 +90,20 @@
                     <File Id="LICENSE.txt" Source="staging/LICENSE.txt" KeyPath="yes"/>
                 </Component>
 
+                <!-- Phase 2 / Squirrel.Windows runtime. build.ps1 invokes
+                     squirrel/fetch-squirrel.ps1 before the wix build, which
+                     SHA-256-verifies + stages Update.exe under
+                     installer/windows/staging/Update.exe. Update.exe is what
+                     the daemon supervisor (or an admin) invokes as
+                     "Update.exe -update [RELEASES-URL]" to apply
+                     subsequent side-by-side updates without re-running
+                     the .msi. -->
+                <Component Id="SquirrelUpdate" Guid="*">
+                    <File Id="Update.exe"
+                          Source="staging/Update.exe"
+                          KeyPath="yes"/>
+                </Component>
+
             </Directory>
         </StandardDirectory>
 
@@ -109,6 +131,7 @@
             <ComponentRef Id="DaemonExe"/>
             <ComponentRef Id="LicenseTxt"/>
             <ComponentRef Id="OnboardShortcut"/>
+            <ComponentRef Id="SquirrelUpdate"/>
         </Feature>
 
         <!-- Custom action: open onboarding URL after install completes.

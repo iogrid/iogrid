@@ -1,0 +1,55 @@
+<?xml version="1.0"?>
+<!--
+  NuGet spec for the Squirrel.Windows .nupkg containing the iogridd binary.
+
+  Placeholder tokens are substituted at build time by build-nupkg.ps1
+  using a simple regex replace (NOT envsubst — PowerShell-native to
+  avoid taking a dep on GNU coreutils on Windows runners):
+
+    __VERSION__   SemVer of the daemon release   (e.g. 0.1.0)
+    __ARCH__      x64 | arm64                   (default x64)
+
+  This .nuspec is consumed by `squirrel.exe releasify` via the
+  Squirrel runtime fetched by fetch-squirrel.ps1. The packed .nupkg
+  is placed under [OutDir]\Releases\iogridd-[version]-full.nupkg
+  alongside a RELEASES manifest file (Squirrel's update index).
+-->
+<package xmlns="http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd">
+  <metadata>
+    <!-- id MUST match what `iogridd.exe` looks for in Squirrel.Update — by
+         convention this matches the bundle CFBundleIdentifier on Mac and
+         the Windows-service short name. -->
+    <id>iogridd</id>
+    <version>__VERSION__</version>
+    <title>iogrid provider daemon</title>
+    <authors>iogrid</authors>
+    <owners>iogrid</owners>
+    <projectUrl>https://iogrid.org</projectUrl>
+    <licenseUrl>https://github.com/iogrid/iogrid/blob/main/LICENSE</licenseUrl>
+    <iconUrl>https://iogrid.org/icon.png</iconUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <description>
+      Runs iogrid workloads + reports metrics to the coordinator. Auto-updates
+      via Squirrel.Windows side-by-side install convention; see
+      installer/windows/squirrel/README.md.
+    </description>
+    <summary>iogrid provider daemon</summary>
+    <releaseNotes>
+      Squirrel-managed auto-update for the iogridd Windows service. See
+      https://github.com/iogrid/iogrid/releases for release notes.
+    </releaseNotes>
+    <copyright>Copyright (c) iogrid</copyright>
+    <language>en-US</language>
+    <tags>iogrid daemon distributed-compute</tags>
+  </metadata>
+  <files>
+    <!-- Squirrel convention: everything under `lib\net45\` becomes the
+         contents of `app-<version>\` after install. The .NET framework
+         folder name is a historical Squirrel artifact — we don't actually
+         ship managed code. -->
+    <file src="iogridd.exe" target="lib\net45\iogridd.exe" />
+    <file src="Update.exe" target="lib\net45\Squirrel.exe" />
+    <file src="LICENSE.txt" target="lib\net45\LICENSE.txt" />
+    <file src="version.txt" target="lib\net45\version.txt" />
+  </files>
+</package>
