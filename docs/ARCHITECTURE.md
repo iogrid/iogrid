@@ -242,9 +242,11 @@ Buf lints + breaking-change detection runs in CI. Generated Go bindings to `coor
 
 > Source: previously `docs/TECH.md` §"Management plane" (merged here on 2026-05-20).
 
-### 4.1 Audience split
+### 4.1 Audience split — two CODEBASE-SEPARATE Next.js apps
 
-The web management plane serves **two distinct user types** through a single Next.js app, route-segmented:
+The management plane is split across **two independent Next.js apps**, hosted on two different subdomains, with two different cookie scopes and two different sessions. This is the founder-blessed shape (EPIC #422 — see §4.6 below for the full invariant).
+
+**User-facing app — `web/` — `app.iogrid.org` (moves to `iogrid.org` apex in EPIC #422 Phase 3):**
 
 | Route prefix | Audience | Surface |
 |--------------|----------|---------|
@@ -252,9 +254,21 @@ The web management plane serves **two distinct user types** through a single Nex
 | `/customer/*` | B2B customers | API keys, usage metrics, billing, audit logs, support |
 | `/account/*` | Both | Identity management (linked emails / OAuth providers), preferences |
 | `/vpn/*` | Consumer VPN | Download links, account upgrade, server selection (for paid Plus/Pro tiers) |
-| `/admin/*` | iogrid staff | Abuse review, customer KYC, financial ops |
 
-Single sign-in flow (Google OAuth or magic-link) → user lands on context-appropriate dashboard based on their primary role. Role-switching available in nav (a provider who is also a customer can toggle).
+**Admin app — `admin/` — `admin.iogrid.org`:**
+
+| Route prefix | Audience | Surface |
+|--------------|----------|---------|
+| `/` | iogrid staff | Overview |
+| `/providers` | iogrid staff | Provider pool lookup + audit-event stream |
+| `/abuse` | iogrid staff | Abuse review queue |
+| `/billing` | iogrid staff | Billing / payout audit |
+| `/health` | iogrid staff | System health (data-plane services) |
+| `/account` | iogrid staff | Admin sign-in surface (admin-host-scoped cookie) |
+
+A single human who is BOTH staff AND a provider holds two separate sessions on two separate hosts — they sign in once on `iogrid.org` to do provider work and once on `admin.iogrid.org` to do staff work. There is NO in-app role toggle that swaps between the two surfaces; the surfaces don't share a process. See §4.6 for why this matters and how it is enforced.
+
+Each app has its own sign-in flow (Google OAuth or magic-link). The cookie produced by signing in on `iogrid.org` does NOT authenticate against `admin.iogrid.org`, and vice versa.
 
 ### 4.2 Stack
 
@@ -291,6 +305,41 @@ Single sign-in flow (Google OAuth or magic-link) → user lands on context-appro
 - Next.js native i18n routing.
 - Languages day-1: English, Spanish, Portuguese, German, French, Italian, Turkish.
 - Right-to-left support (Arabic, Hebrew) infrastructure even if translations land later.
+
+### 4.6 Admin vs user-facing separation invariant
+
+> EPIC #422 (founder directive 2026-05-21):
+> *"admis app and user apps cannot be mixed to each other or instnace what is the point of showing the provide option to admin, he needs to access from teh eother indepent apps"*
+
+**The invariant (one sentence):** Admin and user apps are CODEBASE-SEPARATE. No shared nav. No shared cookie. The same person who is both an admin AND a provider uses TWO different sessions on TWO different hosts to do their two jobs.
+
+**Why it matters.** A single Next.js app with conditional admin-nav rendering invariably leaks: an admin browsing `/provide` ends up looking at a screen they reached via an admin path, then takes a provider-side action in their admin session. The blast radius of an admin-session compromise expands to include every provider/customer surface the admin can also see. The split-codebase shape forecloses the entire class of "admin reached a user surface through admin context" bugs by making the surfaces unreachable across the host boundary.
+
+**Enforcement mechanisms (defense in depth):**
+
+| Layer | Mechanism | Where it lives |
+|---|---|---|
+| Codebase | Separate top-level directory per app | `admin/` (admin) and `web/` (user-facing). Neither imports from the other. |
+| Build | Separate `pnpm` workspace member, separate `next build`, separate Dockerfile | `admin/Dockerfile`, `web/Dockerfile` |
+| Image | Separate ghcr.io image | `ghcr.io/iogrid/admin` vs `ghcr.io/iogrid/web` |
+| CI | Separate workflow file gated on path filter | `.github/workflows/admin-ci.yml` vs `.github/workflows/web-ci.yml` |
+| Cluster | Separate `Deployment` + `Service` + `IngressRoute` | `infra/k8s/base/admin/*` vs `infra/k8s/base/web/*` |
+| Host | Separate subdomain | `admin.iogrid.org` (admin) vs `iogrid.org` / `app.iogrid.org` (user-facing) |
+| Cookie | Distinct cookie names + host-scoped cookie domain | NextAuth `cookies.sessionToken.name` differs per app; cookies do NOT set `Domain=iogrid.org` so they bind to the issuing host only |
+| Middleware | Admin app middleware 403s any non-allowlisted email; user app middleware redirects to `/account` | `admin/src/middleware.ts`, `web/src/middleware.ts` |
+| Nav surface | Admin `AdminShell` renders only admin nav; user `PortalShell` renders only user nav. Neither shell knows the other exists at render time. | `admin/src/components/layout/admin-shell.tsx`, `web/src/components/layout/portal-shell.tsx` |
+| Route surface | Admin app has no `/provide`, `/customer`, `/vpn` route files; user app has no `/admin` route files. Both 404 when probed. | `admin/src/app/*`, `web/src/app/*` |
+
+**What about the BFF upstream paths?** Admin BFF routes such as `admin/src/app/api/v1/providers/audit/stream/route.ts` proxy to `gateway-bff` upstream path `/api/v1/provide/audit/stream` with `RequireRole(ADMIN)` asserted on the gateway side. The string `/provide` appears in the upstream proxy path — that is a backend integration concern, not a user-facing nav item. The same physical audit stream backs both the provider's own view of their machines and the admin's pool-wide audit feed; role is enforced at the gateway, not by URL-namespace. The frontend nav in `admin/src/app/nav.ts` never adds a `/provide` link.
+
+**Day-2 operator playbook.** A single human who is both staff and a provider keeps two browser tabs (or two browser profiles): one signed in to `iogrid.org` for provider work, one signed in to `admin.iogrid.org` for staff work. There is no role-toggle button. There is no shared "you are admin" badge that bleeds into provider screens. Sign-out from one host never affects the other.
+
+**Test that proves the invariant holds:**
+
+- `admin/src/test/separation.test.tsx` (vitest, jsdom) — renders `AdminShell` with the canonical `ADMIN_NAV`, asserts the rendered output contains zero links to `/provide`, `/customer`, `/vpn`; asserts the admin route tree has no `provide/`, `customer/`, `vpn/` directories under `admin/src/app/`.
+- `web/tests/e2e/separation.spec.ts` (Playwright, real Next.js production server) — boots `web/`, navigates anonymously and signed-in surfaces, asserts no rendered link points to `/admin/*`; probes `/admin`, `/admin/health`, `/admin/abuse` and asserts the HTTP response status is 404 (admin routes do not exist in `web/`).
+
+These tests are the canonical anti-regression gates. If a future PR adds a "this one admin button" to `PortalShell` or a "convenience link to provider earnings" to `AdminShell`, both gates fail and the PR is blocked at CI before merge.
 
 ---
 
