@@ -64,13 +64,24 @@ spec:
               args:
                 - "-bucket"
                 - "iogrid-transparency"
-                - "-bff-url"
-                - "http://gateway-bff.iogrid.svc.cluster.local:8080"
+              # Canonical iogrid coordinator env-var contract (#416 — see
+              # docs/RUNBOOKS.md §5). The transparency-report binary
+              # fails-fast with exit 2 if IOGRID_GATEWAY_BFF_URL or
+              # IOGRID_SERVICE_TOKEN is empty, so any mis-wiring trips
+              # the CronJob alerting rather than silently POSTing to "".
               env:
-                - name: GATEWAY_BFF_TOKEN
+                - name: IOGRID_GATEWAY_BFF_URL
+                  value: "http://gateway-bff.iogrid.svc.cluster.local:8080"
+                - name: IOGRID_SERVICE_TOKEN
                   valueFrom:
                     secretKeyRef:
                       name: antiabuse-svc-secrets
+                      # Secret key is the operator's call (sealed-secret
+                      # value); we only standardise the in-pod env-var
+                      # spelling. The pre-#416 key was
+                      # transparency_publish_token and may still be in
+                      # the live sealed Secret — leaving it alone
+                      # avoids forcing a re-seal as part of this rename.
                       key: transparency_publish_token
                       optional: true
                 - name: AWS_REGION

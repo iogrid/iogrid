@@ -574,3 +574,45 @@ kubectl -n kube-system rollout restart deploy/traefik
 ```
 
 (Traefik watches Secrets via the K8s informer, so a restart is rarely needed — but it's the standard last resort if the new Secret arrived during a controller hiccup.)
+
+---
+
+## 5. Coordinator env-var contract — canonical names for cross-service config
+
+> **Source:** issue #416 (env-var name drift fix). Authority: this section is the canonical reference for every coordinator service + the Next.js web that talks to it. Any new spelling must be added here in the same PR that introduces it.
+
+### Why this exists
+
+A coordinator service that reads `os.Getenv("FOO_URL")` and gets back the empty string will boot, log nothing, and silently POST to `""`. The CronJob alerting sees `exit 0` because the binary did "complete". Meanwhile every transparency report is dropped on the floor. This is exactly the dormant-bug guard smell called out in [`~/.claude/CLAUDE.md` §3 anti-pattern catalog (service-name-mismatch in env-var defaults)](https://github.com/openova-io/openova/blob/main/CLAUDE.md).
+
+The cure is a **canonical name per logical config item**, documented here, and a **fail-fast at startup** in any service whose runtime correctness depends on a non-empty value.
+
+### Canonical names
+
+| Logical config | Canonical env var | Scope | Notes |
+|---|---|---|---|
+| gateway-bff base URL (server-side dial) | `IOGRID_GATEWAY_BFF_URL` | Next.js Route Handlers, coordinator services that publish through gateway-bff | Default in-cluster value: `http://gateway-bff.iogrid.svc.cluster.local:8080`. |
+| gateway-bff base URL (browser bundle) | `NEXT_PUBLIC_GATEWAY_URL` | Browser-side `ApiClient` + the `/provide/audit` SSE feed only | Next.js requires the `NEXT_PUBLIC_` prefix to expose any env var to the browser bundle. This is the **only** legal browser-visible spelling — it is the browser-bundle mirror of `IOGRID_GATEWAY_BFF_URL`. Leave it unset in production so all `/api/v1/*` traffic stays same-origin (the BFF proxy bridges to gateway-bff). |
+| Shared inter-service bearer token | `IOGRID_SERVICE_TOKEN` | Next.js Route Handlers, gateway-bff auth middleware, identity-svc auth middleware, antiabuse-svc transparency-report | Sealed-Secret material; same value mounted in every pod that calls another iogrid service with the `Authorization: Bearer <tok>` + `X-Iogrid-User-Id` shim. |
+| identity-svc base URL (server-side dial) | `IOGRID_IDENTITY_SVC_URL` | Next.js Route Handlers that need workspace ops | Falls back to `IOGRID_GATEWAY_BFF_URL` when unset (because gateway-bff proxies identity RPCs in Phase 0). |
+| providers-svc base URL (server-side dial) | `IOGRID_PROVIDERS_RPC_URL` | `/api/v1/admin/providers/list` only | Optional override; defaults to `IOGRID_GATEWAY_BFF_URL`. |
+
+### Retired spellings (removed in #416)
+
+| Pre-#416 spelling | Replace with | Where it was |
+|---|---|---|
+| `GATEWAY_BFF_URL` | `IOGRID_GATEWAY_BFF_URL` | antiabuse-svc transparency-report Go binary |
+| `GATEWAY_BFF_TOKEN` | `IOGRID_SERVICE_TOKEN` | antiabuse-svc transparency-report Go binary + the CronJob env block |
+| `IOGRID_BFF_SERVICE_TOKEN` | `IOGRID_SERVICE_TOKEN` | `web/src/app/api/onboard/{start,complete}/route.ts` |
+
+The transparency-report binary now **fails-fast at startup with exit 2** if `IOGRID_GATEWAY_BFF_URL` or `IOGRID_SERVICE_TOKEN` is empty (unless `-dry-run` is set). Exit 2 is distinct from exit 1 ("report generation failed at runtime") so the CronJob alert classifier can route "operator mis-wired the manifest" to the on-call ops channel rather than the generic transient-failure channel.
+
+### Adding a new env var
+
+Adding a new operator-facing env var to any coordinator service or to the Next.js web:
+
+1. Pick a name with the `IOGRID_` prefix (or `NEXT_PUBLIC_` if it must reach the browser bundle).
+2. Add a row to the canonical-names table above in the same PR.
+3. Read it through a typed config struct in Go (`internal/config/config.go`) or a single helper in TS — never re-read with `os.Getenv` / `process.env` at multiple call sites with different default values.
+4. If correctness depends on a non-empty value, fail-fast at startup. **No silent empty-string short-circuits.**
+5. Add a sealed-Secret mount in `infra/k8s/base/<svc>/deployment.yaml` (or values block) using the canonical name.
