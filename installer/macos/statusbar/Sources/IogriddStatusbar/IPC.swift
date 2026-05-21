@@ -96,18 +96,21 @@ enum IogriddIPC {
         // the path bytes into sun_path via unsafe pointer arithmetic.
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
-        let connectResult: Int32 = withUnsafeMutablePointer(to: &addr.sun_path) { sunPathPtr in
+        addr.sun_len = UInt8(min(255, MemoryLayout<sockaddr_un>.size))
+        // Scope the exclusive access to addr.sun_path to its own closure so
+        // it ENDS before we take &addr below — Swift's exclusivity rule
+        // rejects nested overlapping mutable accesses to the same storage.
+        withUnsafeMutablePointer(to: &addr.sun_path) { sunPathPtr in
             let raw = UnsafeMutableRawPointer(sunPathPtr)
             let bytes = raw.assumingMemoryBound(to: UInt8.self)
             for (i, b) in pathBytes.enumerated() {
                 bytes[i] = b
             }
-            let len = socklen_t(MemoryLayout<sockaddr_un>.size)
-            addr.sun_len = UInt8(min(255, MemoryLayout<sockaddr_un>.size))
-            return withUnsafePointer(to: &addr) { addrPtr in
-                addrPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { castPtr in
-                    Darwin.connect(fd, castPtr, len)
-                }
+        }
+        let len = socklen_t(MemoryLayout<sockaddr_un>.size)
+        let connectResult: Int32 = withUnsafePointer(to: &addr) { addrPtr in
+            addrPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { castPtr in
+                Darwin.connect(fd, castPtr, len)
             }
         }
         guard connectResult == 0 else {
