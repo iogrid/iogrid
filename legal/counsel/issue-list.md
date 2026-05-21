@@ -74,7 +74,7 @@
   - **Counsel needs to decide:** [open]
 
 - **`legal/provider-tos.md:L316`** — [view](https://github.com/iogrid/iogrid/blob/main/legal/provider-tos.md#L316)
-  - **Question:** insert governing-law jurisdiction. Per docs/LEGAL.md, "Cayman Foundation jurisdiction recommended" for token-side; for Provider contracts, "governed by provider's home jurisdiction (GDPR / regional consumer-protection laws are mandatory regardless)." Most platforms select one home jurisdiction (e.g., the Cayman Islands or Delaware) with explicit preservation of mandatory consumer rights for EU/UK/AU Providers. Make the explicit choice here.
+  - **Question:** insert governing-law jurisdiction. Per docs/BUSINESS-STRATEGY.md §6, "Cayman Foundation jurisdiction recommended" for token-side; for Provider contracts, "governed by provider's home jurisdiction (GDPR / regional consumer-protection laws are mandatory regardless)." Most platforms select one home jurisdiction (e.g., the Cayman Islands or Delaware) with explicit preservation of mandatory consumer rights for EU/UK/AU Providers. Make the explicit choice here.
   - **Counsel needs to decide:** [open]
 
 - **`legal/provider-tos.md:L348`** — [view](https://github.com/iogrid/iogrid/blob/main/legal/provider-tos.md#L348)
@@ -352,7 +352,7 @@
   - **Counsel needs to decide:** [open]
 
 - **`legal/provider-tos.md:L310`** — [view](https://github.com/iogrid/iogrid/blob/main/legal/provider-tos.md#L310)
-  - **Question:** confirm cap formula. The "monthly earnings × 12" formula matches docs/LEGAL.md spec. Some jurisdictions may require a minimum floor (e.g., the price paid in the last 12 months for paid services), which is inapplicable here since the Provider pays nothing. Consider adding a statutory-minimum floor for jurisdictions where one is required.
+  - **Question:** confirm cap formula. The "monthly earnings × 12" formula matches docs/BUSINESS-STRATEGY.md §6 spec. Some jurisdictions may require a minimum floor (e.g., the price paid in the last 12 months for paid services), which is inapplicable here since the Provider pays nothing. Consider adding a statutory-minimum floor for jurisdictions where one is required.
   - **Counsel needs to decide:** [open]
 
 - **`legal/provider-tos.md:L328`** — [view](https://github.com/iogrid/iogrid/blob/main/legal/provider-tos.md#L328)
@@ -400,7 +400,7 @@
   - **Counsel needs to decide:** [open]
 
 - **`legal/token-disclaimer.md:L5`** — [view](https://github.com/iogrid/iogrid/blob/main/legal/token-disclaimer.md#L5)
-  - **Question:** confirm — likely a non-profit Foundation jurisdiction (Cayman / BVI / Liechtenstein) per `docs/TOKENOMICS.md` §"Legal risk + mitigation strategy."
+  - **Question:** confirm — likely a non-profit Foundation jurisdiction (Cayman / BVI / Liechtenstein) per `docs/BUSINESS-STRATEGY.md` §4 (Currency model — $GRID + fiat hybrid) §"Legal risk + mitigation strategy."
   - **Counsel needs to decide:** [open]
 
 - **`legal/token-disclaimer.md:L35`** — [view](https://github.com/iogrid/iogrid/blob/main/legal/token-disclaimer.md#L35)
@@ -614,7 +614,7 @@
   - **Counsel needs to decide:** [open]
 
 - **`legal/dpa.md:L122`** — [view](https://github.com/iogrid/iogrid/blob/main/legal/dpa.md#L122)
-  - **Question:** confirm — iogrid does not currently hold SOC 2 / ISO 27001. Per docs/LEGAL.md open items, SOC 2 Type II is a Phase 3 target. Pending that, Customer audits would be direct. Recommend explicitly stating that the in-lieu mechanism is not yet available.
+  - **Question:** confirm — iogrid does not currently hold SOC 2 / ISO 27001. Per docs/BUSINESS-STRATEGY.md §6 open items, SOC 2 Type II is a Phase 3 target. Pending that, Customer audits would be direct. Recommend explicitly stating that the in-lieu mechanism is not yet available.
   - **Counsel needs to decide:** [open]
 
 - **`legal/dpa.md:L194`** — [view](https://github.com/iogrid/iogrid/blob/main/legal/dpa.md#L194)

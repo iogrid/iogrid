@@ -6,7 +6,7 @@ Cash (cross-org contract stub), and Coinbase (placeholder for the post-Wormhole
 Base bridge).
 
 Architectural decision is recorded in
-[`docs/OFFRAMP_PROVIDERS.md`](../../../../../docs/OFFRAMP_PROVIDERS.md)
+[`docs/BUSINESS-STRATEGY.md` §5 (Off-ramp partner integrations)](../../../../../docs/BUSINESS-STRATEGY.md#5-off-ramp-partner-integrations)
 and the originating EPIC at
 [`iogrid/iogrid#167`](https://github.com/iogrid/iogrid/issues/167).
 This README is the implementer's guide.
@@ -85,8 +85,8 @@ lives behind the redirect URL on the partner's side.
    case to the registry-building switch.
 5. **Surface it in the web picker** at `web/src/app/provide/earnings/withdraw.tsx`
    — add an entry to `KNOWN_PROVIDERS`.
-6. **Document the partner contract** at `docs/OFFRAMP_PROVIDERS.md` — redirect
-   URL spec, webhook payload, signature scheme.
+6. **Document the partner contract** in `docs/BUSINESS-STRATEGY.md` §5 (Off-ramp
+   partner integrations) — redirect URL spec, webhook payload, signature scheme.
 7. **Write tests** — at minimum `Name()`, redirect-URL builder, signature
    verification, status parsing.
 

@@ -37,7 +37,7 @@ Mobile users (iOS / Android) are VPN consumers only — they never share resourc
 
 ### 1.2 Token economics summary
 
-Per `docs/TOKENOMICS.md` (full document is ~400 lines, included in the information packet):
+Per `docs/BUSINESS-STRATEGY.md` §4 (Currency model — $GRID + fiat hybrid) (full document is ~400 lines, included in the information packet):
 
 - **Symbol:** `$GRID`
 - **Network:** Solana (SPL Token-2022)
@@ -47,14 +47,14 @@ Per `docs/TOKENOMICS.md` (full document is ~400 lines, included in the informati
 - **Treasury custody:** 3-of-5 Squads Protocol multisig
 - **Allocation:** 50% provider rewards (10y vest) / 15% team (4y/1y cliff) / 10% treasury / 10% strategic / 10% community / 5% DEX liquidity
 - **Target TGE:** Q3 2026
-- **Issuer structure:** Foundation (Cayman recommended per `docs/TOKENOMICS.md`); operating entity is Dynolabs Inc. (Delaware C-corp)
+- **Issuer structure:** Foundation (Cayman recommended per `docs/BUSINESS-STRATEGY.md` §4 (Currency model — $GRID + fiat hybrid)); operating entity is Dynolabs Inc. (Delaware C-corp)
 - **Utility:** provider payouts, customer payments (20% discount), governance, staking, fee-rebate
 
 ### 1.3 Legal posture, plain-language
 
 iogrid sits in the same regulatory neighborhood as Bright Data, Honeygain, Pawns.app, IPRoyal, Salad. Public-data scraping is not per-se illegal in the US per *hiQ Labs v. LinkedIn* (CA9, 2017–2022, settled) and the recent *Meta v. Bright Data* ruling — but every node in the supply chain has potential exposure. iogrid's design choice is to take that exposure onto the operating entity / Foundation (deeper pockets, stronger filters, audit logs) and shield individual providers via mutual indemnification and a defense-fund mechanism.
 
-The full risk landscape (William Weber Austria case, Moritz Bartl Tor-exit raids, Nolan King FBI case, etc.) is documented in `docs/LEGAL.md`.
+The full risk landscape (William Weber Austria case, Moritz Bartl Tor-exit raids, Nolan King FBI case, etc.) is documented in `docs/BUSINESS-STRATEGY.md` §6 (Legal risk landscape & mitigation).
 
 ### 1.4 Current state of legal artifacts
 
@@ -143,7 +143,7 @@ Timeline: **8–12 weeks** from engagement letter to operational Foundation with
 
 ## 3. Budget ranges
 
-These are public-market reference points based on the project's own internal cost analysis in `docs/LEGAL.md`, `docs/TOKENOMICS.md`, and `legal/foundation/cayman-setup.md`. Firms are encouraged to bid above or below as appropriate; cost is one factor among several in the selection criteria (Section 5).
+These are public-market reference points based on the project's own internal cost analysis in `docs/BUSINESS-STRATEGY.md` §6 (Legal risk landscape & mitigation), `docs/BUSINESS-STRATEGY.md` §4 (Currency model — $GRID + fiat hybrid), and `legal/foundation/cayman-setup.md`. Firms are encouraged to bid above or below as appropriate; cost is one factor among several in the selection criteria (Section 5).
 
 ### 3.1 Phase 1 budget envelope
 
@@ -220,7 +220,7 @@ The following firms are the candidate set for outreach. Bidders not on this list
 
 ### 5.4 Notes on the shortlist
 
-- The shortlist is informed by `docs/LEGAL.md` (which references Cooley / Fenwick / Davis Polk / Latham for US crypto-securities counsel) and `legal/foundation/cayman-setup.md` (which recommends Walkers / Maples for Cayman).
+- The shortlist is informed by `docs/BUSINESS-STRATEGY.md` §6 (Legal risk landscape & mitigation) (which references Cooley / Fenwick / Davis Polk / Latham for US crypto-securities counsel) and `legal/foundation/cayman-setup.md` (which recommends Walkers / Maples for Cayman).
 - The list is not exhaustive. Boutique firms (Sullivan & Worcester crypto group, Anderson Kill, Reed Smith crypto group, Bryan Cave Leighton Paisner, etc.) are welcome to bid.
 - For Phase 1 alone (operational documents), a tech-transactions partner at any of the above firms — or at a regional firm with strong SaaS / DPA experience — may be appropriate. The full crypto-securities bench is only required for Phase 2.
 
@@ -317,7 +317,7 @@ in Q2 2026 and Token Generation Event in Q3 2026. Detailed background:
 
   * README:        https://github.com/iogrid/iogrid/blob/main/README.md
   * Whitepaper:    https://github.com/iogrid/iogrid/blob/main/docs/whitepaper.md
-  * Tokenomics:    https://github.com/iogrid/iogrid/blob/main/docs/TOKENOMICS.md
+  * Tokenomics:    https://github.com/iogrid/iogrid/blob/main/docs/BUSINESS-STRATEGY.md#4-currency-model--grid--fiat-hybrid
   * Legal RFP:     https://github.com/iogrid/iogrid/blob/main/legal/counsel/rfp.md
   * Draft legal:   https://github.com/iogrid/iogrid/tree/main/legal
 

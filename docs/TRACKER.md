@@ -314,7 +314,7 @@ Status legend: 🟢 done · 🟡 in flight · 🔴 open · ⚫ deferred · 🟣 
 | 🟢 | [#169](https://github.com/iogrid/iogrid/issues/169) | web off-ramp redirect flow (shared with #3) |
 | 🟢 | [#170](https://github.com/iogrid/iogrid/issues/170) | gateway-bff Cash webhook receiver (shared with #2) |
 | 🔴 | [#168](https://github.com/iogrid/iogrid/issues/168) | Document Raydium CLMM as canonical $GRID venue |
-| 🔴 | [#172](https://github.com/iogrid/iogrid/issues/172) | docs/TOKENOMICS.md — $GRID vs $CASH positioning |
+| 🔴 | [#172](https://github.com/iogrid/iogrid/issues/172) | docs/BUSINESS-STRATEGY.md §4 — $GRID vs $CASH positioning |
 
 
 ### Concrete gaps inside the still-open EPICs (audit findings, 2026-05-19)
@@ -366,7 +366,7 @@ Full history: [all merged PRs](https://github.com/iogrid/iogrid/pulls?q=is%3Apr+
 | 4 | Apply for [NCMEC PhotoDNA partnership](https://www.missingkids.org/theissues/csam) per [antiabuse-svc README](../coordinator/services/antiabuse-svc/README.md) | Real CSAM filter activation | Free + ~6–10 weeks vetting |
 | 5 | Reserve [npm `@iogrid` org](https://www.npmjs.com/) / [PyPI](https://pypi.org/) / [Sonatype Central](https://central.sonatype.org/) publisher accounts | SDK publish workflows fire on tag-push | Free + one-time |
 | 6 | Apollo.io API key into k8s secret `dynolabs-apollo` (vCard project, orthogonal) | Phase 0 vCard LinkedIn title+company auto-fill | $39/mo Basic |
-| 7 | Decide on Reg-D / Reg-S pre-TGE strategic raise (optional) per [`docs/TOKENOMICS.md`](./TOKENOMICS.md) | $2M @ $200M FDV strategic round | Founder strategic choice |
+| 7 | Decide on Reg-D / Reg-S pre-TGE strategic raise (optional) per [`docs/BUSINESS-STRATEGY.md` §4 (Currency model — $GRID + fiat hybrid)](BUSINESS-STRATEGY.md#4-currency-model--grid--fiat-hybrid) | $2M @ $200M FDV strategic round | Founder strategic choice |
 | 8 | Upgrade founder Mac mini from Sonoma 14.6 → Sequoia 15 | iOS-build workload via Tart (issue [#79](https://github.com/iogrid/iogrid/issues/79)) | ~30 min + restart |
 
 ---
@@ -430,12 +430,12 @@ Automation follow-up: [bin/refresh-tracker.sh](https://github.com/iogrid/iogrid/
 ## 8. Resources
 
 - [README](../README.md) — project overview
-- [docs/TECH.md](./TECH.md) — full technical architecture
+- [docs/ARCHITECTURE.md](./ARCHITECTURE.md) — full technical architecture
 - [docs/ROADMAP.md](./ROADMAP.md) — Phase 0 → 3 plan
-- [docs/TOKENOMICS.md](./TOKENOMICS.md) — $GRID economics + DEX-first launch
-- [docs/COMPETITORS.md](./COMPETITORS.md) — competitive landscape
+- [docs/BUSINESS-STRATEGY.md §4](./BUSINESS-STRATEGY.md#4-currency-model--grid--fiat-hybrid) — $GRID economics + DEX-first launch
+- [docs/BUSINESS-STRATEGY.md §2](./BUSINESS-STRATEGY.md#2-competitive-landscape) — competitive landscape
 - [docs/MULTI_TENANT_MATRIX.md](./MULTI_TENANT_MATRIX.md) — iogrid + Sociable Cash architecture
-- [docs/LEGAL.md](./LEGAL.md) — anti-abuse design, defense fund, ToS requirements
+- [docs/BUSINESS-STRATEGY.md §6](./BUSINESS-STRATEGY.md#6-legal-risk-landscape--mitigation) — anti-abuse design, defense fund, ToS requirements
 - [legal/](../legal/) — 8 ToS / DPA / AUP / Privacy / Token disclaimer drafts
 - [contracts/audit/](../contracts/audit/) — smart contract audit prep
 

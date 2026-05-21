@@ -4,12 +4,12 @@ Customer-facing SOCKS5 / HTTP CONNECT proxy at `proxy.iogrid.org:443`.
 
 This service is the **only** public ingress for bandwidth-workload customers.
 It terminates TLS, authenticates the customer's API key, runs the pre-flight
-anti-abuse pipeline mandated by [`docs/LEGAL.md`](../../../docs/LEGAL.md),
+anti-abuse pipeline mandated by [`docs/BUSINESS-STRATEGY.md` §6](../../../docs/BUSINESS-STRATEGY.md#6-legal-risk-landscape--mitigation),
 asks `workloads-svc` to assign a provider, and relays bytes between the
 customer's connection and the chosen provider's WireGuard tunnel endpoint.
 
 It never inspects content — neither HTTP headers nor TLS payload — consistent
-with the common-carrier defence described in `docs/LEGAL.md`.
+with the common-carrier defence described in `docs/BUSINESS-STRATEGY.md` §6.
 
 ---
 
@@ -143,7 +143,7 @@ relay ends.
 
 Every accept / reject / relay-start / relay-end / failover emits an
 `AuditEvent` to the JetStream `AUDIT` stream (`iogrid.audit.proxy.<event_kind>`).
-Retention: 90 days per `docs/LEGAL.md`.
+Retention: 90 days per `docs/BUSINESS-STRATEGY.md` §6.
 
 ---
 
@@ -166,7 +166,7 @@ Retention: 90 days per `docs/LEGAL.md`.
 | `IDLE_TIMEOUT` | `5m` | Tear down the relay if no bytes flow in either direction. |
 | `DIAL_TIMEOUT` | `10s` | Per-provider dial deadline. |
 | `ALLOW_PORTS` | (empty) | When set, comma-separated whitelist of destination ports. |
-| `BLOCK_PORTS` | `25,465,587,2525,6667,6697,9001,9030` | docs/LEGAL.md outbound port blocklist (SMTP, IRC, Tor exit). |
+| `BLOCK_PORTS` | `25,465,587,2525,6667,6697,9001,9030` | docs/BUSINESS-STRATEGY.md §6 outbound port blocklist (SMTP, IRC, Tor exit). |
 | `DEV_API_KEYS` | (empty) | Dev-only seed `key=workspace;key=workspace`. |
 | `DEV_PROVIDER_ENDPOINT` | (empty) | Dev-only static provider endpoint when `WORKLOADS_SVC_URL` is unset. |
 
@@ -272,7 +272,7 @@ dispatch → relay flow end-to-end, plus blocked-destination, blocked-port,
 ## Troubleshooting
 
 - **Customer gets repeated `0x02 ConnNotAllowed` SOCKS5 replies.**
-  - Either the destination port is in `BLOCK_PORTS` (docs/LEGAL.md mandate),
+  - Either the destination port is in `BLOCK_PORTS` (docs/BUSINESS-STRATEGY.md §6 mandate),
     or `antiabuse-svc` is returning a BLOCK / RATE_LIMIT verdict. Check the
     `AUDIT` stream subject `iogrid.audit.proxy.rejected` for the reason slug.
 - **Customer gets `407 Proxy Authentication Required` even with a key.**

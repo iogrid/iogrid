@@ -2,7 +2,7 @@
 
 Bounded context: customer subscriptions (Stripe), provider payouts (Stripe Connect cash tier + Solana $GRID token tier), metering aggregation, quarterly 1099 generation.
 
-See `docs/TOKENOMICS.md` for the deflationary $GRID flow and `docs/TECH.md` §"billing-svc" for the architectural placement.
+See `docs/BUSINESS-STRATEGY.md` §4 (Currency model — $GRID + fiat hybrid) for the deflationary $GRID flow and `docs/ARCHITECTURE.md` §"Coordinator" for the architectural placement.
 
 ## What's wired
 

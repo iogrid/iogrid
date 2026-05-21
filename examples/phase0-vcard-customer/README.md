@@ -177,7 +177,7 @@ generally):
   the destinations they route through.** This is the same model
   Bright Data / Oxylabs / Smartproxy operate under.
 - We enforce **anti-abuse** (CSAM hashes, PhishTank, port restrictions
-  — see `docs/LEGAL.md`). We do NOT enforce destination ToS.
+  — see `docs/BUSINESS-STRATEGY.md` §6 (Legal risk landscape & mitigation)). We do NOT enforce destination ToS.
 - Our [Customer ToS](../../legal/customer-tos.md) (Phase 1) will make
   this explicit and require customers to indemnify iogrid against
   destination-side legal claims.

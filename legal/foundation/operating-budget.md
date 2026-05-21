@@ -196,7 +196,7 @@ equivalents elsewhere.
 | **Subtotal — MTL (if pursued)** | **$0 – $300,000** | **$50,000** | Optional |
 
 If iogrid stays on the standard "no direct fiat custody; route through MoonPay / Stripe"
-model (per `docs/TOKENOMICS.md` and `legal/dpa.md` Annex 3), MTLs are NOT needed and this
+model (per `docs/BUSINESS-STRATEGY.md` §4 (Currency model — $GRID + fiat hybrid) and `legal/dpa.md` Annex 3), MTLs are NOT needed and this
 line item is $0. Stripe Connect handles the regulated-payment compliance externally.
 
 ### 2.4 Year-2 total
@@ -225,7 +225,7 @@ maturity and the volume of legal work landing on the Foundation.
 
 **Range: $1,000,000+. Midpoint: $1,200,000+.**
 
-By Year 3, iogrid is targeting Phase 3 (DAO migration; see `docs/TOKENOMICS.md` and
+By Year 3, iogrid is targeting Phase 3 (DAO migration; see `docs/BUSINESS-STRATEGY.md` §4 (Currency model — $GRID + fiat hybrid) and
 `legal/foundation/foundation-rules.md`). The Foundation has full compliance staffing,
 regular regulator engagement, and substantial transparency-report cadence.
 
@@ -366,7 +366,7 @@ The Foundation's operating budget is funded by:
    to cover Year 1 + Year 2 expected costs with reserve. Market price will fluctuate.
 2. **Foundation-held treasury yield** — staking + DeFi yield on treasury assets (USDC
    reserve + `$GRID` staking) — recommend conservative posture (2–5% APY).
-3. **Protocol revenue share** — per `docs/TOKENOMICS.md`, a percentage of provider /
+3. **Protocol revenue share** — per `docs/BUSINESS-STRATEGY.md` §4 (Currency model — $GRID + fiat hybrid), a percentage of provider /
    customer fee flow is directed to the Foundation. This grows with network adoption.
 4. **Strategic raise proceeds** — 10% allocation to strategic investors (post 12-month
    cliff + 24-month vest) provides additional treasury depth.
@@ -381,7 +381,7 @@ only at the lean profile and the founder must plan for additional funding before
 
 ### 6.2 Realistic funding model
 
-If `$GRID` trades at $0.05–$0.20 (TOKENOMICS.md mid-case) and protocol revenue grows,
+If `$GRID` trades at $0.05–$0.20 (docs/BUSINESS-STRATEGY.md §4 mid-case) and protocol revenue grows,
 the Foundation has $5M–$20M in nominal treasury value plus growing protocol revenue.
 This funds Year 1 + Year 2 comfortably with the planned reserves.
 

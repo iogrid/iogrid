@@ -173,7 +173,7 @@ Starting Phase 2 (target: end of 2026), iogrid publishes a quarterly transparenc
 
 ### B.7 Warrant canary (Phase 3 consideration)
 
-Per `docs/LEGAL.md` Open items §5, the legal value of a warrant canary is debated. If implemented, it will be a separate page maintained by the legal lead, signed monthly with a published key, and removed if iogrid has received a national-security letter (US) or other gag-ordered process where the canary's absence is the only lawful signal. *[COUNSEL: review enforceability and risk-management value.]*
+Per `docs/BUSINESS-STRATEGY.md` §6 (Legal risk landscape & mitigation), the legal value of a warrant canary is debated. If implemented, it will be a separate page maintained by the legal lead, signed monthly with a published key, and removed if iogrid has received a national-security letter (US) or other gag-ordered process where the canary's absence is the only lawful signal. *[COUNSEL: review enforceability and risk-management value.]*
 
 ---
 

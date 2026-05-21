@@ -2,7 +2,7 @@
 
 **Version:** 0.1 (pre-TGE draft, pre-counsel-review)
 **Effective date:** *[COUNSEL: insert upon finalization]*
-**Issuing entity:** iogrid Foundation *(intended — Cayman Foundation per `docs/TOKENOMICS.md` §"Legal risk + mitigation strategy"; not yet incorporated as of this draft)*
+**Issuing entity:** iogrid Foundation *(intended — Cayman Foundation per `docs/BUSINESS-STRATEGY.md` §4 (Currency model — $GRID + fiat hybrid) §"Legal risk + mitigation strategy"; not yet incorporated as of this draft)*
 **Primary network:** Solana (Token-2022 SPL)
 **Symbol:** `$GRID`
 **Hard cap:** 1,000,000,000 (1B), 9 decimals

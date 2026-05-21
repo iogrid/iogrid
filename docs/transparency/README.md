@@ -109,8 +109,8 @@ counterparty + amount is disclosed in plain text.
 
 ## Related
 
-- [`../TOKENOMICS.md`](../TOKENOMICS.md) — the underlying economics being
+- [`../BUSINESS-STRATEGY.md` §4 (Currency model — $GRID + fiat hybrid)](../BUSINESS-STRATEGY.md#4-currency-model--grid--fiat-hybrid) — the underlying economics being
   reported on
-- [`../INCENTIVES.md`](../INCENTIVES.md) — provider incentive design
-- [`../LEGAL.md`](../LEGAL.md) — legal posture that this disclosure cadence
+- [`../BUSINESS-STRATEGY.md` §3 (Unit economics & provider incentives)](../BUSINESS-STRATEGY.md#3-unit-economics--provider-incentives) — provider incentive design
+- [`../BUSINESS-STRATEGY.md` §6 (Legal risk landscape & mitigation)](../BUSINESS-STRATEGY.md#6-legal-risk-landscape--mitigation) — legal posture that this disclosure cadence
   supports

@@ -191,7 +191,7 @@ We do not promise, and you should not rely on, any guarantee that this framing w
 
 9.3 **What survives uninstall.** Uninstalling the Daemon does not, by itself, terminate your iogrid account or remove the server-side Audit Logs covering past Workloads (which persist for the 90-day retention window). To close your account and request full data deletion, see Section 19 (Data Subject Rights).
 
-9.4 **Effect on earned compensation.** Uninstalling does not forfeit cash earnings already credited to you (they remain payable per the regular payout schedule). For $GRID earnings, vesting schedules continue per the rolling 30/90-day curve and the tier you elected (`docs/TOKENOMICS.md` §"Mandatory provider-earnings lockup"). Uninstalling does not trigger early-unlock penalties.
+9.4 **Effect on earned compensation.** Uninstalling does not forfeit cash earnings already credited to you (they remain payable per the regular payout schedule). For $GRID earnings, vesting schedules continue per the rolling 30/90-day curve and the tier you elected (`docs/BUSINESS-STRATEGY.md` §4 (Currency model — $GRID + fiat hybrid) §"Mandatory provider-earnings lockup"). Uninstalling does not trigger early-unlock penalties.
 
 9.5 **No-penalty revocation.** There is no charge, fee, or penalty for pausing or uninstalling. We do not bill you for past usage. We will not retaliate against you in any future re-onboarding (subject to Section 2(7)).
 
@@ -307,13 +307,13 @@ We do not warrant that the Daemon will be uninterrupted, error-free, or secure; 
 - Fraud or fraudulent misrepresentation by us;
 - Any other liability that cannot lawfully be limited or excluded under the law applicable to this Agreement.
 
-*[COUNSEL: confirm cap formula. The "monthly earnings × 12" formula matches docs/LEGAL.md spec. Some jurisdictions may require a minimum floor (e.g., the price paid in the last 12 months for paid services), which is inapplicable here since the Provider pays nothing. Consider adding a statutory-minimum floor for jurisdictions where one is required.]*
+*[COUNSEL: confirm cap formula. The "monthly earnings × 12" formula matches docs/BUSINESS-STRATEGY.md §6 spec. Some jurisdictions may require a minimum floor (e.g., the price paid in the last 12 months for paid services), which is inapplicable here since the Provider pays nothing. Consider adding a statutory-minimum floor for jurisdictions where one is required.]*
 
 ---
 
 ## 17. Governing law; dispute resolution
 
-17.1 **Governing law.** This Agreement is governed by and construed in accordance with the laws of *[COUNSEL: insert governing-law jurisdiction. Per docs/LEGAL.md, "Cayman Foundation jurisdiction recommended" for token-side; for Provider contracts, "governed by provider's home jurisdiction (GDPR / regional consumer-protection laws are mandatory regardless)." Most platforms select one home jurisdiction (e.g., the Cayman Islands or Delaware) with explicit preservation of mandatory consumer rights for EU/UK/AU Providers. Make the explicit choice here.]*, without giving effect to its conflict-of-laws principles.
+17.1 **Governing law.** This Agreement is governed by and construed in accordance with the laws of *[COUNSEL: insert governing-law jurisdiction. Per docs/BUSINESS-STRATEGY.md §6, "Cayman Foundation jurisdiction recommended" for token-side; for Provider contracts, "governed by provider's home jurisdiction (GDPR / regional consumer-protection laws are mandatory regardless)." Most platforms select one home jurisdiction (e.g., the Cayman Islands or Delaware) with explicit preservation of mandatory consumer rights for EU/UK/AU Providers. Make the explicit choice here.]*, without giving effect to its conflict-of-laws principles.
 
 17.2 **Provider-side mandatory rights preserved.** Notwithstanding Section 17.1, if you are a consumer ordinarily resident in the European Economic Area, the United Kingdom, Switzerland, Australia, or any other jurisdiction whose consumer-protection law applies regardless of contractual choice-of-law, you remain entitled to the protections of the mandatory provisions of your home jurisdiction's law that you would have absent this Agreement.
 

@@ -31,7 +31,7 @@ The five jurisdictions:
 1. **Cayman Islands** (default; default per existing docs)
 2. **British Virgin Islands (BVI)**
 3. **Liechtenstein** (TVTG)
-4. **Wyoming DAO LLC** (US-domestic; explicitly NOT recommended in TOKENOMICS.md)
+4. **Wyoming DAO LLC** (US-domestic; explicitly NOT recommended in docs/BUSINESS-STRATEGY.md §4 (Currency model — $GRID + fiat hybrid))
 5. **Switzerland** (Zug Crypto Valley)
 
 A sixth jurisdiction — **Panama** — is sometimes proposed for crypto foundations but has
@@ -333,7 +333,7 @@ sister entity to a Cayman parent.
 
 - The Wyoming DAO LLC structure provides corporate-form clarity for DAOs but does NOT
   shield from federal securities law.
-- **TOKENOMICS.md explicitly identifies Wyoming DAO LLC as UNTESTED for token issuance
+- **docs/BUSINESS-STRATEGY.md §4 (Currency model — $GRID + fiat hybrid) explicitly identifies Wyoming DAO LLC as UNTESTED for token issuance
   and high-SEC-action risk.**
 
 ### 4.7 Reputation / perception
@@ -350,7 +350,7 @@ sister entity to a Cayman parent.
 ### 4.9 Best for
 
 DAO-native projects where US-domestic structure is a values commitment and the legal
-risk is accepted. **NOT recommended for iogrid per TOKENOMICS.md.** Including in this
+risk is accepted. **NOT recommended for iogrid per docs/BUSINESS-STRATEGY.md §4 (Currency model — $GRID + fiat hybrid).** Including in this
 comparison only for completeness.
 
 ---
@@ -484,7 +484,7 @@ mathematical answer.]`
 For iogrid's profile (Solana-native utility token, US founder, B2B SaaS revenue, target
 Q3 2026 TGE, $80–200K Phase 2 budget envelope, EU launch as secondary priority), the
 **Cayman Foundation Company is the recommended default**, consistent with
-`docs/TOKENOMICS.md` and `legal/foundation/cayman-setup.md`.
+`docs/BUSINESS-STRATEGY.md` §4 (Currency model — $GRID + fiat hybrid) and `legal/foundation/cayman-setup.md`.
 
 Rationale:
 
@@ -514,7 +514,7 @@ positioning.
 
 **Scenario D — US-domestic ethos.** Choose **Wyoming** if the founder strongly prefers
 US-domestic structure and accepts the federal-securities-law exposure. **NOT recommended
-for iogrid per TOKENOMICS.md.**
+for iogrid per docs/BUSINESS-STRATEGY.md §4 (Currency model — $GRID + fiat hybrid).**
 
 **Scenario E — dual structure.** Some projects use a Cayman parent + Swiss / Liechtenstein
 sister for EU-facing activities. Adds $50–100K to setup + $30–60K to annual maintenance
@@ -538,7 +538,7 @@ Founder may use the following decision tree:
    NO  -> continue
 
 4. Is US-domestic structure a values commitment despite federal risk?
-   YES -> Wyoming (NOT recommended per TOKENOMICS.md; reconfirm with counsel)
+   YES -> Wyoming (NOT recommended per docs/BUSINESS-STRATEGY.md §4 (Currency model — $GRID + fiat hybrid); reconfirm with counsel)
    NO  -> Cayman (default)
 ```
 
@@ -570,7 +570,7 @@ For iogrid as of 2026-05-19, every branch points to **Cayman**.
 - `legal/foundation/cayman-setup.md` — operational checklist for Cayman incorporation
 - `legal/foundation/foundation-rules.md` — Foundation Rules template (jurisdiction-
   agnostic; counsel adapts to selected jurisdiction)
-- `docs/TOKENOMICS.md` §"Legal risk + mitigation strategy" — original founder rationale
+- `docs/BUSINESS-STRATEGY.md` §4 (Currency model — $GRID + fiat hybrid) §"Legal risk + mitigation strategy" — original founder rationale
 - `docs/whitepaper.md` §11 — Foundation governance rationale
 - Helium Foundation public materials (Cayman precedent)
 - Aptos Foundation public materials (Cayman precedent)
@@ -584,7 +584,7 @@ For iogrid as of 2026-05-19, every branch points to **Cayman**.
 jurisdiction section are public-market estimates compiled from open-source comparable
 engagements; counsel should validate against current market and specific firm
 quotations. The scoring matrix in Section 6.2 is illustrative only. The decision tree
-in Section 7.3 captures the founder's expressed preferences in TOKENOMICS.md and
+in Section 7.3 captures the founder's expressed preferences in docs/BUSINESS-STRATEGY.md §4 (Currency model — $GRID + fiat hybrid) and
 existing docs; counsel may recommend re-weighting based on operational realities.]`
 
 *End of Foundation jurisdiction comparison.*

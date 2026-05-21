@@ -87,10 +87,10 @@ Binance is a **centralized exchange** — you bring your token to them and they 
 
 ## Cross-references
 
-- [`docs/TOKENOMICS.md`](./TOKENOMICS.md) — full $GRID economics
-- [`docs/COMPETITORS.md`](./COMPETITORS.md) — competitive landscape
+- [`docs/BUSINESS-STRATEGY.md` §4 (Currency model — $GRID + fiat hybrid)](./BUSINESS-STRATEGY.md#4-currency-model--grid--fiat-hybrid) — full $GRID economics
+- [`docs/BUSINESS-STRATEGY.md` §2 (Competitive landscape)](./BUSINESS-STRATEGY.md#2-competitive-landscape) — competitive landscape
 - Issue #167 — EPIC: Off-ramp partnership model with Sociable Cash
 - Issue #168 — Document Raydium CLMM as canonical $GRID liquidity venue
 - Issue #169 — web off-ramp redirect flow
 - Issue #170 — gateway-bff Cash webhook receiver
-- Issue #172 — $GRID vs $CASH positioning section in TOKENOMICS.md
+- Issue #172 — $GRID vs $CASH positioning section in docs/BUSINESS-STRATEGY.md §4 (Currency model — $GRID + fiat hybrid)
