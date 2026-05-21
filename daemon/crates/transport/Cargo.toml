@@ -35,6 +35,9 @@ iogrid-scheduler = { workspace = true }
 futures = { workspace = true }
 parking_lot = { workspace = true }
 url = { workspace = true }
+# Read OS hostname so the daemon can self-report a sensible default
+# display_name on pair. See `identity::local_display_name`.
+hostname = { workspace = true }
 # #273: pre-resolved-IP connector for tonic Endpoint. See lib.rs comment
 # on PinnedAddrConnector + Channel::connect for the why. We pull these
 # as direct deps (rather than re-exporting via tonic) because tonic's

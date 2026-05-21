@@ -41,7 +41,20 @@ type pairingRESTRequest struct {
 	// behalf of the daemon (doing so would force the daemon to trust a
 	// server-side private key it never sees, the original #235 bug).
 	CSRPem string `json:"csr_pem"`
-	// Optional richer fields the daemon may start populating later.
+	// DisplayName is the operator-visible label for the paired daemon
+	// in /admin/providers + /provide. Populated by the Rust daemon from
+	// the OS hostname (gethostname(3) / GetComputerNameExW) via
+	// `iogrid-transport::identity::local_display_name`. Doubles as the
+	// re-pair dedupe key: PairDaemon looks up the existing
+	// (owner_user_id, display_name) row before INSERTing a duplicate, so
+	// repeated installs on the same host UPDATE in place instead of
+	// accumulating ghost rows (#327).
+	//
+	// `omitempty` so daemons that fail to read the hostname (or are
+	// running a legacy build) still hit the documented server-side
+	// fallback (`provider-<short-id>`) rather than a confusing empty
+	// label. When the field is empty the dedupe lookup is skipped — see
+	// the PairDaemon handler for the safety rationale.
 	DisplayName string `json:"display_name,omitempty"`
 	// DaemonPublicKeyB64 is base64-std-encoded SPKI DER. RETAINED for
 	// back-compat with older test harnesses + the Connect-RPC path —

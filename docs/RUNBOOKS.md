@@ -403,3 +403,106 @@ curl -X POST http://localhost:8088/status/incidents/$ID/updates \
 # Subscribe routing check:
 psql -c "SELECT count(*) FROM status_subscriptions WHERE verified AND unsubscribed_at IS NULL;"
 ```
+
+---
+
+## 3. providers-svc — dedupe legacy duplicate provider rows
+
+> **Scope:** one-off SQL cleanup against the providers-svc Postgres
+> database after the daemon hostname / re-pair-dedupe fix lands (Refs #327).
+> All operations are **owner-scoped**; no row is deleted unless the same
+> owner still has another row that the daemon will heartbeat into.
+
+### 3.1 Background
+
+Before the daemon shipped OS-hostname as `display_name` + the
+coordinator deduped on (`owner_user_id`, `display_name`), every daemon
+reinstall on the same machine inserted a NEW row in `providers` (fresh
+UUID, fresh public key, fresh display_name like
+`provider-a7a93576-…`). Operators saw two or more rows per host in
+`/admin/providers` — Hatice's Mac appeared as both `Hatice's Mac`
+(legacy, never re-heartbeated) and `provider-a7a93576-…` (the live row).
+
+After the fix, every fresh pair from the same host UPDATEs the existing
+(owner, hostname) row — but pre-existing duplicates need a one-off
+cleanup.
+
+### 3.2 Pre-flight (READ-ONLY)
+
+Inventory the candidate duplicates first. Never run the DELETE without
+seeing the rows you're about to remove.
+
+```sql
+-- Owners that have BOTH an auto-generated `provider-…` row AND a
+-- human-named row. These are the dedupe candidates.
+WITH dup_owners AS (
+  SELECT owner_user_id
+    FROM providers
+   GROUP BY owner_user_id
+  HAVING bool_or(display_name LIKE 'provider-%')
+     AND bool_or(display_name NOT LIKE 'provider-%')
+)
+SELECT id, owner_user_id, display_name, registered_at, last_seen_at, is_primary
+  FROM providers
+ WHERE owner_user_id IN (SELECT owner_user_id FROM dup_owners)
+ ORDER BY owner_user_id, registered_at;
+```
+
+For each owner, decide manually:
+- The row with the human-friendly name + most recent `last_seen_at` is
+  the keeper.
+- The `provider-…` row with the stale `last_seen_at` is safe to drop.
+- If BOTH look stale (no daemon connected for >24h), do nothing — let
+  the next pair re-dedupe.
+
+### 3.3 Cleanup (DESTRUCTIVE — paste into a transaction first)
+
+```sql
+BEGIN;
+
+-- Safety-net: only delete `provider-<short-id>` rows whose owner ALSO
+-- has at least one human-named row that the new dedupe path will
+-- reconverge on. NEVER deletes a row whose owner has zero replacement.
+DELETE FROM providers p
+ WHERE p.display_name LIKE 'provider-%'
+   AND p.is_primary = FALSE
+   AND EXISTS (
+     SELECT 1 FROM providers q
+      WHERE q.owner_user_id = p.owner_user_id
+        AND q.id <> p.id
+        AND q.display_name NOT LIKE 'provider-%'
+   );
+
+-- Inspect the row-count. Commit only if it matches your pre-flight
+-- inventory. ROLLBACK otherwise.
+-- COMMIT;
+-- ROLLBACK;
+```
+
+### 3.4 Audit-trail (POST-CLEANUP)
+
+```sql
+-- After commit, re-run §3.2 — the result set MUST be empty (or contain
+-- only owners with two human-named rows that legitimately represent
+-- two machines).
+
+-- Confirm no row was wrongly dropped: per-owner row counts.
+SELECT owner_user_id, COUNT(*) AS rows_remaining
+  FROM providers
+ GROUP BY owner_user_id
+ ORDER BY rows_remaining DESC
+ LIMIT 20;
+```
+
+### 3.5 Notes
+
+- The cleanup is **not** automated as a migration. Per founder rule
+  (auto-DELETE on schema-migration could lose evidence of fraud /
+  anti-abuse cases), one-off cleanups stay manual.
+- The dedupe lookup in the handler is keyed on
+  (`owner_user_id`, `display_name`) — owners with two genuinely distinct
+  machines that happen to share a hostname (`localhost`,
+  `Macbook-Pro.local`) will still collide. Recommend operators set a
+  unique hostname per machine; daemon strips `.local` / `.lan` suffixes
+  but does not deduplicate beyond that.
+

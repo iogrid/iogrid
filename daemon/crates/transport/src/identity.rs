@@ -126,6 +126,55 @@ pub struct PairingRequest {
     pub pairing_token: String,
     /// CSR (PKCS#10 PEM) the daemon generated.
     pub csr_pem: String,
+    /// Human-friendly display name the operator sees in /admin/providers
+    /// and /provide. Populated from the OS hostname (`gethostname(3)` on
+    /// Unix, `GetComputerNameExW` on Windows) at pairing time so the
+    /// coordinator does not have to fall back to `provider-<short-id>`.
+    ///
+    /// Doubles as the server-side dedupe key in `PairDaemon`: when the
+    /// SAME `owner_user_id + display_name` pair re-registers (i.e. the
+    /// daemon was reinstalled / the keypair was wiped on the same host),
+    /// the coordinator UPDATES the existing row in-place instead of
+    /// INSERTing a duplicate. Without this, every re-pair from the same
+    /// machine appeared as a fresh provider in /admin/providers — the
+    /// "Hatice's Mac" + "provider-a7a93576-…" duplicate Hatice spotted
+    /// on 2026-05-20 was exactly this bug.
+    ///
+    /// `#[serde(default, skip_serializing_if = "String::is_empty")]` so
+    /// older daemons (or test harnesses) that ship an empty string get
+    /// the legacy server-side fallback rather than a confusing empty
+    /// `display_name`. The server-side handler treats empty as "I don't
+    /// know my hostname; please derive one for me".
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub display_name: String,
+}
+
+/// Read the OS hostname and normalise it for use as a provider
+/// display-name. Returns an empty string when the OS lookup fails —
+/// callers MUST treat that as "let the coordinator derive a fallback".
+///
+/// Normalisation:
+///   * Strip a trailing `.local` (macOS bonjour suffix) so paired Macs
+///     show as `Hatices-Mac-mini-2` rather than `Hatices-Mac-mini-2.local`.
+///   * Trim ASCII whitespace.
+///   * Truncate to 64 chars (DB column is unconstrained TEXT, but the
+///     operator-visible chrome looks bad past ~64 chars).
+///
+/// The function is infallible from the caller's point of view: failure
+/// to read the hostname is reported as `""`, never as a panic. The
+/// daemon's pair flow is too important to crash on a missing hostname.
+pub fn local_display_name() -> String {
+    let raw = match hostname::get() {
+        Ok(os) => os.to_string_lossy().into_owned(),
+        Err(_) => return String::new(),
+    };
+    let trimmed = raw.trim();
+    let stripped = trimmed
+        .strip_suffix(".local")
+        .or_else(|| trimmed.strip_suffix(".lan"))
+        .unwrap_or(trimmed);
+    let bounded: String = stripped.chars().take(64).collect();
+    bounded
 }
 
 /// Pairing-response body returned by the coordinator.
@@ -247,5 +296,76 @@ mod tests {
         std::fs::write(dir.path().join("key.pem"), b"not a pem either").unwrap();
         let err = IdentityBundle::load(dir.path()).unwrap_err();
         assert!(matches!(err, IdentityError::Malformed(_)));
+    }
+
+    #[test]
+    fn pairing_request_skips_empty_display_name_on_wire() {
+        // Older daemons must round-trip through serde without emitting a
+        // `"display_name":""` field — the server-side fallback (`provider-
+        // <short-id>`) only triggers when the JSON field is absent.
+        let req = PairingRequest {
+            pairing_token: "tok".into(),
+            csr_pem: "csr".into(),
+            display_name: String::new(),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(
+            !json.contains("display_name"),
+            "empty display_name must be skipped on the wire; got {json}"
+        );
+    }
+
+    #[test]
+    fn pairing_request_serializes_populated_display_name() {
+        // The happy path: a daemon with a known hostname ships it so the
+        // coordinator can use it as both the operator-visible label AND
+        // the dedupe key for re-pair.
+        let req = PairingRequest {
+            pairing_token: "tok".into(),
+            csr_pem: "csr".into(),
+            display_name: "Hatices-Mac-mini-2".into(),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(
+            json.contains("\"display_name\":\"Hatices-Mac-mini-2\""),
+            "populated display_name must round-trip; got {json}"
+        );
+    }
+
+    #[test]
+    fn pairing_request_accepts_missing_display_name_field() {
+        // Server-side / replay path: a payload from an older daemon (no
+        // display_name field at all) must still deserialize cleanly with
+        // the field defaulted to "".
+        let body = br#"{"pairing_token":"tok","csr_pem":"csr"}"#;
+        let req: PairingRequest = serde_json::from_slice(body).unwrap();
+        assert_eq!(req.display_name, "");
+        assert_eq!(req.pairing_token, "tok");
+    }
+
+    #[test]
+    fn local_display_name_returns_non_empty_or_empty_on_supported_oses() {
+        // Cannot assert a specific hostname (test runs anywhere), but the
+        // helper must never panic and must NOT return whitespace-padded
+        // garbage. On any sane CI/dev box the OS hostname is set, so we
+        // tolerate either a populated value (the common case) or "" (the
+        // documented infallible-failure path).
+        let h = local_display_name();
+        assert_eq!(
+            h,
+            h.trim(),
+            "local_display_name returned untrimmed value: {h:?}"
+        );
+        assert!(
+            h.chars().count() <= 64,
+            "local_display_name returned >64 chars: {h:?}"
+        );
+        if !h.is_empty() {
+            assert!(
+                !h.ends_with(".local"),
+                ".local suffix must be stripped: {h:?}"
+            );
+            assert!(!h.ends_with(".lan"), ".lan suffix must be stripped: {h:?}");
+        }
     }
 }

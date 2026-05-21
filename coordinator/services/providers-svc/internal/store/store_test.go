@@ -398,3 +398,54 @@ func TestMemStore_CreditEarnings_DefaultsGrid(t *testing.T) {
 		t.Fatalf("expected empty-Currency credit to default to GRID, got %q", currency)
 	}
 }
+
+// --- #327 — owner+display_name lookup --------------------------------------
+
+// TestMemStore_GetProviderByOwnerAndDisplayName_HappyPath exercises the
+// natural dedupe key: (owner_user_id, display_name) -> existing row.
+// Underpins the handler-level re-pair-from-same-host behaviour.
+func TestMemStore_GetProviderByOwnerAndDisplayName_HappyPath(t *testing.T) {
+	ctx := context.Background()
+	s := NewInMemory()
+	p := &Provider{OwnerUserID: "ownerHB", DisplayName: "Hatices-Mac-mini-2"}
+	if err := s.CreateProvider(ctx, p); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	got, err := s.GetProviderByOwnerAndDisplayName(ctx, "ownerHB", "Hatices-Mac-mini-2")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.ID != p.ID {
+		t.Fatalf("expected same row id, got %q vs %q", got.ID, p.ID)
+	}
+}
+
+// TestMemStore_GetProviderByOwnerAndDisplayName_WrongOwnerNotFound
+// guards the multi-tenant boundary: a display_name owned by ownerA must
+// NEVER resolve for ownerB. If this regresses, two unrelated users on
+// the same Sovereign could see each other's daemons.
+func TestMemStore_GetProviderByOwnerAndDisplayName_WrongOwnerNotFound(t *testing.T) {
+	ctx := context.Background()
+	s := NewInMemory()
+	if err := s.CreateProvider(ctx, &Provider{OwnerUserID: "ownerA", DisplayName: "shared-hostname"}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if _, err := s.GetProviderByOwnerAndDisplayName(ctx, "ownerB", "shared-hostname"); err != ErrNotFound {
+		t.Fatalf("expected ErrNotFound for cross-owner lookup, got %v", err)
+	}
+}
+
+// TestMemStore_GetProviderByOwnerAndDisplayName_EmptyDisplayNameNotFound
+// locks the "empty display_name does not dedupe" contract. Two legacy
+// daemons that fail to read their hostname must each get a fresh row,
+// not collide on the empty-string key.
+func TestMemStore_GetProviderByOwnerAndDisplayName_EmptyDisplayNameNotFound(t *testing.T) {
+	ctx := context.Background()
+	s := NewInMemory()
+	if err := s.CreateProvider(ctx, &Provider{OwnerUserID: "ownerC", DisplayName: ""}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if _, err := s.GetProviderByOwnerAndDisplayName(ctx, "ownerC", ""); err != ErrNotFound {
+		t.Fatalf("expected ErrNotFound for empty display_name, got %v", err)
+	}
+}

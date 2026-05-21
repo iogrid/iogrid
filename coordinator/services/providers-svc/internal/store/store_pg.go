@@ -349,6 +349,40 @@ func (p *pgStore) GetProvider(ctx context.Context, idStr string) (*Provider, err
 	return prov, nil
 }
 
+// GetProviderByOwnerAndDisplayName implements the Store contract — see
+// the interface comment in store.go. SQL filter is exact-match on both
+// columns so a daemon that re-pairs from the same host (sending the
+// same OS hostname as display_name) lands on its existing row instead
+// of inserting a duplicate. Returns ErrNotFound when the display_name
+// is empty (legacy / hostname-failure path), forcing the caller into
+// the INSERT branch rather than colliding on the empty string.
+//
+// The lookup hits the existing providers_owner_idx and then filters in-
+// memory on display_name; the per-owner cardinality is ones-to-tens so
+// we keep the index footprint minimal rather than adding a composite
+// index that would only ever be hit on this PairDaemon path.
+func (p *pgStore) GetProviderByOwnerAndDisplayName(ctx context.Context, ownerUserID, displayName string) (*Provider, error) {
+	if displayName == "" {
+		return nil, ErrNotFound
+	}
+	owner, err := parseUUID("ownerUserID", ownerUserID)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	row := p.pool.QueryRow(ctx,
+		`SELECT `+selectProviderCols+` FROM providers WHERE owner_user_id = $1 AND display_name = $2 LIMIT 1`,
+		owner, displayName,
+	)
+	prov, err := scanProvider(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get provider by owner+display_name: %w", err)
+	}
+	return prov, nil
+}
+
 func (p *pgStore) ListProviders(ctx context.Context, opts ListOptions) ([]*Provider, string, error) {
 	args := []any{}
 	where := []string{}

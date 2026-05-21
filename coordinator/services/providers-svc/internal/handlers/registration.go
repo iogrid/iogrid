@@ -145,6 +145,7 @@ func (h *RegistrationHandler) PairDaemon(
 			)
 		}
 	}
+	now := time.Now().UTC()
 	p := &store.Provider{
 		OwnerUserID:  pt.OwnerUserID,
 		DisplayName:  display,
@@ -153,10 +154,48 @@ func (h *RegistrationHandler) PairDaemon(
 		NetworkInfo:  netInfo,
 		Capabilities: store.Capability{}, // populated by UpdateCapabilityInventory
 		PublicKey:    append([]byte(nil), in.GetDaemonPublicKey()...),
-		RegisteredAt: time.Now().UTC(),
-		LastSeenAt:   time.Now().UTC(),
+		RegisteredAt: now,
+		LastSeenAt:   now,
 	}
-	if err := h.Store.CreateProvider(ctx, p); err != nil {
+
+	// Re-pair dedupe (#327): when the same machine pairs again (e.g. the
+	// daemon was reinstalled and the on-disk keypair regenerated), the
+	// daemon ships its OS hostname as display_name. If we already have
+	// a row for (owner_user_id, display_name) we UPDATE in place — same
+	// row id, fresh public key, fresh last_seen_at — instead of inserting
+	// a duplicate. Without this, /admin/providers accumulates one ghost
+	// per reinstall (the "Hatice's Mac" + "provider-a7a93576-…" duplicate
+	// pair was the founder-visible symptom).
+	//
+	// The lookup is skipped when display_name was server-derived from the
+	// owner_user_id ("provider-<short-id>") because that fallback is per-
+	// owner-unique-ish but NOT a stable machine identity; two distinct
+	// machines for the same owner that both miss the hostname read would
+	// otherwise collide on a single row.
+	if in.GetDisplayName() != "" {
+		if existing, err := h.Store.GetProviderByOwnerAndDisplayName(ctx, pt.OwnerUserID, display); err == nil && existing != nil {
+			// Preserve immutable bits (RegisteredAt, IsPrimary, ID); refresh
+			// everything the new pair changes (HostInfo may have moved
+			// across an OS upgrade; the keypair is brand-new; NetworkInfo
+			// reflects the latest egress).
+			existing.HostInfo = p.HostInfo
+			existing.NetworkInfo = p.NetworkInfo
+			existing.PublicKey = p.PublicKey
+			existing.Status = store.StatusActive
+			existing.LastSeenAt = now
+			if err := h.Store.UpdateProvider(ctx, existing); err != nil {
+				return nil, connect.NewError(connect.CodeInternal, err)
+			}
+			p = existing
+			h.Log.Info("daemon re-paired (existing row updated)",
+				slog.String("provider_id", p.ID),
+				slog.String("owner_user_id", p.OwnerUserID),
+				slog.String("display_name", p.DisplayName),
+			)
+		} else if err := h.Store.CreateProvider(ctx, p); err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+	} else if err := h.Store.CreateProvider(ctx, p); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 

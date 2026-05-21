@@ -99,6 +99,15 @@ bytes = "1"
 uuid = { version = "1", features = ["v4", "serde"] }
 parking_lot = "0.12"
 once_cell = "1"
+# Host identification — read the OS hostname so the daemon can self-
+# report a human-friendly default display_name at pairing time, instead
+# of letting the coordinator fall back to `provider-<short-id>`. The
+# crate is tiny (one syscall: gethostname / GetComputerNameExW) with no
+# transitive deps. Consumed by `iogrid-transport::identity` (PairingRequest)
+# and `iogridd pair` in `crates/core/src/main.rs`. See
+# `coordinator/services/providers-svc/internal/handlers/registration.go`
+# PairDaemon for the server-side dedupe that pairs with this hostname.
+hostname = "0.4"
 
 # Container runners
 bollard = "0.18"
