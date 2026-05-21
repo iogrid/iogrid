@@ -162,6 +162,10 @@ pub struct BridgeState {
     /// Pairing handler — the supervisor wires this in. When `None`, POST
     /// /pair returns 503 (daemon not ready for pairing).
     pub pair_handler: Option<Arc<dyn PairHandler>>,
+    /// Update-check handler. Triggered by `POST /updates/check` from a
+    /// future Windows tray UI (parallel to the macOS statusbar IPC in
+    /// PR #402). When `None`, the route returns 503. iogrid#399.
+    pub update_handler: Option<Arc<dyn UpdateHandler>>,
 }
 
 impl Default for BridgeState {
@@ -174,6 +178,7 @@ impl Default for BridgeState {
             scheduler: None,
             filter: None,
             pair_handler: None,
+            update_handler: None,
         }
     }
 }
@@ -212,6 +217,12 @@ impl BridgeState {
         self.pair_handler = Some(h);
         self
     }
+    /// Wire in the update handler (Windows-only Squirrel `Update.exe`
+    /// driver in PR #399, macOS Sparkle driver in PR #402).
+    pub fn with_update_handler(mut self, h: Arc<dyn UpdateHandler>) -> Self {
+        self.update_handler = Some(h);
+        self
+    }
     /// Replace the earnings ledger.
     pub fn set_earnings(&self, e: EarningsView) {
         *self.earnings.lock() = e;
@@ -226,6 +237,36 @@ pub trait PairHandler: Send + Sync {
     async fn pair(&self, req: PairRequest) -> Result<PairResponse, String>;
 }
 
+/// Result returned by [`UpdateHandler::check_for_updates`] back to the
+/// HTTP client. Carried verbatim to the future tray-UI / statusbar
+/// front-ends so they can surface a toast — the daemon doesn't pretend
+/// to interpret the result (Update.exe / Sparkle is the source of
+/// truth).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateCheckOutcome {
+    /// Free-form short status — one of `"spawned"`, `"missing"`,
+    /// `"spawn_failed"`, `"unsupported"`. Tray UIs render this as a
+    /// pill; the human-readable detail is in `message`.
+    pub status: String,
+    /// Free-form detail for the operator (Update.exe path,
+    /// RELEASES URL, error string, …).
+    pub message: String,
+}
+
+/// Update-check handler trait — the supervisor implements this on
+/// Windows + macOS to drive the platform-native auto-update runtime
+/// (Squirrel `Update.exe` on Windows per iogrid#399, Sparkle on macOS
+/// per PR #402). The HTTP `POST /updates/check` route in this crate
+/// just forwards to it.
+#[async_trait::async_trait]
+pub trait UpdateHandler: Send + Sync {
+    /// Trigger a check-for-updates pass. Implementations MUST return
+    /// quickly (spawn-and-forget) — the underlying updaters terminate
+    /// the parent process on a successful swap, so blocking on the
+    /// child would never return.
+    async fn check_for_updates(&self) -> UpdateCheckOutcome;
+}
+
 /// Build the axum router.
 pub fn router(state: BridgeState) -> Router {
     Router::new()
@@ -236,6 +277,7 @@ pub fn router(state: BridgeState) -> Router {
         .route("/config", post(post_config))
         .route("/earnings", get(get_earnings))
         .route("/pair", post(post_pair))
+        .route("/updates/check", post(post_updates_check))
         .with_state(state)
 }
 
@@ -371,6 +413,25 @@ async fn post_pair(
     }
 }
 
+async fn post_updates_check(
+    State(state): State<BridgeState>,
+) -> (StatusCode, Json<UpdateCheckOutcome>) {
+    match &state.update_handler {
+        None => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(UpdateCheckOutcome {
+                status: "unsupported".into(),
+                message: "auto-update handler not wired on this platform".into(),
+            }),
+        ),
+        Some(h) => {
+            let outcome = h.check_for_updates().await;
+            state.publish_audit(AuditEvent::now("update.check", outcome.message.clone()));
+            (StatusCode::ACCEPTED, Json(outcome))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -499,5 +560,32 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn updates_check_returns_503_when_not_wired() {
+        let s = BridgeState::default();
+        let (status, Json(body)) = post_updates_check(State(s)).await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(body.status, "unsupported");
+    }
+
+    #[tokio::test]
+    async fn updates_check_dispatches_to_handler_when_wired() {
+        struct StubHandler;
+        #[async_trait::async_trait]
+        impl UpdateHandler for StubHandler {
+            async fn check_for_updates(&self) -> UpdateCheckOutcome {
+                UpdateCheckOutcome {
+                    status: "spawned".into(),
+                    message: "Update.exe at C:\\Program Files\\iogrid\\Update.exe".into(),
+                }
+            }
+        }
+        let s = BridgeState::default().with_update_handler(Arc::new(StubHandler));
+        let (status, Json(body)) = post_updates_check(State(s)).await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+        assert_eq!(body.status, "spawned");
+        assert!(body.message.contains("Update.exe"));
     }
 }

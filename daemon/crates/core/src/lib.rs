@@ -33,6 +33,7 @@ pub use iogrid_transport::ConnectConfig as TransportConfig;
 pub use iogrid_transport::DispatchFrame;
 pub use iogrid_ui_bridge::{
     AuditEvent, BridgeState, DaemonStateView, EarningsView, PairHandler, PairRequest, PairResponse,
+    UpdateCheckOutcome, UpdateHandler,
 };
 pub use workloads::{ActiveAssignment, ActiveRegistry, WorkloadRouter, WorkloadRouterRunners};
 
@@ -45,6 +46,11 @@ pub mod updater;
 // zero extra deps.
 #[cfg(target_os = "macos")]
 pub mod ipc_mac;
+
+// Windows-only Update.exe driver (issue #399 / EPIC #348 Phase 2-win).
+// Compiled out elsewhere so non-Windows targets stay slim.
+#[cfg(windows)]
+pub mod update_windows;
 
 /// Top-level supervisor state. Mirrors the public dashboard chip in the web UI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -305,6 +311,12 @@ impl Supervisor {
         let bridge = BridgeState::default()
             .with_scheduler(scheduler.clone())
             .with_filter(filter.clone());
+        // Windows: wire the Squirrel `Update.exe` driver so the future
+        // tray UI's "Check for updates" verb (parallel to the macOS
+        // statusbar from PR #402) can drive the daily update path
+        // on-demand. iogrid#399.
+        #[cfg(windows)]
+        let bridge = bridge.with_update_handler(Arc::new(WindowsUpdateHandler));
         bridge.set(DaemonStateView {
             state: "starting".into(),
             version: env!("CARGO_PKG_VERSION").to_string(),
@@ -615,6 +627,73 @@ impl Supervisor {
             Ok(())
         });
 
+        // Windows-only: daily Squirrel `Update.exe` tick.
+        //
+        // Phase 2 of EPIC #348 (Windows track #399). The legacy manifest
+        // poller below still runs, but on Windows we prefer the
+        // Squirrel-native side-by-side update path so providers get
+        // the same UAC-free, atomic-restart behaviour the macOS
+        // track (Sparkle) ships in PR #402. Update.exe terminates the
+        // parent process on a successful swap, so the supervisor's
+        // current JoinSet entries are drained naturally and SCM
+        // restarts the new `app-X.Y.Z\iogridd.exe`.
+        //
+        // Disabled by default. Provider opts in via the same
+        // `updater.disabled = false` flag used by the manifest poller —
+        // we don't want this path to fire without the same explicit
+        // opt-in the macOS Sparkle track requires.
+        #[cfg(windows)]
+        if !self.config.updater.disabled {
+            // 24h cadence with a small head-start so a freshly-paired
+            // daemon doesn't sit at the old version for a full day.
+            let initial_delay = Duration::from_secs(5 * 60);
+            let tick = Duration::from_secs(24 * 60 * 60);
+            tasks.spawn(async move {
+                tokio::time::sleep(initial_delay).await;
+                let mut ticker = tokio::time::interval(tick);
+                // First tick fires immediately after the sleep —
+                // skip it so we don't double-trigger right after the
+                // 5min warm-up.
+                ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                ticker.tick().await;
+                loop {
+                    ticker.tick().await;
+                    // `apply_update` is synchronous + cheap (it just
+                    // shells out). We don't bother with
+                    // `spawn_blocking` because there's no I/O wait —
+                    // `Command::spawn` returns as soon as the child is
+                    // forked.
+                    match update_windows::apply_update() {
+                        update_windows::UpdateStatus::Spawned {
+                            update_exe,
+                            feed_url,
+                        } => {
+                            tracing::info!(
+                                update_exe = %update_exe.display(),
+                                feed_url,
+                                "Update.exe spawned (daily tick)"
+                            );
+                        }
+                        update_windows::UpdateStatus::UpdateExeMissing { probed } => {
+                            tracing::warn!(
+                                probed = ?probed,
+                                "Update.exe not found at any probed location; \
+                                 falling back to legacy manifest poller"
+                            );
+                        }
+                        update_windows::UpdateStatus::SpawnFailed { update_exe, error } => {
+                            tracing::warn!(
+                                update_exe = %update_exe.display(),
+                                error,
+                                "Update.exe spawn failed; will retry on next tick"
+                            );
+                        }
+                    }
+                }
+            });
+            tracing::info!("Windows Update.exe daily tick spawned (Phase 2 #348)");
+        }
+
         // Auto-update polling worker. Only spawned when the operator
         // opted in via config.toml. The default (disabled=true) makes
         // this a no-op — the worker task exits immediately. See #59.
@@ -828,6 +907,52 @@ fn default_fallback_install_dir() -> PathBuf {
     #[cfg(not(target_os = "windows"))]
     {
         PathBuf::from("/usr/local/iogrid")
+    }
+}
+
+/// Windows-only `UpdateHandler` impl that delegates straight to the
+/// Squirrel `Update.exe` driver in [`update_windows`]. Wired into
+/// [`BridgeState`] from [`Supervisor::with_runners`] so the future
+/// Windows tray UI's "Check for updates" verb (parallel to the macOS
+/// statusbar from PR #402) can trigger an on-demand update without
+/// waiting for the 24h daily tick. iogrid#399.
+#[cfg(windows)]
+pub struct WindowsUpdateHandler;
+
+#[cfg(windows)]
+#[async_trait::async_trait]
+impl iogrid_ui_bridge::UpdateHandler for WindowsUpdateHandler {
+    async fn check_for_updates(&self) -> UpdateCheckOutcome {
+        // `apply_update` shells out to `Command::spawn` and returns
+        // immediately; no I/O wait that warrants spawn_blocking.
+        match update_windows::apply_update() {
+            update_windows::UpdateStatus::Spawned {
+                update_exe,
+                feed_url,
+            } => UpdateCheckOutcome {
+                status: "spawned".into(),
+                message: format!(
+                    "Update.exe spawned at {} against {}",
+                    update_exe.display(),
+                    feed_url,
+                ),
+            },
+            update_windows::UpdateStatus::UpdateExeMissing { probed } => UpdateCheckOutcome {
+                status: "missing".into(),
+                message: format!(
+                    "Update.exe not found at any of: {}",
+                    probed
+                        .iter()
+                        .map(|p| p.display().to_string())
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                ),
+            },
+            update_windows::UpdateStatus::SpawnFailed { update_exe, error } => UpdateCheckOutcome {
+                status: "spawn_failed".into(),
+                message: format!("spawn {} failed: {}", update_exe.display(), error),
+            },
+        }
     }
 }
 
