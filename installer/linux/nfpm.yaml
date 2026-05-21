@@ -71,6 +71,14 @@ contents:
     file_info:
       mode: 0644
 
+  # Phase 2 of EPIC #348 — GPG pubkey used by postinstall.sh to register
+  # the iogrid apt/yum/apk repo on the installed host. Operators can
+  # opt out via $IOGRID_NO_AUTO_REPO=1 (see scripts/postinstall.sh).
+  - src: repo/pubkey.gpg.asc
+    dst: /usr/share/iogrid/iogrid.gpg.asc
+    file_info:
+      mode: 0644
+
 scripts:
   preinstall:  scripts/preinstall.sh
   postinstall: scripts/postinstall.sh

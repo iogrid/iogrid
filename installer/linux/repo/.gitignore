@@ -1,0 +1,14 @@
+# NEVER commit private GPG / RSA keys.
+# generate-keypair.sh writes these to a DEST_DIR you choose at runtime;
+# this guard is a belt-and-braces measure for anyone who accidentally
+# runs it inside the repo (e.g. `./generate-keypair.sh .` instead of
+# `./generate-keypair.sh /tmp/keys/`).
+privkey.gpg
+privkey.gpg.asc
+*.secret-key
+*.private
+*.gnupg
+.gpg-tmp/
+.abuild/
+keyid.txt
+fingerprint.txt

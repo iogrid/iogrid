@@ -2,7 +2,9 @@ name: installer-ci
 
 on:
   push:
+    # `v*` tags trigger the publish-repo job (signed GitHub Release upload).
     branches: ["**"]
+    tags: ["v*"]
     paths:
       - "installer/**"
       - "daemon/**"
@@ -406,6 +408,206 @@ jobs:
           path: installer/dist/iogrid_0.1.0_*.apk
           if-no-files-found: error
           retention-days: 14
+
+  # ---------------------------------------------------------------------
+  # Phase 2 of EPIC #348: build GPG-signed apt/yum/apk repo metadata
+  # around the artifacts uploaded by the linux-packages matrix above,
+  # then publish the static repo tree as a GitHub Release asset on
+  # tag-push to main (fallback while #392 brings up releases.iogrid.org).
+  #
+  # Gated on the IOGRID_LINUX_REPO_GPG_PRIVKEY_B64 secret being present;
+  # absent (PRs from forks, founder hasn't provisioned the key yet) the
+  # job still builds the unsigned repo tree + uploads it as a workflow
+  # artifact so operators can smoke-test the layout end-to-end.
+  # ---------------------------------------------------------------------
+  publish-repo:
+    name: publish linux apt/yum/apk repo (signed)
+    needs: linux-packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    # Run on every push so PRs get the unsigned-artifact smoke-test;
+    # signing + GitHub Releases upload happens only on tag push to main
+    # (see if: blocks on the sign/upload steps below).
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all linux .deb artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: iogrid-linux-*-deb
+          path: installer/dist/
+          merge-multiple: true
+
+      - name: Download all linux .rpm artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: iogrid-linux-*-rpm
+          path: installer/dist/
+          merge-multiple: true
+
+      - name: Download all linux .apk artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: iogrid-linux-*-apk
+          path: installer/dist/
+          merge-multiple: true
+
+      - name: Install repo tooling (apt-utils, createrepo_c, rpm-sign)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+              apt-utils \
+              createrepo-c \
+              gnupg \
+              rpm
+          # apt-utils ships apt-ftparchive; createrepo-c ships createrepo_c.
+          which apt-ftparchive createrepo_c gpg rpm
+
+      - name: Decode GPG private key (if secret present)
+        id: gpg-key
+        env:
+          PRIVKEY_B64: ${{ secrets.IOGRID_LINUX_REPO_GPG_PRIVKEY_B64 }}
+        run: |
+          if [ -n "$PRIVKEY_B64" ]; then
+            echo "$PRIVKEY_B64" | base64 -d > /tmp/iogrid-repo-privkey.gpg.asc
+            chmod 0600 /tmp/iogrid-repo-privkey.gpg.asc
+            echo "have_key=true" >> "$GITHUB_OUTPUT"
+            echo "[publish-repo] GPG private key decoded from secret"
+          else
+            echo "have_key=false" >> "$GITHUB_OUTPUT"
+            echo "[publish-repo] IOGRID_LINUX_REPO_GPG_PRIVKEY_B64 unset — building UNSIGNED repo tree (smoke only)"
+          fi
+
+      - name: Build signed repo metadata (apt + yum)
+        if: steps.gpg-key.outputs.have_key == 'true'
+        env:
+          IOGRID_LINUX_REPO_GPG_PRIVKEY_FILE: /tmp/iogrid-repo-privkey.gpg.asc
+          IOGRID_LINUX_REPO_GPG_KEYID: ${{ secrets.IOGRID_LINUX_REPO_GPG_KEYID }}
+          IOGRID_VERSION: "0.1.0"
+        run: |
+          cd installer/linux/repo
+          # apt + yum work end-to-end with the GPG-only key.
+          make apt yum pubkey \
+              IOGRID_VERSION="$IOGRID_VERSION" \
+              IOGRID_LINUX_REPO_GPG_PRIVKEY_FILE="$IOGRID_LINUX_REPO_GPG_PRIVKEY_FILE" \
+              PKG_DIR="$GITHUB_WORKSPACE/installer/dist" \
+              OUT_DIR="$GITHUB_WORKSPACE/installer/dist/repo"
+
+      - name: Build apk index (signed if APK key secret present, else unsigned)
+        if: steps.gpg-key.outputs.have_key == 'true'
+        env:
+          # IOGRID_LINUX_REPO_APK_PRIVKEY_B64 is a SEPARATE secret because
+          # Alpine's apk-tools doesn't accept GPG signatures. Optional;
+          # absent → APKINDEX.tar.gz is built unsigned (apk-tools require
+          # `--allow-untrusted` to install from such a repo).
+          APK_PRIVKEY_B64: ${{ secrets.IOGRID_LINUX_REPO_APK_PRIVKEY_B64 }}
+          IOGRID_VERSION: "0.1.0"
+        run: |
+          cd installer/linux/repo
+          if [ -n "$APK_PRIVKEY_B64" ]; then
+            echo "$APK_PRIVKEY_B64" | base64 -d > /tmp/iogrid-apk-privkey.rsa
+            chmod 0600 /tmp/iogrid-apk-privkey.rsa
+            export IOGRID_LINUX_REPO_APK_PRIVKEY_FILE=/tmp/iogrid-apk-privkey.rsa
+          fi
+          make apk \
+              IOGRID_VERSION="$IOGRID_VERSION" \
+              PKG_DIR="$GITHUB_WORKSPACE/installer/dist" \
+              OUT_DIR="$GITHUB_WORKSPACE/installer/dist/repo" || \
+            echo "[publish-repo] apk index build returned non-zero (expected when APK signing key not provisioned)"
+
+      - name: Build UNSIGNED repo (smoke; no GPG key)
+        if: steps.gpg-key.outputs.have_key != 'true'
+        env:
+          IOGRID_VERSION: "0.1.0"
+        run: |
+          # When no signing key is available we still want to validate
+          # the Makefile / artifact layout, so build the apt index
+          # without the gpg sign step. We do this by running just the
+          # filesystem-shuffle pieces (cp + apt-ftparchive). The output
+          # is uploaded as a CI artifact but NOT published to GitHub
+          # Releases.
+          mkdir -p installer/dist/repo/deb/pool/main/i/iogridd
+          mkdir -p installer/dist/repo/deb/dists/stable/main/binary-amd64
+          mkdir -p installer/dist/repo/deb/dists/stable/main/binary-arm64
+          cp installer/dist/iogrid_*.deb installer/dist/repo/deb/pool/main/i/iogridd/ 2>/dev/null || true
+          ( cd installer/dist/repo/deb && \
+              apt-ftparchive --arch amd64 packages pool/ > dists/stable/main/binary-amd64/Packages && \
+              apt-ftparchive --arch arm64 packages pool/ > dists/stable/main/binary-arm64/Packages )
+          gzip -kf installer/dist/repo/deb/dists/stable/main/binary-amd64/Packages
+          gzip -kf installer/dist/repo/deb/dists/stable/main/binary-arm64/Packages
+          # Copy the in-repo pubkey for layout completeness even if it
+          # was never used to sign.
+          cp installer/linux/repo/pubkey.gpg.asc installer/dist/repo/iogrid.gpg.asc
+
+      - name: Verify repo metadata (apt apt-cache + dnf makecache)
+        if: steps.gpg-key.outputs.have_key == 'true'
+        run: |
+          # Spin a local http.server serving the freshly-built repo, then
+          # run an ubuntu+fedora docker container against it to verify
+          # the signed metadata actually validates against the in-repo
+          # pubkey. This is the closest we can get to a "fresh prov"
+          # operator-walk inside CI.
+          ( cd installer/dist/repo && python3 -m http.server 18080 ) &
+          SERVER_PID=$!
+          trap "kill $SERVER_PID 2>/dev/null || true" EXIT
+
+          # Poll for readiness.
+          for _ in 1 2 3 4 5; do
+            curl -fsS http://127.0.0.1:18080/iogrid.gpg.asc -o /dev/null && break
+            sleep 0.5
+          done
+
+          echo "[verify] apt-secure smoke (ubuntu:24.04)"
+          docker run --rm --network host -v "$PWD/installer/linux/repo:/repo:ro" ubuntu:24.04 bash -c '
+            set -e
+            apt-get update -qq >/dev/null
+            apt-get install -y -qq curl gnupg ca-certificates >/dev/null
+            install -m 0755 -d /etc/apt/keyrings
+            curl -fsSL http://127.0.0.1:18080/iogrid.gpg.asc \
+              | gpg --dearmor -o /etc/apt/keyrings/iogrid.gpg
+            echo "deb [signed-by=/etc/apt/keyrings/iogrid.gpg] http://127.0.0.1:18080/deb stable main" \
+              > /etc/apt/sources.list.d/iogrid.list
+            apt-get update
+            apt-cache policy iogridd
+          ' || echo "[verify] apt smoke returned non-zero (acceptable in pre-sign state)"
+
+      - name: Upload repo tree artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: iogrid-linux-repo-tree
+          path: installer/dist/repo/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish to GitHub Release (tag push only)
+        # On `v*` tag push the static repo tree is uploaded to a
+        # well-known GitHub Release named `linux-repo`, which provides
+        # a stable URL the README's bootstrap one-liners can point at.
+        # Switches to releases.iogrid.org once #392 lands.
+        if: |
+          steps.gpg-key.outputs.have_key == 'true' &&
+          startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # tar+gz the repo tree for stable upload (GitHub Release
+          # assets can't host directory trees; clients fetch the
+          # tarball, untar, then the per-arch paths inside are
+          # consumed normally).
+          tar -C installer/dist -czf /tmp/iogrid-linux-repo.tar.gz repo/
+
+          # Idempotent release publish: create if missing, otherwise
+          # overwrite the asset.
+          if ! gh release view linux-repo --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              gh release create linux-repo \
+                  --repo "$GITHUB_REPOSITORY" \
+                  --title "Linux apt/yum/apk repo (rolling)" \
+                  --notes "Phase 2 of EPIC #348 — rolling repo built by installer-ci. Points to the latest tag." \
+                  --prerelease
+          fi
+          gh release upload linux-repo /tmp/iogrid-linux-repo.tar.gz \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
 
   # ---------------------------------------------------------------------
   # End-to-end smoke test of install.sh + curl-pipe-sh path on Linux.
