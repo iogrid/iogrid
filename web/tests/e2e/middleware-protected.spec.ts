@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 
 /**
- * E2E — middleware gate on /provide, /customer, /admin.
+ * E2E — middleware gate on /provide, /customer.
  *
  * Regression test for #204: previously, `src/middleware.ts` imported
  * `@/lib/auth`, which transitively pulled `nodemailer`. The edge runtime
@@ -19,9 +19,14 @@ import { test, expect } from "@playwright/test";
  * the URL must end on /account?callbackUrl=<original>. We do NOT assert
  * a specific 302 vs 307 — Next.js may use either for middleware
  * redirects depending on the request method.
+ *
+ * /admin is NOT in this list anymore — admin routes moved to the
+ * independent admin/ app on admin.iogrid.org in EPIC #422 Phase 1,
+ * so /admin on web/ now 404s (not redirects). The admin app gets its
+ * own equivalent middleware-protected e2e in a follow-up.
  */
 test.describe("middleware — protected route gate (no edge crash)", () => {
-  for (const target of ["/provide", "/customer", "/admin"]) {
+  for (const target of ["/provide", "/customer"]) {
     test(`unauthenticated GET ${target} redirects to /account`, async ({
       page,
     }) => {
