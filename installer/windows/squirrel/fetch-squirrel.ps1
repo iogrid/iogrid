@@ -42,10 +42,10 @@ if (-not ($version -match '^\d+\.\d+\.\d+$')) {
 Write-Host "[squirrel] pin version: $version"
 
 # The Squirrel.Windows release artifact is a .zip named
-# `<version>.zip` containing Update.exe + Squirrel.exe +
+# `squirrel.windows.<version>.nupkg` (NuGet — Squirrel.Windows distributes via NuGet, not GitHub Releases) containing Update.exe + Squirrel.exe +
 # .NuGet helpers. The download URL pattern is the GitHub release-asset
 # convention; mirror via GHCR cache if rate-limiting becomes an issue.
-$assetUrl = "https://github.com/Squirrel/Squirrel.Windows/releases/download/$version/$version.zip"
+$assetUrl = "https://api.nuget.org/v3-flatcontainer/squirrel.windows/$version/squirrel.windows.$version.nupkg"
 $tmpZip = Join-Path $env:TEMP "squirrel-$version.zip"
 $tmpExtract = Join-Path $env:TEMP "squirrel-$version-extract"
 
@@ -80,19 +80,32 @@ if ($pinned) {
 Write-Host "[squirrel] extracting -> $tmpExtract"
 Expand-Archive -Path $tmpZip -DestinationPath $tmpExtract -Force
 
-# Squirrel.Windows release zips lay out:
-#   Squirrel.exe        — the package-builder CLI (.releasify entry point)
-#   Update.exe          — the runtime installed alongside the app
-#   NuGet.exe + .dll    — helpers used by Squirrel.exe
-# Copy the two we need into $OutDir; leave NuGet helpers behind (we use
-# the standalone nuget.exe in build-nupkg.ps1).
+# Squirrel.Windows NuGet package layout (tools/):
+#   tools/Squirrel.exe        — the package-builder CLI (.releasify entry point)
+#   tools/Setup.exe           — the per-app installer template; renamed to
+#                                Update.exe inside the user's install dir by
+#                                Squirrel.exe --releasify. We stage it AS
+#                                Update.exe here for the WiX payload.
+#   tools/StubExecutable.exe  — the small shim that proxies user-app launches
+#                                through Update.exe (handles version-bumps).
+#   tools/{candle,light,signtool,7z,...}.exe — wix + signtool + 7z helpers,
+#                                left in $tmpExtract for build-nupkg.ps1 to pull.
+# Copy the two we need into $OutDir; build-nupkg.ps1 invokes Squirrel.exe to
+# produce the real per-release Update.exe by re-bundling Setup.exe with the
+# generated RELEASES file. The version we stage here is the base template.
 New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
-foreach ($name in @('Squirrel.exe', 'Update.exe')) {
-    $src = Get-ChildItem -Path $tmpExtract -Filter $name -Recurse | Select-Object -First 1
-    if (-not $src) { throw "[squirrel] $name not found in extracted runtime" }
-    Copy-Item -Path $src.FullName -Destination (Join-Path $OutDir $name) -Force
-    Write-Host "[squirrel] staged: $name"
-}
+
+$squirrelSrc = Get-ChildItem -Path $tmpExtract -Filter 'Squirrel.exe' -Recurse | Select-Object -First 1
+if (-not $squirrelSrc) { throw "[squirrel] Squirrel.exe not found in extracted NuGet payload (expected under tools/)" }
+Copy-Item -Path $squirrelSrc.FullName -Destination (Join-Path $OutDir 'Squirrel.exe') -Force
+Write-Host "[squirrel] staged: Squirrel.exe"
+
+$setupSrc = Get-ChildItem -Path $tmpExtract -Filter 'Setup.exe' -Recurse | Select-Object -First 1
+if (-not $setupSrc) { throw "[squirrel] Setup.exe not found in extracted NuGet payload (expected under tools/)" }
+# Stage Setup.exe AS Update.exe — Squirrel renames it at install time;
+# WiX places it in C:\Program Files\<app>\Update.exe.
+Copy-Item -Path $setupSrc.FullName -Destination (Join-Path $OutDir 'Update.exe') -Force
+Write-Host "[squirrel] staged: Update.exe (= Setup.exe from tools/)"
 
 Remove-Item -Force $tmpZip
 Remove-Item -Recurse -Force $tmpExtract
