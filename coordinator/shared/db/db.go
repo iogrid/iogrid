@@ -8,6 +8,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io/fs"
 	"os"
 	"time"
 
@@ -97,6 +98,43 @@ func MigrateUp(ctx context.Context, databaseURL, migrationsDir string) error {
 		return fmt.Errorf("goose dialect: %w", err)
 	}
 	if err := goose.UpContext(ctx, sqlDB, migrationsDir); err != nil {
+		return fmt.Errorf("goose up: %w", err)
+	}
+	return nil
+}
+
+// MigrateUpFS runs all pending goose-up migrations from an embedded
+// (or otherwise virtual) filesystem rooted at the given directory.
+//
+// Services own their migrations as `//go:embed migrations/*.sql` so the
+// binary is self-contained — no separate migrations directory needs to
+// ship with the container. Every coordinator service that owns a Store
+// must call this exactly once at startup, AFTER db.NewPool but BEFORE
+// store.New, so the schema exists before any request handler can touch
+// it.
+//
+// goose maintains its own bookkeeping table (goose_db_version), so this
+// is idempotent across pod restarts.
+func MigrateUpFS(ctx context.Context, databaseURL string, fsys fs.FS, dir string) error {
+	if databaseURL == "" {
+		databaseURL = os.Getenv("DATABASE_URL")
+	}
+	if databaseURL == "" {
+		return fmt.Errorf("no database url configured")
+	}
+	sqlDB, err := sql.Open("pgx", databaseURL)
+	if err != nil {
+		return fmt.Errorf("sql.Open: %w", err)
+	}
+	defer sqlDB.Close()
+
+	goose.SetBaseFS(fsys)
+	defer goose.SetBaseFS(nil)
+
+	if err := goose.SetDialect("postgres"); err != nil {
+		return fmt.Errorf("goose dialect: %w", err)
+	}
+	if err := goose.UpContext(ctx, sqlDB, dir); err != nil {
 		return fmt.Errorf("goose up: %w", err)
 	}
 	return nil
