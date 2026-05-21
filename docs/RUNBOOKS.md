@@ -506,3 +506,71 @@ SELECT owner_user_id, COUNT(*) AS rows_remaining
   unique hostname per machine; daemon strips `.local` / `.lan` suffixes
   but does not deduplicate beyond that.
 
+---
+
+## 4. iogrid.org DNS — Dynadot apply runbook
+
+> **Trigger:** any time you edit `infra/dynadot/iogrid-org-records.json` (add a subdomain, change an IP, etc.). Merging the PR is **not** sufficient — Dynadot is not GitOps-reconciled and the script must be run manually after merge.
+
+### 4.1 Why this exists
+
+iogrid's authoritative DNS lives at Dynadot. Dynadot's `set_dns2` API requires the **full** desired record set in one call (anything not in the call is removed from the zone). The source of truth is `infra/dynadot/iogrid-org-records.json`; `scripts/dynadot-apply.sh` is the **only** supported writer. Never hand-edit the Dynadot web UI — drift will be silently overwritten on the next apply.
+
+### 4.2 The trap that caused #410
+
+PR #408 added `admin.iogrid.org` to:
+- `infra/k8s/certificates/iogrid-org-cert.yaml` (cert SAN list)
+- `infra/k8s/traefik/ingressroute-admin.yaml` (Traefik route)
+- `infra/dynadot/iogrid-org-records.json` (DNS source of truth)
+
+It did **not** run `scripts/dynadot-apply.sh --apply`. Flux reconciled the K8s manifests, cert-manager opened an ACME Order with `admin.iogrid.org` in the SAN list, Let's Encrypt's HTTP-01 self-check failed with `no valid A records found for admin.iogrid.org`, and the entire Order was marked `invalid`. The `iogrid-org-tls` Secret was never created, so Traefik's TLS handshake for `iogrid.org` fell back to its built-in self-signed default cert — for the apex, not just `admin`. One missing API call broke TLS on the apex.
+
+**Lesson:** any PR that touches `infra/dynadot/*.json` MUST be followed by a manual apply from a mothership shell **before** the related cert/IngressRoute change can complete. Treat the JSON file as a desired-state record but execution is still manual until Dynadot is wrapped in a Crossplane provider.
+
+### 4.3 Step-by-step apply
+
+```bash
+# 1. Dry-run from anywhere — prints the set_dns2 URL it would call,
+#    redacts the API key. Sanity-check the subdomain list.
+./scripts/dynadot-apply.sh
+
+# 2. Apply via a mothership pod (the mothership Contabo IP is allowlisted
+#    on Dynadot's API; the bastion is not — so the script kubectl-runs a
+#    one-shot alpine pod which inherits the mothership node's outbound
+#    IP). Reads creds from secret/dynadot-api-credentials in openova-system.
+./scripts/dynadot-apply.sh --apply
+
+# 3. Verify globally (dig against 1.1.1.1, fails fast on any missing /
+#    drifted record — the verify block is now derived from the JSON so
+#    new subdomains are exercised automatically).
+./scripts/dynadot-apply.sh --verify
+```
+
+Authoritative-NS lag is typically <2 min, public-resolver TTL is 300s.
+
+### 4.4 What to do if cert-manager has already failed an Order
+
+cert-manager will **not** retry a failed Order automatically — Let's Encrypt rate-limits aggressively. After fixing the DNS, force a retry by deleting the failed CertificateRequest:
+
+```bash
+kubectl -n iogrid get certificaterequest                  # find the failed CR (READY=False)
+kubectl -n iogrid delete certificaterequest <cr-name>     # cascades the failed Order + Challenges
+# cert-manager re-creates the CR + Order + Challenges within ~10s
+kubectl -n iogrid get certificate iogrid-org-tls -w       # watch READY flip to True
+```
+
+Verify the live TLS cert is now from Let's Encrypt R12 (not Traefik default):
+
+```bash
+echo Q | openssl s_client -connect iogrid.org:443 -servername iogrid.org 2>/dev/null | \
+  openssl x509 -noout -issuer -subject -ext subjectAltName
+# Expect: issuer=O=Let's Encrypt, CN=R12
+```
+
+If Traefik continues serving the self-signed cert after the Secret materialises, restart it:
+
+```bash
+kubectl -n kube-system rollout restart deploy/traefik
+```
+
+(Traefik watches Secrets via the K8s informer, so a restart is rarely needed — but it's the standard last resort if the new Secret arrived during a controller hiccup.)
