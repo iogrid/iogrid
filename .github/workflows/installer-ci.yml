@@ -334,7 +334,7 @@ jobs:
           # Phase 2 (WARN-but-continue); platform team fills in the pin
           # via follow-up #389-windows-squirrel-pin after first reviewer
           # confirms the upstream binary.
-          SQUIRREL_TARBALL_SHA256: ""
+          SQUIRREL_TARBALL_SHA256: "923e18abb4fd50b5a4878a39dbcd042ed3f7eb68fc0f82c0955cd5380c921ac7"
 
       - name: Generate per-build RELEASES line
         shell: pwsh
