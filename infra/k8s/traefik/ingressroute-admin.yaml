@@ -1,0 +1,69 @@
+---
+# admin.iogrid.org -> web:3000 (Next.js management plane, same Service that
+# already backs app.iogrid.org).
+#
+# Issue #407 (post-#383-revert re-scope of #365).
+#
+# Background
+# ----------
+# #361 originally split the admin surface into its own Next.js app under
+# admin/ with its own Deployment + image + CI. #364 shipped PR1/2 of that
+# split (the scaffold + the move of /admin/* out of web/). PR #365 (PR2/2,
+# the IngressRoute + DNS half) stalled for months and was ultimately
+# blocked. With PR1 merged and PR2 stuck, the founder's primary daemon-
+# operator surface (/admin/providers) 404'd on app.iogrid.org because the
+# routes had moved out of web/ but the new admin/ image was never wired to
+# any Host. #383 reverted PR #364 to restore /admin/* under web/. #365 was
+# then closed as unsalvageable (every rebase attempt cleanly applied all 4
+# commits but the top commit referenced an admin/ directory and a
+# ghcr.io/iogrid/admin image that the revert removed).
+#
+# This file is the new, smaller version of the original PR #365 intent:
+# admin.iogrid.org is now just a second Host header that routes into the
+# SAME web Service the rest of app.iogrid.org already uses. No new app, no
+# new Deployment, no new CI workflow, no new image. The host-level split
+# still buys us cookie-scope isolation, allowlist enforcement that does
+# not depend on path parsing, and a clean future SSO migration boundary.
+#
+# Cookie scope note: NextAuth sets its session cookie on the request's
+# host by default, so a session minted on app.iogrid.org will NOT be sent
+# to admin.iogrid.org and vice-versa unless the app explicitly broadens
+# Cookie Domain to `.iogrid.org`. We keep the default (host-only). That
+# means signing in once on app.iogrid.org and then opening a new tab to
+# admin.iogrid.org requires a separate sign-in on admin.iogrid.org. This
+# is by design — it's the cookie-scope isolation the host split exists to
+# create.
+#
+# TLS secret: the existing `iogrid-org-tls` Secret (issued by the
+# Certificate in infra/k8s/certificates/iogrid-org-cert.yaml) covers
+# admin.iogrid.org via the SAN list bump in this same PR. The same secret
+# is shared by every iogrid.org subdomain that terminates TLS at the
+# mothership Traefik (apex/www/api/app/build/docs/status/releases/updates
+# and now admin).
+#
+# Refs #407 #361 #365 #383.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: admin-iogrid-org
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/part-of: iogrid
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    # Catch-all -> web Service (same backend as app.iogrid.org). The
+    # web/middleware.ts host-aware gate makes admin.iogrid.org/* require
+    # an IOGRID_ADMIN_EMAILS allowlist match and 307-redirects
+    # app.iogrid.org/admin/* into admin.iogrid.org/* so the admin UI has
+    # a single canonical host.
+    - kind: Rule
+      match: Host(`admin.iogrid.org`)
+      priority: 100
+      services:
+        - name: web
+          port: 3000
+  tls:
+    # SAN-listed in infra/k8s/certificates/iogrid-org-cert.yaml.
+    secretName: iogrid-org-tls
