@@ -44,9 +44,15 @@ spec:
   # Linux/Windows manifestd auto-update channels need a publicly-routed
   # TLS-terminated hostname; both A-records are already at the
   # mothership LB IP (see infra/dynadot/iogrid-org-records.json).
+  #
+  # admin appended per #407 — admin.iogrid.org is a second Host header
+  # that routes into the same web Service that backs app.iogrid.org, so
+  # the admin surface gets its own TLS-terminated host without a new
+  # Deployment. IngressRoute: infra/k8s/traefik/ingressroute-admin.yaml.
   dnsNames:
     - iogrid.org
     - www.iogrid.org
+    - admin.iogrid.org
     - api.iogrid.org
     - app.iogrid.org
     - build.iogrid.org
