@@ -79,13 +79,49 @@ iogrid/
 
 ---
 
-## Key documents
+## Documentation
 
-- [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — how iogrid works: system overview, components, scheduling, transparency layer, DNS + TLS, install UX, observability
-- [`docs/SECURITY.md`](./docs/SECURITY.md) — threat model, trust boundaries, service mTLS, secrets policy, identity, supply chain
-- [`docs/ROADMAP.md`](./docs/ROADMAP.md) — module shipping sequence toward the end state
-- [`docs/BUSINESS-STRATEGY.md`](./docs/BUSINESS-STRATEGY.md) — market, competitive landscape, unit economics, currency model ($GRID), off-ramp partners, legal risk
-- [`docs/whitepaper.md`](./docs/whitepaper.md) — $GRID token whitepaper (regulatory artifact)
+### 📐 Canon (read in this order)
+
+- [ARCHITECTURE](./docs/ARCHITECTURE.md) — how iogrid works: system overview, components, scheduling, transparency layer, DNS + TLS, install UX, observability
+- [BUSINESS-STRATEGY](./docs/BUSINESS-STRATEGY.md) — market, competitive landscape, unit economics, currency model ($GRID), multi-tenant fiat-rail relationship with Sociable Cash, off-ramp partners, legal risk
+- [SECURITY](./docs/SECURITY.md) — threat model, trust boundaries, service mTLS, secrets policy, identity, supply chain
+- [ROADMAP](./docs/ROADMAP.md) — module shipping sequence toward the end state
+- [Whitepaper](./docs/whitepaper.md) — $GRID token whitepaper (regulatory artifact, PDF-exported by CI for counsel review)
+
+### 🔧 Build + operate
+
+- [RUNBOOKS](./docs/RUNBOOKS.md) — operator how-tos (Solana devnet bootstrap, status-page incident handling)
+
+### 🟢 Live state ([ledger/](./docs/ledger/))
+
+- [Ledger overview](./docs/ledger/README.md)
+- [TRUST](./docs/ledger/TRUST.md) — verification ledger (UNVERIFIED / VERIFIED-PASS / VERIFIED-FAIL / VERIFIED-PARTIAL per surface)
+- [TRACKER](./docs/ledger/TRACKER.md) — open work + DoD progress board
+
+### 🏛️ Decision records ([adr/](./docs/adr/))
+
+- [ADR index](./docs/adr/README.md) (none yet — decisions still being captured in BUSINESS-STRATEGY / ARCHITECTURE)
+
+### 💡 In-flight design ([proposals/](./docs/proposals/))
+
+- [Proposal index](./docs/proposals/README.md) (none yet)
+
+### 📚 Operator notes
+
+- [Lessons learned](./docs/lessons-learned/README.md) — field notes (none yet)
+- [Per-incident playbooks](./docs/runbooks/README.md) — date-stamped one-offs (none yet)
+- [Sessions](./docs/sessions/README.md) — transient artifacts (auto-archive at 30 days)
+- [Archive](./docs/archive/README.md) — frozen / historical (see contents below)
+  - [Phase 0 setup](./docs/archive/2026-05-21-phase0-setup.md) — superseded bastion setup procedure
+  - [Phase 0 unblock](./docs/archive/2026-05-21-phase0-unblock.md) — superseded Phase 0 unblock chain
+  - [Phase 0 first-customer playbook](./docs/archive/2026-05-21-phase0-first-customer.md) — superseded vCard onboarding
+
+### 🌐 Domain subdirs
+
+- [Transparency reports](./docs/transparency/README.md) — quarterly public-facing transparency artifacts
+  - [Template](./docs/transparency/TEMPLATE.md) — quarterly report skeleton
+  - [2026-Q2](./docs/transparency/2026-Q2.md) — current quarter
 
 ---
 
