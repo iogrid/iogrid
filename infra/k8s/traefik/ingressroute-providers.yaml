@@ -58,16 +58,23 @@
 #         # forge it because they terminate TLS at Traefik first.
 #         insecure: true
 #
-# Apply on the mothership:
+# Applied on the mothership 2026-05-21 06:36Z (helm revision 5):
 #
 #   helm upgrade traefik traefik/traefik -n kube-system --reuse-values \
 #     --set ports.websecure.forwardedHeaders.insecure=true
 #
-# After the chart re-rolls and the daemon reconnects, the next
-# `heartbeat: stream opened` log line in providers-svc will carry a
-# non-empty `client_ip` and `applyHeartbeatGeo` will populate the geo
-# columns within ≤ 24h (immediately on the first heartbeat of a fresh
-# stream, per the LastGeoLookupAt-zero short-circuit in scheduling.go).
+# After the chart re-rolled at 2026-05-21 06:36Z + the daemon
+# reconnected, the next `heartbeat: stream opened` log line in
+# providers-svc DID carry a non-empty `client_ip` — but resolved to
+# `10.42.0.1` (Cilium cluster-internal gateway), NOT the real client
+# public IP. Root cause: `Service traefik` in kube-system has
+# `externalTrafficPolicy: Cluster` (default), so the Hetzner LB → node
+# hop rewrites source via SNAT BEFORE Traefik sees the packet.
+#
+# Follow-up #381 documents two options to preserve real source IP:
+#   (1) externalTrafficPolicy: Local on Service/traefik (needs replicas≥2)
+#   (2) Hetzner LB PROXY-protocol annotation + Traefik proxyProtocol
+# Neither is applied yet (cluster-wide change, founder-action class).
 #
 # Issue: #352 (this file's intent). Refs #271 (sibling for workloads),
 # #381 (XFF/geo plumbing), #378 (the GeoIP2 ship this unblocks).
