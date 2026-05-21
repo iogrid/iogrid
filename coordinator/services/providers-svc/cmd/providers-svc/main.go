@@ -18,11 +18,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 
 	"github.com/iogrid/iogrid/coordinator/services/providers-svc/internal/ca"
 	pdb "github.com/iogrid/iogrid/coordinator/services/providers-svc/internal/db"
+	"github.com/iogrid/iogrid/coordinator/services/providers-svc/internal/geoip"
 	"github.com/iogrid/iogrid/coordinator/services/providers-svc/internal/server"
 	"github.com/iogrid/iogrid/coordinator/services/providers-svc/internal/store"
 	"github.com/iogrid/iogrid/coordinator/services/providers-svc/internal/transparency"
@@ -91,6 +93,36 @@ func main() {
 		os.Exit(1)
 	}
 
+	// --- GeoIP --------------------------------------------------------
+	// #359: country/region columns on the providers row are populated
+	// server-side from the observed source IP via a MaxMind-style .mmdb
+	// city database. The init container under infra/k8s/base/
+	// providers-svc downloads + ungzips the db-ip.com Lite IP-to-City
+	// feed (CC BY 4.0) into the shared emptyDir and points us at it via
+	// GEOIP_DB_PATH. When the path is unset / file missing we degrade
+	// to a NoopLookuper — pairing still works, the geo columns simply
+	// stay blank until the next pod rollout brings the .mmdb online.
+	var geoLookuper geoip.Lookuper = geoip.NoopLookuper{}
+	if path := os.Getenv("GEOIP_DB_PATH"); path != "" {
+		l, gerr := geoip.New(path)
+		switch {
+		case gerr == nil:
+			geoLookuper = l
+			logger.Info("geoip database loaded", slog.String("path", path))
+		case errors.Is(gerr, geoip.ErrUnavailable):
+			logger.Warn("geoip database path empty — running with noop lookuper",
+				slog.String("path", path))
+		default:
+			// File missing or unreadable: warn and continue with noop so
+			// a misconfigured GEOIP_DB_PATH doesn't crash-loop the pod.
+			logger.Warn("geoip database open failed — running with noop lookuper",
+				slog.String("path", path),
+				slog.String("error", gerr.Error()))
+		}
+	} else {
+		logger.Warn("GEOIP_DB_PATH unset — running with noop lookuper; provider country/region will not populate")
+	}
+
 	// Transparency bridge — subscribes to proxy-gateway's
 	// "iogrid.audit.proxy.abuse_flagged" subject and projects every
 	// blocked-by-antiabuse event into the providers-svc audit_events
@@ -119,6 +151,7 @@ func main() {
 		Mount: server.Mount(server.Deps{
 			Store: st,
 			CA:    internalCA,
+			GeoIP: geoLookuper,
 			Log:   logger,
 		}),
 		LongLivedStreams: true,

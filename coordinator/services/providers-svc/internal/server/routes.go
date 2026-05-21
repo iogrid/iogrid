@@ -18,6 +18,7 @@ import (
 
 	"github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/providers/v1/providersv1connect"
 	"github.com/iogrid/iogrid/coordinator/services/providers-svc/internal/ca"
+	"github.com/iogrid/iogrid/coordinator/services/providers-svc/internal/geoip"
 	"github.com/iogrid/iogrid/coordinator/services/providers-svc/internal/handlers"
 	"github.com/iogrid/iogrid/coordinator/services/providers-svc/internal/store"
 )
@@ -26,6 +27,11 @@ import (
 type Deps struct {
 	Store store.Store
 	CA    *ca.CA
+	// GeoIP resolves observed source IPs into country/region for the
+	// providers row. main wires either the .mmdb-backed reader or a
+	// NoopLookuper; tests inject geoip.StubLookuper. May be nil — the
+	// handler constructors substitute NoopLookuper in that case.
+	GeoIP geoip.Lookuper
 	Log   *slog.Logger
 }
 
@@ -38,8 +44,8 @@ func Mount(deps Deps) func(chi.Router) {
 			r.Get("/", indexHandler)
 		})
 
-		reg := handlers.NewRegistrationHandler(deps.Store, deps.CA, deps.Log)
-		sched := handlers.NewSchedulingHandler(deps.Store, deps.Log)
+		reg := handlers.NewRegistrationHandler(deps.Store, deps.CA, deps.GeoIP, deps.Log)
+		sched := handlers.NewSchedulingHandler(deps.Store, deps.GeoIP, deps.Log)
 		dash := handlers.NewDashboardHandler(deps.Store, deps.Log)
 
 		// REST shim — the Rust daemon's iogrid-transport identity flow

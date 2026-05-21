@@ -88,3 +88,25 @@ spec:
       ports:
         - protocol: TCP
           port: 4222
+    # #359: the geoip-download init container fetches the db-ip.com
+    # Lite .mmdb at pod start. NetworkPolicy can't address an external
+    # FQDN, so we open HTTPS + DNS to "anywhere outside the cluster"
+    # for the init phase. Cilium DNS-based policy (see
+    # ciliumnetworkpolicy.yaml) would be a tighter fit on clusters
+    # where Cilium is the source of truth; this NetworkPolicy is
+    # defense-in-depth on top of it.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

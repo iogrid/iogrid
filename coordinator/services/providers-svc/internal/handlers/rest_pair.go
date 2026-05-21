@@ -123,7 +123,28 @@ func (h *RegistrationHandler) PairDaemonREST(w http.ResponseWriter, r *http.Requ
 		DisplayName:     in.DisplayName,
 	}
 
-	resp, err := h.PairDaemon(r.Context(), connect.NewRequest(req))
+	// Forward the observed-IP signals onto the in-process Connect
+	// request so PairDaemon's #359 geoip lookup sees the same XFF chain
+	// the REST handler did. Without this step the Connect handler would
+	// see empty headers and skip the lookup entirely (the REST surface
+	// is the one Hatice's daemon actually hits).
+	connectReq := connect.NewRequest(req)
+	if v := r.Header.Get("X-Forwarded-For"); v != "" {
+		connectReq.Header().Set("X-Forwarded-For", v)
+	}
+	if v := r.Header.Get("X-Real-Ip"); v != "" {
+		connectReq.Header().Set("X-Real-Ip", v)
+	} else if v := r.Header.Get("X-Real-IP"); v != "" {
+		connectReq.Header().Set("X-Real-Ip", v)
+	}
+	// Stash RemoteAddr in a custom header as the last-resort fallback —
+	// connectReq.Peer() reports the in-process zero peer because the
+	// Connect call never crossed a real network boundary.
+	if r.RemoteAddr != "" {
+		connectReq.Header().Set("X-Forwarded-Remote-Addr", r.RemoteAddr)
+	}
+
+	resp, err := h.PairDaemon(r.Context(), connectReq)
 	if err != nil {
 		var ce *connect.Error
 		if errors.As(err, &ce) {
