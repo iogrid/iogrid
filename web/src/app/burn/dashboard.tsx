@@ -83,7 +83,7 @@ export function BurnDashboard() {
             >
               {state.summary ? formatToken(state.summary.totalBurnedUi, 0) : "—"}
             </p>
-            <p className="mt-1 text-xs text-zinc-500">$GRID permanently removed</p>
+            <p className="mt-1 text-xs text-muted-foreground">$GRID permanently removed</p>
           </CardContent>
         </Card>
         <Card>
@@ -96,7 +96,7 @@ export function BurnDashboard() {
                 ? formatRelativeTime(state.summary.lastBurnAt)
                 : "—"}
             </p>
-            <p className="mt-1 text-xs text-zinc-500">on-chain timestamp</p>
+            <p className="mt-1 text-xs text-muted-foreground">on-chain timestamp</p>
           </CardContent>
         </Card>
         <Card>
@@ -113,13 +113,13 @@ export function BurnDashboard() {
                 0,
               )}
             </p>
-            <p className="mt-1 text-xs text-zinc-500">$GRID burned</p>
+            <p className="mt-1 text-xs text-muted-foreground">$GRID burned</p>
           </CardContent>
         </Card>
       </div>
 
       {state.error ? (
-        <p className="text-sm text-rose-600" data-testid="burn-error">
+        <p className="text-sm text-destructive" data-testid="burn-error">
           Couldn&apos;t load the burn ledger: {state.error}
         </p>
       ) : null}
@@ -140,7 +140,7 @@ export function BurnDashboard() {
         <CardContent>
           {state.events.length === 0 ? (
             <p
-              className="rounded-md border border-dashed border-zinc-300 p-4 text-center text-sm text-zinc-500 dark:border-zinc-700"
+              className="rounded-md border border-dashed border-border-strong p-4 text-center text-sm text-muted-foreground dark:border-border-strong"
               data-testid="burn-events-empty"
             >
               {state.loading ? "Loading…" : "No burn events yet."}
@@ -150,13 +150,13 @@ export function BurnDashboard() {
               {state.events.map((ev) => (
                 <li
                   key={ev.id}
-                  className="flex items-center justify-between gap-3 rounded-md border border-zinc-100 bg-zinc-50 px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-900"
+                  className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted px-3 py-2 text-sm dark:border-border dark:bg-card"
                 >
                   <div>
                     <p className="font-mono tabular-nums">
                       −{formatToken(ev.amountUi)} $GRID
                     </p>
-                    <p className="text-xs text-zinc-500">
+                    <p className="text-xs text-muted-foreground">
                       {formatRelativeTime(ev.timestamp)}
                       {ev.source ? ` · ${ev.source}` : ""}
                     </p>
@@ -165,7 +165,7 @@ export function BurnDashboard() {
                     href={`https://solscan.io/tx/${ev.txSignature}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="font-mono text-xs text-zinc-500 underline hover:text-zinc-900 dark:hover:text-zinc-100"
+                    className="font-mono text-xs text-muted-foreground underline hover:text-foreground dark:hover:text-foreground"
                   >
                     {ev.txSignature.slice(0, 8)}…
                   </a>

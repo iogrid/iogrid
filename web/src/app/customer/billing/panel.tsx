@@ -92,14 +92,14 @@ export function BillingPanel() {
 
   if (!wsId) {
     return (
-      <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+      <div className="rounded-md border border-warning/30 bg-warning/10 p-4 text-sm text-warning dark:border-warning/40 dark:bg-warning/15 dark:text-warning">
         Bind a workspace on the Overview tab first.
       </div>
     );
   }
   if (loading) {
     return (
-      <div className="rounded-md border border-zinc-200 p-8 text-center text-sm text-zinc-500 dark:border-zinc-800">
+      <div className="rounded-md border border-border p-8 text-center text-sm text-muted-foreground dark:border-border">
         Loading subscription…
       </div>
     );
@@ -109,7 +109,7 @@ export function BillingPanel() {
       <div
         role="alert"
         data-testid="billing-fetch-error"
-        className="flex flex-col gap-3 rounded-md border border-red-300 bg-red-50 p-4 text-sm text-red-900 dark:border-red-700 dark:bg-red-950 dark:text-red-200 sm:flex-row sm:items-center sm:justify-between"
+        className="flex flex-col gap-3 rounded-md border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive dark:border-destructive/40 dark:bg-destructive/15 dark:text-destructive sm:flex-row sm:items-center sm:justify-between"
       >
         <div>
           <p className="font-medium">Billing temporarily unavailable</p>
@@ -136,7 +136,7 @@ export function BillingPanel() {
     return (
       <div
         role="alert"
-        className="rounded-md border border-red-300 bg-red-50 p-4 text-sm text-red-900 dark:border-red-700 dark:bg-red-950 dark:text-red-200"
+        className="rounded-md border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive dark:border-destructive/40 dark:bg-destructive/15 dark:text-destructive"
       >
         Billing state is empty — please reload the page. If the problem
         persists, contact support.
@@ -157,9 +157,9 @@ export function BillingPanel() {
         <StatsCard label="Bandwidth quota" value={bandwidthLabel} />
       </div>
 
-      <section className="rounded-md border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+      <section className="rounded-md border border-border bg-card p-4 dark:border-border">
         <h2 className="text-sm font-medium">Subscription</h2>
-        <p className="mt-1 text-xs text-zinc-500">
+        <p className="mt-1 text-xs text-muted-foreground">
           Payment method, invoices, plan changes — all live in the Stripe
           Customer Portal. The button below opens a Checkout session for an
           upgrade or, if you already have a subscription, the portal lands
@@ -174,7 +174,7 @@ export function BillingPanel() {
           {opening ? "Opening Stripe…" : "Manage in Stripe"}
         </Button>
         {!account.upgrade_available ? (
-          <p className="mt-2 text-xs text-zinc-500">
+          <p className="mt-2 text-xs text-muted-foreground">
             You&apos;re on the highest tier; no upgrades available.
           </p>
         ) : null}

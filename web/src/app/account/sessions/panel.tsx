@@ -200,14 +200,14 @@ export function SessionsPanel() {
   const nonCurrent = sorted.filter((s) => !isCurrent(s));
 
   if (loading) {
-    return <p className="text-sm text-zinc-500">Loading…</p>;
+    return <p className="text-sm text-muted-foreground">Loading…</p>;
   }
 
   return (
     <div className="space-y-3">
       {sorted.length === 0 || (nonCurrent.length === 0 && !errored) ? (
         <p
-          className="rounded-md border border-dashed border-zinc-300 p-4 text-center text-sm text-zinc-500 dark:border-zinc-700"
+          className="rounded-md border border-dashed border-border-strong p-4 text-center text-sm text-muted-foreground dark:border-border-strong"
           data-testid="sessions-empty-state"
         >
           {errored
@@ -216,7 +216,7 @@ export function SessionsPanel() {
         </p>
       ) : (
         <ul
-          className="divide-y divide-zinc-200 rounded-md border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800"
+          className="divide-y divide-border rounded-md border border-border dark:divide-border dark:border-border"
           data-testid="sessions-list"
         >
           {sorted.map((s) => {
@@ -238,14 +238,14 @@ export function SessionsPanel() {
                     {humaniseUA(ua)}
                     {current ? (
                       <span
-                        className="ml-2 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+                        className="ml-2 rounded-full bg-success/15 px-1.5 py-0.5 text-[10px] font-medium text-success dark:bg-success/15 dark:text-success"
                         data-testid="current-session-pill"
                       >
                         Current session
                       </span>
                     ) : null}
                   </p>
-                  <p className="mt-0.5 text-xs text-zinc-500" title={ua}>
+                  <p className="mt-0.5 text-xs text-muted-foreground" title={ua}>
                     {ip ? `${ip} · ` : ""}
                     {created
                       ? `started ${formatProtoTimestampRelative(created)} · `

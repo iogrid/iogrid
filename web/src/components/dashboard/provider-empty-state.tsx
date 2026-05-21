@@ -32,18 +32,18 @@ export function ProviderEmptyState({
   return (
     <div
       data-testid={testId}
-      className="rounded-md border border-dashed border-zinc-300 bg-zinc-50 p-8 text-center dark:border-zinc-700 dark:bg-zinc-900"
+      className="rounded-md border border-dashed border-border-strong bg-muted p-8 text-center dark:border-border-strong dark:bg-card"
     >
-      <p className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+      <p className="text-base font-semibold text-foreground dark:text-foreground">
         You don&apos;t have any provider machines paired yet.
       </p>
-      <p className="mx-auto mt-2 max-w-prose text-sm text-zinc-600 dark:text-zinc-400">
+      <p className="mx-auto mt-2 max-w-prose text-sm text-muted-foreground dark:text-muted-foreground">
         {subtitle}
       </p>
       <div className="mt-5">
         <Link
           href="/install"
-          className="inline-flex items-center gap-1 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+          className="inline-flex items-center gap-1 rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background hover:bg-foreground/80 dark:bg-foreground dark:text-background dark:hover:bg-muted"
         >
           Install daemon
           <span aria-hidden>→</span>

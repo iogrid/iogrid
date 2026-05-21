@@ -59,7 +59,7 @@ export function ScheduleCalendar({
   return (
     <div
       data-testid="schedule-calendar"
-      className="overflow-x-auto rounded-md border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900"
+      className="overflow-x-auto rounded-md border border-border bg-card p-3 dark:border-border"
       onMouseUp={() => setDragging(null)}
       onMouseLeave={() => setDragging(null)}
     >
@@ -70,7 +70,7 @@ export function ScheduleCalendar({
             {Array.from({ length: 24 }, (_, h) => (
               <th
                 key={h}
-                className="px-0 text-center font-normal text-zinc-500"
+                className="px-0 text-center font-normal text-muted-foreground"
                 aria-label={`Hour ${h}`}
               >
                 {h % 6 === 0 ? h : ""}
@@ -83,7 +83,7 @@ export function ScheduleCalendar({
             <tr key={day}>
               <th
                 scope="row"
-                className="pr-2 text-right text-xs font-medium text-zinc-600 dark:text-zinc-400"
+                className="pr-2 text-right text-xs font-medium text-muted-foreground dark:text-muted-foreground"
               >
                 {day}
               </th>
@@ -99,10 +99,10 @@ export function ScheduleCalendar({
                       aria-pressed={on}
                       aria-label={`${day} ${hour}:00 ${on ? "enabled" : "disabled"}`}
                       className={cn(
-                        "h-5 w-full rounded-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500",
+                        "h-5 w-full rounded-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
                         on
-                          ? "bg-emerald-500 hover:bg-emerald-400"
-                          : "bg-zinc-200 hover:bg-zinc-300 dark:bg-zinc-800 dark:hover:bg-zinc-700",
+                          ? "bg-success hover:bg-success/90"
+                          : "bg-muted hover:bg-muted dark:bg-muted dark:hover:bg-muted",
                         disabled && "opacity-50",
                       )}
                     />
@@ -113,7 +113,7 @@ export function ScheduleCalendar({
           ))}
         </tbody>
       </table>
-      <p className="mt-2 text-xs text-zinc-500">
+      <p className="mt-2 text-xs text-muted-foreground">
         Click and drag to enable hours. Green = available for workloads.
       </p>
     </div>

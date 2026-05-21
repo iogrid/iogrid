@@ -159,8 +159,8 @@ export function AuditFeed() {
               className={cn(
                 "rounded-full px-3 py-1 text-xs font-medium transition-colors",
                 filter === f.key
-                  ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-                  : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700",
+                  ? "bg-foreground text-background dark:bg-foreground dark:text-background"
+                  : "bg-muted text-foreground hover:bg-muted dark:bg-muted dark:text-muted-foreground dark:hover:bg-muted",
               )}
             >
               {f.label}
@@ -188,7 +188,7 @@ export function AuditFeed() {
           <a
             href={exportCsvUrl(filtered)}
             download={`iogrid-audit-${new Date().toISOString().slice(0, 10)}.csv`}
-            className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+            className="rounded-md border border-border-strong px-3 py-1.5 text-sm font-medium hover:bg-muted dark:border-border-strong dark:hover:bg-muted"
           >
             Export CSV
           </a>
@@ -202,7 +202,7 @@ export function AuditFeed() {
         className="space-y-2"
       >
         {filtered.length === 0 ? (
-          <li className="rounded-md border border-dashed border-zinc-300 p-6 text-center text-sm text-zinc-500 dark:border-zinc-700">
+          <li className="rounded-md border border-dashed border-border-strong p-6 text-center text-sm text-muted-foreground dark:border-border-strong">
             {status === "open"
               ? "Listening for events… your machine is connected but hasn't received any workloads in this window yet."
               : "Connecting to the transparency stream…"}
@@ -231,16 +231,16 @@ function StatusPill({
   status: "connecting" | "open" | "closed" | "error" | "unavailable";
 }) {
   const map: Record<string, { dot: string; label: string }> = {
-    open: { dot: "bg-emerald-500", label: "Live" },
-    connecting: { dot: "bg-amber-500 animate-pulse", label: "Connecting" },
-    error: { dot: "bg-rose-500", label: "Disconnected" },
-    closed: { dot: "bg-zinc-400", label: "Closed" },
-    unavailable: { dot: "bg-rose-700", label: "Unavailable" },
+    open: { dot: "bg-success", label: "Live" },
+    connecting: { dot: "bg-warning animate-pulse", label: "Connecting" },
+    error: { dot: "bg-destructive", label: "Disconnected" },
+    closed: { dot: "bg-muted-foreground", label: "Closed" },
+    unavailable: { dot: "bg-destructive", label: "Unavailable" },
   };
   const m = map[status] ?? map.closed;
   return (
     <span
-      className="inline-flex items-center gap-1.5 rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+      className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-foreground dark:bg-muted dark:text-muted-foreground"
       data-testid="sse-status"
       data-status={status}
     >

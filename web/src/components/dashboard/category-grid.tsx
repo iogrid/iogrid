@@ -39,8 +39,8 @@ export function CategoryGrid({
               className={cn(
                 "flex cursor-pointer items-start gap-3 rounded-md border p-3 transition-colors",
                 on
-                  ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950"
-                  : "border-zinc-200 bg-white hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900",
+                  ? "border-success/40 bg-success/10 dark:bg-success/15"
+                  : "border-border bg-card hover:border-foreground/40 dark:border-border",
                 disabled && "cursor-not-allowed opacity-60",
               )}
             >
@@ -55,13 +55,13 @@ export function CategoryGrid({
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline justify-between gap-2">
                   <span className="text-sm font-medium">{cat.label}</span>
-                  <span className="text-xs text-zinc-500">
+                  <span className="text-xs text-muted-foreground">
                     {cat.customers} customers
                   </span>
                 </div>
                 <p
                   id={`cat-desc-${cat.slug}`}
-                  className="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400"
+                  className="mt-0.5 text-xs text-muted-foreground dark:text-muted-foreground"
                 >
                   {cat.description}
                 </p>

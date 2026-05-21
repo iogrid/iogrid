@@ -118,7 +118,7 @@ export function CustomerOverview() {
   if (bootstrapState === "loading" && !wsId) {
     return (
       <div
-        className="rounded-md border border-zinc-200 p-8 text-center text-sm text-zinc-500 dark:border-zinc-800"
+        className="rounded-md border border-border p-8 text-center text-sm text-muted-foreground dark:border-border"
         data-testid="workspace-bootstrap-loading"
       >
         Setting up your workspace…
@@ -146,7 +146,7 @@ export function CustomerOverview() {
   }
   if (loading) {
     return (
-      <div className="rounded-md border border-zinc-200 p-8 text-center text-sm text-zinc-500 dark:border-zinc-800">
+      <div className="rounded-md border border-border p-8 text-center text-sm text-muted-foreground dark:border-border">
         Loading workspace…
       </div>
     );
@@ -176,7 +176,7 @@ export function CustomerOverview() {
   return (
     <div className="space-y-6" data-testid="customer-dashboard">
       {err ? (
-        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+        <div className="rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-warning dark:border-warning/40 dark:bg-warning/15 dark:text-warning">
           Couldn&apos;t load usage: {err}
         </div>
       ) : null}
@@ -200,9 +200,9 @@ export function CustomerOverview() {
 
       <section>
         <h2 className="text-lg font-semibold">Usage by workload type</h2>
-        <ul className="mt-3 divide-y divide-zinc-200 rounded-md border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
+        <ul className="mt-3 divide-y divide-border rounded-md border border-border dark:divide-border dark:border-border">
           {byType.size === 0 ? (
-            <li className="p-4 text-sm text-zinc-500">
+            <li className="p-4 text-sm text-muted-foreground">
               No usage yet. Submit your first workload through the API or
               the workloads tab.
             </li>
@@ -255,10 +255,10 @@ function QuickLink({
   return (
     <Link
       href={href}
-      className="rounded-md border border-zinc-200 bg-white p-4 transition-colors hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900"
+      className="rounded-md border border-border bg-card p-4 transition-colors hover:border-foreground/40 dark:border-border"
     >
       <p className="text-sm font-medium">{label}</p>
-      <p className="mt-0.5 text-xs text-zinc-500">{description}</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
     </Link>
   );
 }
@@ -294,22 +294,22 @@ function WorkspaceSetupPanel({
   const [val, setVal] = React.useState("");
   return (
     <div
-      className="rounded-md border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900"
+      className="rounded-md border border-border bg-card p-6 dark:border-border"
       data-testid="workspace-setup-fallback"
     >
       <h2 className="text-lg font-semibold">Workspace setup</h2>
-      <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+      <p className="mt-1 text-sm text-muted-foreground dark:text-muted-foreground">
         We tried to auto-create a workspace for you but the identity service
         was not reachable. You can either retry the page, or paste an
         existing workspace UUID below as a one-time fallback.
       </p>
       {message ? (
-        <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-500">
+        <p className="mt-2 text-xs text-muted-foreground dark:text-muted-foreground">
           Detail: {message}
         </p>
       ) : null}
       <details className="mt-4 group">
-        <summary className="cursor-pointer text-sm font-medium text-zinc-700 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-100">
+        <summary className="cursor-pointer text-sm font-medium text-foreground hover:text-foreground dark:text-muted-foreground dark:hover:text-foreground">
           Paste a workspace UUID instead
         </summary>
         <form
@@ -328,11 +328,11 @@ function WorkspaceSetupPanel({
             placeholder="00000000-0000-0000-0000-000000000000"
             aria-label="Workspace ID"
             pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
-            className="flex-1 rounded-md border border-zinc-300 bg-transparent px-3 py-2 text-sm font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 dark:border-zinc-700"
+            className="flex-1 rounded-md border border-border-strong bg-transparent px-3 py-2 text-sm font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-strong dark:border-border-strong"
           />
           <button
             type="submit"
-            className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900"
+            className="rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background hover:bg-foreground/80 dark:bg-foreground dark:text-background"
           >
             Bind workspace
           </button>

@@ -10,11 +10,11 @@ export const metadata = { title: "iogrid VPN — Upgrade" };
 export default function VpnUpgradePage() {
   return (
     <main className="mx-auto max-w-4xl px-6 py-12">
-      <Link href="/install" className="text-sm text-zinc-500 hover:underline">
+      <Link href="/install" className="text-sm text-muted-foreground hover:underline">
         ← Back to install
       </Link>
       <h1 className="mt-6 text-3xl font-bold">Upgrade iogrid VPN</h1>
-      <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+      <p className="mt-2 text-sm text-muted-foreground dark:text-muted-foreground">
         The free tier ships 50 GB/month. Pick a paid plan for higher quotas,
         more concurrent regions, and per-app exit selection.
       </p>

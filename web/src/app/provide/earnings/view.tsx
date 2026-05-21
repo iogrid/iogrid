@@ -235,8 +235,8 @@ export function EarningsView() {
               className={cn(
                 "rounded-full px-3 py-1 text-xs font-medium",
                 period === p.key
-                  ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-                  : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300",
+                  ? "bg-foreground text-background dark:bg-foreground dark:text-background"
+                  : "bg-muted text-foreground hover:bg-muted dark:bg-muted dark:text-muted-foreground",
               )}
             >
               {p.label}
@@ -256,12 +256,12 @@ export function EarningsView() {
       {pendingOffRamps.length > 0 ? (
         <section
           aria-label="Pending off-ramp requests"
-          className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-700 dark:bg-amber-950"
+          className="rounded-md border border-warning/40 bg-warning/10 p-3 text-sm dark:border-warning/40 dark:bg-warning/15"
         >
-          <p className="font-medium text-amber-900 dark:text-amber-200">
+          <p className="font-medium text-warning dark:text-warning">
             Off-ramp in progress
           </p>
-          <ul className="mt-2 space-y-1 text-xs text-amber-800 dark:text-amber-300">
+          <ul className="mt-2 space-y-1 text-xs text-warning dark:text-warning">
             {pendingOffRamps.map((p) => (
               <li key={p.requestId} className="flex justify-between gap-3">
                 <span>{p.providerName}</span>
@@ -274,7 +274,7 @@ export function EarningsView() {
       ) : null}
 
       {loading ? (
-        <div className="flex h-48 items-center justify-center rounded-md border border-dashed border-zinc-300 text-sm text-zinc-500 dark:border-zinc-700">
+        <div className="flex h-48 items-center justify-center rounded-md border border-dashed border-border-strong text-sm text-muted-foreground dark:border-border-strong">
           Loading earnings…
         </div>
       ) : (
@@ -283,9 +283,9 @@ export function EarningsView() {
 
       <section>
         <h2 className="text-lg font-semibold">By workload type</h2>
-        <ul className="mt-3 divide-y divide-zinc-200 rounded-md border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
+        <ul className="mt-3 divide-y divide-border rounded-md border border-border dark:divide-border dark:border-border">
           {breakdown.length === 0 ? (
-            <li className="p-4 text-sm text-zinc-500">
+            <li className="p-4 text-sm text-muted-foreground">
               No revenue recorded for this period yet.
             </li>
           ) : (
@@ -303,7 +303,7 @@ export function EarningsView() {
 
       <section>
         <h2 className="text-lg font-semibold">Payout method</h2>
-        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+        <p className="mt-1 text-sm text-muted-foreground dark:text-muted-foreground">
           Earnings are paid in $GRID by default. The cash and charity
           variants auto-swap $GRID via billing-svc&apos;s monthly off-ramp
           cron — you can change this any time before the next payout date.
@@ -367,12 +367,12 @@ function PayoutOption({
       className={cn(
         "rounded-md border p-4 text-left text-sm transition-colors",
         selected
-          ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950"
-          : "border-zinc-200 bg-white hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900",
+          ? "border-success/40 bg-success/10 dark:bg-success/15"
+          : "border-border bg-card hover:border-foreground/40 dark:border-border",
       )}
     >
       <p className="font-medium">{label}</p>
-      <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+      <p className="mt-1 text-xs text-muted-foreground dark:text-muted-foreground">
         {description}
       </p>
     </button>

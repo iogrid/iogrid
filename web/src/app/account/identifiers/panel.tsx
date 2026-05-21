@@ -26,14 +26,14 @@ export function IdentifiersPanel() {
 
   if (loading) {
     return (
-      <div className="rounded-md border border-zinc-200 p-8 text-center text-sm text-zinc-500 dark:border-zinc-800">
+      <div className="rounded-md border border-border p-8 text-center text-sm text-muted-foreground dark:border-border">
         Loading identifiers…
       </div>
     );
   }
   if (!me) {
     return (
-      <div className="rounded-md border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-300">
+      <div className="rounded-md border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive dark:border-destructive/40 dark:bg-destructive/15 dark:text-destructive">
         Couldn&apos;t load identifiers. Try refreshing or sign back in.
       </div>
     );
@@ -56,7 +56,7 @@ export function IdentifiersPanel() {
 
   return (
     <div className="space-y-4">
-      <ul className="divide-y divide-zinc-200 rounded-md border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
+      <ul className="divide-y divide-border rounded-md border border-border dark:divide-border dark:border-border">
         {(me.identifiers ?? []).map((id) => (
           <IdentifierRow
             key={id.id?.value ?? id.value}
@@ -66,12 +66,12 @@ export function IdentifiersPanel() {
           />
         ))}
         {(me.identifiers ?? []).length === 0 ? (
-          <li className="p-4 text-sm text-zinc-500">
+          <li className="p-4 text-sm text-muted-foreground">
             No identifiers bound. Add one to keep the account recoverable.
           </li>
         ) : null}
       </ul>
-      <p className="text-xs text-zinc-500">
+      <p className="text-xs text-muted-foreground">
         Adding a new identifier opens a verification flow in the identity
         service. Removing the last verified identifier is blocked server-side.
       </p>
@@ -130,14 +130,14 @@ function IdentifierRow({
     <li className="flex items-center justify-between p-3 text-sm">
       <div className="min-w-0 flex-1">
         <p className="font-medium">{displayValue || "(unknown)"}</p>
-        <p className="text-xs text-zinc-500">
+        <p className="text-xs text-muted-foreground">
           {identifierKindLabel(id.kind)}
           {isVerified ? (
-            <span className="ml-2 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+            <span className="ml-2 rounded-full bg-success/15 px-1.5 py-0.5 text-[10px] font-medium text-success dark:bg-success/15 dark:text-success">
               Verified
             </span>
           ) : (
-            <span className="ml-2 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+            <span className="ml-2 rounded-full bg-warning/15 px-1.5 py-0.5 text-[10px] font-medium text-warning dark:bg-warning/15 dark:text-warning">
               Pending
             </span>
           )}

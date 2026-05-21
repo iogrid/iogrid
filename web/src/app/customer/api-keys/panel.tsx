@@ -44,7 +44,7 @@ export function ApiKeysPanel() {
 
   if (!wsId) {
     return (
-      <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+      <div className="rounded-md border border-warning/30 bg-warning/10 p-4 text-sm text-warning dark:border-warning/40 dark:bg-warning/15 dark:text-warning">
         Select a workspace on the{" "}
         <a href="/customer" className="underline">
           Overview tab
@@ -94,9 +94,9 @@ export function ApiKeysPanel() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-md border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+      <section className="rounded-md border border-border bg-card p-4 dark:border-border">
         <h2 className="text-sm font-medium">Create a key</h2>
-        <p className="mt-1 text-xs text-zinc-500">
+        <p className="mt-1 text-xs text-muted-foreground">
           Pick a label that reminds you what the key is for (e.g.
           &ldquo;production-staging-runner&rdquo;). The plaintext token is shown only once.
         </p>
@@ -129,15 +129,15 @@ export function ApiKeysPanel() {
       <section>
         <h2 className="text-sm font-medium">Active keys</h2>
         {loading ? (
-          <p className="mt-3 text-sm text-zinc-500">Loading…</p>
+          <p className="mt-3 text-sm text-muted-foreground">Loading…</p>
         ) : keys.length === 0 ? (
-          <p className="mt-3 rounded-md border border-dashed border-zinc-300 p-4 text-center text-sm text-zinc-500 dark:border-zinc-700">
+          <p className="mt-3 rounded-md border border-dashed border-border-strong p-4 text-center text-sm text-muted-foreground dark:border-border-strong">
             No keys yet. Create one above.
           </p>
         ) : (
           <ul
             data-testid="api-keys-list"
-            className="mt-3 divide-y divide-zinc-200 rounded-md border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800"
+            className="mt-3 divide-y divide-border rounded-md border border-border dark:divide-border dark:border-border"
           >
             {keys.map((k) => {
               const id = k.id?.value ?? "";
@@ -146,7 +146,7 @@ export function ApiKeysPanel() {
                 <li key={id} className="flex items-center justify-between p-3 text-sm">
                   <div className="min-w-0 flex-1">
                     <p className="font-medium">{k.label || "(unnamed)"}</p>
-                    <p className="text-xs text-zinc-500">
+                    <p className="text-xs text-muted-foreground">
                       <code className="font-mono">{k.prefix}…</code> · created{" "}
                       {formatRelativeTime(k.createdAt)}
                     </p>
@@ -164,7 +164,7 @@ export function ApiKeysPanel() {
                         size="sm"
                         variant="default"
                         onClick={() => void onDelete(id)}
-                        className="bg-rose-600 hover:bg-rose-500"
+                        className="bg-destructive hover:bg-destructive/90"
                       >
                         Revoke permanently
                       </Button>
@@ -212,12 +212,12 @@ function PlaintextReveal({
       role="alertdialog"
       aria-labelledby="key-reveal-title"
       data-testid="plaintext-reveal"
-      className="rounded-md border border-emerald-400 bg-emerald-50 p-4 text-sm dark:border-emerald-700 dark:bg-emerald-950"
+      className="rounded-md border border-success/40 bg-success/10 p-4 text-sm dark:border-success/40 dark:bg-success/15"
     >
       <p id="key-reveal-title" className="font-medium">
         Copy this token now
       </p>
-      <p className="mt-1 text-xs text-zinc-700 dark:text-zinc-300">
+      <p className="mt-1 text-xs text-foreground dark:text-muted-foreground">
         Anyone with this token can submit workloads under your workspace.
         Treat it like a password — iogrid will never show it to you again.
       </p>
@@ -226,7 +226,7 @@ function PlaintextReveal({
           readOnly
           aria-label="Plaintext API key"
           value={apiKey.plaintext ?? ""}
-          className="flex-1 rounded-md border border-zinc-300 bg-white px-2 py-1.5 font-mono text-xs dark:border-zinc-700 dark:bg-zinc-900"
+          className="flex-1 rounded-md border border-border-strong bg-card px-2 py-1.5 font-mono text-xs dark:border-border-strong"
         />
         <Button size="sm" onClick={onCopy}>
           {copied ? "Copied!" : "Copy"}

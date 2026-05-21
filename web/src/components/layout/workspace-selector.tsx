@@ -102,7 +102,7 @@ export function WorkspaceSelector({
   if (loading) {
     return (
       <span
-        className="text-xs font-medium text-zinc-500 dark:text-zinc-400"
+        className="text-xs font-medium text-muted-foreground dark:text-muted-foreground"
         aria-live="polite"
       >
         Loading workspaces…
@@ -112,7 +112,7 @@ export function WorkspaceSelector({
   if (error) {
     return (
       <span
-        className="text-xs font-medium text-red-600 dark:text-red-400"
+        className="text-xs font-medium text-destructive dark:text-destructive"
         role="alert"
       >
         Workspaces unavailable
@@ -121,20 +121,20 @@ export function WorkspaceSelector({
   }
   if (workspaces.length === 0) {
     return (
-      <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+      <span className="text-xs font-medium text-muted-foreground dark:text-muted-foreground">
         No workspace
       </span>
     );
   }
 
   return (
-    <label className="flex items-center gap-2 text-xs font-medium text-zinc-700 dark:text-zinc-200">
+    <label className="flex items-center gap-2 text-xs font-medium text-foreground dark:text-foreground">
       <span className="hidden md:inline">Workspace</span>
       <select
         aria-label="Active workspace"
         value={activeId ?? ""}
         onChange={(e) => handleSelect(e.target.value)}
-        className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs shadow-sm focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900"
+        className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground transition-colors hover:border-border-strong focus:border-ring focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         {workspaces.map((w) => (
           <option key={w.id} value={w.id}>

@@ -85,8 +85,8 @@ export function UpgradePanel() {
           className={cn(
             "rounded-lg border p-5",
             p.highlight
-              ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950"
-              : "border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900",
+              ? "border-success/40 bg-success/10 dark:bg-success/15"
+              : "border-border bg-card dark:border-border",
           )}
         >
           <h2 className="text-xl font-bold">{p.label}</h2>
@@ -94,7 +94,7 @@ export function UpgradePanel() {
           <ul className="mt-3 space-y-1 text-sm">
             {p.bullets.map((b) => (
               <li key={b} className="flex items-start gap-2">
-                <span aria-hidden className="mt-0.5 text-emerald-600">✓</span>
+                <span aria-hidden className="mt-0.5 text-success">✓</span>
                 <span>{b}</span>
               </li>
             ))}

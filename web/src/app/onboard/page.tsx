@@ -11,13 +11,13 @@ export default function OnboardLandingPage() {
   return (
     <main className="mx-auto max-w-md px-6 py-16">
       <div className="flex items-center justify-between">
-        <Link href="/" className="text-sm text-zinc-500 hover:underline">
+        <Link href="/" className="text-sm text-muted-foreground hover:underline">
           ← Back
         </Link>
         <ThemeToggle />
       </div>
       <h1 className="mt-6 text-3xl font-bold">Finish iogrid setup</h1>
-      <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+      <p className="mt-2 text-sm text-muted-foreground dark:text-muted-foreground">
         Enter the 6-character code shown by your installer to link this
         machine to your iogrid account.
       </p>
@@ -43,17 +43,17 @@ export default function OnboardLandingPage() {
           maxLength={6}
           pattern="[0-9A-HJ-NP-TV-Z]{6}"
           required
-          className="w-full rounded-md border border-zinc-300 px-4 py-3 text-center font-mono text-2xl uppercase tracking-[0.4em] focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
+          className="w-full rounded-md border border-border-strong px-4 py-3 text-center font-mono text-2xl uppercase tracking-[0.4em] focus:border-foreground focus:outline-none focus:ring-1 focus:ring-ring"
         />
         <button
           type="submit"
-          className="w-full rounded-md bg-zinc-900 px-4 py-3 text-sm font-medium text-white hover:bg-zinc-700"
+          className="w-full rounded-md bg-foreground px-4 py-3 text-sm font-medium text-background hover:bg-foreground/80"
         >
           Continue
         </button>
       </form>
 
-      <details className="mt-8 text-xs text-zinc-500">
+      <details className="mt-8 text-xs text-muted-foreground">
         <summary className="cursor-pointer">
           What&apos;s a pairing code?
         </summary>
@@ -62,7 +62,7 @@ export default function OnboardLandingPage() {
           6-character code that proves you control this machine. Enter the
           code above and we&apos;ll link this device to your account. The code
           expires in 10 minutes — if you missed it, run{" "}
-          <code className="rounded bg-zinc-100 px-1 py-0.5 font-mono">
+          <code className="rounded bg-muted px-1 py-0.5 font-mono">
             iogridd pair --request
           </code>{" "}
           on your machine to mint a fresh one.

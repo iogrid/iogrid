@@ -32,12 +32,12 @@ export function StatsCard({
   return (
     <div
       className={cn(
-        "rounded-lg border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900",
+        "rounded-lg border border-border bg-card p-5 shadow-sm dark:border-border",
         className,
       )}
     >
       <div className="flex items-start justify-between">
-        <h3 className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
+        <h3 className="text-sm font-medium text-muted-foreground dark:text-muted-foreground">
           {label}
         </h3>
         {delta ? <DeltaPill {...delta} /> : null}
@@ -45,7 +45,7 @@ export function StatsCard({
       <p className="mt-2 text-3xl font-semibold tracking-tight">{value}</p>
       <div className="mt-3 flex items-end justify-between gap-2">
         {hint ? (
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">{hint}</p>
+          <p className="text-xs text-muted-foreground dark:text-muted-foreground">{hint}</p>
         ) : (
           <span />
         )}
@@ -64,10 +64,10 @@ function DeltaPill({
 }) {
   const color =
     direction === "up"
-      ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+      ? "bg-success/10 text-success dark:bg-success/15 dark:text-success"
       : direction === "down"
-        ? "bg-rose-50 text-rose-700 dark:bg-rose-950 dark:text-rose-300"
-        : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300";
+        ? "bg-destructive/10 text-destructive dark:bg-destructive/15 dark:text-destructive"
+        : "bg-muted text-foreground dark:bg-muted dark:text-muted-foreground";
   const arrow = direction === "up" ? "↑" : direction === "down" ? "↓" : "→";
   return (
     <span
@@ -102,7 +102,7 @@ function Sparkline({ values }: { values: number[] }) {
       viewBox={`0 0 ${w} ${h}`}
       role="img"
       aria-label="trend"
-      className="text-zinc-400 dark:text-zinc-500"
+      className="text-muted-foreground dark:text-muted-foreground"
     >
       <polyline
         fill="none"

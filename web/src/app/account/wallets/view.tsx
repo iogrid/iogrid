@@ -70,7 +70,7 @@ export function WalletsView() {
         <CardHeader className="flex flex-row items-start justify-between space-y-0">
           <div>
             <CardTitle>Bound wallets</CardTitle>
-            <p className="mt-1 text-sm text-zinc-500">
+            <p className="mt-1 text-sm text-muted-foreground">
               Connect your wallet, sign a one-time challenge, and the
               address is linked to this iogrid identity.
             </p>
@@ -79,16 +79,16 @@ export function WalletsView() {
         </CardHeader>
         <CardContent>
           {loadError ? (
-            <p className="mb-3 text-sm text-rose-600" data-testid="wallets-load-error">
+            <p className="mb-3 text-sm text-destructive" data-testid="wallets-load-error">
               Couldn&apos;t load wallets: {loadError}
             </p>
           ) : null}
 
           {wallets === null ? (
-            <p className="text-sm text-zinc-500">Loading…</p>
+            <p className="text-sm text-muted-foreground">Loading…</p>
           ) : wallets.length === 0 ? (
             <p
-              className="rounded-md border border-dashed border-zinc-300 p-4 text-center text-sm text-zinc-500 dark:border-zinc-700"
+              className="rounded-md border border-dashed border-border-strong p-4 text-center text-sm text-muted-foreground dark:border-border-strong"
               data-testid="wallets-empty"
             >
               No wallets bound yet. Connect one above, then sign the
@@ -99,11 +99,11 @@ export function WalletsView() {
               {wallets.map((w) => (
                 <li
                   key={w.walletAddress}
-                  className="flex items-center justify-between gap-3 rounded-md border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900"
+                  className="flex items-center justify-between gap-3 rounded-md border border-border bg-card p-3 dark:border-border"
                 >
                   <div className="flex flex-col gap-1">
                     <WalletAddress address={w.walletAddress} />
-                    <p className="text-xs text-zinc-500">
+                    <p className="text-xs text-muted-foreground">
                       Bound {formatRelativeTime(w.boundAt)}
                       {w.label ? ` · ${w.label}` : ""}
                     </p>
@@ -124,7 +124,7 @@ export function WalletsView() {
             </ul>
           )}
 
-          <div className="mt-4 border-t border-zinc-200 pt-4 dark:border-zinc-800">
+          <div className="mt-4 border-t border-border pt-4 dark:border-border">
             <p className="mb-2 text-sm font-medium">Add a wallet</p>
             <WalletBindFlow onBound={() => void refresh()} />
           </div>

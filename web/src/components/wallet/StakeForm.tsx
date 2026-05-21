@@ -95,7 +95,7 @@ export function StakeForm({ availableGrid, onSubmit, className }: StakeFormProps
             Max
           </Button>
         </div>
-        <p className="mt-1 text-xs text-zinc-500">
+        <p className="mt-1 text-xs text-muted-foreground">
           Available: {formatToken(availableGrid)} $GRID
         </p>
       </div>
@@ -118,8 +118,8 @@ export function StakeForm({ availableGrid, onSubmit, className }: StakeFormProps
               className={cn(
                 "rounded-md border p-3 text-left text-sm transition-colors",
                 period === t.lockPeriodDays
-                  ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
-                  : "border-zinc-200 hover:border-zinc-400 dark:border-zinc-800",
+                  ? "border-foreground bg-foreground text-background dark:border-foreground dark:bg-foreground dark:text-background"
+                  : "border-border hover:border-foreground/40 dark:border-border",
               )}
             >
               <p className="font-medium">{t.lockPeriodDays}d</p>
@@ -130,9 +130,9 @@ export function StakeForm({ availableGrid, onSubmit, className }: StakeFormProps
         </div>
       </div>
 
-      <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="rounded-md border border-border bg-muted p-3 text-sm dark:border-border dark:bg-card">
         <div className="flex items-center justify-between">
-          <span className="text-zinc-600 dark:text-zinc-400">
+          <span className="text-muted-foreground dark:text-muted-foreground">
             Tier multiplier
           </span>
           <span className="font-mono font-semibold">
@@ -140,7 +140,7 @@ export function StakeForm({ availableGrid, onSubmit, className }: StakeFormProps
           </span>
         </div>
         <div className="mt-1 flex items-center justify-between">
-          <span className="text-zinc-600 dark:text-zinc-400">
+          <span className="text-muted-foreground dark:text-muted-foreground">
             Stake weight preview
           </span>
           <span
@@ -153,7 +153,7 @@ export function StakeForm({ availableGrid, onSubmit, className }: StakeFormProps
       </div>
 
       {error ? (
-        <p className="text-sm text-rose-600" data-testid="stake-form-error">
+        <p className="text-sm text-destructive" data-testid="stake-form-error">
           {error}
         </p>
       ) : null}

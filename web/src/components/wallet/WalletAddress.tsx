@@ -55,15 +55,15 @@ export function WalletAddress({
       aria-label={`Copy wallet address ${address}`}
       data-testid="wallet-address"
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 font-mono text-xs text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800",
+        "inline-flex items-center gap-1.5 rounded-md border border-border bg-muted px-2 py-1 font-mono text-xs text-foreground transition-colors hover:bg-muted dark:border-border dark:bg-card dark:text-muted-foreground dark:hover:bg-muted",
         className,
       )}
     >
       <span>{display}</span>
       {copied ? (
-        <Check className="h-3.5 w-3.5 text-emerald-600" aria-hidden />
+        <Check className="h-3.5 w-3.5 text-success" aria-hidden />
       ) : (
-        <Copy className="h-3.5 w-3.5 text-zinc-400" aria-hidden />
+        <Copy className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
       )}
     </button>
   );

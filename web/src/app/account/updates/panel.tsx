@@ -98,7 +98,7 @@ export function UpdatesPanel() {
   };
 
   if (loading) {
-    return <p className="text-sm text-zinc-500">Loading…</p>;
+    return <p className="text-sm text-muted-foreground">Loading…</p>;
   }
 
   const pending = state?.pendingVersion;
@@ -144,9 +144,9 @@ function PreferencesCard({
   const dirty = draft.channel !== prefs.channel || draft.autoUpdate !== prefs.autoUpdate;
 
   return (
-    <div className="rounded-md border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+    <div className="rounded-md border border-border bg-card p-4 dark:border-border">
       <h2 className="text-base font-semibold">Preferences</h2>
-      <p className="mt-1 text-sm text-zinc-500">
+      <p className="mt-1 text-sm text-muted-foreground">
         Pick a release channel and decide whether the daemon should update
         itself in the background.
       </p>
@@ -163,7 +163,7 @@ function PreferencesCard({
               onChange={() => setDraft((d) => ({ ...d, channel: c }))}
             />
             <span className="capitalize">{c}</span>
-            <span className="text-xs text-zinc-500">
+            <span className="text-xs text-muted-foreground">
               {c === "stable"
                 ? "production releases (recommended)"
                 : c === "beta"
@@ -184,7 +184,7 @@ function PreferencesCard({
         />
         <span>
           <span className="font-medium">Install updates automatically</span>
-          <span className="ml-2 text-xs text-zinc-500">
+          <span className="ml-2 text-xs text-muted-foreground">
             polls every 6h, applies on next idle window
           </span>
         </span>
@@ -222,9 +222,9 @@ function PendingCard({
   onRollback: () => Promise<void>;
 }) {
   return (
-    <div className="rounded-md border border-amber-300 bg-amber-50 p-4 dark:border-amber-700 dark:bg-amber-950">
+    <div className="rounded-md border border-warning/40 bg-warning/10 p-4 dark:border-warning/40 dark:bg-warning/15">
       <h2 className="text-base font-semibold">Pending: {version}</h2>
-      <p className="mt-1 text-sm text-zinc-700 dark:text-zinc-300">
+      <p className="mt-1 text-sm text-foreground dark:text-muted-foreground">
         A new daemon binary has been staged on disk. Apply it now to restart
         the daemon on the new version. If anything goes wrong within 30s the
         wrapper rolls back automatically.
@@ -249,9 +249,9 @@ function CurrentCard({
   onRollback: () => Promise<void>;
 }) {
   return (
-    <div className="rounded-md border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+    <div className="rounded-md border border-border bg-card p-4 dark:border-border">
       <h2 className="text-base font-semibold">Current</h2>
-      <p className="mt-1 text-sm text-zinc-500">
+      <p className="mt-1 text-sm text-muted-foreground">
         {state?.enabled ? (
           <>Auto-update enabled — last check {lastCheckSummary(state)}.</>
         ) : (
@@ -276,26 +276,26 @@ function lastCheckSummary(state: UpdateState): string {
 function HistoryList({ items }: { items: UpdateHistoryEntry[] }) {
   if (!items?.length) {
     return (
-      <div className="rounded-md border border-dashed border-zinc-300 p-4 text-center text-sm text-zinc-500 dark:border-zinc-700">
+      <div className="rounded-md border border-dashed border-border-strong p-4 text-center text-sm text-muted-foreground dark:border-border-strong">
         No update checks yet.
       </div>
     );
   }
   return (
-    <div className="rounded-md border border-zinc-200 dark:border-zinc-800">
-      <h2 className="border-b border-zinc-200 px-4 py-2 text-sm font-semibold dark:border-zinc-800">
+    <div className="rounded-md border border-border dark:border-border">
+      <h2 className="border-b border-border px-4 py-2 text-sm font-semibold dark:border-border">
         History
       </h2>
-      <ul className="divide-y divide-zinc-200 dark:divide-zinc-800">
+      <ul className="divide-y divide-border dark:divide-border">
         {items.map((h, i) => (
           <li key={`${h.at}-${i}`} className="px-4 py-2 text-sm">
             <div className="flex items-center justify-between">
-              <span className="font-mono text-xs text-zinc-500">
+              <span className="font-mono text-xs text-muted-foreground">
                 {formatRelativeTime(h.at)}
               </span>
               <OutcomeBadge outcome={h.outcome} />
             </div>
-            <div className="mt-0.5 text-xs text-zinc-500">
+            <div className="mt-0.5 text-xs text-muted-foreground">
               channel {h.channel} · running {h.fromVersion}
             </div>
           </li>
@@ -319,12 +319,12 @@ function OutcomeBadge({ outcome }: { outcome: UpdateHistoryEntry["outcome"] }) {
             : status;
   const tone =
     status === "up_to_date"
-      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+      ? "bg-success/15 text-success dark:bg-success/15 dark:text-success"
       : status === "staged"
-        ? "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
+        ? "bg-warning/15 text-warning dark:bg-warning/15 dark:text-warning"
         : status === "failed"
-          ? "bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300"
-          : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300";
+          ? "bg-destructive/15 text-destructive dark:bg-destructive/15 dark:text-destructive"
+          : "bg-muted text-foreground dark:bg-muted dark:text-muted-foreground";
   return (
     <span
       className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${tone}`}
