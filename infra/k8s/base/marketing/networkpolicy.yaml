@@ -1,0 +1,60 @@
+---
+# marketing — static Next.js export served via nginx for iogrid.org +
+# www.iogrid.org. Ingress: ONLY from the Traefik shim (kube-system) and
+# the Cilium Gateway (gateway-system) — both are public-facing edges,
+# nothing internal calls the marketing site. Egress: cluster DNS only.
+# The marketing site is fully static (no external API calls at runtime)
+# so egress is locked down to kube-dns to keep blast-radius minimal if
+# the nginx container is ever compromised. Refs #384.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: marketing-allow
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: marketing
+    app.kubernetes.io/part-of: iogrid
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: marketing
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Traefik shim (kube-system) — current edge until Cilium Gateway
+    # migration completes per `infra/k8s/traefik/README.md`.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Cilium Gateway (gateway-system) — future canonical edge. Keeping
+    # this rule live now means the Gateway-Cilium cutover doesn't need a
+    # second NetworkPolicy roll.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: gateway-system
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    # Cluster DNS only. The static export has no runtime API surface.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

@@ -1,0 +1,52 @@
+---
+# Two Services point at the same marketing Deployment:
+#
+# 1. `marketing-site` (port 80) — the canonical name referenced by the
+#    Cilium Gateway HTTPRoute in `infra/k8s/gateways/httproute-apex-www.yaml`
+#    (Refs #384, established by the gateway design pre-existing in main).
+#
+# 2. `marketing` (port 8080) — the name used by the Traefik IngressRoute
+#    shim in `infra/k8s/traefik/ingressroute-marketing.yaml`. Until the
+#    Sovereign migrates off the Traefik shim onto the Cilium Gateway
+#    (per `infra/k8s/traefik/README.md`) both Service names need to
+#    resolve so neither edge path is broken.
+#
+# Keeping them as two Service objects (rather than a single Service with
+# alias) makes the connection-graph explicit in `kubectl describe`.
+apiVersion: v1
+kind: Service
+metadata:
+  name: marketing-site
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: marketing
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: marketing
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: marketing
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: marketing
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: marketing
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: marketing
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: marketing
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
