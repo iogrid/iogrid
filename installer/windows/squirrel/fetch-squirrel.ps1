@@ -110,3 +110,4 @@ Write-Host "[squirrel] staged: Update.exe (= Setup.exe from tools/)"
 Remove-Item -Force $tmpZip
 Remove-Item -Recurse -Force $tmpExtract
 Write-Host "[squirrel] done"
+exit 0

@@ -85,3 +85,4 @@ $content = ($sorted | ForEach-Object { $_.Line }) -join "`n"
 Set-Content -Path $releasesPath -Value $content -Encoding ASCII
 Write-Host "Wrote RELEASES ($($sorted.Count) entries) -> $releasesPath" -ForegroundColor Green
 Get-Content $releasesPath
+exit 0

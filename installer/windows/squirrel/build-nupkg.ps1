@@ -157,3 +157,4 @@ $line = "$sha1 $relFile $size"
 Set-Content -Path $lineFile -Value $line -Encoding ASCII -NoNewline
 Write-Host "RELEASES line: $line"
 Write-Host "Wrote: $lineFile"
+exit 0
