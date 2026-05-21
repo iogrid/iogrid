@@ -31,14 +31,31 @@ fi
 DOMAIN="$(jq -r .domain "$RECORDS_FILE")"
 
 if [[ "$MODE" == "--verify" ]]; then
-  echo "=== Public-resolver lookup for $DOMAIN and subdomains ==="
-  for h in "$DOMAIN" \
-           "www.$DOMAIN" "admin.$DOMAIN" "api.$DOMAIN" "app.$DOMAIN" "proxy.$DOMAIN" \
-           "build.$DOMAIN" "docs.$DOMAIN" "status.$DOMAIN"; do
-    printf '%-25s ' "$h"
-    dig +short "$h" A @1.1.1.1 | head -1
+  # Derive the host list from the records file so newly-added subdomains
+  # are exercised automatically — prevents the #410 class of bug where
+  # `admin` was appended to the JSON + the Certificate SAN list but the
+  # verify block hand-rolled subdomains and silently missed it (so the
+  # operator running `--verify` got a green check while cert-manager's
+  # HTTP-01 self-check was 0-resolving `admin.$DOMAIN` and the iogrid.org
+  # apex was serving Traefik's default self-signed cert).
+  EXPECTED="$(jq -r .main.value "$RECORDS_FILE")"
+  rc=0
+  echo "=== Public-resolver lookup for $DOMAIN + all subdomains (expecting $EXPECTED) ==="
+  hosts=("$DOMAIN")
+  while IFS= read -r sub; do hosts+=("$sub.$DOMAIN"); done < <(jq -r '.subdomains[].subdomain' "$RECORDS_FILE")
+  for h in "${hosts[@]}"; do
+    answer="$(dig +short "$h" A @1.1.1.1 | head -1)"
+    if [[ -z "$answer" ]]; then
+      printf '%-30s %s\n' "$h" "MISSING — zone push pending or record not present"
+      rc=1
+    elif [[ "$answer" != "$EXPECTED" ]]; then
+      printf '%-30s %s\n' "$h" "DRIFT — got $answer, expected $EXPECTED"
+      rc=1
+    else
+      printf '%-30s %s\n' "$h" "$answer"
+    fi
   done
-  exit 0
+  exit "$rc"
 fi
 
 # Build the query string. Dynadot set_dns2 indexed shape:
