@@ -42,10 +42,10 @@ if (-not ($version -match '^\d+\.\d+\.\d+$')) {
 Write-Host "[squirrel] pin version: $version"
 
 # The Squirrel.Windows release artifact is a .zip named
-# `Squirrel.Windows-<version>.zip` containing Update.exe + Squirrel.exe +
+# `<version>.zip` containing Update.exe + Squirrel.exe +
 # .NuGet helpers. The download URL pattern is the GitHub release-asset
 # convention; mirror via GHCR cache if rate-limiting becomes an issue.
-$assetUrl = "https://github.com/Squirrel/Squirrel.Windows/releases/download/$version/Squirrel.Windows-$version.zip"
+$assetUrl = "https://github.com/Squirrel/Squirrel.Windows/releases/download/$version/$version.zip"
 $tmpZip = Join-Path $env:TEMP "squirrel-$version.zip"
 $tmpExtract = Join-Path $env:TEMP "squirrel-$version-extract"
 
