@@ -179,10 +179,20 @@ statusbar:
 		--arch $(SWIFT_ARCH)
 	# `swift build --arch` lands the binary under .build/<arch>-apple-macosx/release/.
 	# Normalise to .build/release/<bin> so the caller's cp target is stable
-	# regardless of arch.
+	# regardless of arch. On macOS the `.build/release` path is sometimes
+	# already a symlink to the arch-specific dir — `cp` would refuse with
+	# "X and Y are identical (not copied)". Use `cp -f` + check src != dest
+	# resolved-path to make the rule idempotent + symlink-safe.
 	mkdir -p $(STATUSBAR_BUILD_DIR)
-	cp $(STATUSBAR_SRC)/.build/$(SWIFT_ARCH)-apple-macosx/release/$(STATUSBAR_BIN) \
-		$(STATUSBAR_BUILD_DIR)/$(STATUSBAR_BIN)
+	@SRC="$(STATUSBAR_SRC)/.build/$(SWIFT_ARCH)-apple-macosx/release/$(STATUSBAR_BIN)"; \
+	 DEST="$(STATUSBAR_BUILD_DIR)/$(STATUSBAR_BIN)"; \
+	 RESOLVED_SRC=$$(readlink -f "$$SRC" 2>/dev/null || readlink "$$SRC" 2>/dev/null || echo "$$SRC"); \
+	 RESOLVED_DEST=$$(readlink -f "$$DEST" 2>/dev/null || readlink "$$DEST" 2>/dev/null || echo "$$DEST"); \
+	 if [ "$$RESOLVED_SRC" = "$$RESOLVED_DEST" ]; then \
+	   echo "[macos-pkg] $$DEST already points at $$SRC — skip copy"; \
+	 else \
+	   cp -f "$$SRC" "$$DEST"; \
+	 fi
 	@echo "[macos-pkg] iogridd-statusbar built at $(STATUSBAR_BUILD_DIR)/$(STATUSBAR_BIN)"
 
 pkg: build
