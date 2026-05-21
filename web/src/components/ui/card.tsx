@@ -1,12 +1,19 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
+/**
+ * Card surface — re-themed to design-tokens. Borders carry elevation
+ * in this system (Linear/Notion aesthetic), so the legacy `shadow-sm`
+ * is dropped. A hairline `border-border` against `bg-card` produces
+ * the desired premium-restrained look without competing with focus
+ * rings.
+ */
 const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
     <div
       ref={ref}
       className={cn(
-        "rounded-lg border border-zinc-200 bg-white text-zinc-900 shadow-sm dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50",
+        "rounded-lg border border-border bg-card text-card-foreground",
         className,
       )}
       {...props}

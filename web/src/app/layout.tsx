@@ -1,8 +1,24 @@
 import type { Metadata } from "next";
+import { Inter } from "next/font/google";
 import { Toaster } from "sonner";
 import { SolanaWalletProvider } from "@/lib/solana/provider";
 import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
+
+/**
+ * Single sans typeface for the entire surface — Inter, self-hosted by
+ * `next/font` so we ship zero third-party font CDN calls in production.
+ * The variable form gives us the full 100-900 weight range over the
+ * 12-64px scale defined in `design-tokens.css` without loading multiple
+ * static cuts. Exposed as the `--font-inter` CSS variable so the L1
+ * `--font-sans` token (defined in design-tokens.css) can prefer Inter
+ * when it is loaded and gracefully fall back to system-ui otherwise.
+ */
+const inter = Inter({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-inter",
+});
 
 export const metadata: Metadata = {
   title: "iogrid — Distributed compute mesh",
@@ -20,7 +36,7 @@ export default function RootLayout({
     // provider mutates `<html class="...">` and `style.colorScheme`
     // before React hydrates so the first paint already matches the
     // resolved theme (system preference or persisted choice).
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className={inter.variable} suppressHydrationWarning>
       <body className="min-h-screen antialiased">
         {/* ThemeProvider thinly wraps next-themes so we can centralise
             its config (class-based strategy, `system` default,
