@@ -6,12 +6,9 @@ package db
 
 import (
 	"context"
-	"database/sql"
 	"embed"
-	"fmt"
 
-	"github.com/jackc/pgx/v5/stdlib"
-	"github.com/pressly/goose/v3"
+	shareddb "github.com/iogrid/iogrid/coordinator/shared/db"
 )
 
 // Migrations is the embedded SQL bundle. Each new schema change adds a
@@ -20,27 +17,14 @@ import (
 //go:embed migrations/*.sql
 var Migrations embed.FS
 
-// Apply runs every pending Up migration against the supplied URL. Idempotent
-// across pod restarts because goose maintains its own bookkeeping table.
+// Apply runs every pending Up migration against the supplied URL.
+// Idempotent across pod restarts because goose maintains its own
+// bookkeeping table (goose_db_version).
+//
+// Thin shim over the shared helper — keeps the call sites in main.go
+// and the integration tests stable while the actual goose plumbing
+// lives in coordinator/shared/db so every coordinator service runs
+// identical migration code.
 func Apply(ctx context.Context, databaseURL string) error {
-	if databaseURL == "" {
-		return fmt.Errorf("identity-svc: DATABASE_URL is empty")
-	}
-	sqlDB, err := sql.Open("pgx", databaseURL)
-	if err != nil {
-		return fmt.Errorf("identity-svc: open db for migrations: %w", err)
-	}
-	defer sqlDB.Close()
-
-	goose.SetBaseFS(Migrations)
-	if err := goose.SetDialect("postgres"); err != nil {
-		return fmt.Errorf("identity-svc: goose dialect: %w", err)
-	}
-	if err := goose.UpContext(ctx, sqlDB, "migrations"); err != nil {
-		return fmt.Errorf("identity-svc: goose up: %w", err)
-	}
-	return nil
+	return shareddb.MigrateUpFS(ctx, databaseURL, Migrations, "migrations")
 }
-
-// Ensure the pgx stdlib driver is linked so sql.Open("pgx") works.
-var _ = stdlib.GetDefaultDriver

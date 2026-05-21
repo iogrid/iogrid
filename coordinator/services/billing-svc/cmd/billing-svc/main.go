@@ -72,6 +72,14 @@ func main() {
 	}
 	defer pool.Close()
 
+	// Apply embedded goose migrations before any handler can touch the
+	// schema. Idempotent across pod restarts (goose_db_version).
+	if err := db.MigrateUpFS(ctx, cfg.DatabaseURL, store.Migrations, "migrations"); err != nil {
+		logger.Error("db migrations failed", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+	logger.Info("db migrations applied", slog.String("dir", "migrations"))
+
 	st := store.New(pool)
 
 	// Stripe — boots regardless of cfg.StripeEnabled so routes return
