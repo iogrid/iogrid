@@ -30,7 +30,7 @@ spec:
         # cache-identical. Treated as an opaque ISO-8601 string by the
         # deploy-bot rewriter in the workflow — do not hand-edit unless
         # you intend to roll the pods. Refs #384.
-        kubectl.kubernetes.io/restartedAt: "2026-05-21T00:00:00Z"
+        kubectl.kubernetes.io/restartedAt: "2026-05-21T04:24:38Z"
     spec:
       serviceAccountName: marketing
       automountServiceAccountToken: false
@@ -58,7 +58,7 @@ spec:
           #   (c) imagePullPolicy: Always belt-and-braces guarantees the
           #       node pulls the digest even when the tag string is
           #       unchanged. Refs #384.
-          image: ghcr.io/iogrid/marketing:scaffold
+          image: ghcr.io/iogrid/marketing@sha256:878e2d5a27f345b932f3b086f68689b1eb6a5b0dc6dacd5620b38eb79f95a51a
           imagePullPolicy: Always
           ports:
             - name: http
