@@ -87,6 +87,7 @@ iogrid/
 - [BUSINESS-STRATEGY](./docs/BUSINESS-STRATEGY.md) — market, competitive landscape, unit economics, currency model ($GRID), multi-tenant fiat-rail relationship with Sociable Cash, off-ramp partners, legal risk
 - [SECURITY](./docs/SECURITY.md) — threat model, trust boundaries, service mTLS, secrets policy, identity, supply chain
 - [ROADMAP](./docs/ROADMAP.md) — module shipping sequence toward the end state
+- [Whitepaper](./docs/whitepaper.md) — $GRID token whitepaper (regulatory artifact, PDF-exported by CI for counsel review)
 
 ### 🔧 Build + operate
 
@@ -115,7 +116,6 @@ iogrid/
   - [Phase 0 setup](./docs/archive/2026-05-21-phase0-setup.md) — superseded bastion setup procedure
   - [Phase 0 unblock](./docs/archive/2026-05-21-phase0-unblock.md) — superseded Phase 0 unblock chain
   - [Phase 0 first-customer playbook](./docs/archive/2026-05-21-phase0-first-customer.md) — superseded vCard onboarding
-  - [Whitepaper v1](./docs/archive/2026-05-21-whitepaper-v1.md) — initial $GRID whitepaper, frozen; canonical narrative now in `BUSINESS-STRATEGY.md`
 
 ### 🌐 Domain subdirs
 
