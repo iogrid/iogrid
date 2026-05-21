@@ -48,10 +48,10 @@ kubectl -n iogrid apply -f infra/k8s/traefik/
 
 The objects are idempotent; re-applying is safe.
 
-## Mothership Traefik static config — `forwardedHeaders.insecure: true` (#381)
+## Mothership Traefik static config — XFF + source-IP preservation (#381)
 
 The dynamic objects in this directory route traffic; they do not
-configure the underlying Traefik entrypoint. Two pieces of static
+configure the underlying Traefik entrypoint. Three pieces of static
 config on the **mothership** Traefik Helm release are required for
 iogrid to function correctly end-to-end:
 
@@ -59,18 +59,33 @@ iogrid to function correctly end-to-end:
 |---|---|---|
 | `ports.websecure.http2.enabled: true` | h2c bidi streams (`WorkloadDispatchService.Dispatch`, `SchedulingService.StreamHeartbeats`) | Daemon sees `HTTP 505 / grpc-status header missing` on stream open. Surfaced in #271. |
 | `ports.websecure.forwardedHeaders.insecure: true` | `X-Forwarded-For` actually reaches providers-svc so the GeoIP2 path (PR #378) can resolve the provider's country + region | `providers.country_code / region_name / public_ip` columns stay NULL despite a healthy heartbeat stream. Diagnosed in #381 (PR #378 shipped the lookup code but the geo cells never populated for hatice's daemon on 2026-05-21). |
+| `service.spec.externalTrafficPolicy: Local` + `deployment.replicas: 2` | Hetzner LB forwards the **real client public IP** to Traefik instead of SNAT-rewriting it to the cluster gateway IP (`10.42.0.1`) | `providers.country_code` populates as a near-by-cluster country (or NULL when the GeoIP db has no entry for `10.42.0.1`) instead of the actual provider geolocation. Resolved in #381 (this PR) — once ETP=Local landed, the LB→Traefik hop preserved source IP, `XFF` was filled with the real public IP, and GeoIP resolved correctly. |
 
-The `forwardedHeaders.insecure: true` knob accepts XFF/Forwarded
-headers from any upstream hop. This is safe on the iogrid Phase-0
-topology because:
+### Why ETP=Local is safe on a single-node Phase-0 mothership
+
+Kubernetes `externalTrafficPolicy: Local` instructs the LoadBalancer
+to ONLY route to nodes that have at least one healthy Pod for the
+Service. On a single-node cluster all pods land on that one node so
+the LB's health-check probes succeed for it; on a multi-node cluster
+the LB's healthCheckNodePort gates per-node traffic correctly.
+
+The `replicas: 2` bump exists so that during a Traefik pod rollout
+(image bump, config change) one Pod stays Ready while the other
+restarts — without it, the LB's per-node healthcheck flaps and traffic
+briefly drops for every Traefik upgrade.
+
+### Why XFF / `forwardedHeaders.insecure: true` is safe
+
+The knob accepts XFF/Forwarded headers from any upstream hop. This is
+safe on the iogrid Phase-0 topology because:
 
 1. The only thing in front of mothership Traefik is a **Hetzner L4
-   load balancer** (TCP-mode, no proxy-protocol). Clients cannot
+   load balancer** (TCP-mode, no proxy-protocol). With ETP=Local the
+   LB-forwarded source IP IS the real client IP. Clients cannot
    directly inject XFF — their TLS connection terminates at Traefik,
    and Traefik unconditionally overwrites XFF with the connection's
-   `RemoteAddr` (the LB's outbound IP, which is itself rewritten by
-   the LB to the real client's IP).
-2. The dameon's mTLS chain authenticates the daemon to the
+   `RemoteAddr` (now the real client IP, not the LB's).
+2. The daemon's mTLS chain authenticates the daemon to the
    coordinator at the application layer; even if a malicious client
    somehow injected an XFF, it could only forge the **geo** cells (not
    identity) and the daemon's mTLS cert is the authoritative provider
@@ -81,16 +96,39 @@ LB, swap `insecure: true` for `trustedIPs: [<LB CIDR>, <CDN CIDR>]` so
 only those hops can populate XFF — clients still cannot forge it
 because they terminate TLS at the CDN edge first.
 
-Apply via:
+### Apply
 
-```bash
-helm upgrade traefik traefik/traefik -n kube-system --reuse-values \
-  --set ports.websecure.forwardedHeaders.insecure=true
+Because the mothership Traefik is managed by **k3s's HelmChart
+controller** (the `HelmChart/traefik` CR in `kube-system` is the
+durable source-of-truth), direct `helm upgrade` calls are not stable
+across k3s restarts — the helm-controller will re-roll the chart with
+whatever `spec.valuesContent` is in the CR. Always patch the
+HelmChart CR `spec.valuesContent` to make changes durable; the
+in-cluster Helm release is just a downstream materialisation.
+
+The canonical fragment of `HelmChart/traefik.spec.valuesContent` that
+satisfies all three knobs above:
+
+```yaml
+deployment:
+  replicas: 2
+ports:
+  websecure:
+    forwardedHeaders:
+      insecure: true
+service:
+  spec:
+    externalTrafficPolicy: Local
 ```
 
 Verify post-roll with a sample `kubectl -n iogrid logs deploy/providers-svc` —
 every `heartbeat: stream opened` line should now carry a non-empty
-`client_ip=<public IP>` instead of `client_ip=`. The corresponding
-provider row's geo columns populate within ≤ 24h (immediately on the
-first heartbeat of a fresh stream, per the LastGeoLookupAt-zero
-short-circuit in `scheduling.go`).
+`client_ip=<real public IP>` (NOT `10.42.0.1` and NOT empty). The
+corresponding provider row's geo columns populate within ≤ 24h
+(immediately on the first heartbeat of a fresh stream, per the
+`LastGeoLookupAt`-zero short-circuit in `scheduling.go`).
+
+Reference live state (mothership chart revision 8, applied 2026-05-21
+08:24:32Z): `provider-a7a93576` resolved `public_ip=188.66.253.46`,
+`country_code=OM`, `region_name=Muscat` on its first reconnect
+after the providers-svc rollout that followed the ETP=Local flip.
