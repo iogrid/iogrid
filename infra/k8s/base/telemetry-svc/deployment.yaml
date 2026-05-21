@@ -29,6 +29,12 @@ spec:
         # scraped by the in-pod otelcol gateway via prometheus receiver
         # auto-discovery. Annotations match the receiver's relabel_configs.
         prometheus.io/scrape: "true"
+        # Bumped by .github/workflows/coordinator-ci.yml on every push to
+        # main so the rolling update fires even when the image digest is
+        # cache-identical. Treated as an opaque ISO-8601 string by the
+        # deploy-bot — do not hand-edit unless you intend to roll the
+        # pods. Refs #335.
+        kubectl.kubernetes.io/restartedAt: "2026-05-21T00:00:00Z"
         prometheus.io/port: "8080"
         prometheus.io/path: "/metrics"
     spec:
@@ -45,7 +51,7 @@ spec:
         # ---------- telemetry-svc control surface ----------
         - name: telemetry-svc
           image: ghcr.io/iogrid/telemetry-svc:scaffold
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           ports:
             - name: http
               containerPort: 8080
