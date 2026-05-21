@@ -1,36 +1,24 @@
 import Link from "next/link";
 import * as React from "react";
-import { auth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 /**
- * PortalShell is the chrome shared by every authenticated app surface
- * (/provide, /customer, /account, /admin). It enforces a single layout
- * pattern so sub-agents and follow-up PRs cannot reintroduce bespoke
- * top-bars or sidebars.
+ * PortalShell is the chrome shared by every authenticated user-facing
+ * surface (/provide, /customer, /vpn, /account). It enforces a single
+ * layout pattern so sub-agents and follow-up PRs cannot reintroduce
+ * bespoke top-bars or sidebars.
  *
  * Server-component-safe (async). Interactive bits (user menu, sign-out)
  * live in dedicated client islands.
  *
- * The top-bar conditionally renders an "Admin" tab when the signed-in
- * user's email matches the `IOGRID_ADMIN_EMAILS` allowlist — the same
- * env-driven gate the middleware enforces on `/admin/*`. Non-admin
- * sessions see the original four tabs (Provide / Customer / VPN /
- * Account) unchanged.
+ * Strict-separation invariant (EPIC #422 Phase 1): this shell renders
+ * the four user-facing tabs only — Provide / Customer / VPN / Account.
+ * It NEVER renders an "Admin" tab; the admin console is an entirely
+ * separate Next.js app on admin.iogrid.org with its own AdminShell,
+ * its own cookie, and its own session. An admin who is also a provider
+ * uses two hosts (one cookie each) to do their two jobs.
  */
-
-function isAdminEmail(email: string | null | undefined): boolean {
-  if (!email) return false;
-  const raw = process.env.IOGRID_ADMIN_EMAILS ?? "";
-  const allow = new Set(
-    raw
-      .split(",")
-      .map((s) => s.trim().toLowerCase())
-      .filter(Boolean),
-  );
-  return allow.has(email.toLowerCase());
-}
 
 export interface NavItem {
   href: string;
@@ -59,9 +47,6 @@ export async function PortalShell({
   actions,
   children,
 }: PortalShellProps) {
-  const session = await auth();
-  const showAdminTab = isAdminEmail(session?.user?.email);
-
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50">
       <header className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
@@ -93,18 +78,10 @@ export async function PortalShell({
               >
                 Account
               </PortalNavLink>
-              {showAdminTab ? (
-                <PortalNavLink
-                  href="/admin"
-                  active={activeHref?.startsWith("/admin")}
-                >
-                  Admin
-                </PortalNavLink>
-              ) : null}
             </nav>
             {/* Theme toggle lives at the right of the global header
                 so it is reachable from every authenticated surface
-                (provide / customer / vpn / account / admin) without
+                (provide / customer / vpn / account) without
                 duplicating it per-section. Client-side island. */}
             <ThemeToggle className="ml-2" />
           </div>
