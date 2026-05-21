@@ -96,3 +96,47 @@ export function schedulerStateShortName(
     ? full.slice("SCHEDULER_STATE_".length)
     : full;
 }
+
+/**
+ * `iogrid.identity.v1.IdentifierKind` — mirrors
+ * `proto/iogrid/identity/v1/identity.proto::IdentifierKind`.
+ *
+ * `EMAIL_MAGIC_LINK` is the only kind hatice has today (#371). Adding
+ * a new IdentifierKind value in the .proto requires bumping this map.
+ */
+export const IdentifierKindNames: Record<number, string> = {
+  0: "IDENTIFIER_KIND_UNSPECIFIED",
+  1: "IDENTIFIER_KIND_GOOGLE",
+  2: "IDENTIFIER_KIND_MAGIC_LINK",
+  3: "IDENTIFIER_KIND_APPLE",
+  4: "IDENTIFIER_KIND_GITHUB",
+  5: "IDENTIFIER_KIND_SOLANA",
+};
+
+/**
+ * Convenience: human-readable IdentifierKind label for the
+ * `/account/identifiers` row. Returns "Magic-link email", "Google",
+ * etc. — matches the spelling shown on the original (broken) panel.
+ */
+export function identifierKindLabel(
+  value: number | string | null | undefined,
+): string {
+  const full = protoEnumName(value, IdentifierKindNames);
+  switch (full) {
+    case "IDENTIFIER_KIND_GOOGLE":
+      return "Google";
+    case "IDENTIFIER_KIND_MAGIC_LINK":
+      return "Magic-link email";
+    case "IDENTIFIER_KIND_APPLE":
+      return "Apple";
+    case "IDENTIFIER_KIND_GITHUB":
+      return "GitHub";
+    case "IDENTIFIER_KIND_SOLANA":
+      return "Solana wallet";
+    case "IDENTIFIER_KIND_UNSPECIFIED":
+    case undefined:
+      return "Unknown";
+    default:
+      return full ?? "Unknown";
+  }
+}

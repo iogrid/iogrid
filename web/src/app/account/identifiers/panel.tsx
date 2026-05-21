@@ -4,6 +4,7 @@ import * as React from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ApiError, browserApi } from "@/lib/api";
+import { identifierKindLabel } from "@/lib/proto-enum";
 import type { MeResponse, Identifier } from "@/lib/types";
 
 export function IdentifiersPanel() {
@@ -116,13 +117,22 @@ function IdentifierRow({
     }
   };
 
+  // Wire shape (gateway-bff via stdlib encoding/json): the displayable
+  // value lives in `verified_email` for magic-link, OR `subject` for
+  // OAuth identifiers. The legacy `value` field is the pre-#371
+  // camelCase fallback. Verified pill is keyed on `verified_email`
+  // presence (the wire's verified signal), with `verified` boolean
+  // as the legacy fallback. See #371.
+  const displayValue = id.verified_email ?? id.subject ?? id.value ?? "";
+  const isVerified = Boolean(id.verified_email) || id.verified === true;
+
   return (
     <li className="flex items-center justify-between p-3 text-sm">
       <div className="min-w-0 flex-1">
-        <p className="font-medium">{id.value}</p>
+        <p className="font-medium">{displayValue || "(unknown)"}</p>
         <p className="text-xs text-zinc-500">
-          {id.kind === "EMAIL" ? "Email" : id.kind === "GOOGLE" ? "Google" : id.kind}
-          {id.verified ? (
+          {identifierKindLabel(id.kind)}
+          {isVerified ? (
             <span className="ml-2 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
               Verified
             </span>

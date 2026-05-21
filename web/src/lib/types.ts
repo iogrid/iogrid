@@ -46,11 +46,34 @@ export type ProtoTimestamp = { seconds?: string | number; nanos?: number };
 
 // ---- identity / account ---------------------------------------------------
 
+/**
+ * Identifier — mirrors `iogrid.identity.v1.Identifier`. gateway-bff
+ * serialises via stdlib `encoding/json` which emits proto enums as
+ * numeric tags and snake_case field names. Both the proto/wire shape
+ * AND the older camelCase shape are accepted so call sites can
+ * migrate gradually. See #371 + #314.
+ */
 export interface Identifier {
   id?: UUIDValue;
-  kind: "EMAIL" | "GOOGLE" | string;
-  value: string;
-  verified: boolean;
+  /**
+   * Numeric proto enum tag (0–5; see `IdentifierKindNames` in
+   * `proto-enum.ts`). Older code paths may receive the
+   * SCREAMING_SNAKE_CASE string form; both are accepted.
+   */
+  kind: number | string;
+  /** Presence indicates a verified email-bound identifier. */
+  verified_email?: string;
+  /** Provider subject (OAuth `sub`, Solana pubkey, …) — never an email. */
+  subject?: string;
+  registered_at?: { seconds?: string | number; nanos?: number } | string;
+  last_used_at?: { seconds?: string | number; nanos?: number } | string;
+
+  // Legacy fields (pre-#371 — kept to avoid breaking callers that
+  // still read them; new code should use the proto/wire fields above).
+  /** @deprecated use `verified_email` presence instead. */
+  verified?: boolean;
+  /** @deprecated use `verified_email` or `subject`. */
+  value?: string;
 }
 
 export interface User {
