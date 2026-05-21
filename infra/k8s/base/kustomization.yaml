@@ -21,7 +21,9 @@ resources:
   - build-gateway
   - web
   - admin
-  - marketing
+  # marketing/ was removed in EPIC #422 Phase 3 — the static-export
+  # Deployment + Service no longer ship; the apex (iogrid.org) is
+  # served by the `web` Service instead.
   - releases
   - gateway
   - certs

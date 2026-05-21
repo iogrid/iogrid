@@ -1,10 +1,13 @@
-# iogrid.org + www.iogrid.org — marketing site landing page.
+# iogrid.org + www.iogrid.org → web (Next.js 15 RSC frontend).
 #
-# Both apex and www route to the same `marketing-site` service. Bare
-# http://iogrid.org redirects to https://iogrid.org; we do NOT force
-# www -> apex or apex -> www at this layer — both are first-class hosts.
-# Once the marketing site team decides on a canonical form, add a
-# RequestRedirect rule here.
+# EPIC #422 Phase 3 folded marketing/ into web/ and dropped the
+# app.iogrid.org subdomain — the product app now serves the apex.
+# Both apex and www route to the same `web` service.
+#
+# Bare http://iogrid.org redirects to https://iogrid.org. We do NOT
+# force www -> apex or apex -> www at this layer — both are first-
+# class hosts. If we later pick a canonical form, add a
+# RequestRedirect rule below.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -24,8 +27,8 @@ spec:
             type: PathPrefix
             value: /
       backendRefs:
-        - name: marketing-site
-          port: 80
+        - name: web
+          port: 3000
           weight: 1
 ---
 apiVersion: gateway.networking.k8s.io/v1
@@ -47,8 +50,8 @@ spec:
             type: PathPrefix
             value: /
       backendRefs:
-        - name: marketing-site
-          port: 80
+        - name: web
+          port: 3000
           weight: 1
 ---
 apiVersion: gateway.networking.k8s.io/v1

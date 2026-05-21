@@ -1,8 +1,18 @@
-# app.iogrid.org → Next.js management plane (web service, :3000).
+# app.iogrid.org → iogrid.org 301 redirect (EPIC #422 Phase 3).
 #
-# Also redirects bare http://app.iogrid.org → https. The redirect is
-# expressed as its own HTTPRoute attached to the http listener with a
-# RequestRedirect filter; the HTTPS listener gets the real path rules.
+# Pre-Phase-3 this HTTPRoute pointed app.iogrid.org at the web
+# service. Phase 3 retired the app.* subdomain — the product app
+# moved to iogrid.org/. To keep stale bookmarks, SDK clients, and
+# magic-link callback URLs working, app.iogrid.org now redirects
+# every request to https://iogrid.org with path + query preserved.
+#
+# Gateway-API HTTPRoute uses statusCode 301 (the Cilium Gateway
+# implementation does not yet support 308 in the RequestRedirect
+# filter — the equivalent Traefik IngressRoute in
+# `infra/k8s/traefik/ingressroute-app-redirect.yaml` returns 308 so
+# POST bodies survive the redirect).
+#
+# Refs #422.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -17,14 +27,12 @@ spec:
   hostnames:
     - app.iogrid.org
   rules:
-    - matches:
-        - path:
-            type: PathPrefix
-            value: /
-      backendRefs:
-        - name: web
-          port: 3000
-          weight: 1
+    - filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            hostname: iogrid.org
+            statusCode: 301
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
@@ -44,4 +52,5 @@ spec:
         - type: RequestRedirect
           requestRedirect:
             scheme: https
+            hostname: iogrid.org
             statusCode: 301

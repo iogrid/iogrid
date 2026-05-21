@@ -1,0 +1,77 @@
+---
+# app.iogrid.org → iogrid.org 308 redirect (EPIC #422 Phase 3).
+#
+# The app.iogrid.org subdomain is being retired — the product app
+# moved to the apex (iogrid.org/). To migrate existing bookmarks,
+# emailed magic-links, SDK clients, and search-engine results
+# cleanly, every request to app.iogrid.org/$PATH?$QUERY now returns
+# a 308 Permanent Redirect to https://iogrid.org/$PATH?$QUERY.
+#
+# Why 308 (not 301):
+#   - 308 preserves the request method + body. NextAuth magic-link
+#     callbacks and provider-pair POSTs would lose their body on a 301.
+#   - All major browsers + curl + the Rust daemon's reqwest client
+#     honor 308 since at least 2018.
+#
+# Cookie migration: web/'s NextAuth session cookie was scoped to
+# app.iogrid.org via AUTH_URL. Phase 3 flips AUTH_URL to iogrid.org
+# so new sessions write a Host-only cookie on the apex. Users with a
+# live session on app.* will be redirected once, see the apex without
+# a cookie, and re-sign-in once.
+#
+# Cert: the iogrid-org-tls Secret carries SANs for both iogrid.org
+# and app.iogrid.org during the 90-day grace period (see
+# infra/k8s/certificates/iogrid-org-cert.yaml). A follow-up ticket
+# drops app.iogrid.org from the SAN list after the grace expires.
+#
+# Refs #422 (Phase 3).
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: redirect-app-to-apex
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/part-of: iogrid
+spec:
+  redirectRegex:
+    # app.iogrid.org/...  -> https://iogrid.org/...
+    # app.iogrid.org      -> https://iogrid.org
+    # Query strings are preserved automatically by Traefik's regex
+    # replacement when ${1} captures the rest of the URL after the
+    # host. Permanent (308) signals search engines to update.
+    regex: "^https?://app\\.iogrid\\.org(/.*)?$"
+    replacement: "https://iogrid.org${1}"
+    permanent: true
+---
+# IngressRoute matching app.iogrid.org (HTTPS + HTTP) and attaching
+# the redirect middleware. Priority 200 keeps this route ahead of
+# any stale catch-all that might still match the host.
+#
+# A dummy backend (web:3000) is declared because Traefik's selector
+# validation requires a backendRef even on a middleware-only flow —
+# the request is short-circuited by the redirect before it reaches
+# the backend.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: app-iogrid-org-redirect
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/part-of: iogrid
+spec:
+  entryPoints:
+    - websecure
+    - web
+  routes:
+    - kind: Rule
+      match: Host(`app.iogrid.org`)
+      priority: 200
+      middlewares:
+        - name: redirect-app-to-apex
+      services:
+        - name: web
+          port: 3000
+  tls:
+    # Same Secret as the apex; SAN list covers both iogrid.org and
+    # app.iogrid.org during the grace period.
+    secretName: iogrid-org-tls

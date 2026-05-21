@@ -1,4 +1,36 @@
 ---
+# iogrid.org + www.iogrid.org — apex + www certificate for the
+# product-app frontend on the Gateway. Added in EPIC #422 Phase 3
+# when the apex moved from marketing-site to web/. This is the cert
+# referenced by the `apex-https` and `www-https` listeners on the
+# Cilium Gateway.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: iogrid-org
+  namespace: gateway-system
+  labels:
+    app.kubernetes.io/part-of: iogrid
+spec:
+  secretName: iogrid-org-tls
+  duration: 2160h     # 90d
+  renewBefore: 360h   # 15d
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  dnsNames:
+    - iogrid.org
+    - www.iogrid.org
+  issuerRef:
+    name: letsencrypt-prod-http01
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+# app.iogrid.org — kept for the 90-day redirect grace window after
+# EPIC #422 Phase 3 retired the subdomain. The corresponding HTTPRoute
+# returns 301 to iogrid.org for every request. Follow-up ticket drops
+# this Certificate + the `app-https` Gateway listener after expiry.
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:

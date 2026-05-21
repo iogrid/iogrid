@@ -14,7 +14,7 @@ import { authConfig } from "@/auth.config";
  *      app, so the resulting cookie is admin-host-scoped).
  *   2. Email in IOGRID_ADMIN_EMAILS allowlist? Otherwise → 403
  *      (this is admin-only — there is no fallback "customer" surface
- *      to bounce to; that lives on iogrid.org / app.iogrid.org).
+ *      to bounce to; that lives on iogrid.org).
  *
  * Sign-in and NextAuth callback routes are excluded from the matcher
  * so the auth flow itself isn't gated by an auth check.
@@ -69,7 +69,7 @@ export default auth(function middleware(req) {
       JSON.stringify({
         code: "forbidden",
         message:
-          "This email is not on the iogrid admin allowlist. Sign out and sign in with an admin account, or use app.iogrid.org for non-admin surfaces.",
+          "This email is not on the iogrid admin allowlist. Sign out and sign in with an admin account, or use iogrid.org for non-admin surfaces.",
       }),
       {
         status: 403,

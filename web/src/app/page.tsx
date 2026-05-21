@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { ArrowRight, Cpu, ShieldCheck, Boxes } from "lucide-react";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { MarketingShell } from "@/components/marketing/marketing-shell";
 
 /**
- * Landing page — Phase 2.1 of EPIC #422.
+ * Landing page — Phase 2.1 of EPIC #422, EPIC #422 Phase 3 refactor.
  *
  * Aesthetic: Linear / Notion / Vercel. NO decorative illustrations,
  * NO purple-pink gradients, NO "techy" cliches. The proposition
@@ -11,9 +11,11 @@ import { ThemeToggle } from "@/components/theme-toggle";
  *
  * Structure:
  *   1. Slim top nav — wordmark + primary links + theme toggle.
+ *      (Lifted into <SiteHeader/> in Phase 3 so the marketing-folded
+ *      about/pricing/legal/status pages share the same chrome.)
  *   2. Hero — one-sentence proposition + 1 primary CTA + 1 secondary CTA.
  *   3. Three product pillars (Provide, Customer, VPN) — icon-only.
- *   4. Footer — single-row, minimal.
+ *   4. Footer — single-row, minimal. (Lifted into <SiteFooter/>.)
  *
  * Explicitly omitted (per EPIC #422 founder direction):
  *   - "Techy geek guys" illustrations / isometric scenes.
@@ -24,66 +26,15 @@ import { ThemeToggle } from "@/components/theme-toggle";
  *
  * The component is a pure Server Component — no client interactivity
  * needed for the static landing surface; the only island is the
- * <ThemeToggle/>, which is already a 'use client' boundary.
+ * <ThemeToggle/> (inside <SiteHeader/>), which is already a 'use client'
+ * boundary.
  */
 export default function HomePage() {
   return (
-    <main className="min-h-screen bg-background text-foreground">
-      <SiteHeader />
+    <MarketingShell>
       <Hero />
       <Pillars />
-      <SiteFooter />
-    </main>
-  );
-}
-
-/* ----------------------------- Header ---------------------------- */
-
-function SiteHeader() {
-  return (
-    <header className="border-b border-border">
-      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
-        <Link
-          href="/"
-          className="text-sm font-semibold tracking-tight"
-          aria-label="iogrid home"
-        >
-          iogrid
-        </Link>
-        <nav aria-label="Primary" className="hidden items-center gap-6 md:flex">
-          <HeaderLink href="/provide">Provide</HeaderLink>
-          <HeaderLink href="/customer">Customer</HeaderLink>
-          <HeaderLink href="/vpn">VPN</HeaderLink>
-          <HeaderLink href="/account">Account</HeaderLink>
-        </nav>
-        <div className="flex items-center gap-3">
-          <ThemeToggle />
-          <Link
-            href="/install"
-            className="hidden rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 sm:inline-flex"
-          >
-            Get iogrid
-          </Link>
-        </div>
-      </div>
-    </header>
-  );
-}
-
-function HeaderLink({
-  href,
-  children,
-}: {
-  href: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <Link
-      href={href}
-      className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-    >
-      {children}
-    </Link>
+    </MarketingShell>
   );
 }
 
@@ -225,54 +176,6 @@ function PillarCard({ pillar }: { pillar: Pillar }) {
           className="h-4 w-4 transition-transform group-hover:translate-x-0.5"
         />
       </span>
-    </Link>
-  );
-}
-
-/* ----------------------------- Footer ---------------------------- */
-
-function SiteFooter() {
-  return (
-    <footer>
-      <div className="mx-auto flex max-w-6xl flex-col items-start gap-4 px-6 py-10 text-xs text-muted-foreground md:flex-row md:items-center md:justify-between">
-        <div className="flex items-center gap-2">
-          <span className="font-semibold text-foreground">iogrid</span>
-          <span aria-hidden>·</span>
-          <span>Open-source. Operator-owned.</span>
-        </div>
-        <nav aria-label="Footer">
-          <ul className="flex flex-wrap gap-x-6 gap-y-2">
-            <li>
-              <FooterLink href="/install">Install</FooterLink>
-            </li>
-            <li>
-              <FooterLink href="/customer">Customer docs</FooterLink>
-            </li>
-            <li>
-              <FooterLink href="/provide">Provider terms</FooterLink>
-            </li>
-            <li>
-              <FooterLink href="https://github.com/iogrid/iogrid">
-                GitHub
-              </FooterLink>
-            </li>
-          </ul>
-        </nav>
-      </div>
-    </footer>
-  );
-}
-
-function FooterLink({
-  href,
-  children,
-}: {
-  href: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <Link href={href} className="transition-colors hover:text-foreground">
-      {children}
     </Link>
   );
 }
