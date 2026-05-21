@@ -48,6 +48,106 @@ func TestExtractClientIP_NoHeaderGetter(t *testing.T) {
 	}
 }
 
+// TestExtractClientIP_Forwarded covers the RFC 7239 path added in
+// #381. We prefer `Forwarded` over `X-Forwarded-For` when both are
+// present because it's the standardised header — proxies that emit
+// both are guaranteed to keep them in sync, and on the next-gen
+// Cilium Gateway path only `Forwarded` is emitted.
+func TestExtractClientIP_Forwarded(t *testing.T) {
+	cases := []struct {
+		name    string
+		header  string
+		want    string
+		xffSet  string // optional X-Forwarded-For, to assert preference
+		xffWant string // expected when Forwarded is absent (sanity check)
+	}{
+		{"single for=ipv4", `for=203.0.113.7`, "203.0.113.7", "", ""},
+		{"for= with quotes", `for="203.0.113.7"`, "203.0.113.7", "", ""},
+		{"for= with port", `for="203.0.113.7:54321"`, "203.0.113.7", "", ""},
+		{"for= with ipv6 brackets", `for="[2001:db8::1]:54321"`, "2001:db8::1", "", ""},
+		{"mixed-case directive", `For=203.0.113.7`, "203.0.113.7", "", ""},
+		{"with proto + by", `proto=https; for=203.0.113.7; by=10.0.0.5`, "203.0.113.7", "", ""},
+		{"multi-element left-most wins", `for=203.0.113.7, for=10.0.0.5`, "203.0.113.7", "", ""},
+		{"prefers Forwarded over XFF", `for=203.0.113.7`, "203.0.113.7", "198.51.100.42", "198.51.100.42"},
+		{"no for= falls through to XFF", `proto=https`, "198.51.100.42", "198.51.100.42", "198.51.100.42"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			headers := map[string]string{"Forwarded": tc.header}
+			if tc.xffSet != "" {
+				headers["X-Forwarded-For"] = tc.xffSet
+			}
+			got := ExtractClientIP(func(k string) string { return headers[k] }, "10.0.0.5:443")
+			if got != tc.want {
+				t.Errorf("got %q, want %q (header=%q xff=%q)", got, tc.want, tc.header, tc.xffSet)
+			}
+		})
+	}
+}
+
+// TestExtractClientIP_CDNHeaders covers the Cloudflare / Akamai
+// fallbacks. Not used on Phase-0 but cheap to validate so the helper
+// keeps working when the platform drops a CDN in front of Traefik.
+func TestExtractClientIP_CDNHeaders(t *testing.T) {
+	cases := []struct {
+		header, value, want string
+	}{
+		{"Cf-Connecting-Ip", "203.0.113.42", "203.0.113.42"},
+		{"True-Client-Ip", "198.51.100.7", "198.51.100.7"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.header, func(t *testing.T) {
+			headers := map[string]string{tc.header: tc.value}
+			got := ExtractClientIP(func(k string) string { return headers[k] }, "10.0.0.5:443")
+			if got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestExtractClientIP_PeerAddrFallback ensures the #381 fallback to a
+// connection peer addr kicks in when EVERY forwarded header is empty.
+// In production this surfaces the in-cluster Traefik pod IP — useless
+// for geo (rejected by Lookup as RFC1918) but invaluable as the
+// canonical "Traefik forwardedHeaders config is missing" signal the
+// stream-opened log line emits.
+func TestExtractClientIP_PeerAddrFallback(t *testing.T) {
+	got := ExtractClientIP(func(string) string { return "" }, "10.244.1.5:443")
+	if got != "10.244.1.5" {
+		t.Fatalf("want in-cluster fallback, got %q", got)
+	}
+}
+
+func TestParseForwardedFor(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"", ""},
+		{"   ", ""},
+		{"proto=https", ""},
+		{"for=203.0.113.7", "203.0.113.7"},
+		{` for=203.0.113.7 `, "203.0.113.7"}, // tolerant of surrounding whitespace
+		{`for="203.0.113.7"`, "203.0.113.7"},
+		{`for="203.0.113.7:54321"`, "203.0.113.7"},
+		{`for="[2001:db8::1]:54321"`, "2001:db8::1"},
+		{`for="[2001:db8::1]"`, "2001:db8::1"},
+		{`for=203.0.113.7, for=10.0.0.5`, "203.0.113.7"},
+		{`proto=https;for=203.0.113.7;by=10.0.0.5`, "203.0.113.7"},
+		{`FOR=203.0.113.7`, "203.0.113.7"},
+		// Malformed but tolerant: missing closing bracket. We strip the
+		// '[' so the caller's Lookup rejects the result rather than
+		// panicking.
+		{`for="[2001:db8::1`, "2001:db8::1"},
+	}
+	for _, tc := range cases {
+		got := parseForwardedFor(tc.in)
+		if got != tc.want {
+			t.Errorf("parseForwardedFor(%q) = %q; want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
 // --- makeRegionSlug --------------------------------------------------------
 
 func TestMakeRegionSlug(t *testing.T) {

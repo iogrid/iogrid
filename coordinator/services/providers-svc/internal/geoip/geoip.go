@@ -202,16 +202,41 @@ func (NoopLookuper) Lookup(string) (Result, error) {
 // --- helpers ---------------------------------------------------------------
 
 // ExtractClientIP returns the most-trustworthy public source IP for an
-// HTTP request, walking X-Forwarded-For (left-most entry) → X-Real-IP
-// → RemoteAddr in that order. Returns "" when nothing is plausible.
+// HTTP request, walking the standard forwarding-header chain in
+// best-to-worst order:
 //
-// We trust X-Forwarded-For here because Traefik (and every other edge
-// the platform ships with) overwrites the header on ingress; daemons
-// cannot forge it because their connection terminates at Traefik first.
-// If a future deploy puts providers-svc behind an untrusted L4 LB the
-// caller should use a more careful chain-walker.
+//  1. RFC 7239 `Forwarded: for=<ip>` (the modern standard, emitted by
+//     newer proxies + some service meshes)
+//  2. `X-Forwarded-For` left-most entry (the legacy de-facto standard,
+//     emitted by Traefik, nginx, ALB, Cloudflare, …)
+//  3. `X-Real-Ip` / `X-Real-IP` (single value, emitted by nginx,
+//     some Cilium Gateway flavours, and certain Traefik plugins)
+//  4. `Cf-Connecting-IP` / `True-Client-IP` (Cloudflare + Akamai;
+//     unused on Phase-0 but cheap to support so the same helper works
+//     on a future Cloudflare-fronted deploy)
+//  5. `remoteAddr` host part (the connection peer — usually an
+//     in-cluster RFC1918 IP for a coordinator behind Traefik, but
+//     better than an empty string for diagnostic logging)
+//
+// Returns "" when nothing is plausible.
+//
+// We trust the forwarded-headers here because Traefik (and every other
+// edge the platform ships with) overwrites them on ingress; daemons
+// cannot forge them because their connection terminates at Traefik
+// first. If a future deploy puts providers-svc behind an untrusted L4
+// LB the caller should use a more careful chain-walker.
+//
+// Refs #381 — added RFC 7239 `Forwarded` + peer-addr fallback after
+// PR #378's heartbeat geo path silently no-op'd on hatice's daemon
+// because `clientIP` was empty (cause traced to the mothership
+// Traefik's `forwardedHeaders` static config; the multi-header walk
+// below also reduces the blast radius of any single upstream stripping
+// one of them).
 func ExtractClientIP(getHeader func(string) string, remoteAddr string) string {
 	if getHeader != nil {
+		if v := parseForwardedFor(getHeader("Forwarded")); v != "" {
+			return v
+		}
 		if xff := strings.TrimSpace(getHeader("X-Forwarded-For")); xff != "" {
 			// Left-most entry is the original client.
 			if i := strings.IndexByte(xff, ','); i > 0 {
@@ -225,6 +250,12 @@ func ExtractClientIP(getHeader func(string) string, remoteAddr string) string {
 		if xri := strings.TrimSpace(getHeader("X-Real-IP")); xri != "" {
 			return xri
 		}
+		if cf := strings.TrimSpace(getHeader("Cf-Connecting-Ip")); cf != "" {
+			return cf
+		}
+		if cf := strings.TrimSpace(getHeader("True-Client-Ip")); cf != "" {
+			return cf
+		}
 	}
 	if remoteAddr == "" {
 		return ""
@@ -234,4 +265,55 @@ func ExtractClientIP(getHeader func(string) string, remoteAddr string) string {
 		return host
 	}
 	return remoteAddr
+}
+
+// parseForwardedFor extracts the left-most `for=...` value from an RFC
+// 7239 `Forwarded` header. Returns the bare IP literal (IPv4 dotted
+// quad or IPv6 hex form), stripping quotes, brackets, and port suffix
+// per the grammar in §4. Returns "" when the header is empty or
+// contains no `for=` element.
+//
+// Examples (input → output):
+//
+//	`for=203.0.113.7`                           → `203.0.113.7`
+//	`for="203.0.113.7:54321", for=10.0.0.5`     → `203.0.113.7`
+//	`for="[2001:db8::1]:54321"; proto=https`    → `2001:db8::1`
+//	`proto=https; by=10.0.0.5`                  → `` (no for=)
+//
+// Tolerant of mixed-case directive names (`For=`, `FOR=`) per §6 of
+// the RFC. Does NOT validate the address is a real IP — that's the
+// caller's job (Lookup rejects malformed input).
+func parseForwardedFor(h string) string {
+	h = strings.TrimSpace(h)
+	if h == "" {
+		return ""
+	}
+	// Left-most element wins (original client). Elements separated by ','.
+	if i := strings.IndexByte(h, ','); i >= 0 {
+		h = h[:i]
+	}
+	// Parameters within an element separated by ';'.
+	for _, part := range strings.Split(h, ";") {
+		part = strings.TrimSpace(part)
+		// Case-insensitive `for=` prefix per RFC 7239 §6.
+		if len(part) < 4 || !strings.EqualFold(part[:4], "for=") {
+			continue
+		}
+		v := strings.TrimSpace(part[4:])
+		// Strip surrounding quotes per quoted-string grammar.
+		v = strings.Trim(v, `"`)
+		// `[2001:db8::1]:54321` → strip brackets + port.
+		if strings.HasPrefix(v, "[") {
+			if end := strings.IndexByte(v, ']'); end > 0 {
+				return v[1:end]
+			}
+			return strings.TrimPrefix(v, "[")
+		}
+		// `203.0.113.7:54321` → strip port. IPv4 only has one ':'.
+		if i := strings.IndexByte(v, ':'); i > 0 && strings.Count(v, ":") == 1 {
+			return v[:i]
+		}
+		return v
+	}
+	return ""
 }

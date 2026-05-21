@@ -109,6 +109,55 @@ func TestPairDaemon_NoopLookuperLeavesGeoBlank(t *testing.T) {
 	}
 }
 
+// TestPairDaemon_PopulatesGeoFromForwardedRFC7239 verifies the #381
+// fallback path: when the upstream proxy emits the standardised
+// `Forwarded` (RFC 7239) header instead of (or in addition to) the
+// legacy `X-Forwarded-For`, the geoip refresh still resolves the
+// provider's country + region. Required so the same provider row
+// populates whether the platform is fronted by Traefik (XFF), Cilium
+// Gateway (Forwarded), or any forthcoming CDN edge.
+func TestPairDaemon_PopulatesGeoFromForwardedRFC7239(t *testing.T) {
+	c, err := ca.NewInMemory()
+	if err != nil {
+		t.Fatalf("ca: %v", err)
+	}
+	stub := geoip.StubLookuper{ByIP: map[string]geoip.Result{
+		"203.0.113.7": {
+			CountryCode: "TR",
+			CountryName: "Turkey",
+			RegionName:  "Istanbul",
+			RegionSlug:  "tr-istanbul",
+		},
+	}}
+	h := NewRegistrationHandler(store.NewInMemory(), c, stub, nil)
+
+	ctx := context.Background()
+	tok, _ := h.Store.IssuePairingToken(ctx, "44444444-4444-4444-4444-444444444444", 0)
+	req := connect.NewRequest(&providersv1.PairDaemonRequest{
+		PairingToken:    tok,
+		DaemonPublicKey: newDaemonPubKey(t),
+		DisplayName:     "rfc7239-test",
+	})
+	// Note: NO X-Forwarded-For. Only the RFC 7239 header.
+	req.Header().Set("Forwarded", `for="203.0.113.7:54321";proto=https`)
+
+	resp, err := h.PairDaemon(ctx, req)
+	if err != nil {
+		t.Fatalf("PairDaemon: %v", err)
+	}
+	pid := resp.Msg.GetProvider().GetId().GetValue()
+	got, err := h.Store.GetProvider(ctx, pid)
+	if err != nil {
+		t.Fatalf("GetProvider: %v", err)
+	}
+	if got.NetworkInfo.PublicIP != "203.0.113.7" {
+		t.Errorf("PublicIP = %q; want 203.0.113.7 (Forwarded header)", got.NetworkInfo.PublicIP)
+	}
+	if got.NetworkInfo.CountryCode != "TR" {
+		t.Errorf("CountryCode = %q; want TR (Forwarded header)", got.NetworkInfo.CountryCode)
+	}
+}
+
 // TestPairDaemonREST_ForwardsXFF verifies the REST shim ports the HTTP
 // X-Forwarded-For chain onto the in-process Connect request so the
 // geoip lookup in PairDaemon sees it. Without this plumbing the

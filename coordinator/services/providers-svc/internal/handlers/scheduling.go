@@ -151,7 +151,31 @@ func (h *SchedulingHandler) StreamHeartbeats(
 	// pinned for the lifetime of the TCP connection (Traefik does not
 	// rebalance mid-stream). Used by the #359 geoip refresh path
 	// below.
-	clientIP := geoip.ExtractClientIP(stream.RequestHeader().Get, "")
+	//
+	// #381: pass the Connect peer address as a fallback so we always
+	// get *something* — even if it's the in-cluster Traefik pod IP
+	// (RFC1918, so the GeoIP lookup will skip it). The peer is a
+	// useful diagnostic signal: when it's the only candidate, we know
+	// the upstream proxy stripped/never-set the forwarded headers.
+	hdr := stream.RequestHeader()
+	peerAddr := stream.Peer().Addr
+	clientIP := geoip.ExtractClientIP(hdr.Get, peerAddr)
+	// One-shot log per stream (not per heartbeat — bidi streams live
+	// for minutes-to-hours, so this is a single line per provider
+	// reconnect). Captures the full set of forwarded-header sources
+	// + peer addr so a future "geo cell still NULL after roll" symptom
+	// is one `kubectl logs | grep heartbeat: stream opened` away from
+	// diagnosis instead of a multi-hop wire trace. The peer.Addr
+	// being RFC1918 (in-cluster) when XFF is missing is the canonical
+	// signal that the Traefik entrypoint's forwardedHeaders config
+	// is incomplete (#381 root cause).
+	h.Log.Info("heartbeat: stream opened",
+		slog.String("client_ip", clientIP),
+		slog.String("peer_addr", peerAddr),
+		slog.String("xff", hdr.Get("X-Forwarded-For")),
+		slog.String("forwarded", hdr.Get("Forwarded")),
+		slog.String("x_real_ip", hdr.Get("X-Real-Ip")),
+	)
 	for {
 		hb, err := stream.Receive()
 		if err != nil {

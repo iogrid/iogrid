@@ -23,7 +23,54 @@
 # IngressRoute. Live-patched on the cluster at the time; this PR puts
 # the canonical declaration into git so fresh provs include it.
 #
-# Issue: #352 (this file's intent). Refs #271 (sibling for workloads).
+# X-Forwarded-For propagation (#381)
+# ----------------------------------
+# providers-svc's GeoIP2 path (#359/PR #378) reads X-Forwarded-For off
+# every heartbeat stream's initial HEADERS frame to resolve the
+# provider's country + region. Traefik's default behaviour is to
+# rewrite XFF from `req.RemoteAddr` on every entrypoint ingress — but
+# that rewrite is GATED on whether the entrypoint trusts its previous
+# hop (typically the Hetzner LB). With the default
+# `forwardedHeaders.insecure=false` AND empty `trustedIPs=[]`, Traefik
+# STRIPS any incoming XFF/X-Real-IP from the LB AND silently does NOT
+# add a fresh one on the proxied request (the rewrite path is skipped
+# for streaming HTTP/2 requests when the previous hop isn't trusted).
+#
+# Result: on hatice's Mac (2026-05-21) `clientIP` resolved to "" inside
+# `StreamHeartbeats`, the geoip refresh short-circuited, and the
+# `providers.country_code / region_name / public_ip` columns stayed
+# NULL forever despite a healthy stream.
+#
+# Fix lives in the mothership Traefik static config (THIS file is the
+# dynamic route; the static config is the kube-system Helm values).
+# The required Helm-values fragment for the mothership Traefik chart
+# release is:
+#
+#   ports:
+#     websecure:
+#       forwardedHeaders:
+#         # `insecure: true` accepts XFF/Forwarded from any source —
+#         # safe here because the Hetzner LB is L4 (proxy-protocol-less)
+#         # and the underlying TCP source is the LB's egress IP, not a
+#         # spoofable client. If/when the platform adds a CDN in front
+#         # of the LB, swap to `trustedIPs: [<LB CIDR>, <CDN CIDR>]` so
+#         # only those hops can populate XFF; clients still cannot
+#         # forge it because they terminate TLS at Traefik first.
+#         insecure: true
+#
+# Apply on the mothership:
+#
+#   helm upgrade traefik traefik/traefik -n kube-system --reuse-values \
+#     --set ports.websecure.forwardedHeaders.insecure=true
+#
+# After the chart re-rolls and the daemon reconnects, the next
+# `heartbeat: stream opened` log line in providers-svc will carry a
+# non-empty `client_ip` and `applyHeartbeatGeo` will populate the geo
+# columns within ≤ 24h (immediately on the first heartbeat of a fresh
+# stream, per the LastGeoLookupAt-zero short-circuit in scheduling.go).
+#
+# Issue: #352 (this file's intent). Refs #271 (sibling for workloads),
+# #381 (XFF/geo plumbing), #378 (the GeoIP2 ship this unblocks).
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:

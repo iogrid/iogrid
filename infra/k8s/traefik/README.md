@@ -46,3 +46,50 @@ kubectl -n iogrid apply -f infra/k8s/traefik/
 ```
 
 The objects are idempotent; re-applying is safe.
+
+## Mothership Traefik static config — `forwardedHeaders.insecure: true` (#381)
+
+The dynamic objects in this directory route traffic; they do not
+configure the underlying Traefik entrypoint. Two pieces of static
+config on the **mothership** Traefik Helm release are required for
+iogrid to function correctly end-to-end:
+
+| Static knob | Why we need it | Symptom when missing |
+|---|---|---|
+| `ports.websecure.http2.enabled: true` | h2c bidi streams (`WorkloadDispatchService.Dispatch`, `SchedulingService.StreamHeartbeats`) | Daemon sees `HTTP 505 / grpc-status header missing` on stream open. Surfaced in #271. |
+| `ports.websecure.forwardedHeaders.insecure: true` | `X-Forwarded-For` actually reaches providers-svc so the GeoIP2 path (PR #378) can resolve the provider's country + region | `providers.country_code / region_name / public_ip` columns stay NULL despite a healthy heartbeat stream. Diagnosed in #381 (PR #378 shipped the lookup code but the geo cells never populated for hatice's daemon on 2026-05-21). |
+
+The `forwardedHeaders.insecure: true` knob accepts XFF/Forwarded
+headers from any upstream hop. This is safe on the iogrid Phase-0
+topology because:
+
+1. The only thing in front of mothership Traefik is a **Hetzner L4
+   load balancer** (TCP-mode, no proxy-protocol). Clients cannot
+   directly inject XFF — their TLS connection terminates at Traefik,
+   and Traefik unconditionally overwrites XFF with the connection's
+   `RemoteAddr` (the LB's outbound IP, which is itself rewritten by
+   the LB to the real client's IP).
+2. The dameon's mTLS chain authenticates the daemon to the
+   coordinator at the application layer; even if a malicious client
+   somehow injected an XFF, it could only forge the **geo** cells (not
+   identity) and the daemon's mTLS cert is the authoritative provider
+   identity.
+
+If/when the platform puts a CDN (Cloudflare, Fastly) in front of the
+LB, swap `insecure: true` for `trustedIPs: [<LB CIDR>, <CDN CIDR>]` so
+only those hops can populate XFF — clients still cannot forge it
+because they terminate TLS at the CDN edge first.
+
+Apply via:
+
+```bash
+helm upgrade traefik traefik/traefik -n kube-system --reuse-values \
+  --set ports.websecure.forwardedHeaders.insecure=true
+```
+
+Verify post-roll with a sample `kubectl -n iogrid logs deploy/providers-svc` —
+every `heartbeat: stream opened` line should now carry a non-empty
+`client_ip=<public IP>` instead of `client_ip=`. The corresponding
+provider row's geo columns populate within ≤ 24h (immediately on the
+first heartbeat of a fresh stream, per the LastGeoLookupAt-zero
+short-circuit in `scheduling.go`).
