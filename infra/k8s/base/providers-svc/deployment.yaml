@@ -44,6 +44,97 @@ spec:
         fsGroup: 65532
         seccompProfile:
           type: RuntimeDefault
+      # #359: download the db-ip.com Lite IP-to-City .mmdb (CC BY 4.0,
+      # no license key required) at pod start. providers-svc opens the
+      # file via GEOIP_DB_PATH; if the init container fails or the URL
+      # is unreachable, providers-svc still boots cleanly and just
+      # leaves the country/region columns blank (geoip.NoopLookuper
+      # fallback in main.go). The shared emptyDir is small (~70 MiB
+      # gunzipped) so this never bloats the pod meaningfully.
+      #
+      # Why db-ip.com Lite over MaxMind GeoLite2-City: MaxMind's free
+      # feed now requires an account_id + license_key (rotated via
+      # their portal). Storing those secrets in K8s and threading them
+      # through `geoipupdate` adds operational weight for an isomorphic
+      # data set. db-ip.com Lite is permalink-downloadable with no
+      # auth — simpler Phase-0 footprint. If the operator wants to
+      # swap in MaxMind, replace the curl URL + add the license-key
+      # Secret reference here; the .mmdb format is identical and the
+      # geoip package consumes both transparently.
+      initContainers:
+        - name: geoip-download
+          image: curlimages/curl:8.10.1
+          imagePullPolicy: IfNotPresent
+          args:
+            - sh
+            - -c
+            - |
+              set -eu
+              MMDB_DIR=/var/lib/iogrid/geoip
+              MMDB_OUT="$MMDB_DIR/dbip-city-lite.mmdb"
+              # db-ip.com publishes monthly snapshots at a stable URL
+              # pattern: https://download.db-ip.com/free/dbip-city-lite-YYYY-MM.mmdb.gz
+              # We fetch the current month; on the first day of a new
+              # month before the snapshot lands we fall back to the
+              # previous month. Operators wanting determinism should
+              # override DBIP_URL via the providers-svc-config CM.
+              MONTH="${DBIP_MONTH:-$(date -u +%Y-%m)}"
+              PREV_MONTH="$(date -u -d "$MONTH-01 -1 month" +%Y-%m 2>/dev/null || echo "$MONTH")"
+              URL_PRIMARY="${DBIP_URL:-https://download.db-ip.com/free/dbip-city-lite-${MONTH}.mmdb.gz}"
+              URL_FALLBACK="https://download.db-ip.com/free/dbip-city-lite-${PREV_MONTH}.mmdb.gz"
+              mkdir -p "$MMDB_DIR"
+              tmp="$(mktemp)"
+              for url in "$URL_PRIMARY" "$URL_FALLBACK"; do
+                echo "geoip-download: trying $url"
+                if curl --fail --location --silent --show-error --max-time 60 -o "$tmp" "$url"; then
+                  gunzip -c "$tmp" > "$MMDB_OUT"
+                  rm -f "$tmp"
+                  echo "geoip-download: wrote $MMDB_OUT ($(stat -c %s "$MMDB_OUT" 2>/dev/null || wc -c < "$MMDB_OUT") bytes)"
+                  exit 0
+                fi
+              done
+              # Never fail the pod on a download miss — providers-svc
+              # degrades to NoopLookuper. Log loudly so operators see
+              # the gap in the kubelet container logs.
+              echo "geoip-download: WARN — both URLs failed; providers-svc will run without geoip lookups"
+              exit 0
+          env:
+            # Operators can override either of these via the
+            # providers-svc-config ConfigMap (e.g. to pin a known-good
+            # snapshot or proxy through an internal mirror).
+            - name: DBIP_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: providers-svc-config
+                  key: DBIP_URL
+                  optional: true
+            - name: DBIP_MONTH
+              valueFrom:
+                configMapKeyRef:
+                  name: providers-svc-config
+                  key: DBIP_MONTH
+                  optional: true
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - name: geoip-db
+              mountPath: /var/lib/iogrid/geoip
+            - name: tmp
+              mountPath: /tmp
       containers:
         - name: providers-svc
           image: ghcr.io/iogrid/providers-svc@sha256:fd3f3f562331a3ad3fe4f8f0748bfa77e8127e864220cd9707061264e53fc7d7
@@ -68,6 +159,13 @@ spec:
               value: info
             - name: SERVICE_NAME
               value: providers-svc
+            # #359: points providers-svc at the .mmdb the geoip-download
+            # init container wrote. When the file is missing (init
+            # container miss / private cluster blocked from db-ip.com)
+            # main.go falls back to NoopLookuper and the geo columns
+            # simply stay blank.
+            - name: GEOIP_DB_PATH
+              value: /var/lib/iogrid/geoip/dbip-city-lite.mmdb
           envFrom:
             - configMapRef:
                 name: providers-svc-config
@@ -121,9 +219,15 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: geoip-db
+              mountPath: /var/lib/iogrid/geoip
+              readOnly: true
       volumes:
         - name: tmp
           emptyDir: {}
+        - name: geoip-db
+          emptyDir:
+            sizeLimit: 256Mi
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname

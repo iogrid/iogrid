@@ -16,6 +16,7 @@ import (
 	commonv1 "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/common/v1"
 	providersv1 "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/providers/v1"
 	"github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/providers/v1/providersv1connect"
+	"github.com/iogrid/iogrid/coordinator/services/providers-svc/internal/geoip"
 	"github.com/iogrid/iogrid/coordinator/services/providers-svc/internal/store"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -24,6 +25,11 @@ import (
 type SchedulingHandler struct {
 	providersv1connect.UnimplementedSchedulingServiceHandler
 	Store store.Store
+	// GeoIP resolves the observed source IP of a heartbeat stream into
+	// country/region for the providers row. NEVER nil at runtime — main
+	// wires either the .mmdb-backed reader or geoip.NoopLookuper. Same
+	// fail-soft policy as RegistrationHandler.
+	GeoIP geoip.Lookuper
 	Log   *slog.Logger
 
 	// liveStates is the most-recent SchedulerState reported by each daemon
@@ -37,14 +43,31 @@ type liveState struct {
 	Usage *providersv1.CurrentUsageSnapshot
 	Seq   uint64
 	At    time.Time
+	// LastGeoLookupAt throttles the per-stream geoip refresh. #359 wants
+	// the country/region columns to repopulate when a provider's egress
+	// shifts (ISP renumber, laptop on a new wifi), but doing a maxmind
+	// lookup + UPDATE on every 5-second heartbeat is wasteful. Refresh
+	// once per heartbeatGeoRefreshInterval per provider.
+	LastGeoLookupAt time.Time
 }
 
-// NewSchedulingHandler wires the store dependency.
-func NewSchedulingHandler(s store.Store, log *slog.Logger) *SchedulingHandler {
+// heartbeatGeoRefreshInterval is how often we re-run the geoip lookup
+// on the heartbeat path. 24h matches the cadence the issue describes
+// ("CGN may shift"); shorter cadences add write pressure without
+// improving the operator-visible signal.
+const heartbeatGeoRefreshInterval = 24 * time.Hour
+
+// NewSchedulingHandler wires the store dependency. GeoIP may be nil —
+// we substitute geoip.NoopLookuper so the hot path never has to
+// nil-check.
+func NewSchedulingHandler(s store.Store, g geoip.Lookuper, log *slog.Logger) *SchedulingHandler {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &SchedulingHandler{Store: s, Log: log, liveStates: make(map[string]liveState)}
+	if g == nil {
+		g = geoip.NoopLookuper{}
+	}
+	return &SchedulingHandler{Store: s, GeoIP: g, Log: log, liveStates: make(map[string]liveState)}
 }
 
 func (h *SchedulingHandler) GetSchedulingConfig(
@@ -123,6 +146,12 @@ func (h *SchedulingHandler) StreamHeartbeats(
 	ctx context.Context,
 	stream *connect.BidiStream[providersv1.Heartbeat, providersv1.HeartbeatAck],
 ) error {
+	// Extract the observed source IP from the stream's request header
+	// once at stream-open and reuse it for every frame — the IP is
+	// pinned for the lifetime of the TCP connection (Traefik does not
+	// rebalance mid-stream). Used by the #359 geoip refresh path
+	// below.
+	clientIP := geoip.ExtractClientIP(stream.RequestHeader().Get, "")
 	for {
 		hb, err := stream.Receive()
 		if err != nil {
@@ -138,12 +167,24 @@ func (h *SchedulingHandler) StreamHeartbeats(
 		now := time.Now().UTC()
 		h.stateMu.Lock()
 		prev := h.liveStates[id]
-		h.liveStates[id] = liveState{
-			State: hb.GetState(),
-			Usage: hb.GetUsage(),
-			Seq:   hb.GetSequence(),
-			At:    now,
+		next := liveState{
+			State:           hb.GetState(),
+			Usage:           hb.GetUsage(),
+			Seq:             hb.GetSequence(),
+			At:              now,
+			LastGeoLookupAt: prev.LastGeoLookupAt,
 		}
+		// #359: rate-limit the geoip refresh to once per
+		// heartbeatGeoRefreshInterval per provider. The very first
+		// frame (LastGeoLookupAt zero) always triggers a refresh so a
+		// provider that paired before the .mmdb was loaded gets its
+		// country/region populated as soon as it first connects.
+		shouldRefreshGeo := clientIP != "" &&
+			(prev.LastGeoLookupAt.IsZero() || now.Sub(prev.LastGeoLookupAt) >= heartbeatGeoRefreshInterval)
+		if shouldRefreshGeo {
+			next.LastGeoLookupAt = now
+		}
+		h.liveStates[id] = next
 		h.stateMu.Unlock()
 
 		// #311: bump providers.last_seen_at so /admin/providers + every
@@ -158,6 +199,33 @@ func (h *SchedulingHandler) StreamHeartbeats(
 				slog.String("provider_id", id),
 				slog.String("error", err.Error()),
 			)
+		}
+
+		// #359: refresh the geo columns when the stream's observed IP
+		// resolves cleanly and our throttle window has elapsed. Read-
+		// modify-write through GetProvider/UpdateProvider so we don't
+		// stomp the host info another path (UpdateHostInfo) may have
+		// written in parallel. Failure is non-fatal: a stale geo cell
+		// is recoverable on the next 24h tick.
+		if shouldRefreshGeo {
+			res, err := h.GeoIP.Lookup(clientIP)
+			switch {
+			case err == nil:
+				if err := h.applyHeartbeatGeo(ctx, id, clientIP, res); err != nil {
+					h.Log.Warn("heartbeat: apply geo failed",
+						slog.String("provider_id", id),
+						slog.String("error", err.Error()),
+					)
+				}
+			case errors.Is(err, geoip.ErrNotFound), errors.Is(err, geoip.ErrUnavailable):
+				// soft miss — skip
+			default:
+				h.Log.Warn("heartbeat: geoip lookup failed",
+					slog.String("provider_id", id),
+					slog.String("public_ip", clientIP),
+					slog.String("error", err.Error()),
+				)
+			}
 		}
 
 		// Emit an audit event on state transitions so the transparency
@@ -177,6 +245,49 @@ func (h *SchedulingHandler) StreamHeartbeats(
 			return err
 		}
 	}
+}
+
+// applyHeartbeatGeo refreshes the provider row's geo columns from a
+// fresh geoip.Lookup result. Skips the UPDATE entirely when nothing
+// changed so we don't churn writes on a stable IP. Returns the
+// underlying store error verbatim so the caller can decide whether to
+// log; never wraps in a Connect code (this is a side-channel refresh,
+// not on the request path).
+func (h *SchedulingHandler) applyHeartbeatGeo(ctx context.Context, providerID, ip string, res geoip.Result) error {
+	p, err := h.Store.GetProvider(ctx, providerID)
+	if err != nil {
+		return err
+	}
+	changed := false
+	if p.NetworkInfo.PublicIP != ip {
+		p.NetworkInfo.PublicIP = ip
+		changed = true
+	}
+	if p.NetworkInfo.CountryCode != res.CountryCode {
+		p.NetworkInfo.CountryCode = res.CountryCode
+		changed = true
+	}
+	if p.NetworkInfo.RegionName != res.RegionName {
+		p.NetworkInfo.RegionName = res.RegionName
+		changed = true
+	}
+	if p.NetworkInfo.RegionSlug != res.RegionSlug {
+		p.NetworkInfo.RegionSlug = res.RegionSlug
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
+	if err := h.Store.UpdateProvider(ctx, p); err != nil {
+		return err
+	}
+	h.Log.Info("heartbeat: geo refreshed",
+		slog.String("provider_id", providerID),
+		slog.String("public_ip", ip),
+		slog.String("country_code", res.CountryCode),
+		slog.String("region_slug", res.RegionSlug),
+	)
+	return nil
 }
 
 // --- conversion + validation -----------------------------------------------

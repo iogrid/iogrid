@@ -23,7 +23,7 @@ func newTestHandler(t *testing.T) *RegistrationHandler {
 	if err != nil {
 		t.Fatalf("ca: %v", err)
 	}
-	return NewRegistrationHandler(store.NewInMemory(), c, nil)
+	return NewRegistrationHandler(store.NewInMemory(), c, nil, nil)
 }
 
 func newDaemonPubKey(t *testing.T) []byte {

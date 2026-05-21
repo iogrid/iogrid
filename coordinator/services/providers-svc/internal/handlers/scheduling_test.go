@@ -20,7 +20,7 @@ import (
 )
 
 func TestGetSchedulingConfig_Defaults(t *testing.T) {
-	h := NewSchedulingHandler(store.NewInMemory(), nil)
+	h := NewSchedulingHandler(store.NewInMemory(), nil, nil)
 	resp, err := h.GetSchedulingConfig(context.Background(), connect.NewRequest(&providersv1.GetSchedulingConfigRequest{
 		ProviderId: &commonv1.UUID{Value: "p1"},
 	}))
@@ -37,7 +37,7 @@ func TestGetSchedulingConfig_Defaults(t *testing.T) {
 }
 
 func TestUpdateSchedulingConfig_RoundTrip(t *testing.T) {
-	h := NewSchedulingHandler(store.NewInMemory(), nil)
+	h := NewSchedulingHandler(store.NewInMemory(), nil, nil)
 	ctx := context.Background()
 	cfg := &providersv1.SchedulingConfig{
 		ProviderId: &commonv1.UUID{Value: "p1"},
@@ -71,7 +71,7 @@ func TestUpdateSchedulingConfig_RoundTrip(t *testing.T) {
 }
 
 func TestUpdateSchedulingConfig_RejectsBadCalendar(t *testing.T) {
-	h := NewSchedulingHandler(store.NewInMemory(), nil)
+	h := NewSchedulingHandler(store.NewInMemory(), nil, nil)
 	_, err := h.UpdateSchedulingConfig(context.Background(), connect.NewRequest(&providersv1.UpdateSchedulingConfigRequest{
 		Config: &providersv1.SchedulingConfig{
 			ProviderId: &commonv1.UUID{Value: "p1"},
@@ -89,7 +89,7 @@ func TestUpdateSchedulingConfig_RejectsBadCalendar(t *testing.T) {
 }
 
 func TestUpdateSchedulingConfig_RejectsOver100Pct(t *testing.T) {
-	h := NewSchedulingHandler(store.NewInMemory(), nil)
+	h := NewSchedulingHandler(store.NewInMemory(), nil, nil)
 	_, err := h.UpdateSchedulingConfig(context.Background(), connect.NewRequest(&providersv1.UpdateSchedulingConfigRequest{
 		Config: &providersv1.SchedulingConfig{
 			ProviderId: &commonv1.UUID{Value: "p1"},
@@ -127,7 +127,7 @@ func TestStreamHeartbeats_BumpsLastSeenAt(t *testing.T) {
 		t.Fatalf("seed precondition violated — LastSeenAt should be stale (was %v)", before.LastSeenAt)
 	}
 
-	sched := NewSchedulingHandler(s, nil)
+	sched := NewSchedulingHandler(s, nil, nil)
 	mux := http.NewServeMux()
 	path, handler := providersv1connect.NewSchedulingServiceHandler(sched)
 	mux.Handle(path, handler)
@@ -189,7 +189,7 @@ func newH2CTestClient() *http.Client {
 }
 
 func TestGetCurrentState_NoHeartbeatYet(t *testing.T) {
-	h := NewSchedulingHandler(store.NewInMemory(), nil)
+	h := NewSchedulingHandler(store.NewInMemory(), nil, nil)
 	resp, err := h.GetCurrentState(context.Background(), connect.NewRequest(&providersv1.GetCurrentStateRequest{
 		ProviderId: &commonv1.UUID{Value: "p1"},
 	}))

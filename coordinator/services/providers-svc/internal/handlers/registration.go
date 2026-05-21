@@ -13,6 +13,7 @@ import (
 	providersv1 "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/providers/v1"
 	"github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/providers/v1/providersv1connect"
 	"github.com/iogrid/iogrid/coordinator/services/providers-svc/internal/ca"
+	"github.com/iogrid/iogrid/coordinator/services/providers-svc/internal/geoip"
 	"github.com/iogrid/iogrid/coordinator/services/providers-svc/internal/store"
 )
 
@@ -21,16 +22,27 @@ type RegistrationHandler struct {
 	providersv1connect.UnimplementedProviderRegistrationServiceHandler
 	Store store.Store
 	CA    *ca.CA
+	// GeoIP resolves the observed source IP into country/region for the
+	// providers row. NEVER nil at runtime — main wires either the .mmdb-
+	// backed reader or a NoopLookuper (see #359). The handler treats a
+	// noop / miss as "leave geo columns alone" and proceeds; pairing
+	// must succeed even when the database is missing.
+	GeoIP geoip.Lookuper
 	Log   *slog.Logger
 }
 
 // NewRegistrationHandler wires the dependencies. CA must be non-nil; the
-// store may be the in-memory or pg-backed implementation.
-func NewRegistrationHandler(s store.Store, c *ca.CA, log *slog.Logger) *RegistrationHandler {
+// store may be the in-memory or pg-backed implementation. GeoIP may be
+// nil — in that case we substitute geoip.NoopLookuper so the handler
+// never has to nil-check on the hot path.
+func NewRegistrationHandler(s store.Store, c *ca.CA, g geoip.Lookuper, log *slog.Logger) *RegistrationHandler {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &RegistrationHandler{Store: s, CA: c, Log: log}
+	if g == nil {
+		g = geoip.NoopLookuper{}
+	}
+	return &RegistrationHandler{Store: s, CA: c, GeoIP: g, Log: log}
 }
 
 // defaultPairingTTL is the issuance TTL applied when the caller passes
@@ -100,12 +112,45 @@ func (h *RegistrationHandler) PairDaemon(
 	if display == "" {
 		display = "provider-" + pt.OwnerUserID[:min(8, len(pt.OwnerUserID))]
 	}
+	netInfo := networkFromProto(in.GetNetworkInfo())
+	// #359: country/region are SERVER-DERIVED from the observed source
+	// IP — daemons may not supply their own. We pull the IP from the
+	// Connect request's X-Forwarded-For (set by Traefik), fall back to
+	// X-Real-IP, and finally to the peer addr. The lookup is best-
+	// effort: any error or miss leaves the geo fields blank rather than
+	// blocking pairing.
+	clientIP := extractClientIP(req)
+	if clientIP != "" {
+		// Trust the OBSERVED IP over whatever the daemon put in the
+		// proto — the daemon's self-reported public_ip is advisory and
+		// can be wrong (the daemon may sit behind a different egress
+		// than it thinks).
+		netInfo.PublicIP = clientIP
+		if res, err := h.GeoIP.Lookup(clientIP); err == nil {
+			netInfo.CountryCode = res.CountryCode
+			netInfo.RegionName = res.RegionName
+			netInfo.RegionSlug = res.RegionSlug
+			h.Log.Debug("geoip lookup ok",
+				slog.String("public_ip", clientIP),
+				slog.String("country_code", res.CountryCode),
+				slog.String("region_slug", res.RegionSlug),
+			)
+		} else if !errors.Is(err, geoip.ErrNotFound) && !errors.Is(err, geoip.ErrUnavailable) {
+			// Real error (malformed input, db read failure) — log but
+			// don't fail the pair: a missing geo cell is recoverable on
+			// the next heartbeat.
+			h.Log.Warn("geoip lookup failed",
+				slog.String("public_ip", clientIP),
+				slog.String("error", err.Error()),
+			)
+		}
+	}
 	p := &store.Provider{
 		OwnerUserID:  pt.OwnerUserID,
 		DisplayName:  display,
 		Status:       store.StatusActive,
 		HostInfo:     hostInfoFromProto(in.GetHostInfo()),
-		NetworkInfo:  networkFromProto(in.GetNetworkInfo()),
+		NetworkInfo:  netInfo,
 		Capabilities: store.Capability{}, // populated by UpdateCapabilityInventory
 		PublicKey:    append([]byte(nil), in.GetDaemonPublicKey()...),
 		RegisteredAt: time.Now().UTC(),
@@ -154,11 +199,29 @@ func (h *RegistrationHandler) UpdateHostInfo(
 	if err != nil {
 		return nil, mapStoreErr(err)
 	}
-	if h := req.Msg.GetHostInfo(); h != nil {
-		p.HostInfo = hostInfoFromProto(h)
+	if hi := req.Msg.GetHostInfo(); hi != nil {
+		p.HostInfo = hostInfoFromProto(hi)
 	}
 	if n := req.Msg.GetNetworkInfo(); n != nil {
 		p.NetworkInfo = networkFromProto(n)
+	}
+	// #359: same server-side override on UpdateHostInfo so a daemon's
+	// egress relocation (laptop moved to a new network) refreshes the
+	// geo columns. Same fail-soft policy as PairDaemon.
+	clientIP := extractClientIP(req)
+	if clientIP != "" {
+		p.NetworkInfo.PublicIP = clientIP
+		if res, err := h.GeoIP.Lookup(clientIP); err == nil {
+			p.NetworkInfo.CountryCode = res.CountryCode
+			p.NetworkInfo.RegionName = res.RegionName
+			p.NetworkInfo.RegionSlug = res.RegionSlug
+		} else if !errors.Is(err, geoip.ErrNotFound) && !errors.Is(err, geoip.ErrUnavailable) {
+			h.Log.Warn("geoip lookup failed on UpdateHostInfo",
+				slog.String("provider_id", id),
+				slog.String("public_ip", clientIP),
+				slog.String("error", err.Error()),
+			)
+		}
 	}
 	p.LastSeenAt = time.Now().UTC()
 	if err := h.Store.UpdateProvider(ctx, p); err != nil {
@@ -304,4 +367,34 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// extractClientIP returns the most-trustworthy observed-source IP for a
+// Connect-RPC request. Order of preference:
+//
+//  1. X-Forwarded-For (left-most) — what Traefik sets on every
+//     ingress. This is the trusted chain because daemons cannot forge
+//     it; Traefik replaces whatever the client supplied.
+//  2. X-Real-Ip / X-Real-IP — also set by Traefik on some routes.
+//  3. X-Forwarded-Remote-Addr — synthetic header populated by the
+//     REST shim (PairDaemonREST) so the in-process Connect call can
+//     still see the real RemoteAddr of the underlying HTTP request.
+//  4. req.Peer().Addr — fallback for callers that ride directly over
+//     the Connect surface without an intervening REST shim.
+//
+// See geoip.ExtractClientIP for the lower-level header walker; this
+// wrapper just plumbs in the request-scoped headers + the synthetic
+// REST hop hint.
+func extractClientIP[T any](req *connect.Request[T]) string {
+	getHeader := req.Header().Get
+	if ip := geoip.ExtractClientIP(getHeader, ""); ip != "" {
+		return ip
+	}
+	if syn := req.Header().Get("X-Forwarded-Remote-Addr"); syn != "" {
+		return geoip.ExtractClientIP(nil, syn)
+	}
+	if peer := req.Peer(); peer.Addr != "" {
+		return geoip.ExtractClientIP(nil, peer.Addr)
+	}
+	return ""
 }
