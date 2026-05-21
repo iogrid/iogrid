@@ -8,10 +8,20 @@
 //
 //	0  — every transport reported success
 //	1  — any transport failed (k8s requeues the job per its backoffLimit)
+//	2  — required configuration missing (fail-fast at startup; the CronJob
+//	     manifest was mis-wired and silently passing a zero value would
+//	     cause the report to publish to "" with no error)
 //
 // Configuration is via env vars + CLI flags so the CronJob manifest can
-// override either pathway. The defaults match the conventions used
-// elsewhere in coordinator/.
+// override either pathway. Canonical env var names follow the iogrid
+// coordinator env-var contract (see docs/RUNBOOKS.md §5):
+//
+//	IOGRID_GATEWAY_BFF_URL    — gateway-bff base URL (matches web Route Handler spelling)
+//	IOGRID_SERVICE_TOKEN      — shared bearer for inter-service calls
+//
+// The pre-#416 names (GATEWAY_BFF_URL, GATEWAY_BFF_TOKEN) are no longer
+// honoured — operators who set only those will fail-fast with exit 2
+// rather than silently publishing to an empty URL.
 package main
 
 import (
@@ -30,9 +40,20 @@ import (
 
 const serviceName = "antiabuse-svc-transparency-report"
 
+// errMissingConfig signals a fail-fast configuration error. main() maps
+// it to exit code 2 so the CronJob alerting can distinguish "operator
+// mis-wired the manifest" from "report generation failed at runtime".
+type errMissingConfig struct{ msg string }
+
+func (e *errMissingConfig) Error() string { return e.msg }
+
 func main() {
 	logger := log.Setup(serviceName)
 	if err := run(logger); err != nil {
+		if _, ok := err.(*errMissingConfig); ok {
+			logger.Error("transparency report misconfigured", slog.String("error", err.Error()))
+			os.Exit(2)
+		}
 		logger.Error("transparency report failed", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
@@ -46,11 +67,25 @@ func run(logger *slog.Logger) error {
 		yearFlag    = flag.Int("year", envInt("REPORT_YEAR", defaultYear), "year to report on (default: previous completed quarter)")
 		quarterFlag = flag.Int("quarter", envInt("REPORT_QUARTER", int(defaultQ)), "quarter to report on (1..4)")
 		bucket      = flag.String("bucket", os.Getenv("S3_BUCKET"), "destination S3 bucket")
-		bffURL      = flag.String("bff-url", os.Getenv("GATEWAY_BFF_URL"), "gateway-bff base URL for /api/v1/transparency/publish")
-		bffToken    = flag.String("bff-token", os.Getenv("GATEWAY_BFF_TOKEN"), "bearer token for the BFF publish endpoint")
+		bffURL      = flag.String("bff-url", os.Getenv("IOGRID_GATEWAY_BFF_URL"), "gateway-bff base URL for /api/v1/transparency/publish (env: IOGRID_GATEWAY_BFF_URL)")
+		bffToken    = flag.String("bff-token", os.Getenv("IOGRID_SERVICE_TOKEN"), "bearer token for the BFF publish endpoint (env: IOGRID_SERVICE_TOKEN)")
 		dryRun      = flag.Bool("dry-run", envBool("DRY_RUN", false), "print the report to stdout instead of publishing")
 	)
 	flag.Parse()
+
+	// Fail-fast on missing required config when we will actually publish.
+	// Without this, an operator who sets a pre-#416 spelling (GATEWAY_BFF_URL /
+	// GATEWAY_BFF_TOKEN) would silently boot with empty values and the
+	// publisher would POST to "" — the kind of dormant-bug guard the
+	// founder explicitly called out in CLAUDE.md §3 anti-pattern catalog.
+	if !*dryRun {
+		if strings.TrimSpace(*bffURL) == "" {
+			return &errMissingConfig{msg: "missing IOGRID_GATEWAY_BFF_URL (or -bff-url); pre-#416 GATEWAY_BFF_URL is no longer honoured"}
+		}
+		if strings.TrimSpace(*bffToken) == "" {
+			return &errMissingConfig{msg: "missing IOGRID_SERVICE_TOKEN (or -bff-token); pre-#416 GATEWAY_BFF_TOKEN is no longer honoured"}
+		}
+	}
 
 	// In Phase 1 we accept zero counters — the first report is a
 	// methodology placeholder. The real source wires up once the NATS

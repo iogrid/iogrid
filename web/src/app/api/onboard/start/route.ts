@@ -12,9 +12,9 @@ import { auth } from "@/lib/auth";
  * — only the NextAuth cookie ever touches the client.
  *
  * In Phase 0 with no live identity-svc the proxy still works because
- * the auth middleware on gateway-bff accepts a dev "BFF service token"
- * (env IOGRID_BFF_SERVICE_TOKEN). Production wires real session→JWT
- * issuance via identity-svc.
+ * the auth middleware on gateway-bff accepts a dev service token
+ * (env IOGRID_SERVICE_TOKEN — canonical per #416). Production wires
+ * real session→JWT issuance via identity-svc.
  */
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
 
   const body = await req.text();
   const upstream = process.env.IOGRID_GATEWAY_BFF_URL ?? "http://localhost:8080";
-  const serviceToken = process.env.IOGRID_BFF_SERVICE_TOKEN ?? "";
+  const serviceToken = process.env.IOGRID_SERVICE_TOKEN ?? "";
 
   const res = await fetch(`${upstream}/api/v1/onboard/start`, {
     method: "POST",

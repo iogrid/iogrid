@@ -18,7 +18,9 @@ export async function POST(req: NextRequest) {
 
   const body = await req.text();
   const upstream = process.env.IOGRID_GATEWAY_BFF_URL ?? "http://localhost:8080";
-  const serviceToken = process.env.IOGRID_BFF_SERVICE_TOKEN ?? "";
+  // Canonical iogrid coordinator env-var contract (#416 — see
+  // docs/RUNBOOKS.md §5). Pre-#416 IOGRID_BFF_SERVICE_TOKEN is gone.
+  const serviceToken = process.env.IOGRID_SERVICE_TOKEN ?? "";
 
   const res = await fetch(`${upstream}/api/v1/onboard/complete`, {
     method: "POST",
