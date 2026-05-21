@@ -69,14 +69,14 @@ export function AbusePanel() {
 
   if (loading) {
     return (
-      <div className="rounded-md border border-zinc-200 p-8 text-center text-sm text-zinc-500 dark:border-zinc-800">
+      <div className="rounded-md border border-border p-8 text-center text-sm text-muted-foreground dark:border-foreground">
         Loading filter ruleset…
       </div>
     );
   }
   if (error || !data) {
     return (
-      <div className="rounded-md border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-300">
+      <div className="rounded-md border border-destructive/20 bg-destructive/10 p-4 text-sm text-destructive-foreground dark:border-destructive-foreground dark:bg-destructive/15dark:text-destructive/30">
         Couldn&apos;t load — are you signed in with an admin token?
       </div>
     );
@@ -91,12 +91,12 @@ export function AbusePanel() {
   return (
     <div className="space-y-4">
       {data.ruleset_hash ? (
-        <p className="text-xs text-zinc-500">
+        <p className="text-xs text-muted-foreground">
           Active ruleset hash:{" "}
           <code className="font-mono">{data.ruleset_hash}</code>
         </p>
       ) : null}
-      <ul className="divide-y divide-zinc-200 rounded-md border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
+      <ul className="divide-y divide-border rounded-md border border-border dark:divide-foreground dark:border-foreground">
         {rules.map((r) => (
           <RuleRow key={r.id || r.slug} rule={r} />
         ))}
@@ -112,11 +112,11 @@ export function AbusePanel() {
  */
 function EmptyQueueCard() {
   return (
-    <div className="rounded-md border border-zinc-200 bg-zinc-50 p-6 text-sm dark:border-zinc-800 dark:bg-zinc-900/40">
-      <p className="font-medium text-zinc-900 dark:text-zinc-100">
+    <div className="rounded-md border border-border bg-background p-6 text-sm dark:border-foreground dark:bg-foreground/40">
+      <p className="font-medium text-foreground dark:text-muted">
         No abuse events in the queue.
       </p>
-      <p className="mt-2 text-zinc-600 dark:text-zinc-400">
+      <p className="mt-2 text-foreground dark:text-muted-foreground">
         Events flagged by antiabuse-svc (CSAM hashes, phishing URLs,
         sanctions list hits) land here for global-admin review.
         Retention: 30 days.
@@ -136,16 +136,16 @@ function RuleRow({ rule }: { rule: AbuseFilterRule }) {
   return (
     <li className="flex items-center justify-between p-3 text-sm">
       <div className="min-w-0 flex-1">
-        <p className="font-medium text-zinc-900 dark:text-zinc-100">
+        <p className="font-medium text-foreground dark:text-muted">
           <code className="font-mono">{rule.slug || rule.id || "—"}</code>
         </p>
-        <p className="mt-0.5 text-xs text-zinc-500">
+        <p className="mt-0.5 text-xs text-muted-foreground">
           {rule.description || "—"}
         </p>
       </div>
-      <div className="flex shrink-0 items-center gap-3 pl-4 text-xs text-zinc-500">
+      <div className="flex shrink-0 items-center gap-3 pl-4 text-xs text-muted-foreground">
         {rule.version ? (
-          <span className="rounded bg-zinc-100 px-2 py-0.5 font-mono dark:bg-zinc-800">
+          <span className="rounded bg-muted px-2 py-0.5 font-mono dark:bg-foreground">
             v{rule.version}
           </span>
         ) : null}

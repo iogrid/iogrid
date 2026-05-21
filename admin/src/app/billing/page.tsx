@@ -26,7 +26,7 @@ export default function AdminBillingPage() {
       activeHref="/billing"
     >
       <div className="space-y-4">
-        <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+        <div className="rounded-md border border-warning/20 bg-warning/10 p-4 text-sm text-warning/30 dark:border-warning/30 dark:bg-warning/15 dark:text-warning/20">
           <p className="font-medium">Backing RPCs not yet shipped.</p>
           <p className="mt-1 text-xs">
             Billing review surfaces are gated behind the billing-svc{" "}
@@ -39,9 +39,9 @@ export default function AdminBillingPage() {
             .
           </p>
         </div>
-        <div className="rounded-md border border-zinc-200 p-4 text-sm dark:border-zinc-800">
+        <div className="rounded-md border border-border p-4 text-sm dark:border-foreground">
           <h2 className="font-medium">What will land here</h2>
-          <ul className="mt-2 list-inside list-disc space-y-1 text-xs text-zinc-600 dark:text-zinc-400">
+          <ul className="mt-2 list-inside list-disc space-y-1 text-xs text-foreground dark:text-muted-foreground">
             <li>
               KYC submissions queue — business verification + sanctions
               screening, paginated by submission age.

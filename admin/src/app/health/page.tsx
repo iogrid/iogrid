@@ -24,20 +24,20 @@ export default function AdminHealthPage() {
       activeHref="/health"
     >
       <div className="space-y-4">
-        <div className="rounded-md border border-zinc-200 bg-zinc-50 p-4 text-sm dark:border-zinc-800 dark:bg-zinc-900/40">
+        <div className="rounded-md border border-border bg-background p-4 text-sm dark:border-foreground dark:bg-foreground/40">
           <p className="font-medium">
             Live dashboards live in Grafana for Phase 0.
           </p>
-          <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+          <p className="mt-1 text-xs text-foreground dark:text-muted-foreground">
             Operator on-call view: <code>grafana.iogrid.org</code> →
             Dashboards → &ldquo;iogrid Control Plane&rdquo; folder. SLO
             panels: gateway-bff latency p99, providers-svc heartbeat
             success rate, antiabuse-svc throughput.
           </p>
         </div>
-        <div className="rounded-md border border-zinc-200 p-4 text-sm dark:border-zinc-800">
+        <div className="rounded-md border border-border p-4 text-sm dark:border-foreground">
           <h2 className="font-medium">What will land here</h2>
-          <ul className="mt-2 list-inside list-disc space-y-1 text-xs text-zinc-600 dark:text-zinc-400">
+          <ul className="mt-2 list-inside list-disc space-y-1 text-xs text-foreground dark:text-muted-foreground">
             <li>
               Per-service health (gateway-bff, providers-svc,
               workloads-svc, antiabuse-svc, billing-svc, telemetry-svc,

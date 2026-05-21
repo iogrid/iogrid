@@ -46,7 +46,7 @@ export default function AdminOverviewPage() {
           description="Cluster health, control-plane SLOs, deployment status."
         />
       </div>
-      <p className="mt-6 text-xs text-zinc-500">
+      <p className="mt-6 text-xs text-muted-foreground">
         Access to these pages is gated by the <code>is_admin</code> claim and
         the <code>IOGRID_ADMIN_EMAILS</code> allowlist — every action is
         independently authorised by gateway-bff&apos;s RequireRole middleware.
@@ -67,10 +67,10 @@ function Tile({
   return (
     <a
       href={href}
-      className="rounded-md border border-zinc-200 bg-white p-4 transition-colors hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900"
+      className="rounded-md border border-border bg-white p-4 transition-colors hover:border-muted-foreground dark:border-foreground dark:bg-foreground"
     >
       <p className="text-sm font-medium">{title}</p>
-      <p className="mt-1 text-xs text-zinc-500">{description}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{description}</p>
     </a>
   );
 }

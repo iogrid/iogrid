@@ -34,7 +34,7 @@ export default async function AdminAccountPage({
     return (
       <main className="mx-auto max-w-md px-6 py-16">
         <h1 className="text-2xl font-bold">You&apos;re signed in</h1>
-        <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+        <p className="mt-2 text-sm text-foreground dark:text-muted-foreground">
           Signed in as <code className="font-mono">{session.user.email}</code>.
         </p>
         <p className="mt-4">
@@ -65,11 +65,11 @@ export default async function AdminAccountPage({
 
   return (
     <main className="mx-auto max-w-md px-6 py-16">
-      <Link href="/" className="text-sm text-zinc-500 hover:underline">
+      <Link href="/" className="text-sm text-muted-foreground hover:underline">
         ← iogrid admin
       </Link>
       <h1 className="mt-6 text-3xl font-bold">Sign in to iogrid admin</h1>
-      <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+      <p className="mt-2 text-sm text-foreground dark:text-muted-foreground">
         Staff console — provider pool, abuse review, billing audit, system
         health. Your email must be on the <code>IOGRID_ADMIN_EMAILS</code>{" "}
         allowlist.
@@ -96,17 +96,17 @@ export default async function AdminAccountPage({
       </div>
 
       {callbackUrl ? (
-        <p className="mt-4 text-xs text-zinc-500">
+        <p className="mt-4 text-xs text-muted-foreground">
           You&apos;ll return to <code className="font-mono">{callbackUrl}</code>{" "}
           after sign-in.
         </p>
       ) : null}
 
-      <p className="mt-6 text-xs text-zinc-500">
+      <p className="mt-6 text-xs text-muted-foreground">
         Looking for the user-facing app?{" "}
         <a
           href="https://iogrid.org"
-          className="underline hover:text-zinc-700 dark:hover:text-zinc-300"
+          className="underline hover:text-foreground dark:hover:text-border"
         >
           iogrid.org
         </a>
