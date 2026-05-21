@@ -27,6 +27,10 @@ permissions:
   contents: read
   packages: write
   id-token: write
+  # Note: the `docker` matrix job below overrides `contents: write` so its
+  # `deploy` step can push the manifest digest-bump commit back to main.
+  # Refs #335 — sibling sweep of #332/PR #334 for the 11 coordinator
+  # deployments (and the antiabuse-svc transparency CronJob).
 
 concurrency:
   group: coordinator-ci-${{ github.ref }}
@@ -128,10 +132,26 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: go-quality
+    # The deploy step below pushes a manifest commit back to main, so this
+    # job needs write access to repo contents. Refs #335.
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
     strategy:
+      # IMPORTANT: do NOT enable matrix-level concurrency to "serialise"
+      # matrix entries. Multiple matrix entries each push their own
+      # `infra(<svc>): deploy ...` commit at the end of the job — racing
+      # pushes are reconciled by the `pull --rebase` retry loop in the
+      # deploy step (same pattern as web-ci.yml). Serialising the matrix
+      # would force a 30-min × 11-service tail and obviates the parallelism.
       fail-fast: false
       matrix:
         include:
+          # `manifest` defaults to infra/k8s/base/<service>/deployment.yaml.
+          # `image_kind` defaults to "deployment" (rewrite restartedAt + image).
+          # Override for the CronJob: its manifest path differs from <service>
+          # and CronJobs do not roll, so no restartedAt bump.
           - service: identity-svc
           - service: providers-svc
           - service: workloads-svc
@@ -142,6 +162,8 @@ jobs:
           # in coordinator/services/antiabuse-svc/.
           - service: antiabuse-svc-transparency-report
             dockerfile: coordinator/services/antiabuse-svc/Dockerfile.transparency
+            manifest: infra/k8s/base/antiabuse-svc/cronjob-transparency.yaml
+            image_kind: cronjob
           - service: billing-svc
           - service: telemetry-svc
           - service: gateway-bff
@@ -177,6 +199,7 @@ jobs:
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
 
       - name: Build and push (${{ matrix.service }})
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -187,3 +210,193 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,scope=${{ matrix.service }},mode=max
+
+      # ----------------------------------------------------------------------
+      # Deploy bump: rewrite infra/k8s/base/<svc>/{deployment.yaml,cronjob-*.yaml}
+      # to pin the freshly pushed image by digest + bump the
+      # `kubectl.kubernetes.io/restartedAt` annotation (deployments only),
+      # then push the change back to main so Flux's kustomize-controller picks
+      # it up on the next 5m reconcile interval.
+      #
+      # Refs #335 — sibling sweep of #332 / PR #334 for the 11 coordinator
+      # deployments + the antiabuse-svc transparency CronJob. Closes the gap
+      # where every coordinator/ PR built+pushed a new image but the
+      # Deployment kept serving :scaffold.
+      #
+      # Dry-run on PRs: we still compute what the bumped values would be and
+      # echo a preview, so reviewers can sanity-check the substitution logic
+      # without writing to the repo.
+      # ----------------------------------------------------------------------
+      - name: Resolve digest + timestamp
+        id: vars
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          EVENT: ${{ github.event_name }}
+          SERVICE: ${{ matrix.service }}
+        run: |
+          set -euo pipefail
+          # On PRs the build step runs with push:false (no registry write,
+          # so build-push-action emits no digest). The downstream
+          # "Preview manifest bump (dry-run on PRs)" step still wants to
+          # render the substitution — emit a placeholder. The main-only
+          # rewrite step is guarded on event==push so the placeholder
+          # never reaches a commit. Mirrors web-ci.yml fix from PR #344.
+          if [ -z "${DIGEST:-}" ]; then
+            if [ "${EVENT}" = "pull_request" ]; then
+              DIGEST="sha256:<resolved-on-merge-to-main>"
+            else
+              echo "::error::docker build did not emit a digest output for ${SERVICE} on event=${EVENT}" >&2
+              exit 1
+            fi
+          fi
+          # docker/build-push-action emits the digest as "sha256:<hex>"; the
+          # manifest needs the fully-qualified
+          # `ghcr.io/iogrid/<svc>@sha256:<hex>` form.
+          IMAGE="ghcr.io/iogrid/${SERVICE}@${DIGEST}"
+          RESTARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "image=${IMAGE}"               | tee -a "$GITHUB_OUTPUT"
+          echo "restartedAt=${RESTARTED_AT}"  | tee -a "$GITHUB_OUTPUT"
+
+      - name: Preview manifest bump (dry-run on PRs)
+        if: github.event_name == 'pull_request'
+        env:
+          IMAGE: ${{ steps.vars.outputs.image }}
+          RESTARTED_AT: ${{ steps.vars.outputs.restartedAt }}
+          MANIFEST: ${{ matrix.manifest || format('infra/k8s/base/{0}/deployment.yaml', matrix.service) }}
+          IMAGE_KIND: ${{ matrix.image_kind || 'deployment' }}
+        run: |
+          set -euo pipefail
+          echo "── PR dry-run: coordinator-ci would rewrite ${MANIFEST} as ──"
+          echo "    image            -> ${IMAGE}"
+          if [ "${IMAGE_KIND}" = "deployment" ]; then
+            echo "    restartedAt      -> ${RESTARTED_AT}"
+          else
+            echo "    restartedAt      -> (skipped — ${IMAGE_KIND} does not roll)"
+          fi
+          echo "── (no commit will be pushed on PR builds) ──"
+
+      - name: Rewrite manifest + commit + push (main only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          IMAGE: ${{ steps.vars.outputs.image }}
+          RESTARTED_AT: ${{ steps.vars.outputs.restartedAt }}
+          COMMIT_SHA: ${{ github.sha }}
+          SERVICE: ${{ matrix.service }}
+          MANIFEST: ${{ matrix.manifest || format('infra/k8s/base/{0}/deployment.yaml', matrix.service) }}
+          IMAGE_KIND: ${{ matrix.image_kind || 'deployment' }}
+        run: |
+          set -euo pipefail
+
+          # The action/checkout above already gave us a workdir tied to the
+          # PR-merge SHA on main. Refresh to origin/main so a deploy-bot
+          # commit from a parallel matrix entry (or any merge that landed
+          # while we were building) is folded in BEFORE we re-edit the
+          # manifest — keeps the rebase-retry loop short on a busy main.
+          git fetch origin main
+          git checkout main
+          git reset --hard origin/main
+
+          # 1. Rewrite the manifest. We anchor on the exact YAML keys to
+          # avoid clobbering unrelated `image:` or `kubectl.kubernetes.io/`
+          # lines that may appear elsewhere in the file (sidecars, init
+          # containers, other annotations).
+          #
+          # The image line we want is the single one matching
+          # `ghcr.io/iogrid/<service>[:@]<anything>` — currently
+          # `ghcr.io/iogrid/<svc>:scaffold` on first run, `@sha256:...`
+          # thereafter. We match `ghcr.io/iogrid/<svc>[:@][^[:space:]]+`
+          # precisely so sidecar images (e.g. otel/opentelemetry-collector-
+          # contrib in telemetry-svc) are untouched.
+          python3 - <<'PY'
+          import os, re, sys, pathlib
+          svc           = os.environ["SERVICE"]
+          image         = os.environ["IMAGE"]
+          restarted_at  = os.environ["RESTARTED_AT"]
+          manifest      = pathlib.Path(os.environ["MANIFEST"])
+          image_kind    = os.environ["IMAGE_KIND"]
+
+          src = manifest.read_text()
+
+          # image: ghcr.io/iogrid/<svc>... -> image: <IMAGE>
+          # `re.escape(svc)` because a literal service name like
+          # `antiabuse-svc-transparency-report` contains regex-safe chars
+          # but we re-use this for any future service name.
+          img_pat = re.compile(
+              r'(\s+image:\s+)ghcr\.io/iogrid/' + re.escape(svc) + r'[:@][^\s]+'
+          )
+          new_src, n_img = img_pat.subn(r'\g<1>' + image, src, count=1)
+          if n_img != 1:
+              print(f"::error::image line substitution for {svc} count={n_img}, expected 1", file=sys.stderr)
+              sys.exit(1)
+
+          # CronJobs do not roll — the next scheduled invocation will pull
+          # the freshly pinned digest. So we skip the restartedAt bump for
+          # the antiabuse-svc-transparency-report manifest.
+          if image_kind == "deployment":
+              ts_pat = re.compile(r'(kubectl\.kubernetes\.io/restartedAt:\s+")[^"]*(")')
+              new_src, n_ts = ts_pat.subn(
+                  r'\g<1>' + restarted_at + r'\g<2>', new_src, count=1
+              )
+              if n_ts != 1:
+                  print(f"::error::restartedAt substitution for {svc} count={n_ts}, expected 1", file=sys.stderr)
+                  sys.exit(1)
+
+          manifest.write_text(new_src)
+          print(f"Rewrote {manifest}: image=1 sub" + (
+              ", restartedAt=1 sub" if image_kind == "deployment" else " (cronjob — no restartedAt)"
+          ))
+          PY
+
+          # 2. Configure git identity for the deploy-bot commit.
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # 3. No-op guard: if the manifest happens to be byte-identical to
+          # main (e.g. a re-run on the same SHA where digest + minute have
+          # not changed), skip the commit entirely. Defends against an
+          # infinite-CI-loop too — although coordinator-ci's `paths:`
+          # filter already excludes `infra/**`.
+          if git diff --quiet "${MANIFEST}"; then
+            echo "Manifest already matches the freshly built image — nothing to commit."
+            exit 0
+          fi
+
+          git add "${MANIFEST}"
+          COMMIT_MSG="infra(${SERVICE}): deploy ${IMAGE} after CI ${COMMIT_SHA}
+
+          Auto-generated by coordinator-ci on push to main. Pins the
+          ${SERVICE} workload to the freshly built+pushed image digest so
+          Flux's kustomize-controller rolls the pods on the next reconcile
+          interval.
+
+          Refs #335."
+          git commit -m "${COMMIT_MSG}"
+
+          # 4. Push with rebase loop — parallel matrix entries (one per
+          # service) each push their own deploy-bot commit on the same
+          # CI run, so racing pushes on main are expected. Plus normal
+          # PRs landing on main during the build window (founder rule §6:
+          # wrap in pull --rebase retry).
+          # We retry up to 8 times with backoff (more than web-ci's 5
+          # because up to 11 matrix entries can race here, vs. 1 for web).
+          # If a real conflict on the manifest itself happens (e.g. a
+          # hand-edit landed mid-flight) the rebase will surface it and
+          # we'll fail loud.
+          for attempt in 1 2 3 4 5 6 7 8; do
+            if git push origin HEAD:main; then
+              echo "Pushed ${SERVICE} deploy bump on attempt ${attempt}."
+              exit 0
+            fi
+            echo "Push attempt ${attempt} for ${SERVICE} rejected — rebasing onto origin/main."
+            git fetch origin main
+            # We replay the deploy-bot commit on top of whatever else landed.
+            # If a manifest conflict surfaces, fail rather than auto-resolve.
+            git rebase origin/main || {
+              echo "::error::rebase conflict on ${SERVICE} deploy-bot commit; aborting."
+              git rebase --abort || true
+              exit 1
+            }
+            sleep $((attempt * 2))
+          done
+          echo "::error::failed to push ${SERVICE} deploy bump after 8 attempts"
+          exit 1

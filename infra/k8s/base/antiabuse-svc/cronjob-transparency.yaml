@@ -57,8 +57,14 @@ spec:
               type: RuntimeDefault
           containers:
             - name: transparency-report
+              # The image reference is rewritten by .github/workflows/coordinator-ci.yml
+              # on every push to main to a fully-qualified digest pin of the form
+              #   ghcr.io/iogrid/antiabuse-svc-transparency-report@sha256:<digest>
+              # CronJobs do not roll — the next scheduled invocation will pull the
+              # freshly pinned digest. imagePullPolicy: Always is a belt-and-braces
+              # against cache-identical retags.  Refs #335.
               image: ghcr.io/iogrid/antiabuse-svc-transparency-report:scaffold
-              imagePullPolicy: IfNotPresent
+              imagePullPolicy: Always
               args:
                 - "-bucket"
                 - "iogrid-transparency"
