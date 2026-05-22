@@ -79,6 +79,20 @@ spec:
               value: /etc/identity/jwt/public.pem
             - name: JWT_AUTOGEN_DIR
               value: /tmp/jwt-keys
+            # 🛑 PROD CUTOVER GATE (#452): remove `JWT_KEYPAIR_AUTOGEN=1`
+            # once the SealedSecret `identity-svc-jwt` lands. Today the
+            # ephemeral keypair is regenerated on every Pod start —
+            # which means every roll signs every active user out.
+            # `scripts/identity-svc-jwt-keypair-gen.sh` produces the
+            # founder-side material; `kubeseal` packages it; Flux
+            # applies; THEN this env var must be deleted so the
+            # binary reads from the Secret mount instead.
+            #
+            # Captured in git here (was previously a `kubectl set env`
+            # drift, see #452) so the runtime matches IaC and the
+            # drop-trigger is unambiguous.
+            - name: JWT_KEYPAIR_AUTOGEN
+              value: "1"
           envFrom:
             - configMapRef:
                 name: identity-svc-config
