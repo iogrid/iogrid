@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T04:25:00Z` 🟢 7 PRs + CLAUDE.md autonomy guardrails + 41 stale-issue audits (#410 RESOLVED-LIVE; #433 partial) |
+| Last refreshed | `2026-05-23T04:30:00Z` 🟢 7 PRs + CLAUDE.md autonomy guardrails + 42 stale-issue audits (#394 partial — 5/8 keepers exist) |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
 | Open PRs | **7** — #445 #446 #447 #448 #449 #450 #451 (the first 6 reached all-CLEAN simultaneously; #451 added 2026-05-23 03:34Z as the 2nd piece of the #438 chain — see §0.8) |
