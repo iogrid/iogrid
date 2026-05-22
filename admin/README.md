@@ -11,7 +11,7 @@ Admin-only staff console. Surfaces:
 - `/billing` — KYC review, sanctions screening, payout audit (stub in Phase 1).
 - `/health` — control-plane health and SLOs (stub in Phase 1).
 
-This codebase is **deliberately separate** from `web/`. Strict-separation invariant: never renders `/provide` / `/customer` / `/vpn` — those live in the user-facing `web/` app on `iogrid.org` (Phase 3 will move user-facing from `app.iogrid.org` → `iogrid.org` apex).
+This codebase is **deliberately separate** from `web/`. Strict-separation invariant: never renders `/provide` / `/customer` / `/vpn` — those live in the user-facing `web/` app on `iogrid.org` (Phase 3 will move user-facing from `iogrid.org` → `iogrid.org` apex).
 
 Founder directive (verbatim, 2026-05-21):
 
@@ -22,14 +22,14 @@ Founder directive (verbatim, 2026-05-21):
 
 | Property | admin/ | web/ |
 |---|---|---|
-| Host | `admin.iogrid.org` | `app.iogrid.org` → `iogrid.org` (Phase 3) |
+| Host | `admin.iogrid.org` | `iogrid.org` → `iogrid.org` (Phase 3) |
 | Image | `ghcr.io/iogrid/admin` | `ghcr.io/iogrid/web` |
 | CI workflow | `.github/workflows/admin-ci.yml` | `.github/workflows/web-ci.yml` |
 | K8s base | `infra/k8s/base/admin/` | `infra/k8s/base/web/` |
-| NextAuth cookie domain | `admin.iogrid.org` (host-scoped) | `app.iogrid.org` (host-scoped) |
+| NextAuth cookie domain | `admin.iogrid.org` (host-scoped) | `iogrid.org` (host-scoped) |
 | Cookie name | `__Secure-iogrid-admin.session-token` | `next-auth.session-token` |
 
-The host-scoped cookie domain means a session minted on `admin.iogrid.org` is **never** sent to `iogrid.org` / `app.iogrid.org` and vice-versa. Admins who also act as providers use TWO different cookies, TWO different sessions across the two hosts.
+The host-scoped cookie domain means a session minted on `admin.iogrid.org` is **never** sent to `iogrid.org` / `iogrid.org` and vice-versa. Admins who also act as providers use TWO different cookies, TWO different sessions across the two hosts.
 
 ## Development
 
@@ -65,6 +65,6 @@ Visual identity (Linear / Notion / Vercel premium-minimal aesthetic) lands in EP
 
 ## Refs
 
-- EPIC #422 — drop `app.iogrid.org` + independent admin + UX revamp.
+- EPIC #422 — drop `iogrid.org` + independent admin + UX revamp.
 - #361 — original admin-split EPIC.
 - #408 — the host-aware shim in web/ that this PR replaces.

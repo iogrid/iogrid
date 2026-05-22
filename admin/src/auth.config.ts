@@ -16,7 +16,7 @@ import Google from "next-auth/providers/google";
  * The session cookie is host-scoped to `admin.iogrid.org` (NOT
  * `.iogrid.org`). This is the founder's strict-separation invariant:
  * an admin session must NEVER be sent to the user-facing app on
- * `iogrid.org` / `app.iogrid.org` — different surfaces, different
+ * `iogrid.org` / `iogrid.org` — different surfaces, different
  * sessions, different RBAC, different blast radius.
  *
  * Default NextAuth cookie names get an `__Secure-` prefix in
@@ -53,7 +53,7 @@ export const authConfig = {
         path: "/",
         secure: isProduction,
         // Pin to admin host so the cookie can NEVER be sent to
-        // iogrid.org / app.iogrid.org. Leaving `domain` undefined
+        // iogrid.org / iogrid.org. Leaving `domain` undefined
         // makes the cookie host-only (browser default) which is
         // equivalent for security, but pinning is explicit and
         // shows up clearly in browser DevTools.
