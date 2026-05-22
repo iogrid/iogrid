@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T00:30:00Z` |
+| Last refreshed | `2026-05-23T01:30:00Z` |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
 | Open PRs | 0 |
@@ -21,6 +21,28 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 | Phase 0 admin UI | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> `/admin/providers` shows paired daemon record for `emrah.baysal` — verified live via Playwright, record survives `providers-svc` pod restart (Postgres-backed via #247). Screenshots in repo root: `admin-providers-emrah-WORKING.png`, `admin-providers-postgres-persisted.png` |
 
 **Legend:** <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> done · <img alt="IN_FLIGHT" src="https://img.shields.io/badge/-IN__FLIGHT-bf8700?style=flat-square" /> work in progress · <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> open · <img alt="DEFERRED" src="https://img.shields.io/badge/-DEFERRED-6e7781?style=flat-square" /> deferred · <img alt="BLOCKED" src="https://img.shields.io/badge/-BLOCKED-8250df?style=flat-square" /> blocked on founder action
+
+---
+
+## 0.8. Backlog driveback — PRs in flight + stale-issue audits (2026-05-23 00:45-01:30Z)
+
+| PR | scope | status |
+|---|---|---|
+| [#446](https://github.com/iogrid/iogrid/pull/446) | admin app brand polish — same indigo + warm-neutral + minty palette as web/; AdminShell rewritten from horizontal-tab to Linear/Notion/Vercel left-rail. Strict-separation invariant preserved. | open / quality green / docker pending |
+| [#447](https://github.com/iogrid/iogrid/pull/447) | proxy-gateway mounts `iogrid-proxy-tls` (was non-existent `proxy-iogrid-org-tls` → empty volume → plaintext listener). Live-patched 2026-05-20; commits the fix to git. | open / kustomize-build pending |
+| [#448](https://github.com/iogrid/iogrid/pull/448) | VPN free-tier quota = 2 GiB (matches /vpn marketing commitment). Paid tiers report 0 = unlimited. `vpnQuotaForTier()` helper in gateway-bff. | open / Go quality + axe + Playwright pending |
+
+### Stale-issue audits (evidence comments posted, suggest founder close)
+
+| Issue | Audit finding |
+|---|---|
+| [#321](https://github.com/iogrid/iogrid/issues/321) | `identity.go:81` `GetUser` fully implemented; admin gate + tests in place |
+| [#322](https://github.com/iogrid/iogrid/issues/322) | `sessions.go:95` `ListSessions` handler + `service.go:538` backing implementation in place |
+| [#325](https://github.com/iogrid/iogrid/issues/325) | `provide.go:309` `resolveOwnedProviderID` + `sortOwnedProviders` orders by is_primary→ACTIVE→last_seen→registered_at→id; `SetPrimaryProvider` PUT route |
+| [#353](https://github.com/iogrid/iogrid/issues/353) | `infra/k8s/traefik/ingressroute-providers.yaml` exists in git with the h2c + long-lived-bidi + 100ms-flush stack |
+| [#371](https://github.com/iogrid/iogrid/issues/371) | `account/identifiers/panel.tsx:127` already uses `verified_email ?? subject ?? value` fallback + `identifierKindLabel` decodes numeric enums |
+| [#377](https://github.com/iogrid/iogrid/issues/377) | All 3 Postgres-backed services (billing / identity / providers) run migrations at startup; antiabuse uses inline DDL; workloads is in-memory |
+| [#418](https://github.com/iogrid/iogrid/issues/418) | `coordinator/shared/config/docs.go` centralises `DocsURL(segments...)`; telemetry-svc consumes it from `rules.go`/`standalone_rules.go` |
 
 ---
 
