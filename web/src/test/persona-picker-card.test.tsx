@@ -114,7 +114,13 @@ describe("PersonaPickerCard (EPIC #422 /welcome picker)", () => {
     fireEvent.click(btn);
     expect(putMock).toHaveBeenCalledTimes(1);
     expect(btn).toBeDisabled();
-    resolvePut?.();
+    if (resolvePut) {
+      // local copy sidesteps TS2349 on the optional-chain call form;
+      // narrowing through if-guard alone wasn't enough under the
+      // project's strict-mode tsconfig.
+      const r: () => void = resolvePut;
+      r();
+    }
     await waitFor(() => expect(pushMock).toHaveBeenCalledOnce());
   });
 
