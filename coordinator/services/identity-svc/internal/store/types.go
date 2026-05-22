@@ -46,6 +46,14 @@ type User struct {
 	UpdatedAt    time.Time
 	LastLoginAt  *time.Time
 	DeletedAt    *time.Time
+	// PreferredLandingRole is the consumer-app persona the user picked
+	// on /welcome (EPIC #422 / PR #445). nil = never picked; the web
+	// auth middleware redirects to /welcome on the next sign-in. Set
+	// values are validated against the Postgres enum
+	// preferred_landing_role: 'provider' / 'customer' / 'vpn'. The
+	// shared /account surface is not a valid value — every persona's
+	// rail can reach it.
+	PreferredLandingRole *string
 }
 
 // Identifier is one row in identifiers; one User may have many.
