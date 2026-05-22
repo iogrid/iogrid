@@ -777,4 +777,72 @@ mod tests {
         s.set_bearer_token(None);
         assert_eq!(s.bearer_snapshot(), None);
     }
+
+    // -------- HTTP-level middleware behaviour --------------------------
+    //
+    // These tests exercise the assembled router through tower::ServiceExt
+    // so the require_bearer middleware actually runs against real HTTP
+    // requests — not just its component helpers.
+
+    use axum::body::Body;
+    use axum::http::Request;
+    use tower::ServiceExt; // for `oneshot`
+
+    fn fresh_request(uri: &str, bearer: Option<&str>) -> Request<Body> {
+        let mut b = Request::builder().method("GET").uri(uri);
+        if let Some(tok) = bearer {
+            b = b.header("Authorization", format!("Bearer {tok}"));
+        }
+        b.body(Body::empty()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn healthz_passes_through_without_bearer_even_when_token_is_set() {
+        let state = BridgeState::default().with_bearer_token(Some("tok-xyz".into()));
+        let resp = router(state)
+            .oneshot(fresh_request("/healthz", None))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn state_passes_through_pre_pair_when_token_is_none() {
+        let state = BridgeState::default();
+        let resp = router(state)
+            .oneshot(fresh_request("/state", None))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn state_rejects_missing_bearer_when_token_is_set() {
+        let state = BridgeState::default().with_bearer_token(Some("tok-xyz".into()));
+        let resp = router(state)
+            .oneshot(fresh_request("/state", None))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn state_rejects_wrong_bearer() {
+        let state = BridgeState::default().with_bearer_token(Some("tok-xyz".into()));
+        let resp = router(state)
+            .oneshot(fresh_request("/state", Some("tok-WRONG")))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn state_accepts_matching_bearer() {
+        let state = BridgeState::default().with_bearer_token(Some("tok-xyz".into()));
+        let resp = router(state)
+            .oneshot(fresh_request("/state", Some("tok-xyz")))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
 }
