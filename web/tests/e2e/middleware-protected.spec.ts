@@ -26,7 +26,7 @@ import { test, expect } from "@playwright/test";
  * own equivalent middleware-protected e2e in a follow-up.
  */
 test.describe("middleware — protected route gate (no edge crash)", () => {
-  for (const target of ["/provide", "/customer"]) {
+  for (const target of ["/provider", "/customer"]) {
     test(`unauthenticated GET ${target} redirects to /account`, async ({
       page,
     }) => {

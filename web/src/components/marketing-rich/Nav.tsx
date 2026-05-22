@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 const productLinks = [
   { href: "/proxy", label: "Bandwidth proxy" },
@@ -64,6 +65,7 @@ export function Nav() {
         </nav>
 
         <div className="flex items-center gap-2">
+          <ThemeToggle />
           <Link
             href="/providers"
             className="hidden btn-secondary md:inline-flex"

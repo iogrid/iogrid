@@ -17,7 +17,7 @@ export function SignInPanel({
   callbackUrl?: string;
 }) {
   return (
-    <section className="mx-auto max-w-md px-6 py-16">
+    <main className="mx-auto max-w-md px-6 py-16">
       <Link href="/" className="text-sm text-muted-foreground hover:underline">
         ← Back
       </Link>
@@ -58,6 +58,6 @@ export function SignInPanel({
       <p className="mt-6 text-xs text-muted-foreground">
         By continuing you agree to the iogrid Terms and Acceptable Use Policy.
       </p>
-    </section>
+    </main>
   );
 }
