@@ -81,7 +81,14 @@ metadata:
     app.kubernetes.io/component: messaging
 spec:
   serviceName: nats
-  replicas: 3
+  # Phase-0 single-node cluster (Contabo bastion-only) — 1 NATS server.
+  # On a multi-node cluster (Phase-1 mothership), scale to 3 via an
+  # overlay or by bumping this back to 3 after node-pool expansion.
+  # JetStream meta-leader election needs ≥3 for HA; single-node mode
+  # uses an in-memory single-leader path (the WARN about "meta leader
+  # not established" goes away at replicas=1 because there's no quorum
+  # to elect).
+  replicas: 1
   podManagementPolicy: Parallel
   selector:
     matchLabels:

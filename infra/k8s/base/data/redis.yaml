@@ -85,7 +85,11 @@ metadata:
     app.kubernetes.io/component: cache
 spec:
   serviceName: redis
-  replicas: 6
+  # Phase-0 single-node cluster — 1 Redis instance (no cluster mode).
+  # Production target is 6 nodes (3 primary + 3 replica) for HA; bump
+  # back to 6 + flip cluster-config-file ConfigMap when the cluster
+  # has ≥3 worker nodes.
+  replicas: 1
   podManagementPolicy: OrderedReady
   selector:
     matchLabels:
