@@ -41,8 +41,8 @@
 //     executeTransaction).
 //
 // This file currently exposes the scaffold + the runtime mode flag. The
-// instruction builders are stubbed out with a TODO and an explicit error;
-// they will land alongside the Phase-2 cutover.
+// instruction builders are stubbed out per the `TODO(#439)` on L102 below
+// and return an explicit error; they will land alongside the Phase-2 cutover.
 
 package solana
 
@@ -99,9 +99,9 @@ func (s *Service) ProposeViaSquads(_ context.Context, _ string) error {
 	if !s.IsMultisig() {
 		return ErrSquadsNotConfigured
 	}
-	// TODO(phase-2): build vault_transaction_create + proposal_create
-	// instructions, submit with bot signer, return proposal ID. Tracked
-	// under issue #98 follow-up "Squads SDK integration".
+	// TODO(#439): build vault_transaction_create + proposal_create
+	// instructions, submit with bot signer, return proposal ID. Phase-2
+	// follow-up to (closed) #98; tracked in detail under iogrid#439.
 	return errors.New("solana: Squads multisig proposal not yet implemented (Phase 2)")
 }
 
