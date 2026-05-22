@@ -331,11 +331,7 @@ pub trait UpdateHandler: Send + Sync {
 /// `/healthz` and `/pair` are mounted OUTSIDE this layer (the supervisor
 /// liveness probe + the bootstrap pair flow must reach the daemon
 /// without a token).
-async fn require_bearer(
-    State(state): State<BridgeState>,
-    req: Request,
-    next: Next,
-) -> Response {
+async fn require_bearer(State(state): State<BridgeState>, req: Request, next: Next) -> Response {
     let Some(expected) = state.bearer_snapshot() else {
         // Pre-pair: enforcement disabled.
         return next.run(req).await;
@@ -403,7 +399,10 @@ pub fn router(state: BridgeState) -> Router {
         .route("/healthz", get(get_healthz))
         .route("/pair", post(post_pair));
 
-    Router::new().merge(protected).merge(unprotected).with_state(state)
+    Router::new()
+        .merge(protected)
+        .merge(unprotected)
+        .with_state(state)
 }
 
 /// Bind + serve on `addr`. Loops until the task is dropped.
