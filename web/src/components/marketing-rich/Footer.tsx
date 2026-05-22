@@ -50,7 +50,7 @@ export function Footer() {
         <div className="grid grid-cols-2 gap-8 md:grid-cols-4">
           {cols.map((col) => (
             <div key={col.title}>
-              <h3 className="text-xs font-semibold uppercase tracking-widest text-neutral-500">
+              <h3 className="text-xs font-semibold uppercase tracking-widest text-neutral-600">
                 {col.title}
               </h3>
               <ul className="mt-4 space-y-2">
@@ -80,10 +80,10 @@ export function Footer() {
         </div>
 
         <div className="mt-12 flex flex-col items-start justify-between gap-4 border-t border-neutral-200 pt-6 md:flex-row md:items-center">
-          <p className="text-sm text-neutral-500">
+          <p className="text-sm text-neutral-600">
             &copy; {new Date().getFullYear()} iogrid. The network is yours.
           </p>
-          <p className="text-xs text-neutral-400">
+          <p className="text-xs text-neutral-600">
             Always-on transparency. No hidden routing. No surprises.
           </p>
         </div>

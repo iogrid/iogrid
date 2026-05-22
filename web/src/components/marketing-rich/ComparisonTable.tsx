@@ -52,7 +52,7 @@ const rows: Array<{
 
 const cellBadge = {
   yes: { label: "Yes", classes: "bg-accent-300/40 text-accent-700" },
-  no: { label: "—", classes: "bg-neutral-100 text-neutral-400" },
+  no: { label: "—", classes: "bg-neutral-100 text-neutral-600" },
   partial: { label: "Partial", classes: "bg-warning/20 text-amber-700" },
 };
 
@@ -76,7 +76,7 @@ export function ComparisonTable() {
                 <th
                   key={h || `h${i}`}
                   scope="col"
-                  className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wider text-neutral-500"
+                  className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wider text-neutral-600"
                 >
                   {h}
                 </th>
@@ -117,7 +117,7 @@ export function ComparisonTable() {
           </tbody>
         </table>
       </div>
-      <p className="mt-6 text-center text-xs text-neutral-500">
+      <p className="mt-6 text-center text-xs text-neutral-600">
         Detailed analysis in our public competitive matrix at /blog and on
         GitHub.
       </p>

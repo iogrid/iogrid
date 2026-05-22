@@ -18,16 +18,16 @@ export function Stats() {
               <div className="font-tabular text-3xl font-bold text-neutral-900 md:text-4xl">
                 {s.value}
               </div>
-              <div className="mt-1 text-xs uppercase tracking-widest text-neutral-500">
+              <div className="mt-1 text-xs uppercase tracking-widest text-neutral-600">
                 {s.label}
               </div>
               {s.note && (
-                <div className="mt-1 text-xs text-neutral-400">{s.note}</div>
+                <div className="mt-1 text-xs text-neutral-600">{s.note}</div>
               )}
             </div>
           ))}
         </div>
-        <p className="mt-8 text-center text-xs text-neutral-500">
+        <p className="mt-8 text-center text-xs text-neutral-600">
           Stats refresh from the coordinator API once Phase 1 launches.
           We deliberately ship dashes until there&rsquo;s real volume — no vanity metrics.
         </p>

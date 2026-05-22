@@ -73,7 +73,7 @@ export function BlogList({ posts }: { posts: PostSummary[] }) {
       <div className="mx-auto mt-12 grid max-w-4xl gap-6">
         {visiblePosts.map((post) => (
           <article key={post.slug} className="card">
-            <div className="flex flex-wrap items-center gap-2 text-xs text-neutral-500">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-neutral-600">
               <time dateTime={post.date} className="font-tabular">
                 {post.date}
               </time>
@@ -101,7 +101,7 @@ export function BlogList({ posts }: { posts: PostSummary[] }) {
           </article>
         ))}
         {visiblePosts.length === 0 ? (
-          <p className="text-center text-sm text-neutral-500">
+          <p className="text-center text-sm text-neutral-600">
             No posts in this tag yet.{" "}
             <button
               type="button"

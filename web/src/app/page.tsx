@@ -128,7 +128,7 @@ export default function LandingPage() {
                 Bright Data / Oxylabs.
               </li>
             </ul>
-            <p className="mt-6 text-sm text-neutral-500">
+            <p className="mt-6 text-sm text-neutral-600">
               See the runnable demo at{" "}
               <a
                 href="https://github.com/iogrid/iogrid/tree/main/examples/phase0-vcard-customer"
@@ -159,7 +159,7 @@ export default function LandingPage() {
         </div>
         <div className="mx-auto mt-10 max-w-2xl">
           <InstallButton />
-          <p className="mt-4 text-center text-xs text-neutral-500">
+          <p className="mt-4 text-center text-xs text-neutral-600">
             Prefer the terminal?{" "}
             <code className="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-neutral-700">
               curl -fsSL https://iogrid.org/install/sh | sh

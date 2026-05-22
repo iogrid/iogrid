@@ -105,7 +105,7 @@ export function InstallButton({
                 data-artifact-id={a.id}
               >
                 <span className="font-medium text-neutral-900">{a.label}</span>
-                <span className="text-xs font-mono text-neutral-500">
+                <span className="text-xs font-mono text-neutral-600">
                   {a.sublabel}
                 </span>
               </a>
@@ -114,7 +114,7 @@ export function InstallButton({
           <li className="sm:col-span-2">
             <Link
               href="/install"
-              className="block rounded-lg px-3 py-2 text-center text-xs text-neutral-500 hover:text-primary-700 hover:underline"
+              className="block rounded-lg px-3 py-2 text-center text-xs text-neutral-600 hover:text-primary-700 hover:underline"
             >
               View full downloads page with checksums →
             </Link>

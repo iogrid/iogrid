@@ -25,7 +25,7 @@ export function PricingTable({
               <span className="font-tabular text-4xl font-bold text-neutral-900">
                 {t.price}
               </span>
-              <span className="ml-2 text-sm text-neutral-500">{t.unit}</span>
+              <span className="ml-2 text-sm text-neutral-600">{t.unit}</span>
             </div>
             <ul className="mt-6 flex-1 space-y-2 text-sm text-neutral-700">
               {t.features.map((f) => (
@@ -42,7 +42,7 @@ export function PricingTable({
         ))}
       </div>
       {caption && (
-        <p className="mt-8 text-center text-sm text-neutral-500">{caption}</p>
+        <p className="mt-8 text-center text-sm text-neutral-600">{caption}</p>
       )}
     </section>
   );
