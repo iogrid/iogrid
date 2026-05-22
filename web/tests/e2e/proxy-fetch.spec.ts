@@ -62,7 +62,7 @@ test.describe("/install + proxy onboarding surface", () => {
     ).toBeVisible();
   });
 
-  test("homepage nav points at /vpn (consumer SOCKS5 entry)", async ({
+  test("homepage nav points at the /vpn marketing page", async ({
     page,
   }) => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
@@ -71,12 +71,15 @@ test.describe("/install + proxy onboarding surface", () => {
     await expect(vpnLink).toBeVisible();
 
     await vpnLink.click();
-    // /vpn permanently redirects to /install — the daemon and the
-    // consumer VPN client are the same binary, so /install is the
-    // canonical SOCKS5 install surface. See PR #308 / issue #306.
-    await expect(page).toHaveURL(/\/install$/);
+    // /vpn is the consumer VPN marketing page (free 2 GB / Plus
+    // $2.99 / Pro $4.99). The post-auth upgrade flow lives at
+    // /vpn/upgrade. /install is the install matrix for the daemon.
+    await expect(page).toHaveURL(/\/vpn$/);
     await expect(
-      page.getByRole("heading", { name: /install iogrid/i, level: 1 }),
+      page.getByRole("heading", {
+        name: /mesh vpn funded by enterprise customers/i,
+        level: 1,
+      }),
     ).toBeVisible();
   });
 

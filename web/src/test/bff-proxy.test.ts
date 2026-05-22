@@ -123,7 +123,10 @@ describe("proxyToBff (#237)", () => {
       });
     }) as typeof fetch;
 
-    const req = fakeReq("GET", "/api/v1/admin/abuse-queue");
+    // extraRoles works for any path. We use a customer-side path
+    // here to keep the test honest about what's proxied through
+    // web/ — admin surfaces live in the separate admin/ app (#425).
+    const req = fakeReq("GET", "/api/v1/customer/usage");
     const resp = await proxyToBff(req, { extraRoles: ["ADMIN"] });
     expect(resp.status).toBe(200);
     const outHeaders = lastFetchArgs!.init.headers as Record<string, string>;
