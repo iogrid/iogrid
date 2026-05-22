@@ -81,11 +81,13 @@ func (s *Store) GetUser(ctx context.Context, q Querier, id uuid.UUID) (*User, er
 	u := &User{}
 	err := q.QueryRow(ctx, `
 		SELECT id, primary_email, display_name, picture_url, roles,
-		       created_at, updated_at, last_login_at, deleted_at
+		       created_at, updated_at, last_login_at, deleted_at,
+		       preferred_landing_role
 		  FROM users
 		 WHERE id = $1`, id).
 		Scan(&u.ID, &u.PrimaryEmail, &u.DisplayName, &u.PictureURL, &u.Roles,
-			&u.CreatedAt, &u.UpdatedAt, &u.LastLoginAt, &u.DeletedAt)
+			&u.CreatedAt, &u.UpdatedAt, &u.LastLoginAt, &u.DeletedAt,
+			&u.PreferredLandingRole)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -93,6 +95,32 @@ func (s *Store) GetUser(ctx context.Context, q Querier, id uuid.UUID) (*User, er
 		return nil, err
 	}
 	return u, nil
+}
+
+// SetPreferredLandingRole records the consumer-app persona the user
+// picked on /welcome (EPIC #422 / PR #445). Pass one of "provider",
+// "customer", "vpn" — or the empty string to clear, which re-triggers
+// the /welcome picker on the next sign-in.
+//
+// The enum cast happens in Postgres; an invalid string surfaces as a
+// regular pgx error (SQLSTATE 22P02) which handlers translate to
+// CodeInvalidArgument.
+func (s *Store) SetPreferredLandingRole(ctx context.Context, q Querier, id uuid.UUID, role string) error {
+	if q == nil {
+		q = s.Pool
+	}
+	if role == "" {
+		_, err := q.Exec(ctx, `
+			UPDATE users SET preferred_landing_role = NULL, updated_at = now()
+			 WHERE id = $1`, id)
+		return err
+	}
+	_, err := q.Exec(ctx, `
+		UPDATE users
+		   SET preferred_landing_role = $2::preferred_landing_role,
+		       updated_at = now()
+		 WHERE id = $1`, id, role)
+	return err
 }
 
 // UpdateLastLogin stamps last_login_at = now() for the given user.

@@ -122,6 +122,11 @@ func Mount(deps Deps) func(chi.Router) {
 			// identifier without orphaning the account (closes #196).
 			r.Delete("/me", api.DeleteMyAccount)
 			r.Delete("/me/identifiers/{id}", api.RemoveMyIdentifier)
+			// PUT /me/preferred-landing-role — EPIC #422 /welcome
+			// picker. JSON forward to identity-svc's chi route via the
+			// service-token shim. Identity-svc owns the enum-cast
+			// validation; gateway-bff is a thin transparent proxy.
+			r.Put("/me/preferred-landing-role", api.SetMyPreferredLandingRole)
 
 			// /account ----------------------------------------------------
 			r.Route("/account", func(r chi.Router) {
