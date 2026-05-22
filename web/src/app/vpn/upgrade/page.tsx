@@ -15,8 +15,9 @@ export default function VpnUpgradePage() {
       </Link>
       <h1 className="mt-6 text-3xl font-bold">Upgrade iogrid VPN</h1>
       <p className="mt-2 text-sm text-muted-foreground dark:text-muted-foreground">
-        The free tier ships 50 GB/month. Pick a paid plan for higher quotas,
-        more concurrent regions, and per-app exit selection.
+        The free tier ships 2 GB / month. Pick a paid plan for unlimited
+        bandwidth, more devices, and per-app exit selection. Pricing matches
+        the /vpn marketing page — canonical numbers from docs/BUSINESS-STRATEGY.md.
       </p>
       <UpgradePanel />
     </main>

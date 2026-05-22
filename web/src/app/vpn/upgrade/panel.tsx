@@ -15,21 +15,39 @@ interface Plan {
   highlight?: boolean;
 }
 
+// Pricing is the single source of truth from docs/BUSINESS-STRATEGY.md
+// §1 line 52 + §3.3 table line 277 + §6.5 competitor matrix line 149:
+// $0 free / $2.99 Plus / $4.99 Pro. The /vpn marketing page (PR #441)
+// renders the same numbers; this panel MUST match — divergence is a
+// trust killer for first-paying customers (Refs #441).
+//
+// Tier wire enums (starter/growth) map to billing-svc's
+// SubscriptionTier proto, which is shared with the B2B compute tiers.
+// The actual amount Stripe charges is determined by STRIPE_PRICE_STARTER
+// / STRIPE_PRICE_GROWTH env Price IDs in billing-svc-secrets — confirm
+// those reference Stripe Products with the canonical $2.99 / $4.99
+// unit_amount before the public Stripe live flip (separate ticket).
 const PLANS: Plan[] = [
   {
     tier: "starter",
     label: "Plus",
-    price: "$4 / mo",
-    bullets: ["200 GB / month", "5 simultaneous regions", "Standard support"],
+    price: "$2.99 / mo",
+    bullets: [
+      "Unlimited bandwidth",
+      "All exit regions",
+      "Up to 5 devices",
+      "Standard support",
+    ],
   },
   {
     tier: "growth",
     label: "Pro",
-    price: "$12 / mo",
+    price: "$4.99 / mo",
     bullets: [
-      "2 TB / month",
-      "All regions",
+      "Unlimited bandwidth",
       "Per-app exit selection",
+      "Up to 10 devices",
+      "DNS-over-HTTPS + tracker blocking",
       "Priority support",
     ],
     highlight: true,
