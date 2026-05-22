@@ -141,7 +141,7 @@ pub struct PairRequest {
 }
 
 /// Pairing response.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PairResponse {
     /// Provider id the coordinator assigned.
     pub provider_id: String,
@@ -149,6 +149,17 @@ pub struct PairResponse {
     pub status: String,
     /// Free-form detail.
     pub message: String,
+    /// Pairing-derived bearer token (#438). Empty on `status == "error"`
+    /// or on legacy daemons that didn't generate one. Web stores this
+    /// locally + sends it as `Authorization: Bearer <token>` on every
+    /// subsequent loopback call (`/state`, `/config`, `/earnings`,
+    /// `/audit/*`, `/updates/check`). See the BridgeState doc block
+    /// for the enforcement contract.
+    ///
+    /// `serde` skips the field if empty so existing web clients that
+    /// don't yet read it don't break on a missing key.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub bearer_token: String,
 }
 
 /// Snapshot of the active filter ruleset for the audit endpoint.
@@ -518,9 +529,9 @@ async fn post_pair(
         None => (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(PairResponse {
-                provider_id: String::new(),
                 status: "error".into(),
                 message: "daemon not ready for pairing".into(),
+                ..Default::default()
             }),
         ),
         Some(h) => match h.pair(req).await {
@@ -528,9 +539,9 @@ async fn post_pair(
             Err(e) => (
                 StatusCode::BAD_REQUEST,
                 Json(PairResponse {
-                    provider_id: String::new(),
                     status: "error".into(),
                     message: e,
+                    ..Default::default()
                 }),
             ),
         },
