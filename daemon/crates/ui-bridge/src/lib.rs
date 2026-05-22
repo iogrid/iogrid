@@ -10,9 +10,10 @@
 //!  * `GET  /healthz`        — liveness probe (used by installers).
 //!
 //! Binds to `127.0.0.1:7777` by default (loopback only). The pairing
-//! endpoint enforces a one-shot token; subsequent calls require an
-//! Authorization: Bearer header bound to the paired identity (TODO follow-up
-//! PR — the wiring is in place but the bearer check is currently advisory).
+//! endpoint enforces a one-shot token; subsequent calls are intended to
+//! require an `Authorization: Bearer` header bound to the paired identity —
+//! the wiring is in place but the bearer check is currently advisory.
+//! Enforcement is tracked under iogrid#438 (follow-up to EPIC #309).
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
