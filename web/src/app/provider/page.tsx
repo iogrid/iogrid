@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { PortalShell } from "@/components/layout/portal-shell";
-import { PROVIDE_NAV } from "@/app/provide/nav";
+import { PROVIDER_NAV } from "@/app/provider/nav";
 import { ProvideOverview } from "./overview";
 
 export const metadata = {
@@ -18,8 +18,8 @@ export default function ProvideDashboardPage() {
       badge="Provider"
       title="Provider overview"
       subtitle="Your machine's contribution at a glance."
-      nav={PROVIDE_NAV}
-      activeHref="/provide"
+      nav={PROVIDER_NAV}
+      activeHref="/provider"
       actions={
         <Link
           href="/install"

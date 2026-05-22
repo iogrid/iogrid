@@ -121,7 +121,7 @@ export function OnboardingWizard({ token }: { token: string }) {
           setStep(4);
           // Brief celebration, then hand off to the provider dashboard.
           setTimeout(() => {
-            router.push("/provide");
+            router.push("/provider");
           }, 2500);
         } catch (err) {
           setError(

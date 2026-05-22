@@ -28,7 +28,7 @@ import { authConfig } from "@/auth.config";
  */
 const { auth } = NextAuth(authConfig);
 
-const PROTECTED_PREFIXES = ["/provide", "/customer"];
+const PROTECTED_PREFIXES = ["/provider", "/customer"];
 
 export default auth(function middleware(req) {
   const { pathname } = req.nextUrl;
@@ -52,5 +52,5 @@ export default auth(function middleware(req) {
 });
 
 export const config = {
-  matcher: ["/provide/:path*", "/customer/:path*"],
+  matcher: ["/provider/:path*", "/customer/:path*"],
 };

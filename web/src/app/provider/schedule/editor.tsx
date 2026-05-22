@@ -187,7 +187,7 @@ export function ScheduleEditor() {
     };
   }, [loadSchedule]);
 
-  // onPickProvider re-fetches /provide/schedule scoped to the picked
+  // onPickProvider re-fetches /provider/schedule scoped to the picked
   // daemon. The form repopulates so the operator immediately sees the
   // chosen daemon's caps — addresses the original #325 surface bug
   // ("the editor shows the wrong daemon's schedule").
@@ -199,7 +199,7 @@ export function ScheduleEditor() {
     [loadSchedule],
   );
 
-  // onPromoteProvider PUTs /provide/primary-provider then reloads so
+  // onPromoteProvider PUTs /provider/primary-provider then reloads so
   // the badge moves in the picker and the BFF's default-pick changes.
   // We deliberately keep the operator's current selection so the form
   // doesn't surprise-switch the daemon they're editing.

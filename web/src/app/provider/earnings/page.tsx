@@ -1,5 +1,5 @@
 import { PortalShell } from "@/components/layout/portal-shell";
-import { PROVIDE_NAV } from "@/app/provide/nav";
+import { PROVIDER_NAV } from "@/app/provider/nav";
 import { EarningsView } from "./view";
 
 export const metadata = {
@@ -7,7 +7,7 @@ export const metadata = {
 };
 
 /**
- * /provide/earnings — daily / weekly / monthly view. Headline number,
+ * /provider/earnings — daily / weekly / monthly view. Headline number,
  * time-series chart, breakdown by workload type, and a payout-method
  * picker (Hold $GRID default / Cash / Charity). Earnings accrue in
  * $GRID; cash + charity variants auto-swap via billing-svc's monthly
@@ -19,8 +19,8 @@ export default function ProvideEarningsPage() {
       badge="Provider"
       title="Earnings"
       subtitle="Daily, weekly and monthly breakdowns. Pick how you want to be paid."
-      nav={PROVIDE_NAV}
-      activeHref="/provide/earnings"
+      nav={PROVIDER_NAV}
+      activeHref="/provider/earnings"
     >
       <EarningsView />
     </PortalShell>

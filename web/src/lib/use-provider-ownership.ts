@@ -6,7 +6,7 @@ import type { ProviderDashboard } from "@/lib/types";
 
 /**
  * useProviderOwnership — single source of truth for the "does the
- * caller own at least one paired provider?" gate that the /provide/*
+ * caller own at least one paired provider?" gate that the /provider/*
  * surfaces use to decide between the real dashboard and the "Install
  * daemon" empty-state (issue #313).
  *

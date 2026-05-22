@@ -1,5 +1,5 @@
 // Provider earnings summary + payout-method preference for the
-// /provide/earnings page. Lives in billing-svc (NOT providers-svc)
+// /provider/earnings page. Lives in billing-svc (NOT providers-svc)
 // because the canonical money state — including pending-payout balance,
 // lifetime totals, and the user's preferred off-ramp variant — is owned
 // by billing-svc's bounded context.
@@ -62,7 +62,7 @@ proto3.util.setEnumType(PayoutMethodKind, "iogrid.billing.v1.PayoutMethodKind", 
 ]);
 
 /**
- * EarningsSummary is the headline-card aggregation for /provide/earnings.
+ * EarningsSummary is the headline-card aggregation for /provider/earnings.
  * All Money fields default to currency="GRID" (#312 / #315 — the canonical
  * native ledger currency) when the provider has no recorded earnings yet.
  *

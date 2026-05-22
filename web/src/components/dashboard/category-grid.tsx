@@ -9,7 +9,7 @@ import type { Category } from "@/lib/categories";
  * accepts. Used in the schedule editor + onboarding wizard.
  *
  * Selected state is owned by the parent so it can submit the diff via
- * the /provide/schedule endpoint.
+ * the /provider/schedule endpoint.
  */
 export interface CategoryGridProps {
   categories: Category[];

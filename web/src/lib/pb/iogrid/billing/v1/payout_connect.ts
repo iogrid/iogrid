@@ -10,7 +10,7 @@ import { GetBalanceRequest, GetBalanceResponse, GetPayoutAccountRequest, GetPayo
 import { MethodKind } from "@bufbuild/protobuf";
 
 /**
- * PayoutService backs the `/provide/payout` page in the management
+ * PayoutService backs the `/provider/payout` page in the management
  * plane plus internal cron jobs that issue periodic payouts.
  *
  * @generated from service iogrid.billing.v1.PayoutService

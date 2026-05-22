@@ -9,7 +9,7 @@
  * PUT body: { provider_id: "<UUID>" }
  *
  * Used by the schedule editor picker when an owner with ≥2 paired
- * daemons re-elects which one answers for /provide/* by default.
+ * daemons re-elects which one answers for /provider/* by default.
  */
 import { NextRequest } from "next/server";
 

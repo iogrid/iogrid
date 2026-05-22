@@ -43,7 +43,7 @@ export function AuditFeed() {
   }, []);
 
   // Don't open the SSE EventSource until we've confirmed the caller
-  // owns at least one provider. Without this, /provide/audit/stream
+  // owns at least one provider. Without this, /provider/audit/stream
   // would 404 in a tight reconnect loop for the not-yet-paired cohort
   // (gateway-bff returns 404 with code=no_provider in that case).
   // We pass `paused` to useSSE so it never spawns the EventSource
