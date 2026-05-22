@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T01:30:00Z` |
+| Last refreshed | `2026-05-23T02:15:00Z` |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
 | Open PRs | 0 |
@@ -39,10 +39,29 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 | [#321](https://github.com/iogrid/iogrid/issues/321) | `identity.go:81` `GetUser` fully implemented; admin gate + tests in place |
 | [#322](https://github.com/iogrid/iogrid/issues/322) | `sessions.go:95` `ListSessions` handler + `service.go:538` backing implementation in place |
 | [#325](https://github.com/iogrid/iogrid/issues/325) | `provide.go:309` `resolveOwnedProviderID` + `sortOwnedProviders` orders by is_primary→ACTIVE→last_seen→registered_at→id; `SetPrimaryProvider` PUT route |
+| [#327](https://github.com/iogrid/iogrid/issues/327) | `daemon/transport/lib.rs` regression test at `lib.rs:2469` fails CI if anyone re-introduces `with_native_roots()` |
+| [#350](https://github.com/iogrid/iogrid/issues/350) | `infra/k8s/traefik/ingressroutetcp-proxy-passthrough.yaml` routes `proxy.iogrid.org:443` with `tls.passthrough: true`; companion proxy-gateway secret fix in PR #447 |
 | [#353](https://github.com/iogrid/iogrid/issues/353) | `infra/k8s/traefik/ingressroute-providers.yaml` exists in git with the h2c + long-lived-bidi + 100ms-flush stack |
+| [#360](https://github.com/iogrid/iogrid/issues/360) | proxy-gateway dispatch pipeline step 4 calls `antiabuse-svc.CheckUrl` (`internal/abuse/abuse.go:140` + `proxy/proxy.go:589`) |
+| [#361](https://github.com/iogrid/iogrid/issues/361) | admin app shipped via PR #425 — independent workspace, Deployment, CI, IngressRoute, SAN |
+| [#362](https://github.com/iogrid/iogrid/issues/362) | StreamHeartbeats deadlock fixed via primed-first-frame protocol (`lib.rs`, search "Issue #362") |
+| [#367](https://github.com/iogrid/iogrid/issues/367) | `serverstransport-long-lived.yaml:59-60` `readIdleTimeout: 0s` + `pingTimeout: 0s` with leading comment citing this issue |
 | [#371](https://github.com/iogrid/iogrid/issues/371) | `account/identifiers/panel.tsx:127` already uses `verified_email ?? subject ?? value` fallback + `identifierKindLabel` decodes numeric enums |
 | [#377](https://github.com/iogrid/iogrid/issues/377) | All 3 Postgres-backed services (billing / identity / providers) run migrations at startup; antiabuse uses inline DDL; workloads is in-memory |
+| [#382](https://github.com/iogrid/iogrid/issues/382) | Superseded by PR #425 — `/admin/*` no longer in web/; 404 is intentional |
+| [#384](https://github.com/iogrid/iogrid/issues/384) | Resolved by PR #428 + PR #445; will be visible after #445 merges + Flux reconciles |
+| [#407](https://github.com/iogrid/iogrid/issues/407) | Superseded by PR #425 — founder reversed host-aliasing decision; independent admin app shipped |
+| [#416](https://github.com/iogrid/iogrid/issues/416) | env var rename to canonical `IOGRID_GATEWAY_BFF_URL` + `IOGRID_SERVICE_TOKEN` complete across web/ + antiabuse-svc/transparency-report |
+| [#417](https://github.com/iogrid/iogrid/issues/417) | `billing/panel.tsx` has explicit `fetchError` state machine + 3-branch render path; no `??` fallback masking |
 | [#418](https://github.com/iogrid/iogrid/issues/418) | `coordinator/shared/config/docs.go` centralises `DocsURL(segments...)`; telemetry-svc consumes it from `rules.go`/`standalone_rules.go` |
+| [#419](https://github.com/iogrid/iogrid/issues/419) | Both unattached TODOs reworded: ui-bridge cites #438; multisig cites #439 |
+| [#335](https://github.com/iogrid/iogrid/issues/335) | 12/13 services digest-pinned with `imagePullPolicy: Always`; only `admin` remains (blocked on #426 founder-physical ghcr flip) |
+
+### Cluster state (live snapshot 2026-05-23 02:15Z)
+
+- All coordinator services Running on post-PR digests (web is on pre-PR-#445 image — Flux will roll once #445 merges).
+- `admin` Deployment in `ImagePullBackOff` × 3 — blocked on #426 founder-physical ghcr-package visibility flip (~30s).
+- Live `iogrid.org/` confirmed serving the pre-#445 landing ("Rent your idle machine." h1). Post-merge will flip to "The mesh that shows you every byte." from the restored marketing-rich Hero.
 
 ---
 
