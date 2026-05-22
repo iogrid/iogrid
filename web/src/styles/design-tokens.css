@@ -40,7 +40,7 @@
     /* Accent — minty green. Sparingly: success states, secondary CTAs. */
     --accent-300: 154 60% 68%;   /* #7BE0B7 */
     --accent-500: 154 62% 48%;   /* #2EC78B */
-    --accent-700: 154 67% 33%;   /* #1B8C5F */
+    --accent-700: 154 75% 24%;   /* #0F7351 — darkened so text-white clears 4.5:1 */
 
     /* Neutral — warm gray ramp. Page bg, text, borders. */
     --neutral-0:   0   0% 100%;  /* #FFFFFF */
