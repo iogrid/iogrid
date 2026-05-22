@@ -45,16 +45,18 @@ spec:
   # TLS-terminated hostname; both A-records are already at the
   # mothership LB IP (see infra/dynadot/iogrid-org-records.json).
   #
-  # admin appended per #407 — admin.iogrid.org is a second Host header
-  # that routes into the same web Service that backs app.iogrid.org, so
-  # the admin surface gets its own TLS-terminated host without a new
-  # Deployment. IngressRoute: infra/k8s/traefik/ingressroute-admin.yaml.
+  # admin appended per #407 — admin.iogrid.org runs an INDEPENDENT
+  # Next.js app per EPIC #422 Phase 1 (separate codebase, Deployment,
+  # CI, cookie scope). IngressRoute: infra/k8s/traefik/ingressroute-admin.yaml.
+  #
+  # app.iogrid.org SUNSET 2026-05-22 per EPIC #422 Phase 3 — product
+  # surface is iogrid.org apex. No SAN needed; the redirect IngressRoute
+  # was deleted; any inbound TLS on app.* should fail at SNI mismatch.
   dnsNames:
     - iogrid.org
     - www.iogrid.org
     - admin.iogrid.org
     - api.iogrid.org
-    - app.iogrid.org
     - build.iogrid.org
     - docs.iogrid.org
     - status.iogrid.org

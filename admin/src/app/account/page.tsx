@@ -10,7 +10,7 @@ export const metadata = { title: "Sign in — iogrid admin" };
  *
  * Admin sessions are scoped to admin.iogrid.org via the cookie-domain
  * pin in `src/auth.config.ts`. Signing in here mints a cookie that
- * the browser will NOT send to iogrid.org or app.iogrid.org — that's
+ * the browser will NOT send to iogrid.org or iogrid.org — that's
  * the strict-separation invariant the founder asked for.
  *
  * If an authenticated admin somehow lands here, render a tiny "you're

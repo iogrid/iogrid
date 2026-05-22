@@ -4,7 +4,7 @@
  *
  * Why a wrapper: the original admin UI called the Connect-RPC method
  * directly at `${API_BASE_URL}/iogrid.providers.v1.ProviderRegistrationService/ListProviders`,
- * which is cross-origin from `app.iogrid.org`. Migrating to a same-
+ * which is cross-origin from `iogrid.org`. Migrating to a same-
  * origin JSON wrapper lets us reuse the NextAuth session cookie and
  * the service-token shim without re-implementing Connect-RPC in Node.
  *
