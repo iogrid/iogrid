@@ -31,3 +31,20 @@ data:
   LOKI_TENANT: iogrid
   TEMPO_URL: ""
   TEMPO_TENANT: iogrid
+  # Documentation site for alert `runbook_url` annotations. Private
+  # Sovereigns override this to point at their own docs mirror so the
+  # PagerDuty / Alertmanager link in an alert payload does NOT leak to
+  # the public docs.iogrid.org. Empty = fall back to the public site
+  # (the default the binary ships with). Canonical name documented in
+  # docs/RUNBOOKS.md §5. Refs #418.
+  #
+  # NOTE: alert `runbook_url` values are baked into the committed
+  # `prometheusrules.yaml` at chart-build time. To rebase the URLs onto
+  # a private docs mirror, set this env on the telemetry-svc Deployment
+  # AND re-run the generator:
+  #
+  #   cd coordinator/services/telemetry-svc && \
+  #     IOGRID_DOCS_BASE_URL=https://docs.mygrid.example \
+  #     go run -tags=genrules ./scripts/gen-prometheus-rules.go \
+  #     > ../../../infra/k8s/base/telemetry-svc/prometheusrules.yaml
+  IOGRID_DOCS_BASE_URL: ""

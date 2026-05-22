@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/iogrid/iogrid/coordinator/services/gateway-bff/internal/auth"
+	"github.com/iogrid/iogrid/coordinator/shared/config"
 )
 
 // --- customer self-signup -------------------------------------------------
@@ -233,7 +234,7 @@ func (a *API) OnboardCustomer(w http.ResponseWriter, r *http.Request) {
 		BillingEmail:    billing,
 		APIKey:          key,
 		ProxyEndpoint:   "proxy.iogrid.org:443",
-		OnboardingGuide: "https://docs.iogrid.org/getting-started/phase0-first-customer/",
+		OnboardingGuide: config.DocsURL("getting-started", "phase0-first-customer") + "/",
 		CreatedAt:       time.Now().UTC().Format(time.RFC3339),
 	}
 	writeJSON(w, http.StatusCreated, resp)

@@ -1,0 +1,24 @@
+---
+# gateway-bff runtime config. Values referenced via envFrom in the
+# Deployment so a kubectl edit on this ConfigMap re-rolls the Pods on the
+# next reconcile (Flux configMap-resource-version trick).
+#
+# Every key here MUST also appear in the canonical-names table in
+# docs/RUNBOOKS.md §5 ("Coordinator env-var contract"). Adding a new key
+# without documenting it there is a #416 / #418-class drift.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gateway-bff-config
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: gateway-bff
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: gateway
+data:
+  # Documentation site base URL used for the JSON `OnboardingGuide` link
+  # returned from POST /api/v1/onboard/customer + any future
+  # operator-facing link the BFF renders. Private Sovereigns override to
+  # point customers at their own docs mirror. Empty = fall back to
+  # https://docs.iogrid.org (the default the binary ships with). Refs #418.
+  IOGRID_DOCS_BASE_URL: ""

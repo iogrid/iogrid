@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 
+	"github.com/iogrid/iogrid/coordinator/shared/config"
 	"gopkg.in/yaml.v3"
 )
 
@@ -142,7 +143,7 @@ func buildPromRule(s SLO, namespace string, burns []BurnRate) PrometheusRule {
 		annotations := map[string]string{
 			"summary":     fmt.Sprintf("%s/%s burning error budget %.4gx (%s severity)", s.Service, s.Name, b.Threshold, b.Severity),
 			"description": s.Description,
-			"runbook_url": fmt.Sprintf("https://docs.iogrid.org/runbooks/slo-burn-rate#%s-%s", s.Service, s.Name),
+			"runbook_url": config.RunbookURL(fmt.Sprintf("slo-burn-rate#%s-%s", s.Service, s.Name)),
 		}
 		for k, v := range s.Annotations {
 			annotations[k] = v
