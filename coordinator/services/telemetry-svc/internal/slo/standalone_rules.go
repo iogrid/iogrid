@@ -1,5 +1,7 @@
 package slo
 
+import "github.com/iogrid/iogrid/coordinator/shared/config"
+
 // StandaloneRules covers the rules the spec calls out that aren't tied
 // to a per-SLO burn-rate alert:
 //
@@ -48,7 +50,7 @@ func StandaloneRules(namespace string) []PrometheusRule {
 								Annotations: map[string]string{
 									"summary":     "Anti-abuse hit rate >5x baseline",
 									"description": "Block rate over last 5m exceeds 5x the 24h rolling baseline — possible coordinated abuse, credential stuffing, or filter misconfiguration.",
-									"runbook_url": "https://docs.iogrid.org/runbooks/antiabuse-spike",
+									"runbook_url": config.RunbookURL("antiabuse-spike"),
 								},
 							},
 						},
@@ -74,7 +76,7 @@ func StandaloneRules(namespace string) []PrometheusRule {
 								Annotations: map[string]string{
 									"summary":     "Provider {{ $labels.provider_id }} bandwidth >100x baseline",
 									"description": "Provider {{ $labels.provider_id }} egress bandwidth over last 5m exceeds 100x the 1h rolling baseline — auto-suspend pending human review.",
-									"runbook_url": "https://docs.iogrid.org/runbooks/provider-bandwidth-spike",
+									"runbook_url": config.RunbookURL("provider-bandwidth-spike"),
 								},
 							},
 						},
@@ -97,7 +99,7 @@ func StandaloneRules(namespace string) []PrometheusRule {
 								Annotations: map[string]string{
 									"summary":     "Coordinator service {{ $labels.service }} down >5m",
 									"description": "Pod {{ $labels.pod }} in {{ $labels.namespace }} has been unscrapable for over 5 minutes.",
-									"runbook_url": "https://docs.iogrid.org/runbooks/service-down",
+									"runbook_url": config.RunbookURL("service-down"),
 								},
 							},
 						},
