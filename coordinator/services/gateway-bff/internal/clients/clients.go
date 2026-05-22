@@ -174,6 +174,25 @@ type Set struct {
 	Billing               BillingClient
 	BillingEarnings       BillingEarningsClient
 	Workspaces            WorkspaceClient
+	// IdentityRaw exposes the identity-svc base URL + the shared
+	// http.Client + service token so a handler can issue a JSON HTTP
+	// forward to identity-svc's chi-router routes (anything that
+	// isn't behind a Connect-RPC method). The forwarder MUST send
+	// `Authorization: Bearer <ServiceToken>` + `X-Iogrid-User-Id: <caller>`
+	// to satisfy identity-svc's service-token shim middleware.
+	//
+	// Used by: SetMyPreferredLandingRole (#449 / #422).
+	IdentityRaw IdentityRawForwarder
+}
+
+// IdentityRawForwarder lets handlers reach identity-svc's JSON HTTP
+// routes (the chi-router tree) without needing a Connect-RPC adapter
+// for every endpoint. Carries the base URL + a shared http.Client +
+// the service token the middleware expects.
+type IdentityRawForwarder struct {
+	BaseURL      string
+	ServiceToken string
+	HTTPClient   *http.Client
 }
 
 // Config bundles the downstream URLs + per-call timeout. Comes from
@@ -232,6 +251,11 @@ func New(cfg Config, httpClient *http.Client) *Set {
 		Billing:               &billingAdapter{c: billRaw, retries: cfg.Retries},
 		BillingEarnings:       &billingEarningsAdapter{c: earnRaw, retries: cfg.Retries},
 		Workspaces:            &workspaceAdapter{c: workspaceRaw, retries: cfg.Retries},
+		IdentityRaw: IdentityRawForwarder{
+			BaseURL:      cfg.IdentityURL,
+			ServiceToken: cfg.ServiceToken,
+			HTTPClient:   httpClient,
+		},
 	}
 }
 
