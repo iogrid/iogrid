@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -142,5 +143,38 @@ func TestRequestMagicLink_RejectsMalformedBody(t *testing.T) {
 	// test also confirms the unauthenticated path returns gracefully.
 	if w.Code != http.StatusBadRequest && w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 400/500, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+// /v1/me/preferred-landing-role — EPIC #422 /welcome picker seam.
+
+func TestSetPreferredLandingRole_RequiresBearer(t *testing.T) {
+	api := New(nil, nil, nil)
+	r := chi.NewRouter()
+	api.Mount(r)
+
+	req := httptest.NewRequest(http.MethodPut, "/v1/me/preferred-landing-role",
+		strings.NewReader(`{"role":"provider"}`))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestPreferredLandingRoleAllowlist(t *testing.T) {
+	// In-process check on the in-package allowlist map — doesn't need
+	// the chi router. Catches anyone adding a new value without
+	// updating the allowlist + matching the Postgres enum.
+	for _, ok := range []string{"", "provider", "customer", "vpn"} {
+		if _, present := validPreferredLandingRoles[ok]; !present {
+			t.Fatalf("expected %q to be a valid preferred-landing-role", ok)
+		}
+	}
+	for _, bad := range []string{"admin", "vpn ", "Provider", "anonymous", "operator"} {
+		if _, present := validPreferredLandingRoles[bad]; present {
+			t.Fatalf("expected %q to NOT be a valid preferred-landing-role", bad)
+		}
 	}
 }
