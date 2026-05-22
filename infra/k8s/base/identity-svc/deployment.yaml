@@ -79,6 +79,15 @@ spec:
               value: /etc/identity/jwt/public.pem
             - name: JWT_AUTOGEN_DIR
               value: /tmp/jwt-keys
+            # Redis for SIWS challenge store + session cache (#453). When
+            # the in-cluster Redis StatefulSet at
+            # `infra/k8s/base/data/redis.yaml` is applied, the client
+            # service `redis-client` resolves to a TCP load-balanced
+            # 6-node cluster. Until then, identity-svc's main.go best-
+            # effort path falls back to the in-memory store with a WARN
+            # — single-pod-only safe. Both modes work today.
+            - name: REDIS_URL
+              value: redis://redis-client.iogrid.svc.cluster.local:6379/0
             # 🛑 PROD CUTOVER GATE (#452): remove `JWT_KEYPAIR_AUTOGEN=1`
             # once the SealedSecret `identity-svc-jwt` lands. Today the
             # ephemeral keypair is regenerated on every Pod start —
