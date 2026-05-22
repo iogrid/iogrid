@@ -111,7 +111,12 @@ spec:
           image: nats:2.10-alpine
           imagePullPolicy: IfNotPresent
           command:
-            - /nats-server
+            # nats:2.10-alpine ships nats-server in /usr/local/bin; the
+            # pre-2026 image had /nats-server but that path stopped
+            # working when the upstream image moved to a stricter
+            # alpine layout. Use the absolute path that survives both
+            # variants.
+            - /usr/local/bin/nats-server
             - --config
             - /etc/nats/nats.conf
           env:
