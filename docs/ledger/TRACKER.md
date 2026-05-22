@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-21T13:10:00Z` |
+| Last refreshed | `2026-05-23T00:30:00Z` |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
 | Open PRs | 0 |
@@ -21,6 +21,16 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 | Phase 0 admin UI | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> `/admin/providers` shows paired daemon record for `emrah.baysal` — verified live via Playwright, record survives `providers-svc` pod restart (Postgres-backed via #247). Screenshots in repo root: `admin-providers-emrah-WORKING.png`, `admin-providers-postgres-persisted.png` |
 
 **Legend:** <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> done · <img alt="IN_FLIGHT" src="https://img.shields.io/badge/-IN__FLIGHT-bf8700?style=flat-square" /> work in progress · <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> open · <img alt="DEFERRED" src="https://img.shields.io/badge/-DEFERRED-6e7781?style=flat-square" /> deferred · <img alt="BLOCKED" src="https://img.shields.io/badge/-BLOCKED-8250df?style=flat-square" /> blocked on founder action
+
+---
+
+## 0.7. EPIC #422 — marketing landing restored + virtual-app left-rail (2026-05-23 00:30Z)
+
+| PR | opened | scope |
+|---|---|---|
+| [#445](https://github.com/iogrid/iogrid/pull/445) | 00:30Z | Restore rich marketing landing verbatim from pre-#428 SHA; design tokens rebuilt with marketing brand palette (indigo `primary-*` + warm `neutral-*` + minty `accent-*`); post-auth virtual apps reshape — Provider / Customer / VPN / Account via PersonaRail + PersonaSidebar + AppShell (Linear/Notion/Vercel left-rail pattern); `/provide` → `/provider` page rename + 301 redirect; `/welcome` first-sign-in persona picker; `MarketingShell` rewired to use restored Nav + Footer so all sub-pages (compute / gpu / proxy / ios-build / vpn / providers / token / blog / docs / transparency / about / pricing / status / legal/*) inherit the polished chrome. PR #423's thin Linear/Notion landing replaced; PR #428's `SiteHeader`/`SiteFooter` removed. Wire contract `/api/v1/provide/*` untouched. |
+
+Founder direction 2026-05-22: pull the post-auth product UI **UP** to marketing's quality bar, do not drag marketing down. PR #423 had been a drag-down — #445 restores the up-bar shape.
 
 ---
 
