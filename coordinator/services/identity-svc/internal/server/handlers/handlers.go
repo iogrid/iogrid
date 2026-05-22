@@ -97,6 +97,13 @@ func (a *API) MountV1(r chi.Router) {
 			r.Get("/{id}", a.getUser)
 			r.Patch("/{id}", a.updateUser)
 		})
+
+		// /me/preferred-landing-role — write the consumer-app persona
+		// the caller picked on /welcome (EPIC #422 / PR #445). PUT
+		// with `{"role": "provider"|"customer"|"vpn"}` sets it; PUT
+		// with `{"role": ""}` clears it so the next sign-in re-prompts
+		// the picker.
+		r.Put("/me/preferred-landing-role", a.setPreferredLandingRole)
 	}
 }
 
@@ -450,6 +457,59 @@ type updateUserReq struct {
 	DisplayName  string `json:"display_name"`
 	PrimaryEmail string `json:"primary_email"`
 	PictureURL   string `json:"picture_url"`
+}
+
+// preferredLandingRoleReq is the JSON payload for
+// PUT /v1/me/preferred-landing-role (EPIC #422 / PR #445).
+type preferredLandingRoleReq struct {
+	// Role MUST be one of "provider" / "customer" / "vpn" — those
+	// are the consumer virtual apps the persona rail surfaces. An
+	// empty string clears the preference and re-arms the /welcome
+	// picker on the next sign-in.
+	Role string `json:"role"`
+}
+
+// validPreferredLandingRoles is the allowlist enforced before we touch
+// the database. Postgres also enforces it via the enum cast — this
+// check just gives the caller a more specific error message earlier.
+var validPreferredLandingRoles = map[string]struct{}{
+	"":         {},
+	"provider": {},
+	"customer": {},
+	"vpn":      {},
+}
+
+// setPreferredLandingRole persists the consumer-app persona the caller
+// picked on /welcome.
+//
+//	PUT /v1/me/preferred-landing-role
+//	  { "role": "provider" | "customer" | "vpn" | "" }
+//	→ 204 No Content
+//
+// The shared chi router already runs the bearer middleware (every
+// /v1/* route under MountV1 sits behind authedUserID), so the caller's
+// user id is always available here.
+func (a *API) setPreferredLandingRole(w http.ResponseWriter, r *http.Request) {
+	authedID, ok := authedUserID(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "missing bearer token")
+		return
+	}
+	var req preferredLandingRoleReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_argument", err.Error())
+		return
+	}
+	if _, ok := validPreferredLandingRoles[req.Role]; !ok {
+		writeError(w, http.StatusBadRequest, "invalid_argument",
+			`role must be one of "provider", "customer", "vpn", or "" (clear)`)
+		return
+	}
+	if err := a.Store.SetPreferredLandingRole(r.Context(), nil, authedID, req.Role); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (a *API) updateUser(w http.ResponseWriter, r *http.Request) {
