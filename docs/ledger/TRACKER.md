@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T02:45:00Z` |
+| Last refreshed | `2026-05-23T03:00:00Z` |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
 | Open PRs | 0 |
@@ -31,7 +31,8 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 | [#446](https://github.com/iogrid/iogrid/pull/446) | admin app brand polish — same indigo + warm-neutral + minty palette as web/; AdminShell rewritten from horizontal-tab to Linear/Notion/Vercel left-rail. Strict-separation invariant preserved. | open / **CI green** |
 | [#447](https://github.com/iogrid/iogrid/pull/447) | proxy-gateway mounts `iogrid-proxy-tls` (was non-existent `proxy-iogrid-org-tls` → empty volume → plaintext listener). Live-patched 2026-05-20; commits the fix to git. | open / **CI green** |
 | [#448](https://github.com/iogrid/iogrid/pull/448) | VPN free-tier quota = 2 GiB (matches /vpn marketing commitment). Paid tiers report 0 = unlimited. `vpnQuotaForTier()` helper in gateway-bff. | open / **CI green** |
-| [#449](https://github.com/iogrid/iogrid/pull/449) | `users.preferred_landing_role` enum + column migration; store.User field + GetUser SELECT + new `Store.SetPreferredLandingRole` helper. Schema seam for the EPIC #422 /welcome picker. | open / **CI green / mergeable CLEAN** |
+| [#449](https://github.com/iogrid/iogrid/pull/449) | `users.preferred_landing_role` enum + column migration; store.User field + GetUser SELECT + `Store.SetPreferredLandingRole` helper + `PUT /v1/me/preferred-landing-role` chi-router route. Schema + handler seam for the EPIC #422 /welcome picker (web onSelect wiring lands once #445 merges). | open / **CI green / mergeable CLEAN** |
+| [#450](https://github.com/iogrid/iogrid/pull/450) | daemon ui-bridge: `Authorization: Bearer` middleware on every protected route (`/state`, `/config`, `/earnings`, `/audit/*`, `/updates/check`); `/healthz` + `/pair` stay open. Constant-time match; pre-pair state pass-through. 5 unit tests. (Refs #438) | re-CI after clippy/fmt fixes |
 
 ### Stale-issue audits (evidence comments posted, suggest founder close)
 
