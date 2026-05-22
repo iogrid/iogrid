@@ -77,6 +77,16 @@ spec:
                   fieldPath: metadata.namespace
             - name: SERVICE_NAME
               value: billing-svc
+            # NATS JetStream for the metering consumer (workload events
+            # → usage rollup). When the in-cluster NATS StatefulSet at
+            # `infra/k8s/base/data/nats.yaml` is applied, billing-svc's
+            # metering loop subscribes to the `workload.metering.>` topic
+            # and aggregates per-customer usage. Until the StatefulSet
+            # is applied, the boot WARN "NATS_URL not set — metering
+            # consumer disabled" keeps firing — usage rollup just stays
+            # idle (no data loss; events sit on the producer side).
+            - name: NATS_URL
+              value: nats://nats.iogrid.svc.cluster.local:4222
             # GRID_TOKEN_MINT_ADDRESS is co-located with the keypair in
             # the iogrid-solana-payout Secret so the operator pastes
             # mint + keypair together. envFrom on the secret would also
