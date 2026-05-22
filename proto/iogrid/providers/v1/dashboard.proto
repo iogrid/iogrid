@@ -99,7 +99,7 @@ message GetEarningsSummaryResponse {
   EarningsSummary summary = 1;
 }
 
-// DashboardService backs the /provide/transparency UI. Server-streaming
+// DashboardService backs the /provider/transparency UI. Server-streaming
 // for the live feed; unary calls for history and aggregates.
 service DashboardService {
   rpc ListAuditEvents(ListAuditEventsRequest) returns (ListAuditEventsResponse);
