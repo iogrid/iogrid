@@ -129,7 +129,14 @@ spec:
       volumes:
         - name: tls
           secret:
-            secretName: proxy-iogrid-org-tls
+            # Per-host cert for proxy.iogrid.org — issued by the dedicated
+            # Certificate `iogrid-proxy-tls` in
+            # infra/k8s/certificates/iogrid-org-cert.yaml. Pre-#355 this
+            # referenced the non-existent `proxy-iogrid-org-tls`, so the
+            # volume was empty at runtime and the listener fell back to
+            # plaintext (`tls: false`). Live-patched 2026-05-20 18:29Z;
+            # committed here so fresh provs pick up the correct secret.
+            secretName: iogrid-proxy-tls
             optional: true
         - name: tmp
           emptyDir: {}
