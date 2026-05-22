@@ -89,7 +89,7 @@ export function ComparisonTable() {
               return (
                 <tr
                   key={row.player}
-                  className={`${i % 2 === 0 ? "bg-white" : "bg-neutral-50/60"} ${isUs ? "bg-primary-50/70 font-semibold" : ""}`}
+                  className={`${i % 2 === 0 ? "bg-white" : "bg-neutral-50"} ${isUs ? "bg-primary-50 font-semibold" : ""}`}
                 >
                   <th
                     scope="row"
