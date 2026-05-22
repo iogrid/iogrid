@@ -52,10 +52,14 @@ export interface ProxyToBffOptions {
   stream?: boolean;
   /**
    * Additional comma-separable roles to set in X-Iogrid-User-Roles.
-   * Useful when the route handler knows the path is admin-only (e.g.
-   * /api/v1/admin/*) and wants gateway-bff's RequireRole("ADMIN") to
-   * accept the materialised Claims. Roles already present in the
-   * NextAuth session are merged with these.
+   * Useful when the route handler knows the path requires a specific
+   * role and wants gateway-bff's RequireRole(...) to accept the
+   * materialised Claims. Roles already present in the NextAuth
+   * session are merged with these.
+   *
+   * Note: admin surfaces (/api/v1/admin/*) are NOT proxied through
+   * web/ — they live in the separate admin/ Next.js app, which has
+   * its own bff-proxy + session. See PR #425 / EPIC #422.
    */
   extraRoles?: string[];
   /**
