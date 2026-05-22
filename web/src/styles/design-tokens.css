@@ -1,265 +1,128 @@
 /*
- * iogrid design tokens — single source of truth for color, type,
- * spacing, radius, and motion. Every product surface (landing, /provide,
- * /customer, /vpn, /admin) consumes these tokens via Tailwind utilities
- * (`bg-background`, `text-foreground`, `border-border`, …) so a
- * coordinated visual revamp ships by editing this one file.
+ * iogrid design tokens — single source of truth.
  *
- * Aesthetic target: Linear / Notion / Vercel — minimal, opinionated,
- * premium. Two themes (light + dark) flip via the `.dark` class on
- * <html>, toggled by next-themes. NO rainbow palette, NO decorative
- * gradients, NO illustrations. Whitespace and typography do the
- * heavy lifting.
+ * Restored to the marketing-site brand palette per founder direction
+ * 2026-05-22: the consumer surfaces (provider/customer/vpn/account)
+ * should look as polished as the marketing landing. Same palette,
+ * same warmth, same indigo accent. No Linear/Notion thin variant.
  *
  * Layered system:
- *   - L1 base palette  : grayscale + a SINGLE accent hue (electric blue).
- *   - L2 semantic role : background, surface, text, muted-text, border, accent.
- *   - L3 component     : shadcn-compatible aliases (primary/secondary/popover).
+ *   - L1 brand palette : indigo `primary-*` + warm `neutral-*` + accent green + semantics.
+ *   - L2 semantic role : background / foreground / muted / border / primary / accent.
+ *   - L3 component     : shadcn-compatible aliases.
  *
- * Callers should consume L2/L3, never L1 directly — that's how we keep
- * the freedom to retune the palette later.
+ * Two themes (light + dark) flip via `.dark` on <html>.
  *
- * Triplets are stored without the `hsl()` wrapper so callers compose
- * arbitrary alpha via `hsl(var(--color-foreground) / 0.6)`.
+ * HSL triplets stored without the wrapper so callers compose alpha via
+ * `hsl(var(--foreground) / 0.6)`.
+ *
+ * Source colors at brand/tokens/colors.json — that file is the
+ * authoritative palette. This file mirrors those values into HSL for
+ * Tailwind 4 + shadcn consumption.
  */
 
 @layer base {
   :root {
-    /* ---------- L1: base palette ---------- */
-    /* Neutral ramp — pure achromatic to keep the aesthetic restrained. */
-    --gray-0:   0 0% 100%;
-    --gray-50:  0 0% 98%;
-    --gray-100: 0 0% 96%;
-    --gray-200: 0 0% 91%;
-    --gray-300: 0 0% 83%;
-    --gray-400: 0 0% 64%;
-    --gray-500: 0 0% 45%;
-    --gray-600: 0 0% 32%;
-    --gray-700: 0 0% 23%;
-    --gray-800: 0 0% 14%;
-    --gray-900: 0 0% 9%;
-    --gray-950: 0 0% 4%;
+    /* ----- L1: brand palette (mirrors brand/tokens/colors.json) ----- */
 
-    /* Single accent — used SPARINGLY (primary CTA, focus ring, active
-       indicator). 1.25 NOT a brand-rainbow. Linear-ish indigo/blue. */
-    --accent-500: 222 89% 56%;
-    --accent-600: 222 80% 48%;
+    /* Primary — indigo. Used on primary CTAs, focus ring, active states. */
+    --primary-50:  232 100% 97%;   /* #EEF0FF */
+    --primary-100: 232 100% 93%;   /* #D9DEFF */
+    --primary-200: 232 100% 85%;   /* #B3BCFF */
+    --primary-300: 232 100% 77%;   /* #8C99FF */
+    --primary-400: 232 100% 70%;   /* #6577FF */
+    --primary-500: 232  90% 61%;   /* #4257F5 — canonical brand */
+    --primary-600: 232  62% 49%;   /* #2F3FC9 */
+    --primary-700: 231  64% 37%;   /* #22309C */
+    --primary-800: 231  64% 26%;   /* #19236E */
+    --primary-900: 232  64% 18%;   /* #10174A */
 
-    /* Two semantic colors — only when the meaning is unmistakable. */
-    --success-500: 145 63% 42%;
-    --warning-500:  35 92% 50%;
-    --danger-500:    0 72% 51%;
+    /* Accent — minty green. Sparingly: success states, secondary CTAs. */
+    --accent-300: 154 60% 68%;   /* #7BE0B7 */
+    --accent-500: 154 62% 48%;   /* #2EC78B */
+    --accent-700: 154 75% 24%;   /* #0F7351 — darkened so text-white clears 4.5:1 */
 
-    /* ---------- L2: semantic roles (LIGHT THEME) ---------- */
-    /* The page background. */
-    --color-background: var(--gray-0);
-    /* Card/popover surface, slightly raised. */
-    --color-surface: var(--gray-0);
-    /* Subtle stripe used in dashboards / table headers. */
-    --color-surface-muted: var(--gray-50);
+    /* Neutral — warm gray ramp. Page bg, text, borders. */
+    --neutral-0:   0   0% 100%;  /* #FFFFFF */
+    --neutral-50:  60  9% 98%;   /* #FAFAF9 */
+    --neutral-100: 40 13% 94%;   /* #F2F1EE */
+    --neutral-200: 40 13% 88%;   /* #E5E3DE */
+    --neutral-300: 40 11% 77%;   /* #C9C6BE */
+    --neutral-400: 40  7% 61%;   /* #A29E94 */
+    --neutral-500: 40  7% 45%;   /* #7B776D */
+    --neutral-600: 38  8% 31%;   /* #56524A */
+    --neutral-700: 33  9% 21%;   /* #3A3731 */
+    --neutral-800: 36 10% 12%;   /* #23211D */
+    --neutral-900: 45 17%  7%;   /* #15140F */
 
-    /* High-emphasis text. */
-    --color-foreground: var(--gray-900);
-    /* Low-emphasis text — secondary copy, hints, captions. */
-    --color-foreground-muted: var(--gray-500);
+    /* Semantic — used only when the meaning is unmistakable. */
+    --success-500: 154 62% 48%;  /* #2EC78B (== accent-500) */
+    --warning-500:  35 78% 56%;  /* #E6A23C */
+    --danger-500:    1 76% 59%;  /* #E5484D */
+    --info-500:    232 90% 61%;  /* #4257F5 (== primary-500) */
 
-    /* Hairline border. Borders > shadows for elevation in this system. */
-    --color-border: var(--gray-200);
-    /* Stronger border on hover/focus. */
-    --color-border-strong: var(--gray-300);
+    /* ----- L2: semantic role tokens (light theme) ----- */
+    --background:        var(--neutral-0);
+    --foreground:        var(--neutral-700);
+    --muted:             var(--neutral-100);
+    --muted-foreground:  var(--neutral-600);
+    --border:            var(--neutral-200);
+    --input:             var(--neutral-200);
+    --ring:              var(--primary-500);
 
-    /* Accent — primary CTA, focus ring, selected-state indicator. */
-    --color-accent: var(--accent-500);
-    --color-accent-strong: var(--accent-600);
-    --color-accent-foreground: var(--gray-0);
+    --card:              var(--neutral-0);
+    --card-foreground:   var(--neutral-700);
+    --popover:           var(--neutral-0);
+    --popover-foreground:var(--neutral-700);
 
-    /* Semantics. */
-    --color-success: var(--success-500);
-    --color-warning: var(--warning-500);
-    --color-danger:  var(--danger-500);
+    /* ----- L3: shadcn-compatible aliases ----- */
+    --primary:               var(--primary-500);
+    --primary-foreground:    var(--neutral-0);
+    --secondary:             var(--neutral-100);
+    --secondary-foreground:  var(--neutral-700);
+    --accent:                var(--primary-50);
+    --accent-foreground:     var(--primary-700);
+    --destructive:           var(--danger-500);
+    --destructive-foreground:var(--neutral-0);
+    --success:               var(--success-500);
+    --success-foreground:    var(--neutral-0);
+    --warning:               var(--warning-500);
+    --warning-foreground:    var(--neutral-900);
 
-    /* ---------- L3: shadcn aliases (LIGHT THEME) ---------- */
-    /* Existing shadcn components reference --background, --foreground,
-       --primary, … without the `--color-` prefix. Map them to the L2
-       roles so the entire shadcn surface area participates in the new
-       system without a per-component rewrite. */
-    --background: var(--color-background);
-    --foreground: var(--color-foreground);
-    --card: var(--color-surface);
-    --card-foreground: var(--color-foreground);
-    --popover: var(--color-surface);
-    --popover-foreground: var(--color-foreground);
-    --primary: var(--color-accent);
-    --primary-foreground: var(--color-accent-foreground);
-    --secondary: var(--color-surface-muted);
-    --secondary-foreground: var(--color-foreground);
-    --muted: var(--color-surface-muted);
-    --muted-foreground: var(--color-foreground-muted);
-    --accent: var(--color-surface-muted);
-    --accent-foreground: var(--color-foreground);
-    --destructive: var(--color-danger);
-    --destructive-foreground: var(--gray-0);
-    /* Semantic status aliases — published as Tailwind utility classes
-       (`bg-success`, `text-warning`, …) via the @theme bridge so call
-       sites stay token-only and never touch a raw hue (emerald/amber/
-       rose) again. This is the seam product surfaces use for status
-       badges (active/pending/error) instead of hardcoding a hue ramp. */
-    --success: var(--color-success);
-    --success-foreground: var(--gray-0);
-    --warning: var(--color-warning);
-    --warning-foreground: var(--gray-900);
-    --border: var(--color-border);
-    --input: var(--color-border);
-    --ring: var(--color-accent);
+    /* Type */
+    --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+      Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo,
+      Consolas, "Liberation Mono", monospace;
 
-    /* ---------- Type ---------- */
-    /* Single sans family — Inter via system-ui fallback. NO secondary
-       display font, NO serif. A monospace is allowed ONLY inside
-       <code>/<pre> for code samples. */
-    --font-sans: var(--font-inter), "Inter", ui-sans-serif, system-ui,
-      -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans",
-      sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
-    --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas,
-      monospace;
-
-    /* 1.25 modular scale anchored at 16px. */
-    --text-xs:   0.75rem;   /* 12px */
-    --text-sm:   0.875rem;  /* 14px */
-    --text-base: 1rem;      /* 16px */
-    --text-lg:   1.25rem;   /* 20px */
-    --text-xl:   1.5rem;    /* 24px */
-    --text-2xl:  2rem;      /* 32px */
-    --text-3xl:  3rem;      /* 48px */
-    --text-4xl:  4rem;      /* 64px — landing hero only */
-
-    /* Generous line-heights — readability over density. */
-    --leading-tight:  1.15;
-    --leading-snug:   1.35;
-    --leading-normal: 1.6;
-    --leading-loose:  1.8;
-
-    /* Tracking — tight for display, normal for body. */
-    --tracking-tight:  -0.02em;
-    --tracking-normal:  0em;
-
-    /* ---------- Spacing (4px base) ---------- */
-    --space-1:  0.25rem;
-    --space-2:  0.5rem;
-    --space-3:  0.75rem;
-    --space-4:  1rem;
-    --space-5:  1.25rem;
-    --space-6:  1.5rem;
-    --space-8:  2rem;
-    --space-10: 2.5rem;
-    --space-12: 3rem;
-    --space-16: 4rem;
-    --space-20: 5rem;
-    --space-24: 6rem;
-    --space-32: 8rem;
-
-    /* ---------- Radius ---------- */
-    /* Subtle rounding only — sharp corners read as premium. Anything
-       above --radius-md is reserved for full-pill badges. */
-    --radius-sm: 4px;
-    --radius-md: 6px;
-    --radius-lg: 8px;
-    --radius-pill: 9999px;
-
-    /* ---------- Elevation ---------- */
-    /* In this system borders carry elevation, not drop shadows. The
-       shadow tokens exist for the rare overlay (toast, dropdown) where
-       a hairline alone is insufficient. */
-    --shadow-overlay:
-      0 1px 2px hsl(var(--gray-900) / 0.04),
-      0 4px 16px hsl(var(--gray-900) / 0.08);
-
-    /* ---------- Motion ---------- */
-    --motion-fast:   120ms;
-    --motion-base:   180ms;
-    --motion-slow:   280ms;
-    --motion-ease:   cubic-bezier(0.4, 0, 0.2, 1);
-
-    /* ---------- Layout ---------- */
-    --layout-max:        72rem;   /* 1152px — desktop content cap */
-    --layout-prose-max:  42rem;   /* 672px  — single-column reading */
+    /* Radius */
+    --radius-sm: 0.375rem;  /* 6px */
+    --radius-md: 0.5rem;    /* 8px */
+    --radius-lg: 0.75rem;   /* 12px */
+    --radius-xl: 1rem;      /* 16px */
+    --radius:    var(--radius-md);
   }
 
-  /* ---------- L2/L3 semantic roles (DARK THEME) ---------- */
-  .dark {
-    --color-background: var(--gray-950);
-    --color-surface: var(--gray-900);
-    --color-surface-muted: var(--gray-800);
+  .dark,
+  :root.dark {
+    --background:        var(--neutral-900);
+    --foreground:        var(--neutral-50);
+    --muted:             var(--neutral-800);
+    --muted-foreground:  var(--neutral-300);
+    --border:            var(--neutral-700);
+    --input:             var(--neutral-700);
+    --ring:              var(--primary-400);
 
-    --color-foreground: var(--gray-50);
-    --color-foreground-muted: var(--gray-400);
+    --card:              var(--neutral-800);
+    --card-foreground:   var(--neutral-50);
+    --popover:           var(--neutral-800);
+    --popover-foreground:var(--neutral-50);
 
-    --color-border: var(--gray-800);
-    --color-border-strong: var(--gray-700);
-
-    --color-accent: var(--accent-500);
-    --color-accent-strong: var(--accent-600);
-    --color-accent-foreground: var(--gray-0);
-
-    --background: var(--color-background);
-    --foreground: var(--color-foreground);
-    --card: var(--color-surface);
-    --card-foreground: var(--color-foreground);
-    --popover: var(--color-surface);
-    --popover-foreground: var(--color-foreground);
-    --primary: var(--color-accent);
-    --primary-foreground: var(--color-accent-foreground);
-    --secondary: var(--color-surface-muted);
-    --secondary-foreground: var(--color-foreground);
-    --muted: var(--color-surface-muted);
-    --muted-foreground: var(--color-foreground-muted);
-    --accent: var(--color-surface-muted);
-    --accent-foreground: var(--color-foreground);
-    --destructive: var(--color-danger);
-    --destructive-foreground: var(--gray-0);
-    --success: var(--color-success);
-    --success-foreground: var(--gray-0);
-    --warning: var(--color-warning);
-    --warning-foreground: var(--gray-900);
-    --border: var(--color-border);
-    --input: var(--color-border);
-    --ring: var(--color-accent);
-
-    --shadow-overlay:
-      0 1px 2px hsl(0 0% 0% / 0.4),
-      0 4px 16px hsl(0 0% 0% / 0.6);
+    --primary:               var(--primary-400);
+    --primary-foreground:    var(--neutral-900);
+    --secondary:             var(--neutral-800);
+    --secondary-foreground:  var(--neutral-50);
+    --accent:                var(--primary-900);
+    --accent-foreground:     var(--primary-200);
   }
-}
-
-/* Apply the typeface globally — done here (not in tailwind.config)
-   because the tokens own typography. */
-html,
-body {
-  font-family: var(--font-sans);
-  background: hsl(var(--color-background));
-  color: hsl(var(--color-foreground));
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
-}
-
-/* Theme cross-fade — kept short so the toggle feels instant. */
-html.theme-transitioning,
-html.theme-transitioning * {
-  transition-property: background-color, border-color, color, fill, stroke;
-  transition-duration: var(--motion-fast);
-  transition-timing-function: var(--motion-ease);
-}
-
-/* Selection color picks up the accent so highlighted text still reads
-   premium rather than the default browser blue. */
-::selection {
-  background: hsl(var(--color-accent) / 0.22);
-  color: hsl(var(--color-foreground));
-}
-
-/* Focus ring — accent-tinted, visible against both themes. Applied
-   automatically by Tailwind's `focus-visible:ring-2 focus-visible:ring-ring`
-   utility on interactive components. */
-:focus-visible {
-  outline: 2px solid hsl(var(--color-accent) / 0.6);
-  outline-offset: 2px;
 }

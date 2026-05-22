@@ -4,7 +4,7 @@ import {
   rememberOffRamp,
   forgetOffRamp,
   type PendingOffRamp,
-} from "@/app/provide/earnings/withdraw";
+} from "@/app/provider/earnings/withdraw";
 
 describe("withdraw localStorage helpers", () => {
   beforeEach(() => {

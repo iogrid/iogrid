@@ -37,7 +37,7 @@ export default function RootLayout({
     // before React hydrates so the first paint already matches the
     // resolved theme (system preference or persisted choice).
     <html lang="en" className={inter.variable} suppressHydrationWarning>
-      <body className="min-h-screen antialiased">
+      <body className="min-h-screen bg-background text-foreground antialiased">
         {/* ThemeProvider thinly wraps next-themes so we can centralise
             its config (class-based strategy, `system` default,
             enableSystem). The Toaster and Solana provider sit inside

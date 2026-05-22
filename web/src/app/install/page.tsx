@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { PortalShell } from "@/components/layout/portal-shell";
+import { MarketingShell } from "@/components/marketing/marketing-shell";
 
 /**
  * /install — the "grandma button" landing page.
@@ -61,6 +62,7 @@ const PLATFORMS = [
 
 export default function InstallPage() {
   return (
+    <MarketingShell>
     <PortalShell
       badge="VPN"
       title="Install iogrid"
@@ -138,5 +140,6 @@ export default function InstallPage() {
         </p>
       </section>
     </PortalShell>
+    </MarketingShell>
   );
 }

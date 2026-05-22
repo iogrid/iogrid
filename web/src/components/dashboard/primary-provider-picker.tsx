@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import type { ProviderRef } from "@/lib/types";
 
 /**
- * PrimaryProviderPicker — multi-daemon ownership UI for /provide/schedule
+ * PrimaryProviderPicker — multi-daemon ownership UI for /provider/schedule
  * (issue #325, family of #305).
  *
  * Rendered above the schedule form when the caller owns ≥2 paired

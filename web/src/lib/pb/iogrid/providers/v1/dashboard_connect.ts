@@ -12,7 +12,7 @@ import { AuditEvent, GetEarningsSummaryRequest, GetEarningsSummaryResponse, List
 import { MethodKind } from "@bufbuild/protobuf";
 
 /**
- * DashboardService backs the /provide/transparency UI. Server-streaming
+ * DashboardService backs the /provider/transparency UI. Server-streaming
  * for the live feed; unary calls for history and aggregates.
  *
  * @generated from service iogrid.providers.v1.DashboardService

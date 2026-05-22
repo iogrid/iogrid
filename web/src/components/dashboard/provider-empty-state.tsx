@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 /**
- * ProviderEmptyState — shared CTA card rendered on every /provide/*
+ * ProviderEmptyState — shared CTA card rendered on every /provider/*
  * surface when the gateway-bff replies with `has_provider: false`. We
  * deliberately do NOT render the skeleton dashboard with em-dash
  * placeholders in that case: an operator with zero paired daemons needs
@@ -57,18 +57,18 @@ export function ProviderEmptyState({
 export const PROVIDER_EMPTY_OVERVIEW_SUBTITLE =
   "Install the iogrid daemon on a Mac, Linux, or Windows machine to start earning $GRID.";
 
-/** Canonical subtitle for /provide/earnings (issue #313). */
+/** Canonical subtitle for /provider/earnings (issue #313). */
 export const PROVIDER_EMPTY_EARNINGS_SUBTITLE =
   "Earnings will appear here once a provider is paired and runs workloads.";
 
-/** Canonical subtitle for /provide/schedule (issue #313). */
+/** Canonical subtitle for /provider/schedule (issue #313). */
 export const PROVIDER_EMPTY_SCHEDULE_SUBTITLE =
   "Pair a provider first to configure its caps, calendar, and category opt-ins.";
 
-/** Canonical subtitle for /provide/audit (issue #313). */
+/** Canonical subtitle for /provider/audit (issue #313). */
 export const PROVIDER_EMPTY_AUDIT_SUBTITLE =
   "Audit events will appear here once a provider is paired and starts accepting workloads.";
 
-/** Canonical subtitle for /provide/staking (issue #313). */
+/** Canonical subtitle for /provider/staking (issue #313). */
 export const PROVIDER_EMPTY_STAKING_SUBTITLE =
   "Stake $GRID against a paired provider to earn yield bonuses.";

@@ -1,5 +1,5 @@
 // Provider earnings summary + payout-method preference for the
-// /provide/earnings page. Lives in billing-svc (NOT providers-svc)
+// /provider/earnings page. Lives in billing-svc (NOT providers-svc)
 // because the canonical money state — including pending-payout balance,
 // lifetime totals, and the user's preferred off-ramp variant — is owned
 // by billing-svc's bounded context.
@@ -19,7 +19,7 @@ import { GetEarningsSummaryRequest, GetEarningsSummaryResponse, GetPayoutMethodR
 import { MethodKind } from "@bufbuild/protobuf";
 
 /**
- * EarningsService is the headline-card surface for /provide/earnings.
+ * EarningsService is the headline-card surface for /provider/earnings.
  * Read RPCs are safe to retry; SetPayoutMethod is idempotent (last write
  * wins on (user_id) primary key).
  *

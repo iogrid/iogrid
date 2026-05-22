@@ -73,7 +73,7 @@ describe("formatMoney", () => {
   });
 
   // The $GRID branch is the Phase-0 native ledger currency. The
-  // headline card on /provide/earnings reads `currencyCode ?? "GRID"`,
+  // headline card on /provider/earnings reads `currencyCode ?? "GRID"`,
   // so this function must produce the "0 $GRID" empty-state copy when
   // proto3 wire-omits the zero amount — NOT em-dash (#312).
   describe("$GRID (Phase-0 native ledger)", () => {

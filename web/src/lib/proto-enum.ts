@@ -84,7 +84,7 @@ export function protoEnumName(
 
 /**
  * Convenience: the SchedulerState short name (`"ACTIVE"`,
- * `"PAUSED_BANDWIDTH_CAP"`, …) that the `/provide` overview switches on.
+ * `"PAUSED_BANDWIDTH_CAP"`, …) that the `/provider` overview switches on.
  * Strips the `SCHEDULER_STATE_` proto prefix.
  */
 export function schedulerStateShortName(

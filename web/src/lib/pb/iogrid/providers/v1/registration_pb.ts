@@ -431,7 +431,7 @@ export class Provider extends Message<Provider> {
   /**
    * is_primary is the per-owner default daemon flag. At-most-one TRUE
    * row per owner_user_id (enforced by a partial unique index in the
-   * providers-svc schema). /provide/* surfaces in gateway-bff pick the
+   * providers-svc schema). /provider/* surfaces in gateway-bff pick the
    * primary by default when the caller hasn't supplied ?provider_id=
    * explicitly. PairDaemon auto-promotes the first row per owner;
    * subsequent rows stay false until the owner promotes via

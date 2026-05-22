@@ -191,7 +191,7 @@ export interface GetEarningsSummaryResponse {
 // ---- billing-svc earnings summary (#324) ----------------------------------
 // Distinct from EarningsSummary above: that one (providers-svc) breaks
 // revenue down by workload_type for a TimeWindow; this one (billing-svc)
-// is the headline-card aggregation the /provide/earnings page reads at
+// is the headline-card aggregation the /provider/earnings page reads at
 // the top — lifetime / last-30d / last-7d / pending / workload count.
 
 export interface BillingEarningsSummary {
@@ -344,7 +344,7 @@ export interface CapabilityInventory {
 
 /**
  * ProviderRef mirrors `iogrid.providers.v1.Provider` projected onto
- * the BFF /provide/dashboard envelope. Numeric `status` matches the
+ * the BFF /provider/dashboard envelope. Numeric `status` matches the
  * `ProviderStatus` enum on the wire (proto3 int32 → JSON number when
  * marshalled via `encoding/json`, NOT `protojson`). Supersedes the
  * minimal {id, status} shape introduced in #316 — same field names,

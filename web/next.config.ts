@@ -5,6 +5,16 @@ const nextConfig: NextConfig = {
   experimental: {
     typedRoutes: true,
   },
+  // 301 redirects for the /provide → /provider rename done in EPIC #422
+  // (the "Provider" persona virtual app got a singular noun to match
+  // /customer / /vpn / /account). Any external link that still says
+  // /provide/* keeps working.
+  async redirects() {
+    return [
+      { source: "/provide", destination: "/provider", permanent: true },
+      { source: "/provide/:path*", destination: "/provider/:path*", permanent: true },
+    ];
+  },
   // i18n is configured at the routing layer via the App Router middleware
   // (Next.js 15 App Router uses route segments, not the legacy `i18n` config).
   // Supported locales: en, es, pt, de, fr, it, tr.

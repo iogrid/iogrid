@@ -125,7 +125,7 @@ message RequestInstantPayoutResponse {
   Payout payout = 1;
 }
 
-// PayoutService backs the `/provide/payout` page in the management
+// PayoutService backs the `/provider/payout` page in the management
 // plane plus internal cron jobs that issue periodic payouts.
 service PayoutService {
   rpc GetPayoutAccount(GetPayoutAccountRequest) returns (GetPayoutAccountResponse);

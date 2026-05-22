@@ -23,40 +23,40 @@ test.describe("Public marketing routes", () => {
   }) => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
 
-    // Phase 2.1 redesign (#422 / #423): hero h1 reads
-    // "Rent your idle machine. Or rent the whole network."
+    // EPIC #422 restoration (PR #445): hero h1 reads
+    // "The mesh that shows you every byte." Restored verbatim from
+    // pre-#428 marketing-rich/Hero.
     await expect(
       page.getByRole("heading", {
-        name: /rent your idle machine/i,
+        name: /the mesh that shows you every byte/i,
         level: 1,
       }),
     ).toBeVisible();
 
-    for (const href of ["/provide", "/customer", "/vpn", "/account"]) {
+    // The restored Nav surfaces marketing-rich product anchor links.
+    // (Products dropdown lists /proxy, /compute, /gpu, /ios-build,
+    // /vpn — those live inside a closed <details> by default.)
+    for (const href of ["/providers", "/pricing", "/token", "/blog"]) {
       await expect(page.locator(`a[href="${href}"]`).first()).toBeVisible();
     }
 
-    // Both primary CTAs in the hero:
-    //   1. Primary  → /install     ("Install the daemon")
-    //   2. Secondary → /customer   ("For customers")
+    // Hero CTAs after restoration:
+    //   1. Primary   → /providers ("Become a provider")
+    //   2. Secondary → /pricing   ("Buy services")
     await expect(
-      page.getByRole("link", { name: /install the daemon/i }),
+      page.getByRole("link", { name: /become a provider/i }).first(),
     ).toBeVisible();
     await expect(
-      page.getByRole("link", { name: /for customers/i }),
+      page.getByRole("link", { name: /buy services/i }),
     ).toBeVisible();
   });
 
-  test("clicking 'Install the daemon' lands on /install", async ({
-    page,
-  }) => {
+  test("landing surfaces the install band heading", async ({ page }) => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
-    await page
-      .getByRole("link", { name: /install the daemon/i })
-      .click();
-    await expect(page).toHaveURL(/\/install$/);
+    // The restored "Install in two minutes" band carries the
+    // OS-detecting InstallButton + the curl-pipe-sh fallback.
     await expect(
-      page.getByRole("heading", { name: /install iogrid/i, level: 1 }),
+      page.getByRole("heading", { name: /install in two minutes/i, level: 2 }),
     ).toBeVisible();
   });
 

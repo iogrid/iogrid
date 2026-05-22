@@ -160,7 +160,7 @@ export function ProvideOverview() {
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Recent activity</h2>
           <Link
-            href="/provide/audit"
+            href="/provider/audit"
             className="text-sm text-muted-foreground hover:underline dark:text-muted-foreground"
           >
             Open transparency feed →
@@ -183,9 +183,9 @@ export function ProvideOverview() {
       </section>
 
       <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <QuickLink href="/provide/audit" label="Transparency feed" description="Live events" />
-        <QuickLink href="/provide/schedule" label="Edit schedule" description="Caps + calendar + opt-ins" />
-        <QuickLink href="/provide/earnings" label="Earnings + payouts" description="Daily / weekly / monthly" />
+        <QuickLink href="/provider/audit" label="Transparency feed" description="Live events" />
+        <QuickLink href="/provider/schedule" label="Edit schedule" description="Caps + calendar + opt-ins" />
+        <QuickLink href="/provider/earnings" label="Earnings + payouts" description="Daily / weekly / monthly" />
       </section>
     </div>
   );

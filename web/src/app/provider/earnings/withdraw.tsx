@@ -7,7 +7,7 @@ import { browserApi, ApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 /**
- * Off-ramp ($GRID → fiat) drawer attached to /provide/earnings.
+ * Off-ramp ($GRID → fiat) drawer attached to /provider/earnings.
  *
  * Per issues #167 / #169 / #170:
  *
@@ -218,7 +218,7 @@ export function WithdrawDrawer({
           fiat_currency: fiat,
           return_url:
             typeof window !== "undefined"
-              ? window.location.origin + "/provide/earnings"
+              ? window.location.origin + "/provider/earnings"
               : "",
         },
       );

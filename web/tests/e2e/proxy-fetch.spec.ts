@@ -67,6 +67,10 @@ test.describe("/install + proxy onboarding surface", () => {
   }) => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
 
+    // The restored Nav puts product links inside a Products <details>
+    // dropdown that's closed by default. Click the summary to open it,
+    // then click the /vpn link.
+    await page.locator("summary", { hasText: /products/i }).first().click();
     const vpnLink = page.locator('a[href="/vpn"]').first();
     await expect(vpnLink).toBeVisible();
 

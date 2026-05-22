@@ -1,5 +1,5 @@
 import { PortalShell } from "@/components/layout/portal-shell";
-import { PROVIDE_NAV } from "@/app/provide/nav";
+import { PROVIDER_NAV } from "@/app/provider/nav";
 import { ScheduleEditor } from "./editor";
 
 export const metadata = {
@@ -7,7 +7,7 @@ export const metadata = {
 };
 
 /**
- * /provide/schedule — caps sliders + calendar + categories + blocklist
+ * /provider/schedule — caps sliders + calendar + categories + blocklist
  * in one form. The page is a server component that just renders the
  * client island; the island GETs its own initial state so navigating
  * here doesn't block on the request.
@@ -18,8 +18,8 @@ export default function ProvideSchedulePage() {
       badge="Provider"
       title="Schedule"
       subtitle="Resource caps, calendar windows, accepted categories and blocked destinations."
-      nav={PROVIDE_NAV}
-      activeHref="/provide/schedule"
+      nav={PROVIDER_NAV}
+      activeHref="/provider/schedule"
     >
       <ScheduleEditor />
     </PortalShell>
