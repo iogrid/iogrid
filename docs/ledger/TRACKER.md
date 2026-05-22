@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T03:15:00Z` |
+| Last refreshed | `2026-05-23T02:48:00Z` 🟢 ALL 6 PRs CLEAN |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
 | Open PRs | **6 — all CLEAN, all mergeable** (#445 #446 #447 #448 #449 #450 — see §0.8) |
