@@ -2,17 +2,29 @@
 @import "../styles/design-tokens.css";
 
 /*
- * Tailwind 4 dark variant. Admin uses CSS-based theme without a runtime
- * theme switcher (no next-themes dep) — defers to OS preference via
- * design-tokens.css's @media (prefers-color-scheme: dark) block + the
- * .dark class hook for future explicit switching.
+ * Tailwind 4 dark variant — bind to a `.dark` class on <html> instead of
+ * the default `@media (prefers-color-scheme: dark)`. next-themes
+ * (mounted in `src/app/layout.tsx`) toggles that class based on the
+ * user's explicit choice in localStorage, falling back to the system
+ * preference on first load. Every `dark:*` class in the codebase is
+ * driven by this variant.
  */
 @custom-variant dark (&:where(.dark, .dark *));
 
 /*
- * Tailwind 4 @theme bridge — same shape as web/src/app/globals.css.
- * Exposes design-tokens.css L2/L3 variables to Tailwind's utility
- * generator so `bg-background`, `text-foreground`, etc. work.
+ * Tailwind 4 @theme bridge — exposes the design-tokens.css L2/L3
+ * variables to Tailwind's utility generator so writing
+ * `bg-background`, `text-foreground`, `border-border`, `bg-primary`,
+ * etc. resolves to the semantic tokens rather than the legacy
+ * zinc-* palette. This is the seam that lets every product surface
+ * adopt the new aesthetic by switching utility classes only.
+ *
+ * Note on dual-shadcn alias: existing shadcn components reference
+ * `--background` / `--foreground` / etc. directly via inline
+ * `hsl(var(--background))`. Those still work because
+ * design-tokens.css continues to define those names. The @theme block
+ * here additionally publishes them as Tailwind utility classes
+ * (`bg-background`, …) so new pages can drop the inline hsl().
  */
 @theme inline {
   --color-background: hsl(var(--background));
@@ -39,6 +51,37 @@
   --color-input: hsl(var(--input));
   --color-ring: hsl(var(--ring));
 
+  /* Brand palette mirrored at Tailwind utility level so the restored
+     marketing components (Hero, ComparisonTable, Stats, …) keep working
+     with their original `bg-primary-50` / `text-primary-700` /
+     `border-neutral-200` class names. */
+  --color-primary-50:  hsl(var(--primary-50));
+  --color-primary-100: hsl(var(--primary-100));
+  --color-primary-200: hsl(var(--primary-200));
+  --color-primary-300: hsl(var(--primary-300));
+  --color-primary-400: hsl(var(--primary-400));
+  --color-primary-500: hsl(var(--primary-500));
+  --color-primary-600: hsl(var(--primary-600));
+  --color-primary-700: hsl(var(--primary-700));
+  --color-primary-800: hsl(var(--primary-800));
+  --color-primary-900: hsl(var(--primary-900));
+
+  --color-accent-300: hsl(var(--accent-300));
+  --color-accent-500: hsl(var(--accent-500));
+  --color-accent-700: hsl(var(--accent-700));
+
+  --color-neutral-0:   hsl(var(--neutral-0));
+  --color-neutral-50:  hsl(var(--neutral-50));
+  --color-neutral-100: hsl(var(--neutral-100));
+  --color-neutral-200: hsl(var(--neutral-200));
+  --color-neutral-300: hsl(var(--neutral-300));
+  --color-neutral-400: hsl(var(--neutral-400));
+  --color-neutral-500: hsl(var(--neutral-500));
+  --color-neutral-600: hsl(var(--neutral-600));
+  --color-neutral-700: hsl(var(--neutral-700));
+  --color-neutral-800: hsl(var(--neutral-800));
+  --color-neutral-900: hsl(var(--neutral-900));
+
   --radius-sm: var(--radius-sm);
   --radius-md: var(--radius-md);
   --radius-lg: var(--radius-lg);
@@ -47,10 +90,67 @@
   --font-mono: var(--font-mono);
 }
 
-html,
-body {
-  background: hsl(var(--background));
-  color: hsl(var(--foreground));
-  font-family: var(--font-sans), ui-sans-serif, system-ui, -apple-system,
-    "Segoe UI", Roboto, sans-serif;
+/* Compound utility classes — restored from the pre-#428 marketing
+   workspace. These are the shorthand patterns the restored Hero /
+   ComparisonTable / vCard-case-study components depend on, and the
+   ones we use across product surfaces (provider/customer/vpn/account)
+   to keep the visual rhythm consistent with the landing. */
+@layer components {
+  .container-page {
+    @apply mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center rounded-md bg-primary-500
+           px-5 py-3 text-sm font-semibold text-white shadow-sm transition
+           hover:bg-primary-600 focus-visible:outline focus-visible:outline-2
+           focus-visible:outline-offset-2 focus-visible:outline-primary-500;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center rounded-md border
+           border-neutral-200 bg-white px-5 py-3 text-sm font-semibold
+           text-neutral-700 transition hover:border-primary-500
+           hover:text-primary-600 focus-visible:outline
+           focus-visible:outline-2 focus-visible:outline-offset-2
+           focus-visible:outline-primary-500
+           dark:border-neutral-700 dark:bg-neutral-800
+           dark:text-neutral-100 dark:hover:border-primary-400
+           dark:hover:text-primary-300;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center rounded-md px-4 py-2
+           text-sm font-medium text-neutral-600 transition
+           hover:bg-neutral-100 hover:text-neutral-900
+           dark:text-neutral-300 dark:hover:bg-neutral-800
+           dark:hover:text-neutral-50;
+  }
+
+  .h-hero {
+    @apply text-5xl font-extrabold tracking-tight md:text-6xl lg:text-7xl;
+  }
+
+  .h-section {
+    @apply text-3xl font-bold tracking-tight md:text-4xl;
+  }
+
+  .h-card {
+    @apply text-xl font-semibold tracking-tight;
+  }
+
+  .text-lead {
+    @apply text-lg text-neutral-600 md:text-xl dark:text-neutral-300;
+  }
+
+  .card {
+    @apply rounded-xl border border-neutral-200 bg-white p-6 shadow-sm
+           transition dark:border-neutral-700 dark:bg-neutral-800;
+  }
+
+  .pill {
+    @apply inline-flex items-center gap-1 rounded-full bg-primary-50
+           px-3 py-1 text-xs font-semibold text-primary-700
+           dark:bg-primary-900 dark:text-primary-200;
+  }
 }

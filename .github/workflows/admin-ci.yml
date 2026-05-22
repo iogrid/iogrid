@@ -61,7 +61,11 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     needs: quality
-    timeout-minutes: 30
+    # Cold-cache Next.js standalone build on QEMU-emulated linux/arm64
+    # exceeds the previous 30-min timeout on PR #446's first push. Bump
+    # to 60 so the first build under a fresh GHA-cache scope finishes;
+    # subsequent runs hit cache and complete in ~5 min.
+    timeout-minutes: 60
     permissions:
       contents: read
       packages: write
