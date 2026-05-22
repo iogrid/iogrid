@@ -104,6 +104,58 @@ impl IdentityBundle {
         }
         Ok(())
     }
+
+    /// Write the pairing-derived UI-bridge bearer token to
+    /// `dir/bearer.txt` with 0600 permissions on Unix. The token is the
+    /// opaque string the supervisor generated via
+    /// `BridgeState::generate_bearer()` at pair time; the same value is
+    /// returned to the web client in `PairResponse.bearer_token`.
+    ///
+    /// Stored alongside cert.pem / key.pem so a daemon restart can
+    /// re-arm `BridgeState::set_bearer_token(Some(load_bearer()?))`
+    /// without re-pairing. iogrid#438.
+    pub fn save_bearer(dir: &Path, bearer: &str) -> Result<(), IdentityError> {
+        std::fs::create_dir_all(dir).map_err(|source| IdentityError::Io {
+            path: dir.to_path_buf(),
+            source,
+        })?;
+        let bearer_path = dir.join("bearer.txt");
+        atomic_write(&bearer_path, bearer.as_bytes())?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&bearer_path, std::fs::Permissions::from_mode(0o600))
+                .map_err(|source| IdentityError::Io {
+                    path: bearer_path.clone(),
+                    source,
+                })?;
+        }
+        Ok(())
+    }
+
+    /// Load the pairing-derived UI-bridge bearer token from
+    /// `dir/bearer.txt`. Returns `Ok(None)` if the file doesn't exist
+    /// (legacy daemons pre-#438 won't have one — the supervisor falls
+    /// back to pre-pair pass-through enforcement in that case).
+    /// Returns `Err` only on real I/O failure (permissions, disk
+    /// corruption).
+    pub fn load_bearer(dir: &Path) -> Result<Option<String>, IdentityError> {
+        let bearer_path = dir.join("bearer.txt");
+        match std::fs::read_to_string(&bearer_path) {
+            Ok(s) => {
+                let trimmed = s.trim().to_string();
+                if trimmed.is_empty() {
+                    return Ok(None);
+                }
+                Ok(Some(trimmed))
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(source) => Err(IdentityError::Io {
+                path: bearer_path,
+                source,
+            }),
+        }
+    }
 }
 
 fn atomic_write(path: &Path, data: &[u8]) -> Result<(), IdentityError> {
@@ -367,5 +419,50 @@ mod tests {
             );
             assert!(!h.ends_with(".lan"), ".lan suffix must be stripped: {h:?}");
         }
+    }
+
+    // ----- bearer.txt persistence (iogrid#438) -----
+
+    #[test]
+    fn bearer_save_load_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        // Before save: no file → load returns Ok(None).
+        let loaded = IdentityBundle::load_bearer(dir.path()).unwrap();
+        assert_eq!(loaded, None);
+
+        // Save a token + load it back.
+        IdentityBundle::save_bearer(dir.path(), "tok-abc-123").unwrap();
+        let loaded = IdentityBundle::load_bearer(dir.path()).unwrap();
+        assert_eq!(loaded.as_deref(), Some("tok-abc-123"));
+    }
+
+    #[test]
+    fn bearer_load_strips_trailing_whitespace() {
+        let dir = tempfile::tempdir().unwrap();
+        // Simulate a token written with a trailing newline (the common
+        // case if an operator manually populated the file with
+        // `echo TOKEN > bearer.txt`).
+        std::fs::write(dir.path().join("bearer.txt"), "tok-xyz\n").unwrap();
+        let loaded = IdentityBundle::load_bearer(dir.path()).unwrap();
+        assert_eq!(loaded.as_deref(), Some("tok-xyz"));
+    }
+
+    #[test]
+    fn bearer_load_returns_none_on_empty_file() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("bearer.txt"), "   \n\n").unwrap();
+        let loaded = IdentityBundle::load_bearer(dir.path()).unwrap();
+        assert_eq!(loaded, None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bearer_save_sets_0600_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        IdentityBundle::save_bearer(dir.path(), "tok-secret").unwrap();
+        let meta = std::fs::metadata(dir.path().join("bearer.txt")).unwrap();
+        let mode = meta.permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "expected 0600, got {mode:o}");
     }
 }
