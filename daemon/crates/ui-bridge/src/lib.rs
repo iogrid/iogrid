@@ -18,7 +18,7 @@
 //! daemon has no identity to bind requests to yet). `/healthz` and
 //! `/pair` are mounted OUTSIDE the auth layer so the liveness probe
 //! + the bootstrap pair flow always work. Enforcement landed via
-//! iogrid#438 (follow-up to EPIC #309).
+//!   iogrid#438 (follow-up to EPIC #309).
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
