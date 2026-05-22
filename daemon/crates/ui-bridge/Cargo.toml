@@ -30,3 +30,4 @@ parking_lot = { workspace = true }
 async-trait = { workspace = true }
 iogrid-scheduler = { workspace = true }
 iogrid-anti-abuse = { workspace = true }
+uuid = { workspace = true }

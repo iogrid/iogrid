@@ -10,10 +10,15 @@
 //!  * `GET  /healthz`        — liveness probe (used by installers).
 //!
 //! Binds to `127.0.0.1:7777` by default (loopback only). The pairing
-//! endpoint enforces a one-shot token; subsequent calls are intended to
-//! require an `Authorization: Bearer` header bound to the paired identity —
-//! the wiring is in place but the bearer check is currently advisory.
-//! Enforcement is tracked under iogrid#438 (follow-up to EPIC #309).
+//! endpoint enforces a one-shot token; every subsequent call to a
+//! protected route (`/state`, `/config`, `/earnings`, `/audit/*`,
+//! `/updates/check`) requires `Authorization: Bearer <token>` where
+//! `<token>` is the pairing-derived bearer the supervisor generates +
+//! persists at pair time. Pre-pair the layer is pass-through (the
+//! daemon has no identity to bind requests to yet). `/healthz` and
+//! `/pair` are mounted OUTSIDE the auth layer so the liveness probe
+//! + the bootstrap pair flow always work. Enforcement landed via
+//!   iogrid#438 (follow-up to EPIC #309).
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
@@ -23,9 +28,11 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::extract::State;
-use axum::http::StatusCode;
+use axum::extract::{Request, State};
+use axum::http::{HeaderMap, StatusCode};
+use axum::middleware::{self, Next};
 use axum::response::sse::{Event, KeepAlive, Sse};
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::Json;
 use axum::Router;
@@ -134,7 +141,7 @@ pub struct PairRequest {
 }
 
 /// Pairing response.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PairResponse {
     /// Provider id the coordinator assigned.
     pub provider_id: String,
@@ -142,6 +149,17 @@ pub struct PairResponse {
     pub status: String,
     /// Free-form detail.
     pub message: String,
+    /// Pairing-derived bearer token (#438). Empty on `status == "error"`
+    /// or on legacy daemons that didn't generate one. Web stores this
+    /// locally + sends it as `Authorization: Bearer <token>` on every
+    /// subsequent loopback call (`/state`, `/config`, `/earnings`,
+    /// `/audit/*`, `/updates/check`). See the BridgeState doc block
+    /// for the enforcement contract.
+    ///
+    /// `serde` skips the field if empty so existing web clients that
+    /// don't yet read it don't break on a missing key.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub bearer_token: String,
 }
 
 /// Snapshot of the active filter ruleset for the audit endpoint.
@@ -167,6 +185,23 @@ pub struct BridgeState {
     /// future Windows tray UI (parallel to the macOS statusbar IPC in
     /// PR #402). When `None`, the route returns 503. iogrid#399.
     pub update_handler: Option<Arc<dyn UpdateHandler>>,
+    /// Pairing-derived bearer token (#438). When `Some(token)`, every
+    /// protected route (`/state`, `/config`, `/earnings`, `/audit/*`,
+    /// `/updates/check`) requires `Authorization: Bearer <token>` and
+    /// returns 401 otherwise. When `None`, requests pass through
+    /// unauthenticated — the pre-pair state, while the daemon has no
+    /// identity to bind requests to.
+    ///
+    /// The supervisor is responsible for generating + persisting the
+    /// token at pair time (alongside the mTLS identity bundle) and
+    /// re-injecting it on daemon start via
+    /// [`BridgeState::with_bearer_token`]. The web management plane
+    /// reads it from the pair response and caches it locally.
+    ///
+    /// `parking_lot::Mutex` here (over `Arc`) so the supervisor can
+    /// flip it from `None` → `Some(token)` post-pair without rebuilding
+    /// the whole state.
+    pub bearer_token: Arc<Mutex<Option<String>>>,
 }
 
 impl Default for BridgeState {
@@ -180,6 +215,7 @@ impl Default for BridgeState {
             filter: None,
             pair_handler: None,
             update_handler: None,
+            bearer_token: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -228,6 +264,35 @@ impl BridgeState {
     pub fn set_earnings(&self, e: EarningsView) {
         *self.earnings.lock() = e;
     }
+    /// Wire in the pairing-derived bearer token (#438). Pass `Some(token)`
+    /// to turn on enforcement (every protected route requires
+    /// `Authorization: Bearer <token>`), `None` to clear it (re-enables
+    /// pre-pair anonymous access).
+    pub fn with_bearer_token(self, token: Option<String>) -> Self {
+        *self.bearer_token.lock() = token;
+        self
+    }
+    /// Mutate the bearer token in place — used by the supervisor when
+    /// the pair flow completes mid-session and the daemon should start
+    /// enforcing without a restart. Pass `Some(token)` to turn on
+    /// enforcement, `None` to clear.
+    pub fn set_bearer_token(&self, token: Option<String>) {
+        *self.bearer_token.lock() = token;
+    }
+    /// Read-only snapshot of the current bearer token. Returns a clone
+    /// of the string so callers can drop the lock immediately.
+    pub fn bearer_snapshot(&self) -> Option<String> {
+        self.bearer_token.lock().clone()
+    }
+    /// Generate a fresh random bearer token. Two UUID-v4 values
+    /// concatenated give 256 bits of entropy — comfortably above the
+    /// 128-bit floor for an opaque bearer. Hex-encoded for ergonomics
+    /// (drop-in for `Authorization: Bearer <hex>`).
+    pub fn generate_bearer() -> String {
+        let a = uuid::Uuid::new_v4().simple().to_string();
+        let b = uuid::Uuid::new_v4().simple().to_string();
+        format!("{a}{b}")
+    }
 }
 
 /// Pairing handler trait — the supervisor implements this to bridge the
@@ -268,17 +333,86 @@ pub trait UpdateHandler: Send + Sync {
     async fn check_for_updates(&self) -> UpdateCheckOutcome;
 }
 
+/// Bearer-auth middleware (#438). Pulls the current token snapshot
+/// from `BridgeState` on every request:
+///   * `None`  → pre-pair, pass-through (no enforcement yet).
+///   * `Some(token)` → require `Authorization: Bearer <token>`; reject
+///     with 401 + a stable JSON body otherwise.
+///
+/// `/healthz` and `/pair` are mounted OUTSIDE this layer (the supervisor
+/// liveness probe + the bootstrap pair flow must reach the daemon
+/// without a token).
+async fn require_bearer(State(state): State<BridgeState>, req: Request, next: Next) -> Response {
+    let Some(expected) = state.bearer_snapshot() else {
+        // Pre-pair: enforcement disabled.
+        return next.run(req).await;
+    };
+    if bearer_matches(req.headers(), &expected) {
+        return next.run(req).await;
+    }
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(serde_json::json!({
+            "code": "unauthorized",
+            "message": "Authorization: Bearer <pairing-derived token> required",
+        })),
+    )
+        .into_response()
+}
+
+fn bearer_matches(headers: &HeaderMap, expected: &str) -> bool {
+    headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .map(|tok| constant_time_eq(tok, expected))
+        .unwrap_or(false)
+}
+
+/// Constant-time string compare so a bearer-validation timing-side-
+/// channel doesn't leak the token byte-by-byte. The loop walks the
+/// longer of the two strings to keep the timing independent of where
+/// the mismatch first occurs.
+fn constant_time_eq(a: &str, b: &str) -> bool {
+    let a = a.as_bytes();
+    let b = b.as_bytes();
+    let max = a.len().max(b.len());
+    let mut diff: u8 = (a.len() ^ b.len()) as u8;
+    for i in 0..max {
+        let ai = *a.get(i).unwrap_or(&0);
+        let bi = *b.get(i).unwrap_or(&0);
+        diff |= ai ^ bi;
+    }
+    diff == 0
+}
+
 /// Build the axum router.
 pub fn router(state: BridgeState) -> Router {
-    Router::new()
-        .route("/healthz", get(get_healthz))
+    // Protected routes — bearer-auth middleware applied. The supervisor
+    // generates + persists the token on pair; pre-pair the layer is
+    // pass-through. Any new route that handles per-user data MUST be
+    // added here, NOT to the unprotected branch below.
+    let protected = Router::new()
         .route("/state", get(get_state))
         .route("/audit/stream", get(get_audit_stream))
         .route("/audit/filters", get(get_audit_filters))
         .route("/config", post(post_config))
         .route("/earnings", get(get_earnings))
-        .route("/pair", post(post_pair))
         .route("/updates/check", post(post_updates_check))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            require_bearer,
+        ));
+
+    // Unprotected routes — `/healthz` for liveness probes, `/pair` for
+    // the bootstrap flow that produces the bearer in the first place.
+    let unprotected = Router::new()
+        .route("/healthz", get(get_healthz))
+        .route("/pair", post(post_pair));
+
+    Router::new()
+        .merge(protected)
+        .merge(unprotected)
         .with_state(state)
 }
 
@@ -395,9 +529,9 @@ async fn post_pair(
         None => (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(PairResponse {
-                provider_id: String::new(),
                 status: "error".into(),
                 message: "daemon not ready for pairing".into(),
+                ..Default::default()
             }),
         ),
         Some(h) => match h.pair(req).await {
@@ -405,9 +539,9 @@ async fn post_pair(
             Err(e) => (
                 StatusCode::BAD_REQUEST,
                 Json(PairResponse {
-                    provider_id: String::new(),
                     status: "error".into(),
                     message: e,
+                    ..Default::default()
                 }),
             ),
         },
@@ -588,5 +722,127 @@ mod tests {
         assert_eq!(status, StatusCode::ACCEPTED);
         assert_eq!(body.status, "spawned");
         assert!(body.message.contains("Update.exe"));
+    }
+
+    // -------- bearer-auth middleware (#438) ---------------------------
+
+    #[test]
+    fn constant_time_eq_basics() {
+        assert!(constant_time_eq("abc", "abc"));
+        assert!(!constant_time_eq("abc", "abd"));
+        assert!(!constant_time_eq("abc", "abcd"));
+        assert!(!constant_time_eq("", "x"));
+        assert!(constant_time_eq("", ""));
+    }
+
+    #[test]
+    fn bearer_matches_header() {
+        let mut h = HeaderMap::new();
+        h.insert(
+            axum::http::header::AUTHORIZATION,
+            "Bearer tok-xyz".parse().unwrap(),
+        );
+        assert!(bearer_matches(&h, "tok-xyz"));
+        assert!(!bearer_matches(&h, "tok-wrong"));
+
+        // Wrong scheme — only Bearer is honoured.
+        let mut h2 = HeaderMap::new();
+        h2.insert(
+            axum::http::header::AUTHORIZATION,
+            "Basic tok-xyz".parse().unwrap(),
+        );
+        assert!(!bearer_matches(&h2, "tok-xyz"));
+
+        // No header at all.
+        let h3 = HeaderMap::new();
+        assert!(!bearer_matches(&h3, "tok-xyz"));
+    }
+
+    #[test]
+    fn generate_bearer_produces_64_hex_chars() {
+        let t = BridgeState::generate_bearer();
+        assert_eq!(t.len(), 64);
+        assert!(t.chars().all(|c| c.is_ascii_hexdigit()));
+        // Two calls produce different tokens (overwhelmingly likely).
+        let t2 = BridgeState::generate_bearer();
+        assert_ne!(t, t2);
+    }
+
+    #[test]
+    fn bearer_state_setters_round_trip() {
+        let s = BridgeState::default();
+        assert_eq!(s.bearer_snapshot(), None);
+        let s = s.with_bearer_token(Some("tok-abc".into()));
+        assert_eq!(s.bearer_snapshot().as_deref(), Some("tok-abc"));
+        s.set_bearer_token(None);
+        assert_eq!(s.bearer_snapshot(), None);
+    }
+
+    // -------- HTTP-level middleware behaviour --------------------------
+    //
+    // These tests exercise the assembled router through tower::ServiceExt
+    // so the require_bearer middleware actually runs against real HTTP
+    // requests — not just its component helpers.
+
+    use axum::body::Body;
+    use axum::http::Request;
+    use tower::ServiceExt; // for `oneshot`
+
+    fn fresh_request(uri: &str, bearer: Option<&str>) -> Request<Body> {
+        let mut b = Request::builder().method("GET").uri(uri);
+        if let Some(tok) = bearer {
+            b = b.header("Authorization", format!("Bearer {tok}"));
+        }
+        b.body(Body::empty()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn healthz_passes_through_without_bearer_even_when_token_is_set() {
+        let state = BridgeState::default().with_bearer_token(Some("tok-xyz".into()));
+        let resp = router(state)
+            .oneshot(fresh_request("/healthz", None))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn state_passes_through_pre_pair_when_token_is_none() {
+        let state = BridgeState::default();
+        let resp = router(state)
+            .oneshot(fresh_request("/state", None))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn state_rejects_missing_bearer_when_token_is_set() {
+        let state = BridgeState::default().with_bearer_token(Some("tok-xyz".into()));
+        let resp = router(state)
+            .oneshot(fresh_request("/state", None))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn state_rejects_wrong_bearer() {
+        let state = BridgeState::default().with_bearer_token(Some("tok-xyz".into()));
+        let resp = router(state)
+            .oneshot(fresh_request("/state", Some("tok-WRONG")))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn state_accepts_matching_bearer() {
+        let state = BridgeState::default().with_bearer_token(Some("tok-xyz".into()));
+        let resp = router(state)
+            .oneshot(fresh_request("/state", Some("tok-xyz")))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
     }
 }
