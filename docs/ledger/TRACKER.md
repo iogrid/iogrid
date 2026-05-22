@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T02:15:00Z` |
+| Last refreshed | `2026-05-23T02:45:00Z` |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
 | Open PRs | 0 |
@@ -28,9 +28,10 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 | PR | scope | status |
 |---|---|---|
-| [#446](https://github.com/iogrid/iogrid/pull/446) | admin app brand polish — same indigo + warm-neutral + minty palette as web/; AdminShell rewritten from horizontal-tab to Linear/Notion/Vercel left-rail. Strict-separation invariant preserved. | open / quality green / docker pending |
-| [#447](https://github.com/iogrid/iogrid/pull/447) | proxy-gateway mounts `iogrid-proxy-tls` (was non-existent `proxy-iogrid-org-tls` → empty volume → plaintext listener). Live-patched 2026-05-20; commits the fix to git. | open / kustomize-build pending |
-| [#448](https://github.com/iogrid/iogrid/pull/448) | VPN free-tier quota = 2 GiB (matches /vpn marketing commitment). Paid tiers report 0 = unlimited. `vpnQuotaForTier()` helper in gateway-bff. | open / Go quality + axe + Playwright pending |
+| [#446](https://github.com/iogrid/iogrid/pull/446) | admin app brand polish — same indigo + warm-neutral + minty palette as web/; AdminShell rewritten from horizontal-tab to Linear/Notion/Vercel left-rail. Strict-separation invariant preserved. | open / **CI green** |
+| [#447](https://github.com/iogrid/iogrid/pull/447) | proxy-gateway mounts `iogrid-proxy-tls` (was non-existent `proxy-iogrid-org-tls` → empty volume → plaintext listener). Live-patched 2026-05-20; commits the fix to git. | open / **CI green** |
+| [#448](https://github.com/iogrid/iogrid/pull/448) | VPN free-tier quota = 2 GiB (matches /vpn marketing commitment). Paid tiers report 0 = unlimited. `vpnQuotaForTier()` helper in gateway-bff. | open / **CI green** |
+| [#449](https://github.com/iogrid/iogrid/pull/449) | `users.preferred_landing_role` enum + column migration; store.User field + GetUser SELECT + new `Store.SetPreferredLandingRole` helper. Schema seam for the EPIC #422 /welcome picker. | open / **CI green / mergeable CLEAN** |
 
 ### Stale-issue audits (evidence comments posted, suggest founder close)
 
