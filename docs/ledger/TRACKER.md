@@ -4,10 +4,10 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T02:48:00Z` 🟢 ALL 6 PRs CLEAN |
+| Last refreshed | `2026-05-23T03:40:00Z` 🟢 7 PRs in flight (#451 added: IdentityBundle bearer-persistence for #438) |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
-| Open PRs | **6 — all CLEAN, all mergeable** (#445 #446 #447 #448 #449 #450 — see §0.8) |
+| Open PRs | **7** — #445 #446 #447 #448 #449 #450 #451 (the first 6 reached all-CLEAN simultaneously; #451 added 2026-05-23 03:34Z as the 2nd piece of the #438 chain — see §0.8) |
 | Open issues | **55** — **EPIC #422 5/6 phases shipped** (Phases 1, 2.1, 2.2, 3, 4.1 LIVE). Remaining: Phase 2.3 (admin surfaces redesign — agent in flight). Founder-physical blockers: #79 macOS, #345 Solana faucet, #398 Authenticode cert, #274 $GRID mainnet, **#426 (founder-action: flip `iogrid/admin` ghcr package → PUBLIC, 30s, unblocks `admin.iogrid.org`)**. |
 | Live URL state post-#428 | <img alt="LIVE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> `iogrid.org` serves product app (was marketing). `app.iogrid.org` 301 → `iogrid.org`. `admin.iogrid.org` 503 (waiting #426 ghcr unblock). Marketing folded into web/ — `marketing/` workspace deleted. New design system live across landing + provide/customer/vpn/account/install. |
 | Prior false-progress | <img alt="REVERTED" src="https://img.shields.io/badge/-FALSE-cf222e?style=flat-square" /> PRs #364 / #383 / #408 — none satisfied founder's "INDEPENDENT admin app" criterion. Replaced by #425 (real separate admin codebase + Deployment + CI). |
@@ -32,7 +32,12 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 | [#447](https://github.com/iogrid/iogrid/pull/447) | proxy-gateway mounts `iogrid-proxy-tls` (was non-existent `proxy-iogrid-org-tls` → empty volume → plaintext listener). Live-patched 2026-05-20; commits the fix to git. | open / **CI green** |
 | [#448](https://github.com/iogrid/iogrid/pull/448) | VPN free-tier quota = 2 GiB (matches /vpn marketing commitment). Paid tiers report 0 = unlimited. `vpnQuotaForTier()` helper in gateway-bff. | open / **CI green** |
 | [#449](https://github.com/iogrid/iogrid/pull/449) | `users.preferred_landing_role` enum + column migration; store.User field + GetUser SELECT + `Store.SetPreferredLandingRole` helper + `PUT /v1/me/preferred-landing-role` chi-router route. Schema + handler seam for the EPIC #422 /welcome picker (web onSelect wiring lands once #445 merges). | open / **CI green / mergeable CLEAN** |
-| [#450](https://github.com/iogrid/iogrid/pull/450) | daemon ui-bridge: `Authorization: Bearer` middleware on every protected route (`/state`, `/config`, `/earnings`, `/audit/*`, `/updates/check`); `/healthz` + `/pair` stay open. Constant-time match; pre-pair state pass-through. 5 unit tests. (Refs #438) | re-CI after clippy/fmt fixes |
+| [#450](https://github.com/iogrid/iogrid/pull/450) | daemon ui-bridge: `Authorization: Bearer` middleware on every protected route (`/state`, `/config`, `/earnings`, `/audit/*`, `/updates/check`); `/healthz` + `/pair` stay open. Constant-time match; pre-pair state pass-through. `PairResponse.bearer_token` field added. 5 unit + 5 HTTP-level tests via `tower::ServiceExt::oneshot`. (Refs #438) | open / **CI green** |
+| [#451](https://github.com/iogrid/iogrid/pull/451) | daemon transport: `IdentityBundle::{save,load}_bearer` for #438 disk persistence — bearer.txt sits alongside cert.pem/key.pem in the identity state dir; 0600 on Unix; atomic-write helper reused. 4 unit tests (round-trip / trailing-newline / empty-file→None / 0600 perms). The supervisor PairHandler impl that ties this + #450's in-memory seam to the actual /pair flow lands separately (CSR generation prereq). | open / re-CI in flight |
+
+### Audit comment on #399 (2026-05-23 03:18Z)
+
+`daemon/crates/core/src/update_windows.rs` (223 lines) implements the full Squirrel.Windows hand-off: `locate_update_exe()` probes current_exe parent + MSI install root; `feed_url()` reads `IOGRID_UPDATE_FEED_URL` with `releases.iogrid.org/windows/` fallback; `apply_update()` spawns `Update.exe --update <feed>` as a detached child. `lib.rs:920` defines `WindowsUpdateHandler` impl; supervisor wires at `lib.rs:319` (`#[cfg(windows)]` `bridge.with_update_handler`). The daily-tick task at `lib.rs:666` reaches the same `apply_update()`. Suggest closing #399.
 
 ### Stale-issue audits (evidence comments posted, suggest founder close)
 
