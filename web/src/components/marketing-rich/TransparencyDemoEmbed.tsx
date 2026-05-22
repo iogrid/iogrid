@@ -50,7 +50,7 @@ export function TransparencyDemoEmbed() {
           </span>
           Live audit
         </span>
-        <span className="font-tabular text-neutral-500">updated 0.3s ago</span>
+        <span className="font-tabular text-neutral-600">updated 0.3s ago</span>
       </div>
       <ul className="space-y-2 font-mono text-xs">
         {sampleEvents.map((e) => (
@@ -62,7 +62,7 @@ export function TransparencyDemoEmbed() {
               <span className="font-semibold text-primary-700">
                 {e.category}
               </span>
-              <span className="font-tabular text-neutral-500">
+              <span className="font-tabular text-neutral-600">
                 {e.ago} ago
               </span>
             </div>
@@ -72,7 +72,7 @@ export function TransparencyDemoEmbed() {
               </span>
               <span className="font-tabular">{e.size}</span>
             </div>
-            <div className="mt-1 text-neutral-500">
+            <div className="mt-1 text-neutral-600">
               customer: {e.customer}
             </div>
           </li>
