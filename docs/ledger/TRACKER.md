@@ -4,13 +4,13 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-21T13:10:00Z` |
+| Last refreshed | `2026-05-22T16:45:00Z` |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
-| Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
+| Merged PRs | **120+** since bootstrap (+38 across 2026-05-21/22 session — see §0 below) |
 | Open PRs | 0 |
-| Open issues | **55** — **EPIC #422 5/6 phases shipped** (Phases 1, 2.1, 2.2, 3, 4.1 LIVE). Remaining: Phase 2.3 (admin surfaces redesign — agent in flight). Founder-physical blockers: #79 macOS, #345 Solana faucet, #398 Authenticode cert, #274 $GRID mainnet, **#426 (founder-action: flip `iogrid/admin` ghcr package → PUBLIC, 30s, unblocks `admin.iogrid.org`)**. |
-| Live URL state post-#428 | <img alt="LIVE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> `iogrid.org` serves product app (was marketing). `app.iogrid.org` 301 → `iogrid.org`. `admin.iogrid.org` 503 (waiting #426 ghcr unblock). Marketing folded into web/ — `marketing/` workspace deleted. New design system live across landing + provide/customer/vpn/account/install. |
-| Prior false-progress | <img alt="REVERTED" src="https://img.shields.io/badge/-FALSE-cf222e?style=flat-square" /> PRs #364 / #383 / #408 — none satisfied founder's "INDEPENDENT admin app" criterion. Replaced by #425 (real separate admin codebase + Deployment + CI). |
+| Open issues | **56** — **EPIC #422 fully code-shipped** (all 6 phases + 9 deferred pages + app.iogrid.org sunset). Founder-action blockers: **#426 (flip `iogrid/admin` ghcr package → PUBLIC, 30s, unblocks `admin.iogrid.org`)**, **#433 (kubeconfig restore on new bastion)**, #79 macOS, #345 Solana faucet, #398 Authenticode cert, #274 $GRID mainnet. |
+| Live URL surfaces | <img alt="LIVE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> **iogrid.org** (product + marketing folded, Linear/Notion redesign), **releases.iogrid.org** (Sparkle/Squirrel/Linux update channels). <img alt="BLOCKED" src="https://img.shields.io/badge/-BLOCKED-8250df?style=flat-square" /> **admin.iogrid.org** (separate codebase deployed, pod 503 on ghcr ImagePullBackOff per #426). <img alt="DEAD" src="https://img.shields.io/badge/-DEAD-6e7781?style=flat-square" /> ~~app.iogrid.org~~ sunset per #434 (no IngressRoute, no SAN). |
+| New bastion | <img alt="LIVE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> `212.72.24.20` (hostname `bastion-openova`). Code + Claude state migrated; gh CLI re-installed; kubectl present but kubeconfig missing per #433. |
 | EPIC closure | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 17 / 17 closed by audit |
 | Phase 0 browser login | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> **`https://app.iogrid.org/account`** — NextAuth + Stalwart magic-link, verification tokens persisted in CNPG `web` DB |
 | Phase 0 mothership | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> 6 services + CNPG + 5 IngressRoutes (app/api/proxy/releases/v1-auth) + 2 Let's Encrypt certs all Running |
@@ -21,6 +21,27 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 | Phase 0 admin UI | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> `/admin/providers` shows paired daemon record for `emrah.baysal` — verified live via Playwright, record survives `providers-svc` pod restart (Postgres-backed via #247). Screenshots in repo root: `admin-providers-emrah-WORKING.png`, `admin-providers-postgres-persisted.png` |
 
 **Legend:** <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> done · <img alt="IN_FLIGHT" src="https://img.shields.io/badge/-IN__FLIGHT-bf8700?style=flat-square" /> work in progress · <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> open · <img alt="DEFERRED" src="https://img.shields.io/badge/-DEFERRED-6e7781?style=flat-square" /> deferred · <img alt="BLOCKED" src="https://img.shields.io/badge/-BLOCKED-8250df?style=flat-square" /> blocked on founder action
+
+---
+
+## 0.7. EPIC #422 — closing-loop PRs (2026-05-21 13:10Z → 2026-05-22 16:45Z)
+
+| PR | merged | scope |
+|---|---|---|
+| [#431](https://github.com/iogrid/iogrid/pull/431) | 16:09Z 05-21 | Phase 2.3 — apply design system tokens to admin/ surfaces |
+| [#432](https://github.com/iogrid/iogrid/pull/432) | 16:00Z 05-22 | Port 9 deferred marketing pages — compute/gpu/proxy/ios-build/token/providers/blog/docs/transparency |
+| [#434](https://github.com/iogrid/iogrid/pull/434) | 16:35Z 05-22 | Sunset `app.iogrid.org` — drop IngressRoute + cert SAN + admin code refs |
+
+### Bastion migration (2026-05-22)
+
+Old → new bastion at `212.72.24.20`. Repos / Claude state / git creds carried. NOT carried: kubeconfig (#433), cron timers, k3s-context helpers. gh CLI re-installed; kubectl present but no cluster access until kubeconfig restored.
+
+### Active sub-agents (2026-05-22 16:45Z)
+
+| ID | Scope |
+|---|---|
+| `ad069de07833ec3cd` | Deepen 9 marketing pages with real specs + pricing tables (replaces #432 stubs) |
+| `adc2ede6b449a402f` | Wire vCard outbound HTTP via iogrid SOCKS5 proxy (`dynolabs-io/vcard` repo) — first-customer integration |
 
 ---
 
