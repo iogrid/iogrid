@@ -20,11 +20,34 @@ type vpnAccount struct {
 	UpgradeAvailable     bool   `json:"upgrade_available"`
 }
 
+// vpnQuotaForTier returns the bandwidth quota (bytes) for a given
+// subscription tier. The free tier is capped at 2 GiB per month to
+// match the public commitment on /vpn (#443). Paid tiers report 0 to
+// signal "unlimited" — the UI renders 0 as a dash rather than "0 GB"
+// so customers don't misread it as zero allowance.
+//
+// Single source of truth: every caller (gateway-bff, /customer/billing
+// panel, daemon slow-lane gate) reads this table instead of inlining
+// the numbers. Future tier table changes ship in this one place.
+func vpnQuotaForTier(tier billingv1.SubscriptionTier) uint64 {
+	switch tier {
+	case billingv1.SubscriptionTier_SUBSCRIPTION_TIER_STARTER,
+		billingv1.SubscriptionTier_SUBSCRIPTION_TIER_GROWTH,
+		billingv1.SubscriptionTier_SUBSCRIPTION_TIER_ENTERPRISE:
+		return 0 // unlimited
+	default:
+		// FREE / PAYG / UNSPECIFIED — public 2 GiB / month cap.
+		return 2 * 1024 * 1024 * 1024
+	}
+}
+
 // GetVPNAccount aggregates the subscription + bandwidth-usage view.
 //
 //	GET /api/v1/vpn/account?workspace_id=<UUID>
 //
-// Free-tier callers (no subscription) get the default 50 GB quota.
+// Free-tier callers (no subscription) get the 2 GiB free-tier cap that
+// matches the public marketing commitment on /vpn (#443). Paid tiers
+// (STARTER / GROWTH / ENTERPRISE) report quota=0 to signal "unlimited".
 func (a *API) GetVPNAccount(w http.ResponseWriter, r *http.Request) {
 	if _, ok := auth.FromContext(r.Context()); !ok {
 		writeError(w, http.StatusUnauthorized, "unauthenticated", "valid Bearer token required")
@@ -44,16 +67,18 @@ func (a *API) GetVPNAccount(w http.ResponseWriter, r *http.Request) {
 	tier := "FREE"
 	status := "active"
 	upgrade := true
+	subTier := billingv1.SubscriptionTier_SUBSCRIPTION_TIER_UNSPECIFIED
 	if sub != nil && sub.Subscription != nil {
-		tier = sub.Subscription.Tier.String()
+		subTier = sub.Subscription.Tier
+		tier = subTier.String()
 		status = sub.Subscription.Status.String()
-		upgrade = sub.Subscription.Tier != billingv1.SubscriptionTier_SUBSCRIPTION_TIER_ENTERPRISE
+		upgrade = subTier != billingv1.SubscriptionTier_SUBSCRIPTION_TIER_ENTERPRISE
 	}
 	writeJSON(w, http.StatusOK, vpnAccount{
 		Tier:                tier,
 		Status:              status,
 		BandwidthUsedBytes:  0, // populated by metering rollup once landed
-		BandwidthQuotaBytes: 50 * 1024 * 1024 * 1024,
+		BandwidthQuotaBytes: vpnQuotaForTier(subTier),
 		UpgradeAvailable:    upgrade,
 	})
 }

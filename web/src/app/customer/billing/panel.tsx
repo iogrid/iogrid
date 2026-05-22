@@ -144,10 +144,14 @@ export function BillingPanel() {
     );
   }
 
-  const bandwidthLabel = `${(account.bandwidth_used_bytes / 1024 ** 3).toFixed(1)} / ${(
-    account.bandwidth_quota_bytes /
-    1024 ** 3
-  ).toFixed(0)} GB`;
+  // Paid tiers report bandwidth_quota_bytes=0 to signal "unlimited"
+  // (set by gateway-bff's vpnQuotaForTier table; #443). Free tier
+  // reports the 2 GiB public cap.
+  const usedGB = (account.bandwidth_used_bytes / 1024 ** 3).toFixed(1);
+  const bandwidthLabel =
+    account.bandwidth_quota_bytes === 0
+      ? `${usedGB} GB / unlimited`
+      : `${usedGB} / ${(account.bandwidth_quota_bytes / 1024 ** 3).toFixed(0)} GB`;
 
   return (
     <div className="space-y-6">
