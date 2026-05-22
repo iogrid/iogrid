@@ -51,9 +51,9 @@ const rows: Array<{
 ];
 
 const cellBadge = {
-  yes: { label: "Yes", classes: "bg-accent-300/40 text-accent-700" },
-  no: { label: "—", classes: "bg-neutral-100 text-neutral-600" },
-  partial: { label: "Partial", classes: "bg-warning/20 text-amber-700" },
+  yes: { label: "Yes", classes: "bg-accent-700 text-white" },
+  no: { label: "—", classes: "bg-neutral-200 text-neutral-700" },
+  partial: { label: "Partial", classes: "bg-warning-500 text-neutral-900" },
 };
 
 export function ComparisonTable() {
