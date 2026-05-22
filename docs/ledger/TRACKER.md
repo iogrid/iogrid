@@ -4,10 +4,10 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T03:00:00Z` |
+| Last refreshed | `2026-05-23T03:15:00Z` |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
-| Open PRs | 0 |
+| Open PRs | **6 — all CLEAN, all mergeable** (#445 #446 #447 #448 #449 #450 — see §0.8) |
 | Open issues | **55** — **EPIC #422 5/6 phases shipped** (Phases 1, 2.1, 2.2, 3, 4.1 LIVE). Remaining: Phase 2.3 (admin surfaces redesign — agent in flight). Founder-physical blockers: #79 macOS, #345 Solana faucet, #398 Authenticode cert, #274 $GRID mainnet, **#426 (founder-action: flip `iogrid/admin` ghcr package → PUBLIC, 30s, unblocks `admin.iogrid.org`)**. |
 | Live URL state post-#428 | <img alt="LIVE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> `iogrid.org` serves product app (was marketing). `app.iogrid.org` 301 → `iogrid.org`. `admin.iogrid.org` 503 (waiting #426 ghcr unblock). Marketing folded into web/ — `marketing/` workspace deleted. New design system live across landing + provide/customer/vpn/account/install. |
 | Prior false-progress | <img alt="REVERTED" src="https://img.shields.io/badge/-FALSE-cf222e?style=flat-square" /> PRs #364 / #383 / #408 — none satisfied founder's "INDEPENDENT admin app" criterion. Replaced by #425 (real separate admin codebase + Deployment + CI). |
