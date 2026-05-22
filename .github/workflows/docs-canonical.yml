@@ -1,0 +1,34 @@
+name: docs-canonical
+
+# Pins the docs/ canonical structure from #337 / user-global CLAUDE.md §11.
+# Runs ./scripts/docs-canonical-check.sh — fails if anyone re-introduces
+# a folded orphan, exceeds the 10-file top-level cap, drops a canonical
+# keeper, or commits a date-stamped file to flat docs/.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'scripts/docs-canonical-check.sh'
+      - '.github/workflows/docs-canonical.yml'
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'scripts/docs-canonical-check.sh'
+      - '.github/workflows/docs-canonical.yml'
+
+concurrency:
+  group: docs-canonical-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: docs canonical structure (#337)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run docs-canonical-check.sh
+        run: ./scripts/docs-canonical-check.sh
