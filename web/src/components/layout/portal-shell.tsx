@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
  * 2026-05-23 BREAKING SHAPE CHANGE per EPIC #422 final form: this
  * component no longer renders the top-bar tabs or persona switcher.
  * Those concerns moved to:
- *   • PersonaRail        — leftmost icon column, switches persona.
+ *   • PersonaSwitcher        — leftmost icon column, switches persona.
  *   • PersonaSidebar     — second column, section nav for the ACTIVE
  *                          persona only.
  *   • AppShell           — composes the two + wraps content.

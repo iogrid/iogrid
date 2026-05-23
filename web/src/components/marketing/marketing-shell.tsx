@@ -8,7 +8,7 @@ import { Footer } from "@/components/marketing-rich/Footer";
  * from the pre-#428 marketing/ workspace.
  *
  * Authenticated app surfaces (/provider, /customer, /vpn account panel,
- * /account, /admin) use AppShell + PersonaRail + PersonaSidebar instead.
+ * /account, /admin) use AppShell + PersonaSwitcher + PersonaSidebar instead.
  */
 export function MarketingShell({ children }: { children: React.ReactNode }) {
   return (

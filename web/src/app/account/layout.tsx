@@ -18,7 +18,7 @@ const ITEMS = [
 /**
  * Unauthenticated users land on /account directly — both from raw
  * navigation and from the middleware's redirect off /provider, /customer.
- * Showing them PersonaRail + PersonaSidebar (with Provider / Customer /
+ * Showing them PersonaSwitcher + PersonaSidebar (with Provider / Customer /
  * VPN entries pointing into auth-gated surfaces) makes the sign-in
  * surface noisier and breaks keyboard-tab order to the email field.
  *
