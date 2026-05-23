@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T23:50:00Z` 🟢 67/67 open issues audited with evidence/walk this session. Walk 08-18 (10 public surfaces HTTP 200) + 4 final audits (#353 h2c, #327 TLS roots, #325 owned-pid, #350 proxy passthrough re-flagged). PR #465 baking. |
+| Last refreshed | `2026-05-23T23:58:00Z` 🟢 PR #465 merged (legal pages). New web image sha 2534a7a4 pulled + rolling. **#467 fix shipped**: api+app.iogrid.org Certs READY=True (cert-manager ClusterIssuer was using Gateway API, patched to Traefik ingress). |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
 | Open PRs | **7** — #445 #446 #447 #448 #449 #450 #451 (the first 6 reached all-CLEAN simultaneously; #451 added 2026-05-23 03:34Z as the 2nd piece of the #438 chain — see §0.8) |
