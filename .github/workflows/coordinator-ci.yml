@@ -332,7 +332,11 @@ jobs:
 
           # image: ghcr.io/iogrid/<svc>... -> image: <img>
           esc = re.escape(svc)
-          img_pat = re.compile(r'(\s+image:\s+)ghcr\.io/iogrid/' + esc + r'[:@][^\s]+')
+          # Match either ghcr.io OR harbor.openova.io for the service image
+          # so the deploy-bot keeps working after the harbor-mirror cutover
+          # (Refs #473 — cluster pulls from harbor, ghcr push still lands
+          # as a backup).
+          img_pat = re.compile(r'(\s+image:\s+)(?:ghcr\.io|harbor\.openova\.io)/iogrid/' + esc + r'[:@][^\s]+')
           new_src, n_img = img_pat.subn(r'\g<1>' + img, src, count=1)
           if n_img != 1:
               print(f"::error::image line substitution count={n_img}, expected 1 for {svc}", file=sys.stderr)

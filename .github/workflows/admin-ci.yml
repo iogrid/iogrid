@@ -151,7 +151,11 @@ jobs:
           img = os.environ["IMAGE"]
           p = pathlib.Path("$MANIFEST")
           src = p.read_text()
-          pat = re.compile(r'(\s+image:\s+)ghcr\.io/iogrid/admin[:@][^\s]+')
+          # Match either ghcr.io OR harbor.openova.io for the admin image so
+          # the deploy-bot keeps working after the harbor-mirror cutover
+          # (Refs #473 — cluster pulls from harbor, but ghcr push still
+          # lands as a backup).
+          pat = re.compile(r'(\s+image:\s+)(?:ghcr\.io|harbor\.openova\.io)/iogrid/admin[:@][^\s]+')
           new_src, n = pat.subn(r'\g<1>' + img, src, count=1)
           if n != 1:
               print(f"::error::admin image substitution count={n}, expected 1", file=sys.stderr)
