@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T13:55Z` 🟢 PR #477 expanded: piece 3 (SupervisorPairHandler) + piece 4 (startup bearer re-arm via IdentityBundle::load_bearer) — bearer enforcement chain end-to-end (#450 middleware + #451 persistence + #477 = #438 closed on merge). Cluster: api.iogrid.org/healthz=200, 7/13 coordinator deploys 1/1 ready post-HPA fix, web/admin 2/2. Open: 3 EPICs, 2 active via PR #477, 7 founder-physical. |
+| Last refreshed | `2026-05-23T14:00Z` 🟢 cron-refresh: +2 commits since last TRACKER bump |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
 | Open PRs | **7** — #445 #446 #447 #448 #449 #450 #451 (the first 6 reached all-CLEAN simultaneously; #451 added 2026-05-23 03:34Z as the 2nd piece of the #438 chain — see §0.8) |
