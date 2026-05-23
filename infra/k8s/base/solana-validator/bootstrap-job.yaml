@@ -38,44 +38,54 @@ spec:
               drop: ["ALL"]
       containers:
         - name: bootstrap
-          image: solanalabs/solana:v1.18.22
-          command: ["sh", "-c"]
+          # bitnami/kubectl ships kubectl + bash. The solana CLI lives inside
+          # the validator pod itself; we `kubectl exec` into it to run
+          # solana-keygen / airdrop / spl-token, then create the Secret from
+          # the captured output. This avoids cramming two binary sets into
+          # one image.
+          image: bitnami/kubectl:1.30
+          command: ["bash", "-c"]
           args:
             - |
-              set -euo pipefail
-              export RPC=http://solana-validator:8899
-              solana config set --url "$RPC" >/dev/null
-              # Generate the payout wallet IN the cluster if missing.
-              # Persisted to the Secret on first run; reused on subsequent
-              # runs (Job runs once; restart-on-failure preserves Secret).
-              if ! kubectl -n iogrid get secret iogrid-solana-payout >/dev/null 2>&1; then
-                solana-keygen new --no-bip39-passphrase --silent --outfile /tmp/payer.json
-                PAYER_PUB=$(solana-keygen pubkey /tmp/payer.json)
-                echo "minted payer wallet: $PAYER_PUB"
-                # Airdrop 100 SOL (test-validator faucet is unlimited).
-                solana airdrop 100 "$PAYER_PUB"
-                # Mint $GRID SPL token (decimals 9 mirrors mainnet design).
-                MINT=$(spl-token create-token --decimals 9 --output json | \
-                       sed -n 's/.*"commandOutput":"\([^"]*\)".*/\1/p' | \
-                       awk '{print $NF}')
-                if [ -z "$MINT" ]; then
-                  # Fallback parse — spl-token CLI output varies by version.
-                  MINT=$(spl-token create-token --decimals 9 | awk '/Creating token/ {print $3}')
-                fi
-                echo "minted GRID token: $MINT"
-                # Create an associated token account for the payer.
-                spl-token create-account "$MINT" || true
-                # Mint 1B GRID to the payer's ATA (treasury reserve).
-                spl-token mint "$MINT" 1000000000 || true
-                # Persist payer + mint into a Secret consumed by billing-svc.
-                kubectl -n iogrid create secret generic iogrid-solana-payout \
-                  --from-file=SOLANA_PAYER_KEYPAIR=/tmp/payer.json \
-                  --from-literal=GRID_TOKEN_MINT_ADDRESS="$MINT" \
-                  --from-literal=SOLANA_PAYER_PUBKEY="$PAYER_PUB" \
-                  --dry-run=client -o yaml | kubectl apply -f -
-              else
+              set -eu
+              if kubectl -n iogrid get secret iogrid-solana-payout >/dev/null 2>&1; then
                 echo "iogrid-solana-payout already present; nothing to do"
+                exit 0
               fi
+              VPOD=solana-validator-0
+              KX() { kubectl -n iogrid exec "$VPOD" -- "$@"; }
+              echo "→ generating payer keypair inside validator pod"
+              KX rm -f /tmp/payer.json
+              KX solana-keygen new --no-bip39-passphrase --silent --outfile /tmp/payer.json
+              PAYER_PUB=$(KX solana-keygen pubkey /tmp/payer.json | tr -d '\r\n')
+              echo "  payer pubkey: $PAYER_PUB"
+              echo "→ pointing solana CLI inside validator at local RPC"
+              KX solana config set --url http://127.0.0.1:8899 >/dev/null
+              echo "→ airdropping 100 SOL"
+              KX solana airdrop 100 "$PAYER_PUB" || true
+              KX solana balance "$PAYER_PUB" || true
+              echo "→ minting \$GRID SPL token (decimals 9)"
+              KX solana config set --keypair /tmp/payer.json >/dev/null
+              MINT_OUT=$(KX spl-token create-token --decimals 9)
+              echo "$MINT_OUT"
+              MINT=$(echo "$MINT_OUT" | awk '/Creating token/ {print $3}' | tr -d '\r')
+              if [ -z "$MINT" ]; then
+                echo "::error::failed to parse \$GRID mint address"
+                exit 2
+              fi
+              echo "  GRID mint: $MINT"
+              echo "→ creating ATA + minting 1B GRID treasury"
+              KX spl-token create-account "$MINT" || true
+              KX spl-token mint "$MINT" 1000000000 || true
+              echo "→ pulling keypair JSON out of validator pod"
+              kubectl -n iogrid cp "$VPOD":/tmp/payer.json /tmp/payer.json
+              echo "→ creating Secret iogrid-solana-payout"
+              kubectl -n iogrid create secret generic iogrid-solana-payout \
+                --from-file=SOLANA_PAYER_KEYPAIR=/tmp/payer.json \
+                --from-literal=GRID_TOKEN_MINT_ADDRESS="$MINT" \
+                --from-literal=SOLANA_PAYER_PUBKEY="$PAYER_PUB" \
+                --dry-run=client -o yaml | kubectl apply -f -
+              echo "✓ \$GRID bootstrap complete (payer=$PAYER_PUB mint=$MINT)"
           resources:
             requests:
               cpu: 50m
@@ -106,6 +116,9 @@ rules:
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get", "create", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/exec"]
+    verbs: ["get", "list", "create"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
