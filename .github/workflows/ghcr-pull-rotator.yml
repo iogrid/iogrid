@@ -89,17 +89,12 @@ jobs:
           for deploy in identity-svc providers-svc workloads-svc \
                        antiabuse-svc billing-svc telemetry-svc \
                        gateway-bff proxy-gateway web admin releases; do
-            # only roll if any pod for this deploy is non-Ready
+            # only roll if any pod for this deploy is non-Ready (jq, not python heredoc — heredoc trips GHA YAML parser)
             unready=$(kubectl -n iogrid get pods -l app.kubernetes.io/name=$deploy \
-              -o json 2>/dev/null | python3 -c 'import sys,json
-try:
-    d=json.load(sys.stdin)
-    n=sum(1 for p in d.get("items",[])
-          if any(not c.get("ready",False) for c in p.get("status",{}).get("containerStatuses",[])))
-    print(n)
-except Exception:
-    print(0)' )
-            if [ "${unready:-0}" -gt 0 ]; then
+              -o json 2>/dev/null \
+              | jq '[.items[]?.status.containerStatuses[]? | select(.ready==false)] | length' 2>/dev/null)
+            unready=${unready:-0}
+            if [ "$unready" -gt 0 ]; then
               echo "rolling deploy/$deploy ($unready non-ready pod(s))"
               kubectl -n iogrid rollout restart deploy/$deploy 2>&1 | head -1
             else
