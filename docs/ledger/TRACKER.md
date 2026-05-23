@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-24T02:00Z` 🟢 **Cluster cleanup + new bug filed**: axon CrashLoopBackOff stopped ([openova-io/openova#2203](https://github.com/openova-io/openova/issues/2203) filed); attempted to restore vpn-gateway → caught NET_ADMIN vs PodSecurity:restricted conflict → filed **#478** with 3 implementation paths (wireguard-go / separate-ns / PSA exemption), labeled status/parked + severity/p2. telemetry-svc IaC mem 256→64Mi (commit 2272a6a) for future fit. releases back to 1/1 Running. Open: 7 issues (3 EPICs uat + 2 blocked-ext + 1 parked + #478 parked). All conform to BACKLOG-STANDARDS. |
+| Last refreshed | `2026-05-23T19:30Z` 🟢 cron-refresh: +2 commits since last TRACKER bump |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
 | Open PRs | **7** — #445 #446 #447 #448 #449 #450 #451 (the first 6 reached all-CLEAN simultaneously; #451 added 2026-05-23 03:34Z as the 2nd piece of the #438 chain — see §0.8) |
