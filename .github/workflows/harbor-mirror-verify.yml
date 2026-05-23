@@ -1,0 +1,51 @@
+name: harbor-mirror-verify
+
+# After every push to main, verify the harbor.openova.io/iogrid project
+# has a fresh artifact for every coordinator + frontend service. Catches
+# the case where ghcr push lands but harbor push silently fails (e.g.
+# robot token expired or robot lost permission).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/coordinator-ci.yml'
+      - '.github/workflows/web-ci.yml'
+      - '.github/workflows/admin-ci.yml'
+      - '.github/workflows/harbor-mirror-verify.yml'
+  schedule:
+    - cron: '23 */6 * * *'   # every 6h
+  workflow_dispatch: {}
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe every harbor.openova.io/iogrid/* artifact
+        env:
+          HARBOR_USER: ${{ secrets.HARBOR_USERNAME }}
+          HARBOR_PASS: ${{ secrets.HARBOR_PASSWORD }}
+        run: |
+          set +e
+          SERVICES="identity-svc providers-svc workloads-svc antiabuse-svc \
+                    billing-svc telemetry-svc gateway-bff proxy-gateway \
+                    build-gateway vpn-gateway web admin releases"
+          fail=0
+          for svc in $SERVICES; do
+            HTTP=$(curl -sS -u "$HARBOR_USER:$HARBOR_PASS" \
+              "https://harbor.openova.io/api/v2.0/projects/iogrid/repositories/$svc/artifacts?page_size=1" \
+              -o /tmp/$svc.json -w "%{http_code}")
+            COUNT=$(jq -r 'length' /tmp/$svc.json 2>/dev/null || echo 0)
+            if [ "$HTTP" = "200" ] && [ "$COUNT" -ge 1 ]; then
+              printf "  %-15s OK (%d artifacts)\n" "$svc" "$COUNT"
+            else
+              printf "  %-15s MISSING (HTTP %s, count %s)\n" "$svc" "$HTTP" "$COUNT"
+              fail=$((fail + 1))
+            fi
+          done
+          if [ "$fail" -gt 0 ]; then
+            echo "::error::$fail services missing from harbor mirror"
+            exit 1
+          fi
+          echo "All 13 services present in harbor mirror."
