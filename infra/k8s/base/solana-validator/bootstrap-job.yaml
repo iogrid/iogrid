@@ -55,30 +55,38 @@ spec:
                 exit 0
               fi
               VPOD=solana-validator-0
+              RPC=http://127.0.0.1:8899
               KX() { kubectl -n iogrid exec "$VPOD" -- "$@"; }
+              # The validator pod's HOME is non-writable for uid 1000;
+              # `solana config set` fails with EACCES on ~/.config/solana.
+              # Bypass by passing --url + --keypair as flags everywhere.
               echo "→ generating payer keypair inside validator pod"
               KX rm -f /tmp/payer.json
               KX solana-keygen new --no-bip39-passphrase --silent --outfile /tmp/payer.json
               PAYER_PUB=$(KX solana-keygen pubkey /tmp/payer.json | tr -d '\r\n')
               echo "  payer pubkey: $PAYER_PUB"
-              echo "→ pointing solana CLI inside validator at local RPC"
-              KX solana config set --url http://127.0.0.1:8899 >/dev/null
               echo "→ airdropping 100 SOL"
-              KX solana airdrop 100 "$PAYER_PUB" || true
-              KX solana balance "$PAYER_PUB" || true
+              KX solana airdrop 100 "$PAYER_PUB" --url "$RPC" --keypair /tmp/payer.json || true
+              KX solana balance "$PAYER_PUB" --url "$RPC" || true
               echo "→ minting \$GRID SPL token (decimals 9)"
-              KX solana config set --keypair /tmp/payer.json >/dev/null
-              MINT_OUT=$(KX spl-token create-token --decimals 9)
+              MINT_OUT=$(KX spl-token create-token --decimals 9 --url "$RPC" --fee-payer /tmp/payer.json --mint-authority /tmp/payer.json --output json 2>&1) || true
               echo "$MINT_OUT"
-              MINT=$(echo "$MINT_OUT" | awk '/Creating token/ {print $3}' | tr -d '\r')
+              # Fallback: re-run without --output json for human-readable parse
+              if ! echo "$MINT_OUT" | grep -q 'commandOutput\|Creating token'; then
+                MINT_OUT=$(KX spl-token create-token --decimals 9 --url "$RPC" --fee-payer /tmp/payer.json --mint-authority /tmp/payer.json)
+                echo "$MINT_OUT"
+              fi
+              echo "$MINT_OUT"
+              # Parse mint from either JSON (.commandOutput) or text "Creating token ADDR"
+              MINT=$(echo "$MINT_OUT" | grep -oE '[1-9A-HJ-NP-Za-km-z]{40,44}' | head -1)
               if [ -z "$MINT" ]; then
                 echo "::error::failed to parse \$GRID mint address"
                 exit 2
               fi
               echo "  GRID mint: $MINT"
               echo "→ creating ATA + minting 1B GRID treasury"
-              KX spl-token create-account "$MINT" || true
-              KX spl-token mint "$MINT" 1000000000 || true
+              KX spl-token create-account "$MINT" --url "$RPC" --fee-payer /tmp/payer.json --owner /tmp/payer.json || true
+              KX spl-token mint "$MINT" 1000000000 --url "$RPC" --fee-payer /tmp/payer.json --mint-authority /tmp/payer.json || true
               echo "→ pulling keypair JSON out of validator pod"
               kubectl -n iogrid cp "$VPOD":/tmp/payer.json /tmp/payer.json
               echo "→ creating Secret iogrid-solana-payout"
