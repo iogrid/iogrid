@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T14:15Z` 🟢 EPIC readiness comments filed on #422 / #309 / #348 with per-criterion evidence + commit anchors so founder can close after re-walk. PR #477 CI 36/36 PASS (protoc Bad-credentials flake root-cause fixed in commit c996a00 — replaced arduino/setup-protoc@v3 with no-API composite action). Bearer enforcement chain end-to-end (#450 middleware + #451 persistence + #477 pieces 3+4). |
+| Last refreshed | `2026-05-23T14:15Z` 🟢 cron-refresh: +1 commits since last TRACKER bump |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
 | Open PRs | **7** — #445 #446 #447 #448 #449 #450 #451 (the first 6 reached all-CLEAN simultaneously; #451 added 2026-05-23 03:34Z as the 2nd piece of the #438 chain — see §0.8) |
