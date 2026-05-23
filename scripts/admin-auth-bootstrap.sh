@@ -76,6 +76,46 @@ ensure_db_exists
 PASS="admin_$(openssl rand -hex 16)"
 ensure_user_with_password "$PASS"
 
+echo "→ NextAuth Drizzle schema (DDL idempotent via IF NOT EXISTS)"
+kubectl -n "$NS" exec -i "$PG_POD" -c "$PG_CONTAINER" -- \
+  psql -U postgres -d admin <<'SQL'
+CREATE TABLE IF NOT EXISTS "user" (
+  id text PRIMARY KEY,
+  name text,
+  email text UNIQUE,
+  "emailVerified" timestamp,
+  image text
+);
+CREATE TABLE IF NOT EXISTS account (
+  "userId" text NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+  type text NOT NULL,
+  provider text NOT NULL,
+  "providerAccountId" text NOT NULL,
+  refresh_token text,
+  access_token text,
+  expires_at integer,
+  token_type text,
+  scope text,
+  id_token text,
+  session_state text,
+  PRIMARY KEY (provider, "providerAccountId")
+);
+CREATE TABLE IF NOT EXISTS session (
+  "sessionToken" text PRIMARY KEY,
+  "userId" text NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+  expires timestamp NOT NULL
+);
+CREATE TABLE IF NOT EXISTS "verificationToken" (
+  identifier text NOT NULL,
+  token text NOT NULL,
+  expires timestamp NOT NULL,
+  PRIMARY KEY (identifier, token)
+);
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO admin_user;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO admin_user;
+SQL
+echo "  ✓ NextAuth tables present"
+
 echo "→ admin-db-secrets (DATABASE_URL for DrizzleAdapter)"
 URL="postgres://admin_user:$PASS@iogrid-pg-rw.iogrid.svc.cluster.local:5432/admin?sslmode=require"
 kubectl -n "$NS" create secret generic admin-db-secrets \
