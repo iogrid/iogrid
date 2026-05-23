@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T23:25:00Z` 🟢 Walk evidence 08-15 landed (Hero + /welcome + /provider gate + admin signin + /vpn + /install + /docs + /providers). PR #461 /customers + PR #465 /privacy /terms /security in flight; #466 PageHero prop fix shipped. 9 new issues filed (#454 #457 #459 #460 #462 #463 #464 #465 #466). |
+| Last refreshed | `2026-05-23T23:40:00Z` 🟢 Walk evidence 08-18 landed (10 public surfaces HTTP 200). PR #465 docker pending; web-ci rebuild bakes new /customers+/privacy+/terms+/security images. Audited 6 more issues (#314 #311 #381 #319 #322 #321) with code-resolved evidence. |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
 | Open PRs | **7** — #445 #446 #447 #448 #449 #450 #451 (the first 6 reached all-CLEAN simultaneously; #451 added 2026-05-23 03:34Z as the 2nd piece of the #438 chain — see §0.8) |
