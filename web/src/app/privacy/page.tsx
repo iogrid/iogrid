@@ -58,7 +58,7 @@ export default function PrivacyPage() {
       <PageHero
         eyebrow="Legal"
         title="Privacy notice"
-        body={`What data iogrid collects, why, where it goes, how long we keep it, and how to exercise your GDPR / CCPA / KVKK rights. Last updated ${LAST_UPDATED}.`}
+        subtitle={`What data iogrid collects, why, where it goes, how long we keep it, and how to exercise your GDPR / CCPA / KVKK rights. Last updated ${LAST_UPDATED}.`}
       />
       <section className="border-b border-border">
         <div className="mx-auto max-w-3xl px-6 py-16">

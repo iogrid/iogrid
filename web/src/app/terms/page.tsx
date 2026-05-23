@@ -81,7 +81,7 @@ export default function TermsPage() {
       <PageHero
         eyebrow="Legal"
         title="Terms of Service + Acceptable Use Policy"
-        body={`Provider TOS, Customer TOS, and AUP. Plain English where possible. Last updated ${LAST_UPDATED}.`}
+        subtitle={`Provider TOS, Customer TOS, and AUP. Plain English where possible. Last updated ${LAST_UPDATED}.`}
       />
       <section className="border-b border-border">
         <div className="mx-auto max-w-3xl px-6 py-16">

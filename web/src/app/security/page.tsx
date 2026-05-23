@@ -64,7 +64,7 @@ export default function SecurityPage() {
       <PageHero
         eyebrow="Security"
         title="How we earn the trust to relay residential bandwidth."
-        body="mTLS everywhere, default-deny NetworkPolicies, cosign-signed images, per-byte provider transparency, responsible-disclosure with PGP. Open-source bias on every layer."
+        subtitle="mTLS everywhere, default-deny NetworkPolicies, cosign-signed images, per-byte provider transparency, responsible-disclosure with PGP. Open-source bias on every layer."
       />
       <section className="border-b border-border">
         <div className="mx-auto max-w-5xl px-6 py-16">
