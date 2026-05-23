@@ -89,11 +89,21 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Log in to harbor.openova.io (Refs #473)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: harbor.openova.io
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
+
       - name: Compute image metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/iogrid/web
+          images: |
+            ghcr.io/iogrid/web
+            harbor.openova.io/iogrid/web
           tags: |
             type=sha,format=long
             type=sha
