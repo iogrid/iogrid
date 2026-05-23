@@ -59,8 +59,10 @@ spec:
             periodSeconds: 30
           resources:
             requests:
-              cpu: 100m
-              memory: 512Mi
+              # Sized for single-node phase-0 (node at ~75% mem use). Limits
+              # remain generous so the validator can grow during a workload.
+              cpu: 50m
+              memory: 200Mi
             limits:
               cpu: 1000m
               memory: 2Gi
