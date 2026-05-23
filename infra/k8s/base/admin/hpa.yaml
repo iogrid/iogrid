@@ -13,7 +13,7 @@ spec:
     name: admin
   # Admin traffic is staff-only and orders of magnitude lower than the
   # user-facing app — keep the floor at 2 (HA) and the ceiling modest.
-  minReplicas: 2
+  minReplicas: 1
   maxReplicas: 6
   metrics:
     - type: Resource
