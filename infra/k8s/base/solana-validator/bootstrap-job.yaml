@@ -1,0 +1,115 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: solana-grid-bootstrap
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: solana-grid-bootstrap
+spec:
+  ttlSecondsAfterFinished: 86400
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: solana-grid-bootstrap
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      initContainers:
+        - name: wait-validator
+          image: busybox:1.36
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              echo "waiting for solana-validator:8899 …"
+              until nc -z solana-validator 8899; do sleep 2; done
+              echo "validator is up"
+      containers:
+        - name: bootstrap
+          image: solanalabs/solana:v1.18.22
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              export RPC=http://solana-validator:8899
+              solana config set --url "$RPC" >/dev/null
+              # Generate the payout wallet IN the cluster if missing.
+              # Persisted to the Secret on first run; reused on subsequent
+              # runs (Job runs once; restart-on-failure preserves Secret).
+              if ! kubectl -n iogrid get secret iogrid-solana-payout >/dev/null 2>&1; then
+                solana-keygen new --no-bip39-passphrase --silent --outfile /tmp/payer.json
+                PAYER_PUB=$(solana-keygen pubkey /tmp/payer.json)
+                echo "minted payer wallet: $PAYER_PUB"
+                # Airdrop 100 SOL (test-validator faucet is unlimited).
+                solana airdrop 100 "$PAYER_PUB"
+                # Mint $GRID SPL token (decimals 9 mirrors mainnet design).
+                MINT=$(spl-token create-token --decimals 9 --output json | \
+                       sed -n 's/.*"commandOutput":"\([^"]*\)".*/\1/p' | \
+                       awk '{print $NF}')
+                if [ -z "$MINT" ]; then
+                  # Fallback parse — spl-token CLI output varies by version.
+                  MINT=$(spl-token create-token --decimals 9 | awk '/Creating token/ {print $3}')
+                fi
+                echo "minted GRID token: $MINT"
+                # Create an associated token account for the payer.
+                spl-token create-account "$MINT" || true
+                # Mint 1B GRID to the payer's ATA (treasury reserve).
+                spl-token mint "$MINT" 1000000000 || true
+                # Persist payer + mint into a Secret consumed by billing-svc.
+                kubectl -n iogrid create secret generic iogrid-solana-payout \
+                  --from-file=SOLANA_PAYER_KEYPAIR=/tmp/payer.json \
+                  --from-literal=GRID_TOKEN_MINT_ADDRESS="$MINT" \
+                  --from-literal=SOLANA_PAYER_PUBKEY="$PAYER_PUB" \
+                  --dry-run=client -o yaml | kubectl apply -f -
+              else
+                echo "iogrid-solana-payout already present; nothing to do"
+              fi
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+      serviceAccountName: solana-grid-bootstrap
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: solana-grid-bootstrap
+  namespace: iogrid
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: solana-grid-bootstrap
+  namespace: iogrid
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: solana-grid-bootstrap
+  namespace: iogrid
+subjects:
+  - kind: ServiceAccount
+    name: solana-grid-bootstrap
+    namespace: iogrid
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: solana-grid-bootstrap

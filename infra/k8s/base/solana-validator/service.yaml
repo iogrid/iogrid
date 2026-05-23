@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: solana-validator
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: solana-validator
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: solana-validator
+  ports:
+    - name: rpc
+      port: 8899
+      targetPort: rpc
+    - name: pubsub
+      port: 8900
+      targetPort: pubsub
+    - name: faucet
+      port: 9900
+      targetPort: faucet

@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: solana-validator
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: solana-validator
+spec:
+  serviceName: solana-validator
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: solana-validator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: solana-validator
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: validator
+          # solana-test-validator distributed inside the solanalabs/solana
+          # toolchain image. Self-contained — exposes JSON-RPC on 8899 +
+          # PubSub on 8900 + Faucet on 9900. Unlimited SOL — bypasses
+          # the public devnet-faucet bottleneck that blocked #345 / #274.
+          image: solanalabs/solana:v1.18.22
+          imagePullPolicy: IfNotPresent
+          command:
+            - solana-test-validator
+            - --ledger=/ledger
+            - --rpc-bind-address=0.0.0.0
+            - --rpc-port=8899
+            - --bind-address=0.0.0.0
+            - --faucet-port=9900
+            - --reset
+          ports:
+            - name: rpc
+              containerPort: 8899
+            - name: pubsub
+              containerPort: 8900
+            - name: faucet
+              containerPort: 9900
+          readinessProbe:
+            tcpSocket:
+              port: rpc
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: rpc
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: ledger
+              mountPath: /ledger
+  volumeClaimTemplates:
+    - metadata:
+        name: ledger
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
