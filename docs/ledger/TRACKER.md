@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T14:30Z` 🟢 Phase-0 \$GRID unblock: solana-test-validator StatefulSet + bootstrap-Job in IaC (commit 3b5f7be). Mints fresh \$GRID SPL token in-cluster, unlimited local faucet → 100 SOL airdrop → Secret iogrid-solana-payout for billing-svc. 4th mechanism per Principle 23 D16 — eliminates #345 founder-faucet-click + #274 stub-mode block. Apply with `kubectl apply -k infra/k8s/base/solana-validator`. |
+| Last refreshed | `2026-05-23T14:45Z` 🟢 cron-refresh: +4 commits since last TRACKER bump |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
 | Open PRs | **7** — #445 #446 #447 #448 #449 #450 #451 (the first 6 reached all-CLEAN simultaneously; #451 added 2026-05-23 03:34Z as the 2nd piece of the #438 chain — see §0.8) |
