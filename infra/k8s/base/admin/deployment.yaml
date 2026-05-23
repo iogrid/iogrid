@@ -45,7 +45,7 @@ spec:
           # admin-ci pushed (sha-d85e56b). The admin-ci.yml deploy-bot
           # step that should auto-bump this on each main push is a
           # separate gap tracked in the same fix.
-          image: ghcr.io/iogrid/admin@sha256:37abc98e2989ad0bb0ae3d4a64754f7831bc24b6a5cd9e9db3a960b243919e02
+          image: harbor.openova.io/iogrid/admin:local
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
