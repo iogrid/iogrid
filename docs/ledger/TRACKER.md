@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T11:08Z` 🟢🟢 Harbor-mirror pattern extended: workloads/identity/billing-svc 6/6 Running on harbor.openova.io/iogrid/*. antiabuse + providers + gateway-bff + proxy-gateway builds in flight (background). Bypass ghcr ACL wall complete. |
+| Last refreshed | `2026-05-23T11:15Z` 🟢🟢🟢 ALL 11 coordinator services + web/admin Running on harbor.openova.io mirror (bypasses ghcr ACL #473). 13/13 public iogrid.org/* surfaces HTTP 200. Dispatch + Identity APIs respond externally. Infra committed (2a96379). |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
 | Open PRs | **7** — #445 #446 #447 #448 #449 #450 #451 (the first 6 reached all-CLEAN simultaneously; #451 added 2026-05-23 03:34Z as the 2nd piece of the #438 chain — see §0.8) |
