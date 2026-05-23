@@ -72,6 +72,12 @@ spec:
             # on iogrid.org. See admin/src/auth.config.ts.
             - name: IOGRID_ADMIN_HOST
               value: admin.iogrid.org
+            # NextAuth v5 requires AUTH_TRUST_HOST=true when running behind
+            # a reverse proxy that terminates TLS (Traefik passes the
+            # Host header verbatim). Without this, every /api/auth/* call
+            # logs "[auth][error] UntrustedHost". Closes #475.
+            - name: AUTH_TRUST_HOST
+              value: "true"
           envFrom:
             - configMapRef:
                 name: admin-config
