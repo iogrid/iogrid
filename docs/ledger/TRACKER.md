@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-24T01:00Z` 🟢🟢 **#309 hatice walk LIVE END-TO-END** — 6-step Playwright trace + 6 screenshots (33-38) + per-criterion evidence comment filed for founder close. /provider shows 2 paired daemons (provider-a7a93576 last seen 37s ago; Hatice's Mac), Scheduler `Paused — CPU cap`, Earnings `0 \$GRID`, real activity events. Forged JWT-session bypass since founder rule forbids reading hatice's mailbox. Open: 6 (3 EPICs + 3 founder-physical/horizon). |
+| Last refreshed | `2026-05-24T01:20Z` 🟢🟢 **#422 Phase 2.3 + 4.1 LIVE WALK** — admin overview/providers/billing/health (screenshots 39-42) with strict-separation verified both ways. Captured IOGRID_ADMIN_EMAILS IaC drift. + earlier this turn: **#309 walk** (33-38). Both EPICs awaiting founder close. Open: 6 issues (3 EPICs incl. #348 + 3 founder-physical #79/#398/#439). |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
 | Open PRs | **7** — #445 #446 #447 #448 #449 #450 #451 (the first 6 reached all-CLEAN simultaneously; #451 added 2026-05-23 03:34Z as the 2nd piece of the #438 chain — see §0.8) |
