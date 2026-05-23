@@ -37,6 +37,23 @@ spec:
     spec:
       serviceAccountName: workloads-svc
       automountServiceAccountToken: true
+      # ghcr.io/iogrid/* repos are private; the kubelet needs an
+      # explicit pull-secret to authenticate. Without this, fresh
+      # rollouts hit `failed to fetch oauth token ... 403 Forbidden`
+      # from ghcr.io's token endpoint and the new replicaset stays
+      # in ImagePullBackOff while the old replicaset's pod stays
+      # Running on a local image cache (proven 2026-05-23 in #456:
+      # workloads-svc Deployment at generation 45, replicas=2/1,
+      # f95c6f68b-ghvmt running for 2d2h while 7b7bc6dff9-r77qq +
+      # f95c6f68b-ks8r8 stuck in ImagePullBackOff).
+      #
+      # The ghcr-pull Secret in ns `iogrid` is valid (Basic auth test
+      # against ghcr.io/token returns HTTP 200), it just wasn't wired
+      # to this Deployment. proxy-gateway + gateway-bff Deployments
+      # have it via runtime kubectl-edit; this commit brings the base
+      # manifest into alignment with the working runtime.
+      imagePullSecrets:
+        - name: ghcr-pull
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
