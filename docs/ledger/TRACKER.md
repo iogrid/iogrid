@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T13:20Z` 🟢 issue-repo cleanup — closed 55 stale/verified-resolved issues per founder directive 2026-05-23 (67 → 12 open). Open: 3 EPICs (#422/#348/#309), 2 active code (#438 + #468 via PR #477), 7 founder-physical (#79/#345/#274/#398/#444/#439/#452). |
+| Last refreshed | `2026-05-23T13:40Z` 🟢 issue-repo cleanup (67 → 12 open) + api.iogrid.org regression fixed. Caught coordinator-svcs all 0/0 (HPA minReplicas:2 → cluster pod-ceiling 110 → couldn't fit), api/healthz was 503. Shipped: Deployment replicas 2→1 (2810758) + HPA minReplicas 2→1 (3ae86ab) for phase-0 single-node. api/healthz=200, api/v1/me=401 (auth-gate alive). Open: 3 EPICs (#422/#348/#309), 2 active code (#438+#468 via PR #477), 7 founder-physical (#79/#345/#274/#398/#444/#439/#452). |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
 | Open PRs | **7** — #445 #446 #447 #448 #449 #450 #451 (the first 6 reached all-CLEAN simultaneously; #451 added 2026-05-23 03:34Z as the 2nd piece of the #438 chain — see §0.8) |
