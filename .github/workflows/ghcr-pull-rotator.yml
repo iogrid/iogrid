@@ -41,7 +41,7 @@ jobs:
   rotate:
     name: rotate ghcr-pull secret + roll deployments
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
       - name: Install kubectl
         uses: azure/setup-kubectl@v4
@@ -115,6 +115,7 @@ jobs:
             namespace: iogrid
           spec:
             restartPolicy: Never
+            activeDeadlineSeconds: 720
             imagePullSecrets:
               - name: ghcr-pull
             securityContext:
