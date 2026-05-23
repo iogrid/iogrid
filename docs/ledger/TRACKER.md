@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T15:30Z` 🟢 PR #477 MERGED (#438+#468 closed). solana-test-validator Running; bootstrap iterating (4 commit-cycles to fix: pipefail dash incompat → kubectl-exec into validator → SA token mount → solana config HOME EACCES → pass --url/--keypair flags inline). Stale PRs #458 (ghcr→harbor) + #435 (5-day-old TRACKER) closed. 3 EPIC readiness summaries filed (#422 #309 #348). 3 founder-physical reality-checks (#79 #439 #452). Open: 9 issues, 0 PRs. |
+| Last refreshed | `2026-05-23T15:35Z` 🟢🟢 **billing-svc: solana LIVE MODE** wallet=9w9bavJU…G2QNh mint=2b8VinJED…cSJTu (closed #274 + #345 with log evidence). PR #477 merged earlier (#438+#468 closed). Open: **7** issues (3 EPICs + 4 founder-physical), 0 PRs. Today: 60→7 issues (-53), 0 founder-physical for the Phase-0 demo. |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
 | Open PRs | **7** — #445 #446 #447 #448 #449 #450 #451 (the first 6 reached all-CLEAN simultaneously; #451 added 2026-05-23 03:34Z as the 2nd piece of the #438 chain — see §0.8) |
