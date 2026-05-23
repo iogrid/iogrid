@@ -22,7 +22,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use parking_lot::Mutex;
 
-use iogrid_transport::IdentityBundle;
+use iogrid_transport::identity::IdentityBundle;
 use iogrid_ui_bridge::{BridgeState, PairHandler, PairRequest, PairResponse};
 
 /// Default [`PairHandler`] wired by the supervisor at startup.

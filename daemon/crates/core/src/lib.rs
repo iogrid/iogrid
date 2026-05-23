@@ -317,10 +317,11 @@ impl Supervisor {
         // #438 piece 3 — supervisor PairHandler. POST /pair now mints +
         // persists a bearer + flips per-route enforcement instead of
         // returning 503.
-        let bridge = bridge.with_pair_handler(Arc::new(SupervisorPairHandler::from_bridge(
+        let pair_handler = Arc::new(SupervisorPairHandler::new(
             config.state_dir.clone(),
-            &bridge,
-        )));
+            bridge.bearer_token.clone(),
+        ));
+        let bridge = bridge.with_pair_handler(pair_handler);
         // Windows: wire the Squirrel `Update.exe` driver so the future
         // tray UI's "Check for updates" verb (parallel to the macOS
         // statusbar from PR #402) can drive the daily update path
