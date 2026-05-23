@@ -1,0 +1,116 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: identity-svc-jwt-bootstrap
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: identity-svc-jwt-bootstrap
+    app.kubernetes.io/part-of: iogrid
+spec:
+  ttlSecondsAfterFinished: 86400
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: identity-svc-jwt-bootstrap
+        app.kubernetes.io/part-of: iogrid
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: bootstrap
+          # bitnami/kubectl ships kubectl + bash + openssl. Generates a
+          # persistent RSA-4096 JWT signing keypair in /tmp (tmpfs,
+          # never lands on disk), creates Secret identity-svc-jwt with
+          # private.pem + public.pem, then exits. If the Secret already
+          # exists, exit 0 (idempotent — never rotate without operator
+          # intent; rotation invalidates every active JWT).
+          image: bitnami/kubectl:latest
+          command: ["bash", "-c"]
+          args:
+            - |
+              set -eu
+              if kubectl -n iogrid get secret identity-svc-jwt >/dev/null 2>&1; then
+                # Verify both keys present + non-empty; if a partial Secret
+                # exists from a previous failed run, overwrite it.
+                PRIV=$(kubectl -n iogrid get secret identity-svc-jwt -o jsonpath='{.data.private\.pem}' 2>/dev/null)
+                PUB=$(kubectl -n iogrid get secret identity-svc-jwt -o jsonpath='{.data.public\.pem}' 2>/dev/null)
+                if [ -n "$PRIV" ] && [ -n "$PUB" ]; then
+                  echo "identity-svc-jwt present + both keys populated; nothing to do"
+                  exit 0
+                fi
+                echo "identity-svc-jwt exists but incomplete; regenerating"
+              fi
+              echo "→ generating RSA-4096 JWT signing keypair (in-memory)"
+              cd /tmp
+              openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 -out private.pem
+              openssl rsa -in private.pem -pubout -out public.pem
+              chmod 0600 private.pem
+              chmod 0644 public.pem
+              echo "→ creating Secret identity-svc-jwt"
+              kubectl -n iogrid create secret generic identity-svc-jwt \
+                --from-file=private.pem=/tmp/private.pem \
+                --from-file=public.pem=/tmp/public.pem \
+                --dry-run=client -o yaml | kubectl apply -f -
+              # Best-effort scrub — pod is ephemeral anyway, but explicit
+              # is better.
+              rm -f /tmp/private.pem /tmp/public.pem
+              echo "✓ JWT signing keypair persisted; identity-svc next rollout reads from Secret instead of AUTOGEN"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 4Mi
+      serviceAccountName: identity-svc-jwt-bootstrap
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: identity-svc-jwt-bootstrap
+  namespace: iogrid
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: identity-svc-jwt-bootstrap
+  namespace: iogrid
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: identity-svc-jwt-bootstrap
+  namespace: iogrid
+subjects:
+  - kind: ServiceAccount
+    name: identity-svc-jwt-bootstrap
+    namespace: iogrid
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: identity-svc-jwt-bootstrap

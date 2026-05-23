@@ -88,20 +88,15 @@ spec:
             # — single-pod-only safe. Both modes work today.
             - name: REDIS_URL
               value: redis://redis-client.iogrid.svc.cluster.local:6379/0
-            # 🛑 PROD CUTOVER GATE (#452): remove `JWT_KEYPAIR_AUTOGEN=1`
-            # once the SealedSecret `identity-svc-jwt` lands. Today the
-            # ephemeral keypair is regenerated on every Pod start —
-            # which means every roll signs every active user out.
-            # `scripts/identity-svc-jwt-keypair-gen.sh` produces the
-            # founder-side material; `kubeseal` packages it; Flux
-            # applies; THEN this env var must be deleted so the
-            # binary reads from the Secret mount instead.
-            #
-            # Captured in git here (was previously a `kubectl set env`
-            # drift, see #452) so the runtime matches IaC and the
-            # drop-trigger is unambiguous.
+            # JWT signing keypair is persisted in Secret `identity-svc-jwt`
+            # (created by Job `identity-svc-jwt-bootstrap` — RSA-4096
+            # generated inside a one-shot pod, never lands on a non-pod
+            # disk). AUTOGEN flag retained as opt-in fallback for dev
+            # clusters where the Secret is absent — when "0" (or unset)
+            # the binary REQUIRES the Secret mount; the deploy refuses
+            # to start otherwise. Closes #452.
             - name: JWT_KEYPAIR_AUTOGEN
-              value: "1"
+              value: "0"
           envFrom:
             - configMapRef:
                 name: identity-svc-config
