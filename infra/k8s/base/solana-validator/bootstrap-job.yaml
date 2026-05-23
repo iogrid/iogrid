@@ -14,7 +14,9 @@ spec:
         app.kubernetes.io/name: solana-grid-bootstrap
     spec:
       restartPolicy: OnFailure
-      automountServiceAccountToken: false
+      # Bootstrap needs the in-cluster SA token to call kubectl against
+      # the API server (creates Secret, exec'es into validator pod).
+      automountServiceAccountToken: true
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
