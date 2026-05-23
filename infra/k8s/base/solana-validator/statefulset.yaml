@@ -58,10 +58,11 @@ spec:
             periodSeconds: 30
           resources:
             requests:
-              # Sized for single-node phase-0 (node at ~75% mem use). Limits
-              # remain generous so the validator can grow during a workload.
+              # Minimum to fit on a saturated single-node phase-0 cluster.
+              # Limit remains generous so the validator can grow into real
+              # memory once the kernel actually hands it out.
               cpu: 50m
-              memory: 200Mi
+              memory: 64Mi
             limits:
               cpu: 1000m
               memory: 2Gi
