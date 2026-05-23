@@ -6,7 +6,20 @@
 > exact commands so it never takes 4 distinct issues again
 > (#475 + #476 in this session).
 
-## TL;DR — three Secrets, two of them per-cluster random
+## TL;DR — one command
+
+```bash
+./scripts/admin-auth-bootstrap.sh
+```
+
+Idempotent. Mints AUTH_SECRET if absent, rotates admin_user
+password each run, refreshes DATABASE_URL Secret, applies the
+NextAuth Drizzle schema (`user`, `account`, `session`,
+`verificationToken` — all `IF NOT EXISTS`), rolls the Deployment,
+and verifies `/api/auth/session` returns 200 on a retry-budgeted
+probe.
+
+## TL;DR — manual (only if the script is unavailable)
 
 ```bash
 # 1. AUTH_SECRET — random 32-byte NextAuth signing key.
