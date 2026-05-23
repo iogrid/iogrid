@@ -168,7 +168,7 @@ jobs:
           p = pathlib.Path("${MANIFEST}")
           src = p.read_text()
 
-          img_pat = re.compile(r'(\s+image:\s+)ghcr\.io/iogrid/releases[:@][^\s]+')
+          img_pat = re.compile(r'(\s+image:\s+)(?:ghcr\.io|harbor\.openova\.io)/iogrid/releases[:@][^\s]+')
           new_src, n_img = img_pat.subn(r'\g<1>${IMAGE}', src, count=1)
           if n_img != 1:
               print(f"::error::image line substitution count={n_img}, expected 1", file=sys.stderr)
