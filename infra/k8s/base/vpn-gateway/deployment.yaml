@@ -16,7 +16,7 @@ metadata:
     iogrid.org/data-plane: "true"
     iogrid.org/consumer-side: "true"
 spec:
-  replicas: 2
+  replicas: 1
   revisionHistoryLimit: 3
   strategy:
     # Rolling-update needs careful coordination here: every active WG

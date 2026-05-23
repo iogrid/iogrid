@@ -13,7 +13,7 @@ metadata:
     # relay that forwards traffic into the provider daemon WireGuard tunnels.
     iogrid.org/data-plane: "true"
 spec:
-  replicas: 3
+  replicas: 1
   revisionHistoryLimit: 3
   strategy:
     type: RollingUpdate
