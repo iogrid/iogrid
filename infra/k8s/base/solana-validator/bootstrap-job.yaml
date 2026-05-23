@@ -90,8 +90,12 @@ spec:
               echo "→ pulling keypair JSON out of validator pod"
               kubectl -n iogrid cp "$VPOD":/tmp/payer.json /tmp/payer.json
               echo "→ creating Secret iogrid-solana-payout"
+              # Secret key "keypair_json" is the canonical name billing-svc's
+              # Deployment volume-mount references (path: keypair.json under
+              # /var/run/solana). GRID_TOKEN_MINT_ADDRESS + SOLANA_PAYER_PUBKEY
+              # are sibling string fields read via envFrom.
               kubectl -n iogrid create secret generic iogrid-solana-payout \
-                --from-file=SOLANA_PAYER_KEYPAIR=/tmp/payer.json \
+                --from-file=keypair_json=/tmp/payer.json \
                 --from-literal=GRID_TOKEN_MINT_ADDRESS="$MINT" \
                 --from-literal=SOLANA_PAYER_PUBKEY="$PAYER_PUB" \
                 --dry-run=client -o yaml | kubectl apply -f -
