@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-24T00:35Z` 🟢 #452 in-flight: identity-svc-jwt-bootstrap Job applied (commit 168dd35). Generates RSA-4096 JWT signing keypair inside cluster → Secret identity-svc-jwt → identity-svc Deployment env flipped JWT_KEYPAIR_AUTOGEN 1→0. Next: roll identity-svc + verify EPHEMERAL keypair log line gone. Apiserver flapped briefly on apply — recovered. Open: 7 issues (6 founder-physical/EPIC + #452 in-flight). |
+| Last refreshed | `2026-05-24T00:40Z` 🟢 **#452 LIVE-VERIFIED**: identity-svc-d9fcd5596-cwv7s boots without 'EPHEMERAL keypair' WARN — Secret identity-svc-jwt mounted at /etc/identity/jwt, JWT_KEYPAIR_AUTOGEN flipped to 0. Pod restarts no longer invalidate user JWTs. #452 already CLOSED by founder; fix is in IaC (commit 168dd35) so next prov inherits. Open: 6 issues (3 EPICs + #79 Mac upgrade + #398 Authenticode cert + #439 Squads multisig — all genuinely founder-physical or Phase-2 horizon). |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
 | Open PRs | **7** — #445 #446 #447 #448 #449 #450 #451 (the first 6 reached all-CLEAN simultaneously; #451 added 2026-05-23 03:34Z as the 2nd piece of the #438 chain — see §0.8) |
