@@ -46,7 +46,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: build-gateway
-          image: ghcr.io/iogrid/build-gateway@sha256:58e58fba6be5de8dd1253c4d77914b3442c0477e6001b03796f52accde56726f
+          image: harbor.openova.io/iogrid/build-gateway:local
           imagePullPolicy: Always
           ports:
             - name: http
