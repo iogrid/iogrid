@@ -38,7 +38,10 @@ pub use iogrid_ui_bridge::{
 pub use workloads::{ActiveAssignment, ActiveRegistry, WorkloadRouter, WorkloadRouterRunners};
 
 pub mod pair;
+pub mod pair_handler;
 pub mod updater;
+
+pub use pair_handler::SupervisorPairHandler;
 
 // macOS-only IPC server for the status-bar menu app (issue #388 /
 // EPIC #348 Phase 2-mac). Compiled out on every other target so the
@@ -311,6 +314,35 @@ impl Supervisor {
         let bridge = BridgeState::default()
             .with_scheduler(scheduler.clone())
             .with_filter(filter.clone());
+        // #438 piece 3 — supervisor PairHandler. POST /pair now mints +
+        // persists a bearer + flips per-route enforcement instead of
+        // returning 503.
+        let pair_handler = Arc::new(SupervisorPairHandler::new(
+            config.state_dir.clone(),
+            bridge.bearer_token.clone(),
+        ));
+        let bridge = bridge.with_pair_handler(pair_handler);
+        // #438 piece 4 — re-arm bearer enforcement on startup. If a
+        // previous pair persisted bearer.txt next to cert.pem / key.pem,
+        // load it back into the BridgeState so /state /config /earnings
+        // /audit/* /updates/check enforce immediately instead of falling
+        // back to pre-pair pass-through. I/O failures don't fail the
+        // boot — they just leave enforcement off until the next pair.
+        match iogrid_transport::identity::IdentityBundle::load_bearer(&config.state_dir) {
+            Ok(Some(token)) => {
+                bridge.set_bearer_token(Some(token));
+                tracing::info!(state_dir = %config.state_dir.display(), "bearer re-armed from disk");
+            }
+            Ok(None) => {
+                tracing::info!(
+                    state_dir = %config.state_dir.display(),
+                    "no persisted bearer — UI bridge runs pre-pair pass-through",
+                );
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, state_dir = %config.state_dir.display(), "failed to load persisted bearer; UI bridge runs pre-pair pass-through");
+            }
+        }
         // Windows: wire the Squirrel `Update.exe` driver so the future
         // tray UI's "Check for updates" verb (parallel to the macOS
         // statusbar from PR #402) can drive the daily update path
