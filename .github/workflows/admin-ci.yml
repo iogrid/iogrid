@@ -98,6 +98,7 @@ jobs:
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
 
       - name: Build and push
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: ./admin
@@ -107,3 +108,61 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=admin
           cache-to: type=gha,scope=admin,mode=max
+
+      # ----------------------------------------------------------------------
+      # CD bump: rewrite infra/k8s/base/admin/deployment.yaml to pin the
+      # freshly built admin image by digest. Mirrors the coordinator-ci
+      # deploy-bot pattern (#335) so admin doesn't drift to `:scaffold`
+      # (#426 / #454 diagnostic). Only fires on push to main.
+      # ----------------------------------------------------------------------
+      - name: Checkout main for manifest rewrite
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+          path: deploy-bump
+
+      - name: Rewrite + commit + push (main only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        working-directory: deploy-bump
+        env:
+          IMAGE: ghcr.io/iogrid/admin@${{ steps.build.outputs.digest }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          RESTARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          MANIFEST=infra/k8s/base/admin/deployment.yaml
+          # Substitute the admin image line (matches `:scaffold`,
+          # `:sha-...`, or `@sha256:...` forms equivalently).
+          python3 - <<PY
+          import os, re, pathlib, sys
+          img = os.environ["IMAGE"]
+          p = pathlib.Path("$MANIFEST")
+          src = p.read_text()
+          pat = re.compile(r'(\s+image:\s+)ghcr\.io/iogrid/admin[:@][^\s]+')
+          new_src, n = pat.subn(r'\g<1>' + img, src, count=1)
+          if n != 1:
+              print(f"::error::admin image substitution count={n}, expected 1", file=sys.stderr)
+              sys.exit(1)
+          ts_pat = re.compile(r'(kubectl\.kubernetes\.io/restartedAt:\s+")[^"]*(")')
+          new_src, _ = ts_pat.subn(r'\g<1>' + "$RESTARTED_AT" + r'\g<2>', new_src, count=1)
+          p.write_text(new_src)
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$MANIFEST"
+          if git diff --cached --quiet; then
+            echo "no manifest changes — image digest unchanged"
+            exit 0
+          fi
+          git commit -m "infra(admin): deploy ${IMAGE#ghcr.io/iogrid/admin@} after CI ${COMMIT_SHA:0:12}"
+          for i in 1 2 3 4 5; do
+            if git push origin main; then
+              echo "push succeeded on attempt $i"
+              break
+            fi
+            git pull --rebase origin main
+            sleep 2
+          done
