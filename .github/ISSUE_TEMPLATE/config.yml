@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Backlog Standards (ecosystem-wide)
+    url: https://github.com/dynolabs-io/workflow/blob/main/docs/BACKLOG-STANDARDS.md
+    about: The canonical issue + label + workflow contract every issue must satisfy.
