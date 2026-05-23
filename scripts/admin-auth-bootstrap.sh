@@ -87,16 +87,36 @@ echo "→ Rolling admin Deployment"
 kubectl -n "$NS" rollout restart deploy/admin
 kubectl -n "$NS" rollout status deploy/admin --timeout=120s
 
-echo
-echo "→ Verifying /api/auth/session"
+# Give Traefik / Service endpoints time to converge — `rollout status`
+# returns when the new ReplicaSet is desired+ready, but EndpointSlice
+# propagation + Traefik upstream-refresh lags by ~10-20s. Without this
+# the first probe hits the still-terminating pod → 502.
+echo "→ Waiting 25s for endpoint convergence"
+sleep 25
+
+echo "→ Verifying /api/auth/session (with retry budget)"
+attempts=0
+max_attempts=6
+while [ $attempts -lt $max_attempts ]; do
+  CODE=$(curl -sS -o /dev/null -w "%{http_code}" \
+           https://admin.iogrid.org/api/auth/session)
+  attempts=$((attempts + 1))
+  printf "  [%d/%d] HTTP %s\n" "$attempts" "$max_attempts" "$CODE"
+  [ "$CODE" = "200" ] && break
+  sleep 10
+done
+if [ "$CODE" != "200" ]; then
+  echo "::error::session probe failed after $max_attempts attempts; inspect kubectl -n iogrid logs deploy/admin"
+  exit 1
+fi
+# Final triple-check now that traffic is steady.
 for i in 1 2 3; do
   CODE=$(curl -sS -o /dev/null -w "%{http_code}" \
            https://admin.iogrid.org/api/auth/session)
-  printf "  [%d] HTTP %s\n" "$i" "$CODE"
-  if [ "$CODE" != "200" ]; then
-    echo "::error::session probe failed; inspect kubectl -n iogrid logs deploy/admin"
+  [ "$CODE" = "200" ] || {
+    echo "::error::steady-state probe [$i] failed (HTTP $CODE)"
     exit 1
-  fi
+  }
 done
 echo
 echo "✓ admin NextAuth bootstrap complete. Sign-in flow ready."
