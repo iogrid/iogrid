@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-24T01:35Z` 🟢 **BACKLOG AUDIT** per dynolabs-io/workflow BACKLOG-STANDARDS — all 6 open issues triaged: **A=6, B=0, C=0**. 3 EPICs (#309/#348/#422) re-labeled `status/uat` (walk evidence shipped), 2 founder-physical (#79/#398) → `status/blocked-ext`, 1 Phase-2 (#439) → `status/parked`. Bodies rewritten to 4-section schema. Titles #79 + #439 renamed to conventional-commit prefix. Status labels canon (`status/in-progress|uat|completed|parked|blocked-ext`) created via API. 0 issues now unclaimed; 0 in-progress; all 6 have exactly one `status/*`. |
+| Last refreshed | `2026-05-24T01:45Z` 🟢 **Cluster cleanup**: axon CrashLoopBackOff (97 restarts/6h, liveness 500 from upstream AXON_VLLM_BASE_URL=llm-api.omtd.bankdhofar.com TLS-handshake fail) — root-cause filed upstream at [openova-io/openova#2203](https://github.com/openova-io/openova/issues/2203), scaled axon to 0 to stop bleed. + `.github/ISSUE_TEMPLATE/{feature,bug,epic}.md + config.yml` adopted per ecosystem BACKLOG-STANDARDS — every new iogrid issue now schema-conforms at creation. Open: 6 (all schema-conforming). |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
 | Open PRs | **7** — #445 #446 #447 #448 #449 #450 #451 (the first 6 reached all-CLEAN simultaneously; #451 added 2026-05-23 03:34Z as the 2nd piece of the #438 chain — see §0.8) |
