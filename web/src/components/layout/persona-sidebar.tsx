@@ -29,7 +29,9 @@ export function PersonaSidebar({
   return (
     <aside
       aria-label={`${title} navigation`}
-      className="flex h-screen w-56 flex-col border-r border-border bg-card"
+      // h-full not h-screen — AppShell now puts a top header (h-14) above
+      // this aside, so h-screen would overflow the parent flex. Refs #470.
+      className="flex h-full w-56 flex-col border-r border-border bg-card"
     >
       <div className="border-b border-border px-5 py-4">
         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
