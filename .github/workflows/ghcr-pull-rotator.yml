@@ -83,13 +83,96 @@ jobs:
             -p="[{\"op\":\"replace\",\"path\":\"/data/.dockerconfigjson\",\"value\":\"$DOCKERCFG_B64\"}]"
           echo "ghcr-pull patched at $(date -u +%FT%TZ)"
 
-      - name: Roll deployments stuck on ErrImagePull
+      - name: Pre-cache all desired images on the cluster node while token is valid
+        # Critical: the workflow GITHUB_TOKEN dies when this job ends.
+        # If we only patch ghcr-pull + roll deployments, the new pods
+        # try to pull AFTER the token has expired → 403. Solution: spin
+        # up a one-shot Pod that uses the fresh ghcr-pull to pull EVERY
+        # image we need, RIGHT NOW while the token is still valid.
+        # containerd caches the layers on the node. Future pods using
+        # those images skip the network pull entirely → no auth needed.
+        run: |
+          set -e
+          # Collect the live cluster's desired image refs (what each
+          # Deployment expects).
+          mapfile -t IMAGES < <(kubectl -n iogrid get deploy -o json \
+            | jq -r '.items[].spec.template.spec.containers[].image' \
+            | grep '^ghcr.io/iogrid/' | sort -u)
+          echo "${#IMAGES[@]} unique images to pre-cache:"
+          printf '  %s\n' "${IMAGES[@]}"
+
+          # Build a single Pod with one init-container per image. Init
+          # containers run sequentially; each just exits immediately
+          # after kubelet pulls the image. Total wall-time ≈ pull-time
+          # × N images (~3-5 min for 13 images on a stable network).
+          POD_NAME="ghcr-image-warmer-$(date +%s)"
+          {
+            cat <<HEADER
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: $POD_NAME
+            namespace: iogrid
+          spec:
+            restartPolicy: Never
+            imagePullSecrets:
+              - name: ghcr-pull
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 65532
+              seccompProfile:
+                type: RuntimeDefault
+            initContainers:
+          HEADER
+            i=0
+            for img in "${IMAGES[@]}"; do
+              cat <<INIT
+              - name: warm-$i
+                image: $img
+                command: ["sh","-c","true"]
+                securityContext:
+                  allowPrivilegeEscalation: false
+                  readOnlyRootFilesystem: true
+                  capabilities:
+                    drop: ["ALL"]
+          INIT
+              i=$((i+1))
+            done
+            cat <<TAIL
+            containers:
+              - name: done
+                image: busybox:1.36
+                command: ["sh","-c","echo all warmed"]
+                securityContext:
+                  allowPrivilegeEscalation: false
+                  readOnlyRootFilesystem: true
+                  capabilities:
+                    drop: ["ALL"]
+          TAIL
+          } > /tmp/warmer.yaml
+          cat /tmp/warmer.yaml | head -20
+          kubectl apply -f /tmp/warmer.yaml
+
+          # Wait up to 10min for the Pod to complete — kubelet sequentially
+          # pulls each init-container's image, layer cache lands on the node.
+          kubectl -n iogrid wait --for=condition=Ready=true \
+            pod/$POD_NAME --timeout=600s 2>&1 || true
+          # Even if Ready times out (e.g., a single image really is
+          # broken), the warming pulls that DID succeed cache their layers.
+          echo "--- warmer pod status ---"
+          kubectl -n iogrid get pod $POD_NAME -o wide
+          echo "--- per-image pull state ---"
+          kubectl -n iogrid get pod $POD_NAME -o json | jq -r \
+            '.status.initContainerStatuses[]? | "  \(.image): \(.state | keys[0])"'
+          # Cleanup
+          kubectl -n iogrid delete pod $POD_NAME --grace-period=0 --force 2>&1 || true
+
+      - name: Roll stuck deployments
         run: |
           set +e
           for deploy in identity-svc providers-svc workloads-svc \
                        antiabuse-svc billing-svc telemetry-svc \
                        gateway-bff proxy-gateway web admin releases; do
-            # only roll if any pod for this deploy is non-Ready (jq, not python heredoc — heredoc trips GHA YAML parser)
             unready=$(kubectl -n iogrid get pods -l app.kubernetes.io/name=$deploy \
               -o json 2>/dev/null \
               | jq '[.items[]?.status.containerStatuses[]? | select(.ready==false)] | length' 2>/dev/null)
