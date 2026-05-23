@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-24T01:20Z` 🟢🟢 **#422 Phase 2.3 + 4.1 LIVE WALK** — admin overview/providers/billing/health (screenshots 39-42) with strict-separation verified both ways. Captured IOGRID_ADMIN_EMAILS IaC drift. + earlier this turn: **#309 walk** (33-38). Both EPICs awaiting founder close. Open: 6 issues (3 EPICs incl. #348 + 3 founder-physical #79/#398/#439). |
+| Last refreshed | `2026-05-24T01:35Z` 🟢 **BACKLOG AUDIT** per dynolabs-io/workflow BACKLOG-STANDARDS — all 6 open issues triaged: **A=6, B=0, C=0**. 3 EPICs (#309/#348/#422) re-labeled `status/uat` (walk evidence shipped), 2 founder-physical (#79/#398) → `status/blocked-ext`, 1 Phase-2 (#439) → `status/parked`. Bodies rewritten to 4-section schema. Titles #79 + #439 renamed to conventional-commit prefix. Status labels canon (`status/in-progress|uat|completed|parked|blocked-ext`) created via API. 0 issues now unclaimed; 0 in-progress; all 6 have exactly one `status/*`. |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
 | Open PRs | **7** — #445 #446 #447 #448 #449 #450 #451 (the first 6 reached all-CLEAN simultaneously; #451 added 2026-05-23 03:34Z as the 2nd piece of the #438 chain — see §0.8) |
