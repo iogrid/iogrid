@@ -73,7 +73,7 @@ export default function CustomersPage() {
       <PageHero
         eyebrow="For customers"
         title="Residential proxy, GPU, iOS builds — by the byte, by the second, by the minute."
-        body="One API key. Four SDKs. Pay only for what you ship. \$5 free credit to walk the docs end-to-end."
+        subtitle="One API key. Four SDKs. Pay only for what you ship. \$5 free credit to walk the docs end-to-end."
       />
 
       <section className="border-b border-border">
