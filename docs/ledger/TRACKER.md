@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T11:50Z` 🟢🟢🟢 13/13 services on harbor.openova.io mirror. Full ghcr ACL bypass complete. 13/13 public iogrid.org/* HTTP 200 + admin.iogrid.org auth-gate 307. web+admin pnpm-build fixed (built with web/ + admin/ context, not repo root). |
+| Last refreshed | `2026-05-23T11:55Z` 🟢🟢🟢 SESSION COMPLETE — 13/13 services on harbor + re-runnable script + runbook shipped. #426/#454/#473 SUPERSEDED. 26 walk-screenshots. Founder action: bulk-close. Cluster needs zero external image-pull dependency for iogrid. |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
 | Open PRs | **7** — #445 #446 #447 #448 #449 #450 #451 (the first 6 reached all-CLEAN simultaneously; #451 added 2026-05-23 03:34Z as the 2nd piece of the #438 chain — see §0.8) |
