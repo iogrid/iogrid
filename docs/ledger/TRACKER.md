@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T23:15:00Z` 🟢🟢🟢 **iogrid.org/ HTTP 200 with the restored Hero LIVE** — walk-screenshots (08/09/10/11) landed on EPIC #422. Path: #454 rotator + #457 IngressRoute + #459 NetworkPolicy fixes. |
+| Last refreshed | `2026-05-23T23:25:00Z` 🟢 Walk evidence 08-15 landed (Hero + /welcome + /provider gate + admin signin + /vpn + /install + /docs + /providers). PR #461 /customers + PR #465 /privacy /terms /security in flight; #466 PageHero prop fix shipped. 9 new issues filed (#454 #457 #459 #460 #462 #463 #464 #465 #466). |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
 | Open PRs | **7** — #445 #446 #447 #448 #449 #450 #451 (the first 6 reached all-CLEAN simultaneously; #451 added 2026-05-23 03:34Z as the 2nd piece of the #438 chain — see §0.8) |
