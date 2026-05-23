@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T19:30Z` 🟢 cron-refresh: +2 commits since last TRACKER bump |
+| Last refreshed | `2026-05-24T02:38Z` 🟢🟢🟢 **UAT WALKS + verifier-driven**: sub-agent verifier ran against BACKLOG-STANDARDS AC. **#309 → status/completed** (provider walk + canonical user-flow probe). **#422 → status/completed** (308 redirect verified + admin walks 39-42 + zero cross-context nav). **#348 stays status/uat** — verifier caught rpm/msi/deb short-URLs returned HTML not binary; root-caused as nginx redirector lookup mismatch (GH assets carry version-embedded basenames); fix shipped commit 3b93437 (9 explicit location blocks); releases-ci rolling now, re-verify + flip after. Open: 7 issues. |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
 | Open PRs | **7** — #445 #446 #447 #448 #449 #450 #451 (the first 6 reached all-CLEAN simultaneously; #451 added 2026-05-23 03:34Z as the 2nd piece of the #438 chain — see §0.8) |
