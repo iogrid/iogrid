@@ -40,3 +40,5 @@ COPY --from=builder /out/workloads-svc /usr/local/bin/workloads-svc
 USER nonroot:nonroot
 EXPOSE 8080
 ENTRYPOINT ["/usr/local/bin/workloads-svc"]
+
+# Touch to force coordinator-ci rebuild (Refs #71 #454 workloads-svc package access regression)
