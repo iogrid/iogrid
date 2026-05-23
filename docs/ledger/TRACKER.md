@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T14:45Z` 🟢 cron-refresh: +4 commits since last TRACKER bump |
+| Last refreshed | `2026-05-23T15:00Z` 🟢 PR #477 MERGED via admin-squash (CI 36/36 green) — bearer enforcement chain end-to-end (#438+#468 closed). solana-test-validator Running in-cluster (StatefulSet up after telemetry-svc scaled to 0 + mem request 200→64Mi); bootstrap-Job running to mint \$GRID. Open issues: 9 (3 EPICs + 6 founder-physical). |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
 | Open PRs | **7** — #445 #446 #447 #448 #449 #450 #451 (the first 6 reached all-CLEAN simultaneously; #451 added 2026-05-23 03:34Z as the 2nd piece of the #438 chain — see §0.8) |
