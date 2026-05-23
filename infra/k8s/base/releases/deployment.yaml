@@ -55,7 +55,7 @@ spec:
           #   ghcr.io/iogrid/releases@sha256:<digest>
           # Same deploy-bot mechanic as marketing-ci (#384).
           # Refs #392.
-          image: ghcr.io/iogrid/releases@sha256:0777385ba44f5688d0b2f23890dda0bdd70adbd009273cc89ac99e6fca31cbc8
+          image: harbor.openova.io/iogrid/releases:local
           imagePullPolicy: Always
           ports:
             - name: http
