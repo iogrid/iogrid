@@ -12,12 +12,17 @@
 kubectl apply -k infra/k8s/base/solana-validator
 ```
 
-Waits for the StatefulSet to be Ready, then the Job:
-1. Generates a fresh payer keypair (only on first run).
-2. Airdrops 100 SOL to the payer from the local faucet.
+Waits for the StatefulSet to be Ready, then the Job runs from a
+`bitnami/kubectl:latest` container and `kubectl exec`s into the
+validator pod (which carries the solana CLI). Steps:
+1. Generates a fresh payer keypair inside the validator's /tmp (only on first run).
+2. Airdrops 100 SOL to the payer from the local faucet (unlimited).
 3. Mints a fresh $GRID SPL token (decimals 9 to mirror mainnet design).
 4. Creates an associated token account + mints 1B GRID to the treasury.
-5. Persists `SOLANA_PAYER_KEYPAIR` + `GRID_TOKEN_MINT_ADDRESS` + `SOLANA_PAYER_PUBKEY` into Secret `iogrid-solana-payout`.
+5. `kubectl cp` pulls the keypair JSON out of the validator pod.
+6. Persists `SOLANA_PAYER_KEYPAIR` + `GRID_TOKEN_MINT_ADDRESS` + `SOLANA_PAYER_PUBKEY` into Secret `iogrid-solana-payout`.
+
+Re-runnable: the Job's first guard is `if Secret already exists → exit 0`, so subsequent applies are no-ops.
 
 Then point billing-svc at the new endpoints:
 
