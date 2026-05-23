@@ -40,6 +40,23 @@ kubectl -n iogrid logs deploy/billing-svc --tail=20 | grep -i solana
 # (Was: WARN solana: stub mode)
 ```
 
+## Cluster capacity note
+
+The validator StatefulSet requests 200Mi memory; the bootstrap Job needs
+a brief 128Mi for the keypair/airdrop/mint sequence. On a single-node
+phase-0 cluster at >75% memory the pod stays `Pending` with
+`Insufficient memory`. Two options:
+
+1. **Wait** — once another workload scales down, the scheduler will
+   place it automatically (StatefulSet + Job already applied; no action
+   needed).
+2. **Free a slot** — evict a non-critical pod, e.g.
+   `kubectl -n talentmesh scale deploy/stt-streaming-service --replicas=0`
+   (the heaviest non-iogrid consumer per `kubectl top pods -A`).
+
+When the cluster grows to 2+ nodes the constraint disappears; this
+runbook documents the manifest, not a node-add requirement.
+
 ## Why local validator instead of devnet
 
 | Path | Cost | Founder-physical? | Unblocks? |
