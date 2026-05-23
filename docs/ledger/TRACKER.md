@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T21:15:00Z` 🟢 7 PRs MERGED + Redis/NATS applied + walk-evidence pinned (4 screenshots) — 🔴 #454 blocks post-merge image rolls |
+| Last refreshed | `2026-05-23T22:50:00Z` 🟢 #454 rotator workflow shipped + admin pinned to sha-d85e56b + scaling to 1-replica for single-node mem fit; new web image (sha 5d27e59 post-#445) deploying |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
 | Open PRs | **7** — #445 #446 #447 #448 #449 #450 #451 (the first 6 reached all-CLEAN simultaneously; #451 added 2026-05-23 03:34Z as the 2nd piece of the #438 chain — see §0.8) |
