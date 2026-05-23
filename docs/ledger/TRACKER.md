@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T09:28Z` 🟢 22 walk-screenshots + #453 SIWS Redis cleared (live identity-svc log no longer shows `redis unavailable` WARN) + #469 ANTIABUSE_SVC_URL wired + #418/#416/#417/#407/#410/#382/#384 audits closed. 9 inline closes + EPIC #422 substantive progress. |
+| Last refreshed | `2026-05-23T09:45Z` 🟢 cron-refresh: +11 commits since last TRACKER bump |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
 | Open PRs | **7** — #445 #446 #447 #448 #449 #450 #451 (the first 6 reached all-CLEAN simultaneously; #451 added 2026-05-23 03:34Z as the 2nd piece of the #438 chain — see §0.8) |
