@@ -76,7 +76,7 @@ iogrid is a single coordinated platform with pluggable workload modules. The sam
 | **Object storage** | S3-compatible (Hetzner Object Storage initially) | | Build artifacts, audit log archives. |
 | **Observability** | OpenTelemetry + Grafana + Loki + Tempo | k8s | Existing OpenOva mothership stack — federated in. |
 | **Service mesh** | Cilium (existing) | k8s | mTLS via SPIFFE-style identities, network policy isolation per microservice. |
-| **CI/CD** | GitHub Actions → ghcr.io → Flux GitOps | k8s | SHA-pinned image deploys, Flux reconciles cluster state from `iogrid/iogrid-ops` manifests. |
+| **CI/CD** | GitHub Actions → ghcr.io + harbor.openova.io (dual-push) → Flux GitOps | k8s | SHA-pinned image deploys. ghcr.io is the public source of truth; `harbor.openova.io/iogrid` is the in-cluster mirror the cluster actually pulls from (bypasses per-package ACLs). The 6h `harbor-mirror-verify` cron catches silent dual-push regressions. See [`runbooks/2026-05-24-harbor-mirror-bypass.md`](./runbooks/2026-05-24-harbor-mirror-bypass.md). |
 
 ---
 
