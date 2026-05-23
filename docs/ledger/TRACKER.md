@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T12:08Z` 🟢🟢🟢 admin-ci CI dual-push WORKING (admin@e0ba14d3 in BOTH ghcr + harbor); NATS clean config shipped (single-node, no more route WARN spam); 13/13 public surfaces HTTP 200; api Dispatch 200. |
+| Last refreshed | `2026-05-23T12:15Z` 🟢🟢🟢 harbor-mirror-verify cron-job shipped (6h check, 13/13 OK live). ghcr-pull-rotator+ghcr-make-public+ghcr-diag deleted (superseded). IOGRID_KUBECONFIG_B64 + SA cleaned. Cluster + CI on harbor canonical path. |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
 | Open PRs | **7** — #445 #446 #447 #448 #449 #450 #451 (the first 6 reached all-CLEAN simultaneously; #451 added 2026-05-23 03:34Z as the 2nd piece of the #438 chain — see §0.8) |
