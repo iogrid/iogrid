@@ -54,16 +54,11 @@ data:
       max_file: 8GB
     }
 
-    cluster {
-      name: iogrid-nats
-      listen: 0.0.0.0:6222
-      routes: [
-        nats://nats-0.nats.iogrid.svc.cluster.local:6222,
-        nats://nats-1.nats.iogrid.svc.cluster.local:6222,
-        nats://nats-2.nats.iogrid.svc.cluster.local:6222
-      ]
-      connect_retries: 30
-    }
+    # cluster { ... } block intentionally omitted — phase-0 runs at
+    # replicas=1 (per #455). The previous config had routes to nats-1
+    # and nats-2 which don't exist, causing "Waiting for routing to be
+    # established..." WARN spam. Re-introduce the cluster block when
+    # bumping replicas back to 3.
 
     accounts {
       SYS: { users: [ { user: sys, pass: "$NATS_SYS_PASSWORD" } ] }
