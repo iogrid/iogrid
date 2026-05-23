@@ -1,0 +1,30 @@
+name: ghcr-diag
+
+# Diagnostic: confirm which iogrid/* container packages the
+# workflow GITHUB_TOKEN can vs cannot pull, so we can pivot.
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  packages: write
+  contents: read
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Per-package pull test
+        env:
+          T: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          for pkg in identity-svc providers-svc workloads-svc \
+                     antiabuse-svc billing-svc telemetry-svc \
+                     gateway-bff proxy-gateway vpn-gateway \
+                     build-gateway web admin releases; do
+            CODE=$(curl -sS -u "x:$T" -o /dev/null -w "%{http_code}" \
+              "https://ghcr.io/token?scope=repository:iogrid/$pkg:pull&service=ghcr.io")
+            printf "  %-15s token-exchange HTTP %s\n" "$pkg" "$CODE"
+          done
