@@ -86,6 +86,16 @@ spec:
               value: /etc/proxy-gateway/tls/tls.crt
             - name: TLS_KEY_PATH
               value: /etc/proxy-gateway/tls/tls.key
+            # Sister to WORKLOADS_SVC_URL — directs proxy-gateway's
+            # SOCKS5 pre-flight check against the NCMEC/PhishTank/GSB
+            # blocklists antiabuse-svc maintains. Without this set, the
+            # service boots with "ANTIABUSE_SVC_URL unset; pre-flight
+            # checks bypassed (DEV ONLY)" warning and ALL destinations
+            # relay without abuse vetting. #469.
+            - name: ANTIABUSE_SVC_URL
+              value: http://antiabuse-svc.iogrid.svc.cluster.local:8080
+            - name: WORKLOADS_SVC_URL
+              value: http://workloads-svc.iogrid.svc.cluster.local:8080
           envFrom:
             - configMapRef:
                 name: proxy-gateway-config
