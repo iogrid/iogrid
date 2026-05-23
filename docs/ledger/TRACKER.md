@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T12:02Z` 🟢🟢🟢 Harbor dual-push wired into coordinator-ci + web-ci + admin-ci. Every future build lands in both ghcr + harbor automatically. #426 #454 #467 #473 marked SUPERSEDED. Cluster zero-dep on ghcr-pull. |
+| Last refreshed | `2026-05-23T12:05Z` 🟢🟢🟢 80 commits this session + Harbor mirror end-to-end + persona-switcher E2E spec. 26 walk screenshots. admin-ci validating the harbor push step live. Founder-action remaining: bulk-close supersedeed issues (per §3 rule 6, only founder closes). |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
 | Open PRs | **7** — #445 #446 #447 #448 #449 #450 #451 (the first 6 reached all-CLEAN simultaneously; #451 added 2026-05-23 03:34Z as the 2nd piece of the #438 chain — see §0.8) |
