@@ -72,6 +72,15 @@ spec:
             # on iogrid.org. See admin/src/auth.config.ts.
             - name: IOGRID_ADMIN_HOST
               value: admin.iogrid.org
+            # IOGRID_ADMIN_EMAILS — admin middleware allowlist. When unset,
+            # admin/src/middleware.ts treats the allowlist as empty + bounces
+            # every authenticated user (the cookie auth passes but the
+            # email gate fails, so a 403 lands on every /). Live-verified
+            # 2026-05-24 admin walk needed this set; capturing here so it
+            # survives a fresh prov instead of staying a `kubectl set env`
+            # drift. Closes the gap caught during #422 Phase 4.1 walk.
+            - name: IOGRID_ADMIN_EMAILS
+              value: emrah.baysal@openova.io,hatice.yildiz@openova.io
             # NextAuth v5 requires AUTH_TRUST_HOST=true when running behind
             # a reverse proxy that terminates TLS (Traefik passes the
             # Host header verbatim). Without this, every /api/auth/* call
