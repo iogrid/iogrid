@@ -43,7 +43,7 @@ spec:
           # solana-keygen / airdrop / spl-token, then create the Secret from
           # the captured output. This avoids cramming two binary sets into
           # one image.
-          image: bitnami/kubectl:1.30
+          image: bitnami/kubectl:latest
           command: ["bash", "-c"]
           args:
             - |
