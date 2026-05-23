@@ -38,7 +38,10 @@ pub use iogrid_ui_bridge::{
 pub use workloads::{ActiveAssignment, ActiveRegistry, WorkloadRouter, WorkloadRouterRunners};
 
 pub mod pair;
+pub mod pair_handler;
 pub mod updater;
+
+pub use pair_handler::SupervisorPairHandler;
 
 // macOS-only IPC server for the status-bar menu app (issue #388 /
 // EPIC #348 Phase 2-mac). Compiled out on every other target so the
@@ -311,6 +314,13 @@ impl Supervisor {
         let bridge = BridgeState::default()
             .with_scheduler(scheduler.clone())
             .with_filter(filter.clone());
+        // #438 piece 3 — supervisor PairHandler. POST /pair now mints +
+        // persists a bearer + flips per-route enforcement instead of
+        // returning 503.
+        let bridge = bridge.with_pair_handler(Arc::new(SupervisorPairHandler::from_bridge(
+            config.state_dir.clone(),
+            &bridge,
+        )));
         // Windows: wire the Squirrel `Update.exe` driver so the future
         // tray UI's "Check for updates" verb (parallel to the macOS
         // statusbar from PR #402) can drive the daily update path
