@@ -1,0 +1,51 @@
+name: Install protoc (no GH-API)
+description: |
+  Download protoc directly from the public protocolbuffers/protobuf
+  GitHub release asset. Replaces `arduino/setup-protoc@v3`, which
+  hits the GH API for release-listing and routinely fails with
+  `Bad credentials` on macOS / windows runners when GITHUB_TOKEN is
+  scope-limited or rate-limited.
+inputs:
+  version:
+    description: "protoc version (e.g. 27.0)"
+    required: false
+    default: "27.0"
+runs:
+  using: composite
+  steps:
+    - name: Download + install protoc (Linux / macOS)
+      if: runner.os == 'Linux' || runner.os == 'macOS'
+      shell: bash
+      run: |
+        set -euo pipefail
+        V='${{ inputs.version }}'
+        case "${RUNNER_OS}-${RUNNER_ARCH}" in
+          Linux-X64)   SUFFIX=linux-x86_64 ;;
+          Linux-ARM64) SUFFIX=linux-aarch_64 ;;
+          macOS-X64)   SUFFIX=osx-x86_64 ;;
+          macOS-ARM64) SUFFIX=osx-aarch_64 ;;
+          *) echo "::error::unsupported runner ${RUNNER_OS}-${RUNNER_ARCH}"; exit 1 ;;
+        esac
+        URL="https://github.com/protocolbuffers/protobuf/releases/download/v${V}/protoc-${V}-${SUFFIX}.zip"
+        DEST="${HOME}/.protoc-${V}"
+        mkdir -p "${DEST}"
+        echo "→ ${URL}"
+        curl -fsSL "${URL}" -o /tmp/protoc.zip
+        unzip -o -q /tmp/protoc.zip -d "${DEST}"
+        rm /tmp/protoc.zip
+        echo "${DEST}/bin" >> "${GITHUB_PATH}"
+        "${DEST}/bin/protoc" --version
+    - name: Download + install protoc (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        $V = '${{ inputs.version }}'
+        $URL = "https://github.com/protocolbuffers/protobuf/releases/download/v$V/protoc-$V-win64.zip"
+        $DEST = "$env:USERPROFILE\.protoc-$V"
+        New-Item -ItemType Directory -Force -Path $DEST | Out-Null
+        Write-Host "-> $URL"
+        Invoke-WebRequest -Uri $URL -OutFile $env:TEMP\protoc.zip
+        Expand-Archive -Force -Path $env:TEMP\protoc.zip -DestinationPath $DEST
+        Remove-Item $env:TEMP\protoc.zip
+        "$DEST\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        & "$DEST\bin\protoc.exe" --version

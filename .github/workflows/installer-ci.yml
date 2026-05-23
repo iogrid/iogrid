@@ -162,11 +162,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install protoc
-        uses: arduino/setup-protoc@v3
-        with:
-          version: "27.x"
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
+        uses: ./.github/actions/install-protoc
       - name: Cache cargo registry only (target/ is per-arch and small)
         uses: actions/cache@v4
         with:
@@ -193,11 +189,7 @@ jobs:
         # shells out to protoc. installer-ci doesn't pre-install it like
         # daemon-ci does, so the build aborted with "Could not find
         # `protoc`" after PR #226 wired the bidi-pump.
-        uses: arduino/setup-protoc@v3
-        with:
-          version: "27.x"
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
+        uses: ./.github/actions/install-protoc
       - name: Build iogridd (${{ matrix.target }})
         working-directory: daemon
         run: cargo build --release --bin iogridd --target ${{ matrix.target }}
@@ -238,11 +230,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install protoc
-        uses: arduino/setup-protoc@v3
-        with:
-          version: "27.x"
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
+        uses: ./.github/actions/install-protoc
       - name: Cache cargo registry
         uses: actions/cache@v4
         with:
@@ -254,11 +242,7 @@ jobs:
             cargo-registry-windows-
 
       - name: Install protoc
-        uses: arduino/setup-protoc@v3
-        with:
-          version: "27.x"
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
+        uses: ./.github/actions/install-protoc
       - name: Build iogridd.exe
         working-directory: daemon
         run: cargo build --release --bin iogridd --target x86_64-pc-windows-msvc
@@ -457,11 +441,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install protoc
-        uses: arduino/setup-protoc@v3
-        with:
-          version: "27.x"
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
+        uses: ./.github/actions/install-protoc
       - name: Cache cargo
         uses: actions/cache@v4
         with:

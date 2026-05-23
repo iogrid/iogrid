@@ -32,10 +32,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install protoc
-        uses: arduino/setup-protoc@v3
-        with:
-          version: "27.x"
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+        uses: ./.github/actions/install-protoc
       - name: Cache cargo registry + target
         uses: actions/cache@v4
         with:
@@ -89,10 +86,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install protoc
-        uses: arduino/setup-protoc@v3
-        with:
-          version: "27.x"
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+        uses: ./.github/actions/install-protoc
       - name: Cache cargo
         uses: actions/cache@v4
         with:
