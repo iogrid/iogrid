@@ -137,7 +137,7 @@ spec:
               mountPath: /tmp
       containers:
         - name: providers-svc
-          image: ghcr.io/iogrid/providers-svc@sha256:b771d26dda86ac455f3bf8c04845c2b1173fba2b0ec3a5113f2cd4490e66797c
+          image: harbor.openova.io/iogrid/providers-svc:local
           imagePullPolicy: Always
           ports:
             - name: http

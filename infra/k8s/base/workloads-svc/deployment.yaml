@@ -46,7 +46,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: workloads-svc
-          image: ghcr.io/iogrid/workloads-svc@sha256:815f51a76d9c7c8578d396bdfbd825ef39a48ac205557cd4ef23fa0249045365
+          image: harbor.openova.io/iogrid/workloads-svc:local
           imagePullPolicy: Always
           ports:
             - name: http

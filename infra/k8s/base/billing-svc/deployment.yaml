@@ -57,7 +57,7 @@ spec:
           #       node pulls the digest even when the tag string is unchanged
           # Refs #335 (and #324, which depends on this loop to actually
           # ship the new EarningsService RPCs to prod).
-          image: ghcr.io/iogrid/billing-svc@sha256:98584ea808dcc0e8e6aa368e56ed7760a153343f8535fb148994385a7262d159
+          image: harbor.openova.io/iogrid/billing-svc:local
           imagePullPolicy: Always
           ports:
             - name: http

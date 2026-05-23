@@ -55,7 +55,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: proxy-gateway
-          image: ghcr.io/iogrid/proxy-gateway@sha256:16fd3a7c9717e1bb9a5ab97377258534c84c2173b3e6a2513291d58de162f826
+          image: harbor.openova.io/iogrid/proxy-gateway:local
           imagePullPolicy: Always
           ports:
             - name: tls

@@ -46,7 +46,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: identity-svc
-          image: ghcr.io/iogrid/identity-svc@sha256:100ceb539cbdfea17646e4a681a282b68a49d5f01a4b061185392c8f6a525b19
+          image: harbor.openova.io/iogrid/identity-svc:local
           imagePullPolicy: Always
           ports:
             - name: http
