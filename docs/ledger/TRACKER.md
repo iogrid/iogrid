@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T10:20Z` 🟢 25 more close-suggest comments posted on stale-but-resolved issues — founder can bulk-close. PersonaSidebar h-screen→h-full fix landed. 68 open; 11 are session-new founder-unblock issues. |
+| Last refreshed | `2026-05-23T10:25Z` 🟢 PersonaSwitcher 7-test suite shipped + sidebar h-full fix + #470 dropdown image baking on commit 826f2f7. Rotators stopped (per-package ACL wall confirmed for identity-svc + workloads-svc per #473). Web 3/3 + admin 2/2 Running. |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
 | Open PRs | **7** — #445 #446 #447 #448 #449 #450 #451 (the first 6 reached all-CLEAN simultaneously; #451 added 2026-05-23 03:34Z as the 2nd piece of the #438 chain — see §0.8) |
