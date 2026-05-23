@@ -322,6 +322,27 @@ impl Supervisor {
             bridge.bearer_token.clone(),
         ));
         let bridge = bridge.with_pair_handler(pair_handler);
+        // #438 piece 4 — re-arm bearer enforcement on startup. If a
+        // previous pair persisted bearer.txt next to cert.pem / key.pem,
+        // load it back into the BridgeState so /state /config /earnings
+        // /audit/* /updates/check enforce immediately instead of falling
+        // back to pre-pair pass-through. I/O failures don't fail the
+        // boot — they just leave enforcement off until the next pair.
+        match iogrid_transport::identity::IdentityBundle::load_bearer(&config.state_dir) {
+            Ok(Some(token)) => {
+                bridge.set_bearer_token(Some(token));
+                tracing::info!(state_dir = %config.state_dir.display(), "bearer re-armed from disk");
+            }
+            Ok(None) => {
+                tracing::info!(
+                    state_dir = %config.state_dir.display(),
+                    "no persisted bearer — UI bridge runs pre-pair pass-through",
+                );
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, state_dir = %config.state_dir.display(), "failed to load persisted bearer; UI bridge runs pre-pair pass-through");
+            }
+        }
         // Windows: wire the Squirrel `Update.exe` driver so the future
         // tray UI's "Check for updates" verb (parallel to the macOS
         // statusbar from PR #402) can drive the daily update path
