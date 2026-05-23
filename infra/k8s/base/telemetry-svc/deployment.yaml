@@ -158,8 +158,10 @@ spec:
               value: "400MiB"
           resources:
             requests:
-              cpu: 200m
-              memory: 256Mi
+              # Phase-0 single-node fit — otelcol idle uses ~50Mi.
+              # Limits still allow growth to 768Mi if pipelines load up.
+              cpu: 50m
+              memory: 64Mi
             limits:
               cpu: 1000m
               memory: 768Mi
