@@ -85,6 +85,18 @@ spec:
             - secretRef:
                 name: admin-secrets
                 optional: true
+            # admin-auth-secrets carries AUTH_SECRET (random 32-byte
+            # NextAuth signing key). admin-db-secrets carries DATABASE_URL
+            # for the DrizzleAdapter (admin schema in shared iogrid-pg
+            # CNPG cluster). Both wired live 2026-05-24 (Closes #475 #476).
+            # Provisioning playbook is in
+            # `docs/runbooks/2026-05-24-harbor-mirror-bypass.md` follow-up.
+            - secretRef:
+                name: admin-auth-secrets
+                optional: true
+            - secretRef:
+                name: admin-db-secrets
+                optional: true
           resources:
             requests:
               cpu: 100m
