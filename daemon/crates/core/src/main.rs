@@ -414,7 +414,10 @@ fn default_log_path() -> PathBuf {
         }
     }
     if let Ok(la) = std::env::var("LOCALAPPDATA") {
-        let win = std::path::Path::new(&la).join("iogrid").join("logs").join("iogridd.log");
+        let win = std::path::Path::new(&la)
+            .join("iogrid")
+            .join("logs")
+            .join("iogridd.log");
         return win;
     }
     PathBuf::from("/var/log/iogridd.log")
@@ -423,14 +426,24 @@ fn default_log_path() -> PathBuf {
 fn print_diag_human(b: &Diag) {
     println!("iogridd diag — {} ({})", b.iogridd_version, b.target_os);
     println!();
-    println!("state_dir:  {} (exists={})", b.state_dir, b.state_dir_exists);
+    println!(
+        "state_dir:  {} (exists={})",
+        b.state_dir, b.state_dir_exists
+    );
     for e in &b.state_dir_entries {
         println!("  {:<24} {:>10} bytes", e.name, e.size_bytes);
     }
     println!();
     if let Some(c) = &b.config_summary {
         println!("coordinator_url:    {}", c.coordinator_url);
-        println!("provider_id:        {}", if c.provider_id.is_empty() { "(unpaired)" } else { &c.provider_id });
+        println!(
+            "provider_id:        {}",
+            if c.provider_id.is_empty() {
+                "(unpaired)"
+            } else {
+                &c.provider_id
+            }
+        );
         println!("bandwidth_cap_gb:   {}", c.bandwidth_cap_gb);
         println!("cpu/mem_cap_pct:    {}/{}", c.cpu_cap_pct, c.memory_cap_pct);
         println!("heartbeat_secs:     {}", c.heartbeat_secs);
@@ -440,8 +453,14 @@ fn print_diag_human(b: &Diag) {
     println!();
     println!("paired (cert+key):  {}", b.paired);
     println!("bearer.txt present: {}", b.bearer_present);
-    println!("ui_bridge reachable (127.0.0.1:7777): {}", b.ui_bridge_reachable);
-    println!("daemon process running:               {}", b.daemon_process_running);
+    println!(
+        "ui_bridge reachable (127.0.0.1:7777): {}",
+        b.ui_bridge_reachable
+    );
+    println!(
+        "daemon process running:               {}",
+        b.daemon_process_running
+    );
     println!();
     println!("log path probed:    {}", b.log_path_probed);
     if b.log_tail.is_empty() {
