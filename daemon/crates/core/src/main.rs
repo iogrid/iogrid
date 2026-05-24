@@ -324,14 +324,16 @@ async fn run_diag(state_dir: &std::path::Path, as_json: bool) -> Result<()> {
     // Loading config is best-effort — a corrupt config shouldn't crash
     // the diag command (that's exactly the kind of state we want to
     // surface).
-    let config_summary = DaemonConfig::load_or_init(state_dir).ok().map(|c| DiagConfig {
-        coordinator_url: c.coordinator_url,
-        provider_id: c.provider_id,
-        bandwidth_cap_gb: c.bandwidth_cap_gb,
-        cpu_cap_pct: c.cpu_cap_pct,
-        memory_cap_pct: c.memory_cap_pct,
-        heartbeat_secs: c.heartbeat_secs,
-    });
+    let config_summary = DaemonConfig::load_or_init(state_dir)
+        .ok()
+        .map(|c| DiagConfig {
+            coordinator_url: c.coordinator_url,
+            provider_id: c.provider_id,
+            bandwidth_cap_gb: c.bandwidth_cap_gb,
+            cpu_cap_pct: c.cpu_cap_pct,
+            memory_cap_pct: c.memory_cap_pct,
+            heartbeat_secs: c.heartbeat_secs,
+        });
     let cert_path = state_dir.join("cert.pem");
     let key_path = state_dir.join("key.pem");
     let bearer_path = state_dir.join("bearer.txt");
@@ -340,12 +342,7 @@ async fn run_diag(state_dir: &std::path::Path, as_json: bool) -> Result<()> {
     // UI-bridge probe — 500ms timeout so a stuck supervisor doesn't
     // hang the diag command.
     let ui_bridge_reachable = std::process::Command::new("curl")
-        .args([
-            "-fsS",
-            "--max-time",
-            "1",
-            "http://127.0.0.1:7777/state",
-        ])
+        .args(["-fsS", "--max-time", "1", "http://127.0.0.1:7777/state"])
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false);
@@ -369,7 +366,13 @@ async fn run_diag(state_dir: &std::path::Path, as_json: bool) -> Result<()> {
     let log_path = default_log_path();
     let log_tail = std::fs::read_to_string(&log_path)
         .ok()
-        .map(|s| s.lines().rev().take(50).map(|l| l.to_string()).collect::<Vec<_>>())
+        .map(|s| {
+            s.lines()
+                .rev()
+                .take(50)
+                .map(|l| l.to_string())
+                .collect::<Vec<_>>()
+        })
         .map(|mut v| {
             v.reverse();
             v
@@ -403,8 +406,7 @@ fn file_nonempty(p: &std::path::Path) -> bool {
 
 fn default_log_path() -> PathBuf {
     if let Ok(home) = std::env::var("HOME") {
-        let mac = std::path::Path::new(&home)
-            .join("Library/Logs/iogrid/iogridd.log");
+        let mac = std::path::Path::new(&home).join("Library/Logs/iogrid/iogridd.log");
         if mac.exists() {
             return mac;
         }
