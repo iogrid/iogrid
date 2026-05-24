@@ -288,6 +288,10 @@ pub struct Supervisor {
     filter: Arc<InMemoryFilter>,
     bridge: BridgeState,
     runners: WorkloadRouterRunners,
+    // Holds the dispatch-bridge watch sender for the lifetime of the
+    // supervisor so the bridge's `run_with_reconnect` cancel-receiver
+    // doesn't see a closed channel and spin-loop. See #482.
+    dispatch_cancel: Option<tokio::sync::watch::Sender<bool>>,
 }
 
 impl std::fmt::Debug for Supervisor {
@@ -362,6 +366,7 @@ impl Supervisor {
             filter,
             bridge,
             runners,
+            dispatch_cancel: None,
         }
     }
 
@@ -626,16 +631,19 @@ impl Supervisor {
                     coordinator = %self.config.coordinator_url,
                     "live dispatch bridge spawned"
                 );
-                // We deliberately drop `cancel_tx` + `task` — the bridge
-                // task continues until the process exits (Ctrl+C drops
-                // the watch channel, which signals shutdown). A follow-up
-                // PR stashes the handle on `Supervisor` for graceful
-                // shutdown alongside the JoinSet drain.
+                // Keep `cancel_tx` alive on the supervisor stack for the
+                // lifetime of the daemon. Dropping the watch sender closes
+                // the channel; the bridge's `run_with_reconnect` then sees
+                // `cancel.changed().await` return Err on every poll and
+                // races the connect-future to cancellation, producing the
+                // sub-millisecond spin-loop diagnosed via #482. Mirrors
+                // the heartbeat side at L508 which already pins its sender.
                 let iogrid_transport::LiveDispatchHandle {
                     daemon_side,
-                    cancel_tx: _,
+                    cancel_tx,
                     task: _,
                 } = handle;
+                self.dispatch_cancel = Some(cancel_tx);
                 daemon_side
             }
             None => {

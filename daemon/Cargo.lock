@@ -1050,7 +1050,7 @@ dependencies = [
 
 [[package]]
 name = "iogrid-anti-abuse"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1065,7 +1065,7 @@ dependencies = [
 
 [[package]]
 name = "iogrid-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1106,7 +1106,7 @@ dependencies = [
 
 [[package]]
 name = "iogrid-platform-linux"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "serde",
@@ -1116,7 +1116,7 @@ dependencies = [
 
 [[package]]
 name = "iogrid-platform-mac"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "serde",
@@ -1127,7 +1127,7 @@ dependencies = [
 
 [[package]]
 name = "iogrid-platform-windows"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "serde",
@@ -1138,7 +1138,7 @@ dependencies = [
 
 [[package]]
 name = "iogrid-routing"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1153,7 +1153,7 @@ dependencies = [
 
 [[package]]
 name = "iogrid-scheduler"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "chrono",
  "parking_lot",
@@ -1166,7 +1166,7 @@ dependencies = [
 
 [[package]]
 name = "iogrid-transport"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1200,7 +1200,7 @@ dependencies = [
 
 [[package]]
 name = "iogrid-ui-bridge"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1223,7 +1223,7 @@ dependencies = [
 
 [[package]]
 name = "iogrid-workload-docker"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1240,7 +1240,7 @@ dependencies = [
 
 [[package]]
 name = "iogrid-workload-gpu"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1257,7 +1257,7 @@ dependencies = [
 
 [[package]]
 name = "iogrid-workload-ios"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "async-trait",
