@@ -20,6 +20,15 @@ concurrency:
   group: installer-ci-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+# Default GITHUB_TOKEN on this repo can't `gh release create` — surfaces
+# as HTTP 403 on tag pushes (#486 — `publish-windows-installers` failed
+# on v0.1.1 + v0.1.2 with `Resource not accessible by integration`).
+# The publish-step jobs are all gated `if: startsWith(github.ref,
+# 'refs/tags/v')`, so the elevated scope only applies during tag pushes;
+# regular branch + PR runs still inherit the default read-only scope.
+permissions:
+  contents: write
+
 # Per-OS installer artifacts. CI builds unsigned packages always. The
 # signing/notarisation jobs are gated on secrets being present — when
 # absent (forks, PRs, devs) we still produce an artifact useful for
