@@ -72,14 +72,15 @@ type TunnelTx = mpsc::Sender<Inbound>;
 /// dispatch frame router and the tunnel tasks.
 pub struct TunnelManager {
     tunnels: Arc<Mutex<HashMap<String, TunnelTx>>>,
-    /// Outbound dispatch channel — every `TunnelData` chunk read from
-    /// the upstream socket is wrapped in a `DispatchFrame::TunnelData`
-    /// and pushed here. The daemon's bridge pump pulls from this and
-    /// sends it on the wire to workloads-svc.
     outbound: mpsc::Sender<DispatchFrame>,
 }
 
 impl TunnelManager {
+    /// Build a manager bound to the supervisor's outbound dispatch
+    /// channel. Every `TunnelData` chunk read from an upstream TCP
+    /// socket is wrapped in `DispatchFrame::TunnelData` and pushed to
+    /// `outbound` — the daemon's bridge pump pulls from there and
+    /// sends on the wire to workloads-svc.
     pub fn new(outbound: mpsc::Sender<DispatchFrame>) -> Self {
         Self {
             tunnels: Arc::new(Mutex::new(HashMap::new())),
