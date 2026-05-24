@@ -63,7 +63,7 @@ keystroke level.
    The 7 PRs being green is not a stopping point. The merge by founder
    + Flux roll + browser walk of `iogrid.org`, `/provider`, `/customer`,
    `/account`, `/vpn`, `/welcome`, `/admin.iogrid.org` is the stopping
-   point — and even then, only the founder closes after seeing evidence.
+   point. After the walk: session posts screenshot + dispatches a general-purpose sub-agent reviewer + flips `status/uat` → `status/completed` + closes the issue itself via `gh issue close`. Founder reviews asynchronously and may reopen — but never gates closure.
 
 2. **Every assistant message ends with a tool call.** "Status:",
    "Session totals:", "X PRs in flight:", or any closing recap is the
