@@ -1454,13 +1454,47 @@ pub fn spawn_live_dispatch(cfg: ConnectConfig, hello: DispatchHello) -> LiveDisp
             let out_rx = out_rx_outer.clone();
             let in_tx = in_tx_outer.clone();
             async move {
+                // #482 instrumentation. Before this, the dispatch
+                // bridge's reconnect closure was completely silent
+                // until the inner run_dispatch_stream got past
+                // `client.dispatch()` — meaning a channel-connect
+                // failure left zero breadcrumbs in the daemon log,
+                // making "spawned but never opens the RPC" undebuggable
+                // without source-side rebuild. Hatice's Mac sat in this
+                // exact state from 2026-05-19 through 2026-05-24.
+                tracing::info!(
+                    target: "dispatch_bridge",
+                    coordinator = %cfg.coordinator_url,
+                    "dispatch reconnect-closure entered; connecting Channel"
+                );
                 let mut ch = Channel::new(cfg.clone());
-                ch.connect().await?;
+                if let Err(e) = ch.connect().await {
+                    tracing::error!(
+                        target: "dispatch_bridge",
+                        error = ?e,
+                        coordinator = %cfg.coordinator_url,
+                        "dispatch Channel::connect FAILED — reconnect loop will back off"
+                    );
+                    return Err(e);
+                }
+                tracing::info!(
+                    target: "dispatch_bridge",
+                    coordinator = %cfg.coordinator_url,
+                    "dispatch Channel::connect OK; about to call run_dispatch_stream"
+                );
                 let channel = ch
                     .inner()
                     .cloned()
                     .ok_or_else(|| TransportError::Unreachable("channel not bound".into()))?;
-                run_dispatch_stream(channel, hello, out_rx, in_tx).await
+                let r = run_dispatch_stream(channel, hello, out_rx, in_tx).await;
+                if let Err(ref e) = r {
+                    tracing::warn!(
+                        target: "dispatch_bridge",
+                        error = ?e,
+                        "run_dispatch_stream returned error; reconnect loop will back off"
+                    );
+                }
+                r
             }
         })
         .await;
