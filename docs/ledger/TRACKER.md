@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-24T20:15Z` 🟢🟢 **Real demo gap caught (D7 metric-drift on prior "board empty" claim)**: hatice's Mac last heartbeat 5 days stale → vcard LinkedIn flow non-reproducible → filed **#479** + investigated 2223 reverse-tunnel (auth gap; founder has the key). Shipped **#480** PR — providers-svc heartbeat-loss-alerter: 60s scan + 5min staleness threshold + slog WARN `provider.heartbeat_loss` + dedup + recovery line + 4 unit tests green. Ships independently of any iogridd-side change. Closes the visibility half of #479 architectural root cause. Open: 6 issues (4 parked + 1 in-progress #479 + 1 PR #480). |
+| Last refreshed | `2026-05-24T20:30Z` 🟢🟢 **#479 architectural fix shipped both halves**: **#480 MERGED** (commit 6bb5fdc) providers-svc heartbeat-loss-alerter (coordinator-side visibility); **#481 in CI** iogridd `diag` CLI (daemon-side root-cause bundle — operator runs one command, gets state_dir+config+pair+bearer+ui-bridge+process+log-tail in 1 paste). Rustfmt fix push on #481 after first run flagged long-line formatting (commit 3d05bcf). Live demo unblock (residential-IP path for hatice's Mac specifically) is separate from the architectural fix + needs founder call on (a) wake mac, (b) WARP on bastion, (c) paid residential proxy. Open: 6 issues (4 parked + #479 in-progress + #481 PR). |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
 | Open PRs | **7** — #445 #446 #447 #448 #449 #450 #451 (the first 6 reached all-CLEAN simultaneously; #451 added 2026-05-23 03:34Z as the 2nd piece of the #438 chain — see §0.8) |
