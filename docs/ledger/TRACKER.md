@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-24T22:32Z` 🟢🟢🟢 **#482 dispatch stream VERIFIED LIVE on Hatice's Mac** — v0.1.2 c5947dd installed via SSH-tunnel + kickstart. Sub-ms spin-loop ELIMINATED. Cluster confirms at 22:29:51Z: `workloads-svc` logs `dispatch stream opened remote_addr=10.42.0.1 user_agent=tonic/0.12.3` + `daemon hello received provider_id=cac83611-4a6f-4937-95b4-8f4fb2538808 eligible_types=1 max_concurrent=4`. Daemon logs `Channel::connect OK; about to call run_dispatch_stream` then `dispatch stream: opening RPC + DaemonHello queued`. Root cause was `cancel_tx: _` destructure dropping the watch sender → `cancel.changed().await` returned Err every poll → `tokio::select!` cancelled the connect-future at sub-ms cadence. Fix: pin `cancel_tx` on Supervisor struct for `run(mut self)` lifetime, mirroring heartbeat side L508. Evidence on [#482](https://github.com/iogrid/iogrid/issues/482#issuecomment-4530296241). Pinged vcard sibling to re-run LinkedIn smoke with test API key `iog_7c7ab0…f855`. Once vcard posts screenshot of LinkedIn-via-Oman-IP → close #482 per agent-owned 5-step cycle. Open: 7 (4 parked + #481 PR + #482 awaiting-vcard-smoke + #486 in-progress + #485 parked). |
+| Last refreshed | `2026-05-24T22:45Z` 🟢 cron-refresh: +2 commits since last TRACKER bump |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
 | Open PRs | **0** — all 7 of the #438 chain (#445–#451) merged; #481 (iogridd diag CLI) merged 21:30Z; #486 fix (installer-ci 403 → contents:write) merged 22:33Z (5171407, auto-closes #486) |
