@@ -41,6 +41,19 @@ enum Cmd {
     },
     /// Print the daemon's current state (GET /state on the local UI bridge).
     Status,
+    /// Print an operator-pasteable diagnostic bundle: state-dir contents,
+    /// config snapshot, pair status, bearer presence, recent log tail,
+    /// heartbeat recency. The operator (or an SSH-via-tunnel session)
+    /// pastes the output to the issue/comment so the platform side can
+    /// diagnose why the daemon stopped reporting without round-tripping
+    /// through the operator for each follow-up question. Refs #479.
+    Diag {
+        /// Pretty-print as JSON instead of the default human-readable
+        /// format. JSON is easier to forward into a tracker / logging
+        /// pipeline but harder to skim by eye.
+        #[arg(long)]
+        json: bool,
+    },
     /// Stop the running daemon.
     Stop,
     /// Uninstall the daemon (service unit + state dir).
@@ -87,6 +100,7 @@ async fn main() -> Result<()> {
             coordinator_url,
         }) => run_pair(&state_dir, &token, coordinator_url).await,
         Some(Cmd::Status) => run_status().await,
+        Some(Cmd::Diag { json }) => run_diag(&state_dir, json).await,
         Some(Cmd::Stop) => run_stop().await,
         Some(Cmd::Uninstall) => run_uninstall(&state_dir).await,
         Some(Cmd::Version) => {
@@ -234,6 +248,229 @@ async fn run_status() -> Result<()> {
             eprintln!("could not invoke curl: {e}");
             eprintln!("(install curl or query {url} from another HTTP client)");
             std::process::exit(1);
+        }
+    }
+}
+
+/// Diagnostic bundle the `iogridd diag` subcommand emits. Kept stable
+/// so JSON consumers (issue auto-paste, monitoring exporters) can rely
+/// on the shape. Refs #479.
+#[derive(serde::Serialize)]
+struct Diag {
+    iogridd_version: &'static str,
+    target_os: &'static str,
+    state_dir: String,
+    state_dir_exists: bool,
+    /// Contents of state_dir (just file names + sizes) so the operator
+    /// can spot a missing key.pem / bearer.txt at a glance.
+    state_dir_entries: Vec<DiagEntry>,
+    /// Loaded DaemonConfig.coordinator_url + state_dir + provider_id +
+    /// caps — small enough to dump inline. Secrets are NOT included
+    /// (the keypair lives in key.pem; bearer in bearer.txt — each is
+    /// reported as present/absent + size only).
+    config_summary: Option<DiagConfig>,
+    /// True if state_dir/cert.pem + key.pem both exist + non-empty.
+    paired: bool,
+    /// True if state_dir/bearer.txt exists + non-empty. (Different
+    /// from `paired` — a fresh pair without /pair-handler invocation
+    /// is paired-but-no-bearer.)
+    bearer_present: bool,
+    /// True if `127.0.0.1:7777/state` answered in <500ms.
+    ui_bridge_reachable: bool,
+    /// True if the daemon process is running on the local box. Best-
+    /// effort `pgrep iogridd` minus our own pid.
+    daemon_process_running: bool,
+    /// Last few lines from the platform-conventional log file. Empty
+    /// if the log file doesn't exist yet (fresh install).
+    log_tail: Vec<String>,
+    log_path_probed: String,
+}
+
+#[derive(serde::Serialize)]
+struct DiagEntry {
+    name: String,
+    size_bytes: u64,
+}
+
+#[derive(serde::Serialize)]
+struct DiagConfig {
+    coordinator_url: String,
+    provider_id: String,
+    bandwidth_cap_gb: u64,
+    cpu_cap_pct: u8,
+    memory_cap_pct: u8,
+    heartbeat_secs: u64,
+}
+
+async fn run_diag(state_dir: &std::path::Path, as_json: bool) -> Result<()> {
+    let state_dir_exists = state_dir.exists();
+    let state_dir_entries = if state_dir_exists {
+        std::fs::read_dir(state_dir)
+            .map(|rd| {
+                rd.filter_map(|e| e.ok())
+                    .filter_map(|e| {
+                        let meta = e.metadata().ok()?;
+                        Some(DiagEntry {
+                            name: e.file_name().to_string_lossy().into_owned(),
+                            size_bytes: meta.len(),
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    // Loading config is best-effort — a corrupt config shouldn't crash
+    // the diag command (that's exactly the kind of state we want to
+    // surface).
+    let config_summary = DaemonConfig::load_or_init(state_dir)
+        .ok()
+        .map(|c| DiagConfig {
+            coordinator_url: c.coordinator_url,
+            provider_id: c.provider_id,
+            bandwidth_cap_gb: c.bandwidth_cap_gb,
+            cpu_cap_pct: c.cpu_cap_pct,
+            memory_cap_pct: c.memory_cap_pct,
+            heartbeat_secs: c.heartbeat_secs,
+        });
+    let cert_path = state_dir.join("cert.pem");
+    let key_path = state_dir.join("key.pem");
+    let bearer_path = state_dir.join("bearer.txt");
+    let paired = file_nonempty(&cert_path) && file_nonempty(&key_path);
+    let bearer_present = file_nonempty(&bearer_path);
+    // UI-bridge probe — 500ms timeout so a stuck supervisor doesn't
+    // hang the diag command.
+    let ui_bridge_reachable = std::process::Command::new("curl")
+        .args(["-fsS", "--max-time", "1", "http://127.0.0.1:7777/state"])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    // pgrep iogridd minus our own pid → at least one other instance is
+    // running. Best-effort; if pgrep is missing we report unknown.
+    let daemon_process_running = std::process::Command::new("pgrep")
+        .arg("iogridd")
+        .output()
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .filter_map(|l| l.trim().parse::<u32>().ok())
+                .any(|pid| pid != std::process::id())
+        })
+        .unwrap_or(false);
+    // Log tail — platform-specific path. macOS LaunchAgent writes to
+    // ~/Library/Logs/iogrid/iogridd.log per the install layout; Linux
+    // systemd routes via journald (we'd shell out to journalctl but
+    // that needs privilege; skipping); Windows is the Squirrel-managed
+    // %LOCALAPPDATA%\iogrid\logs\.
+    let log_path = default_log_path();
+    let log_tail = std::fs::read_to_string(&log_path)
+        .ok()
+        .map(|s| {
+            s.lines()
+                .rev()
+                .take(50)
+                .map(|l| l.to_string())
+                .collect::<Vec<_>>()
+        })
+        .map(|mut v| {
+            v.reverse();
+            v
+        })
+        .unwrap_or_default();
+    let bundle = Diag {
+        iogridd_version: env!("CARGO_PKG_VERSION"),
+        target_os: std::env::consts::OS,
+        state_dir: state_dir.display().to_string(),
+        state_dir_exists,
+        state_dir_entries,
+        config_summary,
+        paired,
+        bearer_present,
+        ui_bridge_reachable,
+        daemon_process_running,
+        log_tail,
+        log_path_probed: log_path.display().to_string(),
+    };
+    if as_json {
+        println!("{}", serde_json::to_string_pretty(&bundle)?);
+    } else {
+        print_diag_human(&bundle);
+    }
+    Ok(())
+}
+
+fn file_nonempty(p: &std::path::Path) -> bool {
+    std::fs::metadata(p).map(|m| m.len() > 0).unwrap_or(false)
+}
+
+fn default_log_path() -> PathBuf {
+    if let Ok(home) = std::env::var("HOME") {
+        let mac = std::path::Path::new(&home).join("Library/Logs/iogrid/iogridd.log");
+        if mac.exists() {
+            return mac;
+        }
+        let linux = std::path::Path::new(&home).join(".iogrid/iogridd.log");
+        if linux.exists() {
+            return linux;
+        }
+    }
+    if let Ok(la) = std::env::var("LOCALAPPDATA") {
+        let win = std::path::Path::new(&la)
+            .join("iogrid")
+            .join("logs")
+            .join("iogridd.log");
+        return win;
+    }
+    PathBuf::from("/var/log/iogridd.log")
+}
+
+fn print_diag_human(b: &Diag) {
+    println!("iogridd diag — {} ({})", b.iogridd_version, b.target_os);
+    println!();
+    println!(
+        "state_dir:  {} (exists={})",
+        b.state_dir, b.state_dir_exists
+    );
+    for e in &b.state_dir_entries {
+        println!("  {:<24} {:>10} bytes", e.name, e.size_bytes);
+    }
+    println!();
+    if let Some(c) = &b.config_summary {
+        println!("coordinator_url:    {}", c.coordinator_url);
+        println!(
+            "provider_id:        {}",
+            if c.provider_id.is_empty() {
+                "(unpaired)"
+            } else {
+                &c.provider_id
+            }
+        );
+        println!("bandwidth_cap_gb:   {}", c.bandwidth_cap_gb);
+        println!("cpu/mem_cap_pct:    {}/{}", c.cpu_cap_pct, c.memory_cap_pct);
+        println!("heartbeat_secs:     {}", c.heartbeat_secs);
+    } else {
+        println!("config:             could not load (corrupt / missing)");
+    }
+    println!();
+    println!("paired (cert+key):  {}", b.paired);
+    println!("bearer.txt present: {}", b.bearer_present);
+    println!(
+        "ui_bridge reachable (127.0.0.1:7777): {}",
+        b.ui_bridge_reachable
+    );
+    println!(
+        "daemon process running:               {}",
+        b.daemon_process_running
+    );
+    println!();
+    println!("log path probed:    {}", b.log_path_probed);
+    if b.log_tail.is_empty() {
+        println!("log tail:           (empty or file missing)");
+    } else {
+        println!("log tail (last {} lines):", b.log_tail.len());
+        for line in &b.log_tail {
+            println!("  {}", line);
         }
     }
 }
