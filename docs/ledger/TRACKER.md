@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-24T20:30Z` 🟢🟢 **#479 architectural fix shipped both halves**: **#480 MERGED** (commit 6bb5fdc) providers-svc heartbeat-loss-alerter (coordinator-side visibility); **#481 in CI** iogridd `diag` CLI (daemon-side root-cause bundle — operator runs one command, gets state_dir+config+pair+bearer+ui-bridge+process+log-tail in 1 paste). Rustfmt fix push on #481 after first run flagged long-line formatting (commit 3d05bcf). Live demo unblock (residential-IP path for hatice's Mac specifically) is separate from the architectural fix + needs founder call on (a) wake mac, (b) WARP on bastion, (c) paid residential proxy. Open: 6 issues (4 parked + #479 in-progress + #481 PR). |
+| Last refreshed | `2026-05-24T20:40Z` 🟢🟢 **#480 LIVE-VERIFIED on cluster**: providers-svc post-roll fires real WARN log lines — `provider.heartbeat_loss display_name="Hatice's Mac" staleness=4d23h51m threshold=5m` + similar for `provider-a7a93576` (was 13min stale during the providers-svc pod-eviction window; now back to 2.99s after daemon resumed reporting). #481 (iogridd diag CLI) rustfmt pass 3 pushed (commit 0636984) — waiting CI. SSH-via-2223-tunnel to hatice's Mac still blocked: tried wshell + claude_offload + openova_migration keys × 5 users, all denied — need founder to add a pubkey or paste private key. |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
 | Open PRs | **7** — #445 #446 #447 #448 #449 #450 #451 (the first 6 reached all-CLEAN simultaneously; #451 added 2026-05-23 03:34Z as the 2nd piece of the #438 chain — see §0.8) |
