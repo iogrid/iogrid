@@ -1390,6 +1390,15 @@ pub struct LiveDispatchHandle {
     /// `WorkloadRouter` exactly as the loopback half is wired today.
     pub daemon_side: DispatchChannel,
     /// Cancel signal — flip to `true` to ask the bridge task to shut down.
+    ///
+    /// **MUST be retained** by the caller for the lifetime of the daemon
+    /// (e.g. as a field on the supervisor or a `let _keep = cancel_tx;`
+    /// pinned inside a spawned task). Dropping this sender closes the
+    /// watch channel; the bridge's `run_with_reconnect` cancel-receiver
+    /// then sees `cancel.changed().await` return `Err` on every poll and
+    /// the `tokio::select!` races the connect-future to cancellation,
+    /// producing a sub-millisecond spin-loop with NO logs between
+    /// "reconnect-closure entered" entries. See iogrid/iogrid#482.
     pub cancel_tx: tokio::sync::watch::Sender<bool>,
     /// Bridge task handle — caller may join for clean shutdown.
     pub task: tokio::task::JoinHandle<()>,
