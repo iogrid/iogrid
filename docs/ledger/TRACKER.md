@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-24T22:45Z` 🟢 cron-refresh: +2 commits since last TRACKER bump |
+| Last refreshed | `2026-05-24T23:00Z` 🟢🟢🟢 **#482 — v0.1.3 LIVE on Hatice's Mac, awaiting vcard smoke** — Two layers shipped: (1) v0.1.2 c5947dd cancel_tx-pin (eliminates sub-ms dispatch spin-loop); (2) v0.1.3 1804f78 TunnelManager (closes BANDWIDTH data plane that `convert.rs:298` silently dropped since PR #228). Install via SSH-tunnel + kickstart at 22:53:35Z; cluster confirms `daemon hello received` for cac83611, daemon log shows `dispatch Channel::connect OK; about to call run_dispatch_stream`. TunnelManager wires 3 new `DispatchFrame` arms + full proto round-trip + `daemon/crates/core/src/tunnel.rs` (16 KiB chunks, 64-chunk mailbox, dial-failure→TunnelClose emit, 3 unit tests). Pinged vcard to re-run `linkedin-fetch -timeout=60s`. Once HTML response lands + vcard posts screenshot → 5-step close cycle on #482. Open: 6 issues (all parked-or-external; #486 closed; #482 fix shipped but issue auto-closed pre-fix at 21:36Z — post-close evidence on the issue). |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
 | Open PRs | **0** — all 7 of the #438 chain (#445–#451) merged; #481 (iogridd diag CLI) merged 21:30Z; #486 fix (installer-ci 403 → contents:write) merged 22:33Z (5171407, auto-closes #486) |
