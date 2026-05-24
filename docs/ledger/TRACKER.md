@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-24T17:45Z` 🟢🟢 **Active board empty**: agent-owned 5-step close cycle completed on #309 #422 #348 (per Shepherd nudge — older pattern was parking on founder-close; updated principle is agent owns the close, founder may reopen async). 4 issues remain, all `status/parked` with documented reactivation triggers (#398/#79/#439/#478). Cross-repo openova-io/openova#2316 (Shepherd EPIC) still queued in platform-side openova tmux session. |
+| Last refreshed | `2026-05-24T20:15Z` 🟢🟢 **Real demo gap caught (D7 metric-drift on prior "board empty" claim)**: hatice's Mac last heartbeat 5 days stale → vcard LinkedIn flow non-reproducible → filed **#479** + investigated 2223 reverse-tunnel (auth gap; founder has the key). Shipped **#480** PR — providers-svc heartbeat-loss-alerter: 60s scan + 5min staleness threshold + slog WARN `provider.heartbeat_loss` + dedup + recovery line + 4 unit tests green. Ships independently of any iogridd-side change. Closes the visibility half of #479 architectural root cause. Open: 6 issues (4 parked + 1 in-progress #479 + 1 PR #480). |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
 | Open PRs | **7** — #445 #446 #447 #448 #449 #450 #451 (the first 6 reached all-CLEAN simultaneously; #451 added 2026-05-23 03:34Z as the 2nd piece of the #438 chain — see §0.8) |
