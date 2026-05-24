@@ -305,11 +305,18 @@ pub enum DispatchFrame {
     },
     /// Bidirectional: bytes for an open tunnel keyed by attempt_id.
     TunnelData {
+        /// Per-attempt id matching the originating `TunnelOpen`.
         attempt_id: String,
+        /// Raw payload bytes to write to the other end of the tunnel.
         payload: Vec<u8>,
     },
     /// Bidirectional: tunnel termination. Empty `error` = clean EOF.
-    TunnelClose { attempt_id: String, error: String },
+    TunnelClose {
+        /// Per-attempt id matching the originating `TunnelOpen`.
+        attempt_id: String,
+        /// Optional close reason; empty string means clean EOF.
+        error: String,
+    },
 }
 
 /// Connection state.
