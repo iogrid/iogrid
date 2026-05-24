@@ -18,6 +18,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+pub mod tunnel;
 pub mod workloads;
 
 use std::path::{Path, PathBuf};
@@ -660,9 +661,36 @@ impl Supervisor {
             self.scheduler.clone(),
         ));
         let router_for_dispatch = router.clone();
+        // TunnelManager: routes TunnelOpen/Data/Close from coordinator
+        // to per-attempt TCP pumps; needed for BANDWIDTH workload bytes
+        // to flow end-to-end. Without it, the workloads-svc forwarder
+        // sends TunnelOpen down the bidi stream and the daemon silently
+        // drops it — the proxy-gateway side then waits forever for
+        // upstream bytes. See iogrid/iogrid#482.
+        let tunnel_manager = Arc::new(tunnel::TunnelManager::new(daemon_side.tx.clone()));
+        let tunnel_for_dispatch = tunnel_manager.clone();
         tasks.spawn(async move {
             while let Some(frame) = daemon_side.rx.recv().await {
-                router_for_dispatch.handle(frame).await;
+                match frame {
+                    DispatchFrame::TunnelOpen {
+                        attempt_id,
+                        target_host_port,
+                    } => {
+                        tunnel_for_dispatch.open(attempt_id, target_host_port).await;
+                    }
+                    DispatchFrame::TunnelData {
+                        attempt_id,
+                        payload,
+                    } => {
+                        tunnel_for_dispatch.data(&attempt_id, payload).await;
+                    }
+                    DispatchFrame::TunnelClose { attempt_id, error } => {
+                        tunnel_for_dispatch.close(&attempt_id, error).await;
+                    }
+                    other => {
+                        router_for_dispatch.handle(other).await;
+                    }
+                }
             }
             Ok(())
         });

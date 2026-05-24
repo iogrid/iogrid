@@ -205,6 +205,16 @@ impl WorkloadRouter {
             DispatchFrame::Ping { .. } | DispatchFrame::CoordinatorHello { .. } => {}
             // Outbound-only variants — should never be received.
             DispatchFrame::DaemonHello { .. } | DispatchFrame::Update { .. } => {}
+            // Tunnel frames are routed by the supervisor's dispatch loop
+            // directly into the TunnelManager BEFORE reaching this router
+            // (see core/src/lib.rs around the daemon_side.rx loop). They
+            // appear here only on the in-process loopback fast path used
+            // by tests; safe to ignore — the loopback doesn't have a
+            // TunnelManager wired so any byte forwarding would be a no-op
+            // anyway.
+            DispatchFrame::TunnelOpen { .. }
+            | DispatchFrame::TunnelData { .. }
+            | DispatchFrame::TunnelClose { .. } => {}
         }
     }
 

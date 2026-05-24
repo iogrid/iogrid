@@ -218,6 +218,24 @@ pub fn frame_to_pb(f: &DispatchFrame) -> wlv1::DispatchFrame {
             }))
         }
         DispatchFrame::Drain => Frame::Drain(true),
+        DispatchFrame::TunnelOpen {
+            attempt_id,
+            target_host_port,
+        } => Frame::TunnelOpen(wlv1::TunnelOpen {
+            attempt_id: Some(uuid(attempt_id)),
+            target_host_port: target_host_port.clone(),
+        }),
+        DispatchFrame::TunnelData {
+            attempt_id,
+            payload,
+        } => Frame::TunnelData(wlv1::TunnelData {
+            attempt_id: Some(uuid(attempt_id)),
+            payload: payload.clone(),
+        }),
+        DispatchFrame::TunnelClose { attempt_id, error } => Frame::TunnelClose(wlv1::TunnelClose {
+            attempt_id: Some(uuid(attempt_id)),
+            error: error.clone(),
+        }),
     };
     wlv1::DispatchFrame { frame: Some(frame) }
 }
@@ -289,13 +307,23 @@ pub fn frame_from_pb(pb: wlv1::DispatchFrame) -> Option<DispatchFrame> {
             at_rfc3339: ts_to_rfc3339(&Some(p)),
         },
         Frame::Drain(_) => DispatchFrame::Drain,
-        // PR #228 added 3 tunnel-byte-pipe variants (TunnelOpen / TunnelData
-        // / TunnelClose) for the NAT'd-daemon byte-forwarding path. The
-        // daemon-side handler (and the corresponding DispatchFrame enum
-        // arms) are tracked in #215 / future PR. For now we drop them so
-        // the bidi pump keeps running; workloads-svc will see no response
-        // and close the tunnel cleanly.
-        Frame::TunnelOpen(_) | Frame::TunnelData(_) | Frame::TunnelClose(_) => {
+        // PR #228 added these 3 tunnel-byte-pipe variants for the NAT'd-
+        // daemon byte-forwarding path; the daemon-side TunnelManager
+        // (see core/src/tunnel.rs) consumes them — see iogrid/iogrid#482.
+        Frame::TunnelOpen(o) => DispatchFrame::TunnelOpen {
+            attempt_id: uuid_string(&o.attempt_id),
+            target_host_port: o.target_host_port,
+        },
+        Frame::TunnelData(d) => DispatchFrame::TunnelData {
+            attempt_id: uuid_string(&d.attempt_id),
+            payload: d.payload,
+        },
+        Frame::TunnelClose(c) => DispatchFrame::TunnelClose {
+            attempt_id: uuid_string(&c.attempt_id),
+            error: c.error,
+        },
+        #[allow(unreachable_patterns)]
+        _ => {
             return None;
         }
     })

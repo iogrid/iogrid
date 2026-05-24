@@ -290,6 +290,29 @@ pub enum DispatchFrame {
     },
     /// Coordinator → daemon: drain (no new assignments, finish in-flight, disconnect).
     Drain,
+    /// Coordinator → daemon: open a TCP-over-DispatchFrame tunnel.
+    /// The daemon dials `target_host_port` and pumps bytes both ways via
+    /// `TunnelData` frames keyed by `attempt_id`. See iogrid/iogrid#482.
+    TunnelOpen {
+        /// Per-attempt id (same id as the dispatch Assignment that
+        /// selected this daemon — keys all tunnel frames on both sides).
+        attempt_id: String,
+        /// Host:port the daemon should dial on its own LAN (e.g.
+        /// "www.linkedin.com:443"). Empty is the wildcard form where
+        /// the daemon-side router picks from workload context — not
+        /// used today for BANDWIDTH.
+        target_host_port: String,
+    },
+    /// Bidirectional: bytes for an open tunnel keyed by attempt_id.
+    TunnelData {
+        attempt_id: String,
+        payload: Vec<u8>,
+    },
+    /// Bidirectional: tunnel termination. Empty `error` = clean EOF.
+    TunnelClose {
+        attempt_id: String,
+        error: String,
+    },
 }
 
 /// Connection state.
