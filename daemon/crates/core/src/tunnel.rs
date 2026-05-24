@@ -311,13 +311,10 @@ mod tests {
         // Port 1 is reserved + always refuses connections.
         mgr.open("aid-1".into(), "127.0.0.1:1".into()).await;
 
-        let frame = tokio::time::timeout(
-            std::time::Duration::from_secs(2),
-            outbound_rx.recv(),
-        )
-        .await
-        .expect("dial-failure TunnelClose should arrive within 2s")
-        .expect("outbound channel closed unexpectedly");
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(2), outbound_rx.recv())
+            .await
+            .expect("dial-failure TunnelClose should arrive within 2s")
+            .expect("outbound channel closed unexpectedly");
 
         match frame {
             DispatchFrame::TunnelClose { attempt_id, error } => {
@@ -352,13 +349,10 @@ mod tests {
         mgr.data("echo", b"hello world".to_vec()).await;
 
         // Expect the echoed bytes back as an outbound TunnelData frame.
-        let frame = tokio::time::timeout(
-            std::time::Duration::from_secs(2),
-            outbound_rx.recv(),
-        )
-        .await
-        .expect("echo response should arrive within 2s")
-        .expect("outbound channel closed unexpectedly");
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(2), outbound_rx.recv())
+            .await
+            .expect("echo response should arrive within 2s")
+            .expect("outbound channel closed unexpectedly");
 
         match frame {
             DispatchFrame::TunnelData {
@@ -391,13 +385,10 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         mgr.close("c", "explicit close".into()).await;
 
-        let frame = tokio::time::timeout(
-            std::time::Duration::from_secs(2),
-            outbound_rx.recv(),
-        )
-        .await
-        .expect("close should produce TunnelClose within 2s")
-        .expect("channel closed");
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(2), outbound_rx.recv())
+            .await
+            .expect("close should produce TunnelClose within 2s")
+            .expect("channel closed");
 
         match frame {
             DispatchFrame::TunnelClose { attempt_id, error } => {

@@ -309,10 +309,7 @@ pub enum DispatchFrame {
         payload: Vec<u8>,
     },
     /// Bidirectional: tunnel termination. Empty `error` = clean EOF.
-    TunnelClose {
-        attempt_id: String,
-        error: String,
-    },
+    TunnelClose { attempt_id: String, error: String },
 }
 
 /// Connection state.
