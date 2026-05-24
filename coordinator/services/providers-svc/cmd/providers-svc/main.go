@@ -22,6 +22,7 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/iogrid/iogrid/coordinator/services/providers-svc/internal/alerter"
 	"github.com/iogrid/iogrid/coordinator/services/providers-svc/internal/ca"
 	pdb "github.com/iogrid/iogrid/coordinator/services/providers-svc/internal/db"
 	"github.com/iogrid/iogrid/coordinator/services/providers-svc/internal/geoip"
@@ -141,6 +142,15 @@ func main() {
 			slog.String("error", err.Error()))
 	}
 	defer bridgeCleanup()
+
+	// Periodic heartbeat-loss alerter (#479). Runs as a background
+	// goroutine for the lifetime of the process; ctx is cancelled by
+	// the shared-server graceful-shutdown path on SIGTERM and the
+	// goroutine exits within one ScanInterval. Zero-valued Config →
+	// 60s scan cadence + 5min staleness threshold, both well above
+	// the iogridd 5s heartbeat cadence so transient network blips
+	// don't trip false alerts.
+	go alerter.New(st, logger, alerter.Config{}).Run(ctx)
 
 	hr.MarkReady()
 
