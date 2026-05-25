@@ -17,7 +17,7 @@ spec:
   imageName: ghcr.io/cloudnative-pg/postgresql:16.4
   primaryUpdateStrategy: unsupervised
   storage:
-    size: 50Gi
+    size: 20Gi
     storageClass: local-path
   monitoring:
     enablePodMonitor: true
