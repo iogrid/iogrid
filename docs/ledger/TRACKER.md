@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-24T23:08Z` 🟢🟢🟢🟢 **#482 demo VERIFIED END-TO-END + close cycle COMPLETE** — Real LinkedIn SSR HTML (386KB, pageKey=public_profile_v3_desktop, title "Satya Nadella…") flowed through Hatice's Mac (Oman residential IP 188.66.253.46) via the new TunnelManager at 22:56:00Z. Daemon log: `tunnel opening — dialling upstream target=www.linkedin.com:443 attempt_id=6c309bb0...` → `tunnel upstream dial OK` (17ms) → `tunnel closed` (3.85s of byte transfer). proxy-gateway audit trace=71e6d39f37a189e7. vcard sibling (dynolabs-io/vcard#27) also CLOSED with independent reviewer PASS. iogrid#482 agent-owned 5-step close cycle complete: evidence comment + independent reviewer verdict (APPROVED WITH FOLLOWUPS) posted. **5 follow-up issues filed from reviewer's gaps**: #487 (P1 SSRF on target_host_port — supervisor owns InMemoryFilter, never consulted), #488 (P2 no dial timeout + no per-provider tunnel cap → RAM DoS), #489 (P3 single-task dispatch loop HOL-blocks on slow upstream), #490 (P2 no bytes_in/bytes_out emit → billing-svc can't bill), #491 (P3 regression test for cancel_tx-pin invariant). Open: 11 issues (#79/#398/#439/#478/#484/#485 carried + #487/#488/#489/#490/#491 newly filed). |
+| Last refreshed | `2026-05-25T10:00Z` 🟢 cron-refresh: +1 commits since last TRACKER bump |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
 | Open PRs | **0** — all 7 of the #438 chain (#445–#451) merged; #481 (iogridd diag CLI) merged 21:30Z; #486 fix (installer-ci 403 → contents:write) merged 22:33Z (5171407, auto-closes #486) |
