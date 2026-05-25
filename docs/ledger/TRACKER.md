@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-25T10:00Z` 🟢 cron-refresh: +1 commits since last TRACKER bump |
+| Last refreshed | `2026-05-25T11:00Z` 🟢 cron-refresh: +2 commits since last TRACKER bump |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
 | Open PRs | **0** — all 7 of the #438 chain (#445–#451) merged; #481 (iogridd diag CLI) merged 21:30Z; #486 fix (installer-ci 403 → contents:write) merged 22:33Z (5171407, auto-closes #486) |
