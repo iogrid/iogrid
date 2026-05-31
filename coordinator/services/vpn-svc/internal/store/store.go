@@ -49,6 +49,15 @@ type Store interface {
 
 	// --- Provider Health & Failover ---
 
+	// RegisterProvider inserts (or refreshes) a provider row. Used at
+	// daemon pairing time to seed the failover table; the in-cluster
+	// pairing flow calls this once with a `healthy` row before the
+	// daemon starts its `health` reporter (VPN-7, #511). Idempotent —
+	// re-registering an existing provider id replaces region / status
+	// / last_seen_at with the supplied values. SessionCount is reset
+	// to zero only on first insert; subsequent calls leave it alone.
+	RegisterProvider(ctx context.Context, p *ProviderInfo) error
+
 	// GetProvidersInRegion retrieves all healthy providers in a region for failover.
 	GetProvidersInRegion(ctx context.Context, region string) ([]*ProviderInfo, error)
 

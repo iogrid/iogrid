@@ -327,6 +327,22 @@ func (p *Postgres) SelectProviderForSession(ctx context.Context, region string) 
 	return providerID, nil
 }
 
+// RegisterProvider implements Store. Idempotent UPSERT — on conflict
+// the existing row's region / status / last_seen_at are overwritten,
+// session_count is left untouched so we don't yank sessions away.
+func (p *Postgres) RegisterProvider(ctx context.Context, info *ProviderInfo) error {
+	query := `
+		INSERT INTO vpn_providers (id, region, status, last_seen_at, session_count)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (id) DO UPDATE
+		SET region = EXCLUDED.region,
+		    status = EXCLUDED.status,
+		    last_seen_at = EXCLUDED.last_seen_at
+	`
+	_, err := p.pool.Exec(ctx, query, info.ID, info.Region, info.Status, info.LastSeenAt, info.SessionCount)
+	return err
+}
+
 // UpdateProviderHealth implements Store.
 func (p *Postgres) UpdateProviderHealth(ctx context.Context, providerID uuid.UUID, status string, lastSeen time.Time) error {
 	query := `

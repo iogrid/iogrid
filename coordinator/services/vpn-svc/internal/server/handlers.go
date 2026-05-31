@@ -279,3 +279,133 @@ func (h *TriggerFailover) Handle(w http.ResponseWriter, r *http.Request) {
 		"ice_candidates":  altCandidates,
 	})
 }
+
+// ---------------------------------------------------------------
+// VPN-7 (#511): provider daemon health probes + graceful offline.
+// ---------------------------------------------------------------
+
+// healthReport is the body the daemon POSTs on
+// /v1/vpn/providers/{id}/health. Field tags match the Rust
+// `iogrid_routing::HealthReport` serde shape so the round-trip is
+// type-checked at the daemon boundary, not just at the JSON parser.
+type healthReport struct {
+	ProviderID    string `json:"provider_id"`
+	Status        string `json:"status"`
+	AtUnixMs      int64  `json:"at_unix_ms"`
+	VpnListenAddr string `json:"vpn_listen_addr"`
+}
+
+// offlineReport is the body for /v1/vpn/providers/{id}/offline.
+type offlineReport struct {
+	ProviderID string `json:"provider_id"`
+	AtUnixMs   int64  `json:"at_unix_ms"`
+	Reason     string `json:"reason"`
+}
+
+// UpdateHealth handles POST /v1/vpn/providers/{providerID}/health.
+//
+// Daemons POST this every ~15s; vpn-svc updates the provider row's
+// Status + LastSeenAt. The failover store (VPN-4) consults
+// LastSeenAt for staleness detection, so a daemon that crashes mid-
+// loop will be inferred-offline by the SelectProviderForSession path
+// even without an explicit offline POST.
+type UpdateHealth struct {
+	st     store.Store
+	logger *slog.Logger
+}
+
+// NewUpdateHealth builds a new UpdateHealth handler.
+func NewUpdateHealth(st store.Store, logger *slog.Logger) *UpdateHealth {
+	return &UpdateHealth{st: st, logger: logger}
+}
+
+// Handle implements http.Handler for UpdateHealth.
+func (h *UpdateHealth) Handle(w http.ResponseWriter, r *http.Request) {
+	providerID, err := uuid.Parse(chi.URLParam(r, "providerID"))
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid provider id")
+		return
+	}
+	req := &healthReport{}
+	if err := json.NewDecoder(r.Body).Decode(req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+	// Only accept the three known wire states. Anything else is a
+	// client bug — fail fast rather than write a junk Status row.
+	switch req.Status {
+	case "healthy", "degraded":
+		// ok
+	default:
+		respondError(w, http.StatusBadRequest, "invalid status (must be healthy or degraded)")
+		return
+	}
+	lastSeen := time.UnixMilli(req.AtUnixMs)
+	if req.AtUnixMs == 0 {
+		// Daemon didn't send a timestamp — substitute server-side now.
+		lastSeen = time.Now()
+	}
+	if err := h.st.UpdateProviderHealth(r.Context(), providerID, req.Status, lastSeen); err != nil {
+		// Provider row not found is the common case for an unpaired
+		// daemon — that's a 404, not a 500.
+		h.logger.Warn("update health failed",
+			slog.String("provider_id", providerID.String()),
+			slog.String("status", req.Status),
+			slog.String("error", err.Error()))
+		respondError(w, http.StatusNotFound, "provider not found")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": req.Status})
+}
+
+// MarkOffline handles POST /v1/vpn/providers/{providerID}/offline.
+//
+// Daemons POST this once during graceful shutdown so the customer
+// SDK's failover detector (VPN-11) can re-route active sessions
+// before the next periodic health tick would otherwise expire. The
+// body's `reason` is logged but does not change the stored row.
+type MarkOffline struct {
+	st     store.Store
+	logger *slog.Logger
+}
+
+// NewMarkOffline builds a new MarkOffline handler.
+func NewMarkOffline(st store.Store, logger *slog.Logger) *MarkOffline {
+	return &MarkOffline{st: st, logger: logger}
+}
+
+// Handle implements http.Handler for MarkOffline.
+func (h *MarkOffline) Handle(w http.ResponseWriter, r *http.Request) {
+	providerID, err := uuid.Parse(chi.URLParam(r, "providerID"))
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid provider id")
+		return
+	}
+	req := &offlineReport{}
+	// Empty body is valid — the reason + at_unix_ms fields are
+	// debug-only; default reason to "unspecified" if missing.
+	_ = json.NewDecoder(r.Body).Decode(req)
+	if req.Reason == "" {
+		req.Reason = "unspecified"
+	}
+	at := time.UnixMilli(req.AtUnixMs)
+	if req.AtUnixMs == 0 {
+		at = time.Now()
+	}
+	if err := h.st.UpdateProviderHealth(r.Context(), providerID, "offline", at); err != nil {
+		h.logger.Warn("mark offline failed",
+			slog.String("provider_id", providerID.String()),
+			slog.String("reason", req.Reason),
+			slog.String("error", err.Error()))
+		respondError(w, http.StatusNotFound, "provider not found")
+		return
+	}
+	h.logger.Info("provider marked offline",
+		slog.String("provider_id", providerID.String()),
+		slog.String("reason", req.Reason))
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "offline", "reason": req.Reason})
+}
