@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -114,6 +115,47 @@ func TestIntegration_FailoverNoProviders(t *testing.T) {
 	resp, body := postJSON(t, srv.URL+"/v1/vpn/sessions/"+sessionID.String()+"/failover", req)
 	if resp.StatusCode != http.StatusServiceUnavailable {
 		t.Errorf("expected 503 when no providers available, got %d body=%s", resp.StatusCode, body)
+	}
+}
+
+func TestIntegration_RegisterProviderThenHealth(t *testing.T) {
+	// The end-to-end lifecycle a daemon goes through: register, then heartbeat.
+	srv, st := boot(t)
+	providerID := uuid.New()
+
+	// 1. Register (would be the first call from a fresh daemon)
+	regReq := map[string]string{"region": "us-east-1"}
+	resp, body := postJSON(t, srv.URL+"/v1/vpn/providers/"+providerID.String()+"/register", regReq)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("register: status=%d body=%s", resp.StatusCode, body)
+	}
+
+	// Verify the provider is now in the store with status=healthy
+	providers, _ := st.GetProvidersInRegion(context.Background(), "us-east-1")
+	if len(providers) != 1 {
+		t.Errorf("expected 1 provider in us-east-1, got %d", len(providers))
+	}
+	if providers[0].ID != providerID {
+		t.Errorf("provider ID = %v, want %v", providers[0].ID, providerID)
+	}
+	if providers[0].Status != "healthy" {
+		t.Errorf("status = %q, want healthy", providers[0].Status)
+	}
+
+	// 2. Health probe (would be the periodic heartbeat) — should NOT 404 now
+	healthReq := map[string]interface{}{
+		"status":      "healthy",
+		"at_unix_ms":  time.Now().UnixMilli(),
+	}
+	hresp, hbody := postJSON(t, srv.URL+"/v1/vpn/providers/"+providerID.String()+"/health", healthReq)
+	if hresp.StatusCode != http.StatusOK {
+		t.Errorf("health post: status=%d body=%s", hresp.StatusCode, hbody)
+	}
+
+	// 3. Re-register (idempotent — should preserve session_count)
+	regResp2, _ := postJSON(t, srv.URL+"/v1/vpn/providers/"+providerID.String()+"/register", regReq)
+	if regResp2.StatusCode != http.StatusOK {
+		t.Errorf("re-register failed: status=%d", regResp2.StatusCode)
 	}
 }
 

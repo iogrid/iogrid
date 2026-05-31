@@ -461,3 +461,61 @@ func (h *ListProvidersInRegion) Handle(w http.ResponseWriter, r *http.Request) {
 		"count":     len(providers),
 	})
 }
+
+// RegisterProvider handles POST /v1/vpn/providers/{providerID}/register
+type RegisterProvider struct {
+	st     store.Store
+	logger *slog.Logger
+}
+
+// NewRegisterProvider builds a new RegisterProvider handler.
+func NewRegisterProvider(st store.Store, logger *slog.Logger) *RegisterProvider {
+	return &RegisterProvider{st: st, logger: logger}
+}
+
+type registerProviderReq struct {
+	Region string `json:"region"`
+}
+
+// Handle implements http.Handler for RegisterProvider.
+// Idempotent — re-registering an existing provider updates region/status
+// but preserves session_count (per Store.RegisterProvider contract).
+func (h *RegisterProvider) Handle(w http.ResponseWriter, r *http.Request) {
+	providerID, err := uuid.Parse(chi.URLParam(r, "providerID"))
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid provider id")
+		return
+	}
+	req := &registerProviderReq{}
+	if err := json.NewDecoder(r.Body).Decode(req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+	if req.Region == "" {
+		respondError(w, http.StatusBadRequest, "region required")
+		return
+	}
+	info := &store.ProviderInfo{
+		ID:         providerID,
+		Region:     req.Region,
+		Status:     "healthy",
+		LastSeenAt: time.Now(),
+	}
+	if err := h.st.RegisterProvider(r.Context(), info); err != nil {
+		h.logger.Error("register provider failed",
+			slog.String("provider_id", providerID.String()),
+			slog.String("error", err.Error()))
+		respondError(w, http.StatusInternalServerError, "failed to register provider")
+		return
+	}
+	h.logger.Info("provider registered",
+		slog.String("provider_id", providerID.String()),
+		slog.String("region", req.Region))
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"status":      "registered",
+		"provider_id": providerID.String(),
+		"region":      req.Region,
+	})
+}

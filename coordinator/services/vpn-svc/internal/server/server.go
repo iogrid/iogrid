@@ -18,7 +18,11 @@ func Mount(h chi.Router, st store.Store, logger *slog.Logger) error {
 		r.Post("/sessions/{sessionID}/refresh", NewRefreshSession(st, logger).Handle)
 		r.Post("/sessions/{sessionID}/terminate", NewTerminateSession(st, logger).Handle)
 
-		// Provider ICE candidate registration
+		// Provider lifecycle:
+		// - POST /providers/{id}/register — daemon's first call on startup,
+		//   inserts the row that later health/candidate calls will UPDATE.
+		// - candidate registration / retrieval
+		r.Post("/providers/{providerID}/register", NewRegisterProvider(st, logger).Handle)
 		r.Post("/providers/{providerID}/candidates", NewRegisterCandidates(st, logger).Handle)
 		r.Get("/providers/{providerID}/candidates", NewGetCandidates(st, logger).Handle)
 
