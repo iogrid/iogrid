@@ -47,6 +47,46 @@ pub fn wg_key_path(state_dir: &Path) -> std::path::PathBuf {
     state_dir.join("wg.key")
 }
 
+/// Path to the persisted standalone-mode provider UUID under the
+/// daemon state dir. Created by [`load_or_generate_provider_id`] on
+/// first boot of a `--vpn-svc`-only daemon.
+pub fn provider_id_path(state_dir: &Path) -> std::path::PathBuf {
+    state_dir.join("provider_id")
+}
+
+/// Load the persisted standalone provider UUID, or generate + persist
+/// a fresh v4 if missing — VPN-544 (#544).
+///
+/// This is the standalone-mode shortcut around providers-svc pairing:
+/// the daemon picks its own UUID, writes it to disk, registers with
+/// vpn-svc directly. Subsequent boots reuse the same id so customers
+/// keep their bind across daemon restarts.
+///
+/// File mode is 0644 (not 0600 — the provider id is intentionally
+/// public; the customer SDK reads it indirectly when it queries
+/// `/v1/vpn/providers/{id}/candidates`).
+pub fn load_or_generate_provider_id(state_dir: &Path) -> anyhow::Result<String> {
+    let path = provider_id_path(state_dir);
+    if path.exists() {
+        let body = std::fs::read_to_string(&path)?;
+        let trimmed = body.trim();
+        // Validate — the file is operator-editable so a typo
+        // shouldn't lock the daemon into a broken state silently.
+        uuid::Uuid::parse_str(trimmed)
+            .map_err(|e| anyhow::anyhow!("invalid UUID at {}: {}", path.display(), e))?;
+        return Ok(trimmed.to_owned());
+    }
+    let new_id = uuid::Uuid::new_v4().to_string();
+    std::fs::create_dir_all(state_dir)?;
+    std::fs::write(&path, &new_id)?;
+    tracing::info!(
+        path = %path.display(),
+        provider_id = %new_id,
+        "generated standalone-mode provider_id (VPN-only); reuse it via --provider-id on next boot or just rely on the persisted file"
+    );
+    Ok(new_id)
+}
+
 /// Load the persisted WG static private key, or generate + persist a
 /// new one if missing. The key file is plain text — 32 bytes of
 /// base64. The OpenSSH+ChaCha20-Poly1305 ritual is overkill at this
@@ -267,6 +307,41 @@ mod tests {
         // Same bytes on the second load → file is being read, not
         // regenerated.
         assert_eq!(static_secret_bytes(&k1), static_secret_bytes(&k2));
+    }
+
+    #[test]
+    fn provider_id_persists_across_load_calls() {
+        let dir = tempdir().unwrap();
+        let p = dir.path();
+        let id1 = load_or_generate_provider_id(p).unwrap();
+        let id2 = load_or_generate_provider_id(p).unwrap();
+        assert_eq!(id1, id2, "second call must reuse the persisted UUID");
+        // And the file contains exactly that string.
+        let on_disk = std::fs::read_to_string(provider_id_path(p)).unwrap();
+        assert_eq!(on_disk.trim(), id1);
+    }
+
+    #[test]
+    fn provider_id_generated_is_valid_uuid_v4() {
+        let dir = tempdir().unwrap();
+        let p = dir.path();
+        let id = load_or_generate_provider_id(p).unwrap();
+        let parsed = uuid::Uuid::parse_str(&id).expect("must be a valid UUID string");
+        assert_eq!(
+            parsed.get_version_num(),
+            4,
+            "generated id should be UUID v4"
+        );
+    }
+
+    #[test]
+    fn provider_id_rejects_invalid_persisted_value() {
+        let dir = tempdir().unwrap();
+        let p = dir.path();
+        std::fs::create_dir_all(p).unwrap();
+        std::fs::write(provider_id_path(p), "not-a-uuid\n").unwrap();
+        let err = load_or_generate_provider_id(p).expect_err("garbage on disk must be rejected");
+        assert!(err.to_string().contains("invalid UUID"));
     }
 
     #[test]
