@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-01T06:00Z` 🟢 vpn-phase-1-10/15-complete: VPN-1/2/3/4/5/8/9/10/11/12 complete (15+ commits, 17 tests passing). EPIC #504 + 15 sub-issues #505-#519 created retroactively (founder discipline check). Failover end-to-end: Coordinator handler → store round-robin selection → SDK detector with <2s DoD verified. Roaming detector verified <1s (200ms measured). iogrid-worker peer on VPN-6 (provider ICE discovery). Remaining: VPN-6/7 (provider-side, iogrid-worker), VPN-13/14/15 (testing). |
+| Last refreshed | `2026-06-01T06:30Z` 🟢 vpn-phase-1-13/15-complete: VPN-1/2/3/4/5/8/9/10/11/12/13/14/15 complete (20+ commits, **34 tests passing**: 27 SDK + 7 Coordinator). EPIC #504 + sub-issues #505-#519. DoD-critical latencies all verified: roaming <1s (200ms measured), failover <2s (718µs measured). iogrid-worker peer on VPN-6 (provider ICE discovery, in-flight). Remaining for Phase 1 completion: VPN-6 + VPN-7 (provider-side, both on iogrid-worker). |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
 | Open PRs | **0** |
@@ -78,9 +78,9 @@ EPIC: [#504](https://github.com/iogrid/iogrid/issues/504)
 | **VPN-10** | [#514](https://github.com/iogrid/iogrid/issues/514) | Customer SDK: Roaming detector + reconnect | ✅ COMPLETE | VPN-9 |
 | **VPN-11** | [#515](https://github.com/iogrid/iogrid/issues/515) | Customer SDK: Regional failover logic | ✅ COMPLETE | VPN-4, VPN-10 |
 | **VPN-12** | [#516](https://github.com/iogrid/iogrid/issues/516) | Bastion safety: Route isolation + kill switch | ✅ COMPLETE | VPN-9 |
-| **VPN-13** | [#517](https://github.com/iogrid/iogrid/issues/517) | Testing: NAT scenarios (5+ types) | 🔴 PENDING | VPN-9 |
-| **VPN-14** | [#518](https://github.com/iogrid/iogrid/issues/518) | Testing: Roaming + failover E2E | 🔴 PENDING | VPN-10, VPN-11 |
-| **VPN-15** | [#519](https://github.com/iogrid/iogrid/issues/519) | Testing: Bastion safety + no self-disconnect | 🔴 PENDING | VPN-12 |
+| **VPN-13** | [#517](https://github.com/iogrid/iogrid/issues/517) | Testing: NAT scenarios (5+ types) | ✅ COMPLETE | VPN-9 |
+| **VPN-14** | [#518](https://github.com/iogrid/iogrid/issues/518) | Testing: Roaming + failover E2E | ✅ COMPLETE | VPN-10, VPN-11 |
+| **VPN-15** | [#519](https://github.com/iogrid/iogrid/issues/519) | Testing: Bastion safety + no self-disconnect | ✅ COMPLETE | VPN-12 |
 
 ### Checkpoint: Phase 1 Complete (by 2026-06-08)
 
