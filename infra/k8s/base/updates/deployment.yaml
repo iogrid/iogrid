@@ -1,0 +1,109 @@
+---
+# manifestd — iogrid auto-update manifest server.
+#
+# Serves updates.iogrid.org/manifest.json so that paired iogridd instances
+# can discover new versions via their polling updater. The manifest.json
+# content lives in the `updates-manifest` ConfigMap; the auto-update CI
+# job regenerates and commits it on every `v*` tag push.
+#
+# Image: ghcr.io/iogrid/updates-server (built by updates-ci.yml).
+# Refs #485.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: updates
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: updates
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: updates
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: updates
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: updates
+        app.kubernetes.io/part-of: iogrid
+        app.kubernetes.io/component: updates
+      annotations:
+        # Bumped by updates-ci.yml on every push to main so the rolling
+        # update fires even when the image digest is cache-identical.
+        kubectl.kubernetes.io/restartedAt: "2026-05-31T00:00:00Z"
+    spec:
+      serviceAccountName: updates
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: updates
+          # Image is rewritten by updates-ci.yml on every push to main.
+          image: ghcr.io/iogrid/updates-server:local
+          imagePullPolicy: Always
+          env:
+            - name: IOGRID_MANIFEST_PATH
+              value: /data/manifest.json
+            - name: IOGRID_BINARY_DIR
+              value: /tmp/binaries
+            - name: IOGRID_LISTEN
+              value: ":8080"
+            - name: IOGRID_REFRESH_SECS
+              value: "30"
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: manifest
+              mountPath: /data
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: manifest
+          configMap:
+            name: updates-manifest
+        - name: tmp
+          emptyDir: {}

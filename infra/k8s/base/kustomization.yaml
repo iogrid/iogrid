@@ -25,6 +25,7 @@ resources:
   # Deployment + Service no longer ship; the apex (iogrid.org) is
   # served by the `web` Service instead.
   - releases
+  - updates
   - gateway
   - certs
   - sparkle
