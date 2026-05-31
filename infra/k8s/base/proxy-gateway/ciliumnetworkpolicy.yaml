@@ -5,10 +5,8 @@
 # proxy-gateway terminates raw customer TLS at :8443/:1080 from the
 # public Gateway — that hop is NOT SPIFFE-authenticated (the source
 # is the end customer, not a workload). The CNP below adds SPIFFE
-# mutual auth for the (currently empty, but reserved) internal
-# control-surface and metrics scrape paths so that any future
-# iogrid → proxy-gateway RPC inherits the same posture as the rest
-# of the mesh.
+# mutual auth for control-plane RPCs (billing-svc ValidateApiKey — #484)
+# and metrics scrape paths.
 #
 # See docs/SECURITY-mTLS.md.
 apiVersion: cilium.io/v2
@@ -43,4 +41,16 @@ spec:
       toPorts:
         - ports:
             - port: "9090"
+              protocol: TCP
+  egress:
+    # billing-svc ValidateApiKey RPC — SPIFFE mutual auth (issue #484/#500).
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: billing-svc
+            io.kubernetes.pod.namespace: iogrid
+      authentication:
+        mode: required
+      toPorts:
+        - ports:
+            - port: "8080"
               protocol: TCP
