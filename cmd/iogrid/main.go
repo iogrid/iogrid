@@ -18,6 +18,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -70,6 +71,8 @@ func main() {
 			cmdVPNDisconnect(os.Args[3:])
 		case "status":
 			cmdVPNStatus(os.Args[3:])
+		case "doctor":
+			cmdVPNDoctor(os.Args[3:])
 		default:
 			fmt.Fprintf(os.Stderr, "unknown vpn subcommand: %s\n", os.Args[2])
 			os.Exit(1)
@@ -94,6 +97,7 @@ Usage:
   iogrid vpn connect --region <r> [--coordinator=URL]
   iogrid vpn disconnect
   iogrid vpn status
+  iogrid vpn doctor       # connectivity self-check
   iogrid logout
   iogrid version
   iogrid help
@@ -216,6 +220,71 @@ func cmdVPNDisconnect(args []string) {
 	}
 	_ = os.Remove(sessionStatePath())
 	fmt.Println("✓ VPN tunnel closed.")
+}
+
+// cmdVPNDoctor runs end-to-end self-checks the customer can paste into
+// a support thread when "vpn connect" misbehaves. Outputs one line per
+// check with ✓/✗ + remediation hint.
+func cmdVPNDoctor(args []string) {
+	fmt.Println("iogrid vpn doctor — connectivity self-check")
+	coordinator := coordinatorFromEnvOrDefault()
+	creds, credsErr := readCredentials()
+	_ = creds
+
+	check := func(name string, ok bool, hint string) {
+		if ok {
+			fmt.Printf("  ✓ %s\n", name)
+		} else {
+			fmt.Printf("  ✗ %s\n      → %s\n", name, hint)
+		}
+	}
+
+	// 1. credentials present
+	check("local credentials", credsErr == nil,
+		"run: iogrid login --api-key=KEY --customer-id=ID")
+
+	// 2. coordinator reachable
+	c := &http.Client{Timeout: 5 * time.Second}
+	hresp, herr := c.Get(coordinator + "/healthz")
+	if hresp != nil {
+		hresp.Body.Close()
+	}
+	check(fmt.Sprintf("coordinator reachable (%s)", coordinator),
+		herr == nil && hresp != nil && hresp.StatusCode == 200,
+		"check internet connectivity + DNS resolution for api.iogrid.org")
+
+	// 3. coordinator returns providers for default region
+	region := "us-east-1"
+	presp, perr := c.Get(coordinator + "/v1/vpn/regions/" + region + "/providers")
+	providerCount := -1
+	if perr == nil && presp != nil {
+		body, _ := io.ReadAll(presp.Body)
+		presp.Body.Close()
+		var p map[string]interface{}
+		_ = json.Unmarshal(body, &p)
+		if cnt, ok := p["count"].(float64); ok {
+			providerCount = int(cnt)
+		}
+	}
+	check(fmt.Sprintf("providers available in %s (count=%d)", region, providerCount),
+		providerCount > 0,
+		"no providers online in this region — try a different --region or wait")
+
+	// 4. STUN reachable (UDP)
+	conn, sterr := net.DialTimeout("udp", "stun.iogrid.org:3478", 3*time.Second)
+	if conn != nil {
+		conn.Close()
+	}
+	check("STUN server reachable (stun.iogrid.org:3478/udp)", sterr == nil,
+		"UDP egress to :3478 may be blocked by your firewall")
+
+	// 5. existing session state
+	if state, err := readSessionState(); err == nil && state.SessionID != "" {
+		fmt.Printf("  ⓘ  local session_id: %s (region=%s)\n", state.SessionID, state.Region)
+	}
+
+	fmt.Println()
+	fmt.Println("If a check failed, paste the full output to https://github.com/iogrid/iogrid/issues")
 }
 
 func cmdVPNStatus(args []string) {
