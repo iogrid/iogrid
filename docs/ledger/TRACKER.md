@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-01T23:45Z` 🟢 ba503ef closes #561 — flipped both CI deploy-bots (coordinator + web) + all 13 base K8s Deployments from ghcr.io to harbor.openova.io. Also added missing iogrid-billing-db secret ref to billing-svc deployment.yaml. Every iogrid pod Running, vpn-svc auth enforced (401 on bogus key). 16 PRs this session, 10 closures (+#561). Open: #560 (smoke creds), #532 (gated on #529), #529 (worker). |
+| Last refreshed | `2026-06-01T23:50Z` 🟢 Unified customer-mint URL on /customer/vpn across install-cli.sh + CLI error + marketing /vpn CTAs (736225d). All deploy-bot writes landed (harbor.openova.io flip verified on fb29630 web roll). Customer onboarding runbook lives at docs/runbooks/vpn/customer-onboarding.md. 17 PRs this session, 10 closures. Open: #560 (smoke creds), #532 (gated on #529), #529 (worker). |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
 | Open PRs | **0** |
