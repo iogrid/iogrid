@@ -51,7 +51,9 @@ use rand::RngCore;
 use std::sync::atomic::Ordering;
 use tokio::net::UdpSocket;
 
-use crate::inner_sink::{InnerFamily, InnerPacket, InnerPacketSink};
+use crate::inner_sink::{
+    InnerFamily, InnerPacket, InnerPacketSink, OutboundEncapsulator, OutboundError,
+};
 use crate::{Meter, RoutingError, Tunnel, WireGuardPeer};
 
 /// Max UDP datagram we'll accept from the WG socket. WG MTU is
@@ -266,6 +268,15 @@ async fn run_pump(
     sink: Arc<dyn InnerPacketSink>,
     mut shutdown_rx: tokio::sync::watch::Receiver<bool>,
 ) {
+    // PR-B path (a): one outbound encapsulator the pump hands to the
+    // sink so it can synthesise response packets and ship them back
+    // through the WG tunnel. Constructed once, lives the pump's
+    // lifetime, holds Arcs into the same socket + peer table.
+    let encap = PumpEncap {
+        peers: peers.clone(),
+        socket: socket.clone(),
+        meter: meter.clone(),
+    };
     let mut recv_buf = vec![0u8; RECV_BUF];
     let mut out_buf = vec![0u8; RECV_BUF];
     loop {
@@ -327,26 +338,34 @@ async fn run_pump(
                         TunnResult::WriteToTunnelV4(inner, dst) => {
                             *entry.endpoint.write() = Some(src);
                             let inner_owned = inner.to_vec();
-                            sink.deliver(InnerPacket {
-                                family: InnerFamily::V4,
-                                payload: &inner_owned,
-                                dst_ip: dst.into(),
-                                peer_endpoint: src,
-                                peer_public_key_b64: entry.public_key_b64.clone(),
-                            });
+                            sink.deliver(
+                                InnerPacket {
+                                    family: InnerFamily::V4,
+                                    payload: &inner_owned,
+                                    dst_ip: dst.into(),
+                                    peer_endpoint: src,
+                                    peer_public_key_b64: entry.public_key_b64.clone(),
+                                },
+                                Some(&encap),
+                            )
+                            .await;
                             claimed = true;
                             break;
                         }
                         TunnResult::WriteToTunnelV6(inner, dst) => {
                             *entry.endpoint.write() = Some(src);
                             let inner_owned = inner.to_vec();
-                            sink.deliver(InnerPacket {
-                                family: InnerFamily::V6,
-                                payload: &inner_owned,
-                                dst_ip: dst.into(),
-                                peer_endpoint: src,
-                                peer_public_key_b64: entry.public_key_b64.clone(),
-                            });
+                            sink.deliver(
+                                InnerPacket {
+                                    family: InnerFamily::V6,
+                                    payload: &inner_owned,
+                                    dst_ip: dst.into(),
+                                    peer_endpoint: src,
+                                    peer_public_key_b64: entry.public_key_b64.clone(),
+                                },
+                                Some(&encap),
+                            )
+                            .await;
                             claimed = true;
                             break;
                         }
@@ -428,6 +447,63 @@ fn next_peer_index() -> u32 {
     use std::sync::atomic::AtomicU32;
     static NEXT: AtomicU32 = AtomicU32::new(1);
     NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
+// ---------- PR-B path (a) outbound encapsulator ----------
+
+/// Outbound encapsulator the pump constructs once per `run_pump`
+/// invocation and hands to the sink. Holds Arcs back into the same
+/// peer table + socket + meter so packets the sink synthesises are
+/// encrypted with the right per-peer Tunn state and metered as outbound.
+struct PumpEncap {
+    peers: Arc<RwLock<HashMap<String, Arc<PeerEntry>>>>,
+    socket: Arc<UdpSocket>,
+    meter: Arc<Meter>,
+}
+
+#[async_trait]
+impl OutboundEncapsulator for PumpEncap {
+    async fn encapsulate_for_peer(
+        &self,
+        peer_public_key_b64: &str,
+        inner_bytes: &[u8],
+    ) -> Result<(), OutboundError> {
+        let entry = self
+            .peers
+            .read()
+            .get(peer_public_key_b64)
+            .cloned()
+            .ok_or_else(|| OutboundError::UnknownPeer(peer_public_key_b64.to_owned()))?;
+        let endpoint = entry
+            .endpoint
+            .read()
+            .ok_or_else(|| OutboundError::NoEndpoint(peer_public_key_b64.to_owned()))?;
+        let mut out_buf = vec![0u8; RECV_BUF];
+        let result = {
+            let mut tunn = entry.tunn.lock();
+            tunn.encapsulate(inner_bytes, &mut out_buf)
+        };
+        match result {
+            TunnResult::WriteToNetwork(packet) => {
+                let owned = packet.to_vec();
+                match self.socket.send_to(&owned, endpoint).await {
+                    Ok(n) => {
+                        self.meter.bytes_out.fetch_add(n as u64, Ordering::Relaxed);
+                        Ok(())
+                    }
+                    Err(e) => Err(OutboundError::Send(e)),
+                }
+            }
+            TunnResult::Done => Ok(()),
+            TunnResult::Err(e) => Err(OutboundError::Encap(format!("{e:?}"))),
+            // boringtun shouldn't emit these in response to an
+            // encapsulate call (no inbound to decap); treat as
+            // protocol violations.
+            TunnResult::WriteToTunnelV4(..) | TunnResult::WriteToTunnelV6(..) => Err(
+                OutboundError::Encap("unexpected WriteToTunnel from encapsulate".into()),
+            ),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -645,6 +721,173 @@ mod tests {
         );
 
         server.stop().await.unwrap();
+    }
+
+    /// PR-B path (a) headline test — full round trip through the WG
+    /// stack:
+    ///
+    ///   1. Server-side `BoringTun` started with [`IcmpEchoSink`].
+    ///   2. Real boringtun `Tunn` on the client; WG handshake +
+    ///      key exchange complete over 127.0.0.1 UDP.
+    ///   3. Client encrypts an IPv4 ICMPv4 echo-request with
+    ///      identifier `0x4242` + sequence 1 and sends it.
+    ///   4. Server pump decapsulates → IcmpEchoSink builds the
+    ///      echo-reply → encapsulates via PumpEncap → ships back.
+    ///   5. Client receives the outbound UDP, decapsulates, and
+    ///      verifies the inner is an ICMPv4 echo-reply (type 0)
+    ///      with the same identifier + sequence + payload.
+    ///
+    /// This is the strongest possible "the data plane works"
+    /// signal short of an on-cluster smoke against a real customer
+    /// SDK — every layer (decap → process → encap → wire) actually
+    /// fires under the real Tunn state machine.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn end_to_end_icmp_echo_round_trip_through_pump() {
+        // -- Server (provider) --
+        let server_key = rand_key();
+        let server_sink = Arc::new(crate::IcmpEchoSink);
+        let server_cfg = BoringTunConfig {
+            static_private: server_key.clone(),
+            listen_addr: "127.0.0.1:0".parse().unwrap(),
+        };
+        let server_meter = Arc::new(Meter::default());
+        let server = Arc::new(BoringTun::new(
+            server_cfg,
+            server_meter.clone(),
+            server_sink,
+        ));
+        server.start().await.unwrap();
+        let server_addr = server.socket.read().as_ref().unwrap().local_addr().unwrap();
+
+        // -- Client --
+        let client_key = rand_key();
+        let client_public_b64 = public_b64(&client_key);
+        server
+            .upsert_peer(WireGuardPeer {
+                public_key: client_public_b64.clone(),
+                endpoint: None,
+                allowed_ips: vec!["10.0.0.2/32".into()],
+                persistent_keepalive: 0,
+            })
+            .await
+            .unwrap();
+
+        let server_public_x25519 = PublicKey::from(&server_key);
+        let mut client_tunn = Tunn::new(client_key, server_public_x25519, None, None, 42, None);
+        let client_sock = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+
+        // -- WG handshake --
+        let mut buf = [0u8; RECV_BUF];
+        let init = match client_tunn.format_handshake_initiation(&mut buf, false) {
+            TunnResult::WriteToNetwork(p) => p.to_vec(),
+            other => panic!("client handshake init unexpected: {other:?}"),
+        };
+        client_sock.send_to(&init, server_addr).await.unwrap();
+
+        let mut recv = [0u8; RECV_BUF];
+        let (n, _from) =
+            tokio::time::timeout(Duration::from_secs(2), client_sock.recv_from(&mut recv))
+                .await
+                .expect("server should respond within 2s")
+                .expect("recv ok");
+        let mut decap_out = [0u8; RECV_BUF];
+        match client_tunn.decapsulate(Some(server_addr.ip()), &recv[..n], &mut decap_out) {
+            TunnResult::Done | TunnResult::WriteToNetwork(_) => {}
+            other => panic!("client decap of server response unexpected: {other:?}"),
+        }
+
+        // -- Encapsulate ICMPv4 echo-request: 10.0.0.2 → 10.0.0.1 --
+        let echo_request =
+            build_icmp_echo_request([10, 0, 0, 2], [10, 0, 0, 1], 0x4242, 1, b"icmp-test");
+        let mut wg_out = [0u8; RECV_BUF];
+        let wg_packet = match client_tunn.encapsulate(&echo_request, &mut wg_out) {
+            TunnResult::WriteToNetwork(p) => p.to_vec(),
+            other => panic!("client encapsulate unexpected: {other:?}"),
+        };
+        client_sock.send_to(&wg_packet, server_addr).await.unwrap();
+
+        // -- Receive the echo-reply --
+        let mut reply_buf = [0u8; RECV_BUF];
+        let (rn, _) = tokio::time::timeout(
+            Duration::from_secs(2),
+            client_sock.recv_from(&mut reply_buf),
+        )
+        .await
+        .expect("server should send echo reply within 2s")
+        .expect("recv ok");
+        let mut inner_out = [0u8; RECV_BUF];
+        let inner =
+            match client_tunn.decapsulate(Some(server_addr.ip()), &reply_buf[..rn], &mut inner_out)
+            {
+                TunnResult::WriteToTunnelV4(p, _) => p.to_vec(),
+                other => panic!("client decap of echo reply unexpected: {other:?}"),
+            };
+        // Verify ICMPv4 echo-reply structure.
+        assert_eq!(inner[0] >> 4, 4, "IPv4");
+        assert_eq!(inner[9], 1, "protocol ICMPv4");
+        assert_eq!(&inner[12..16], &[10, 0, 0, 1], "src swapped to daemon IP");
+        assert_eq!(&inner[16..20], &[10, 0, 0, 2], "dst back to client");
+        assert_eq!(inner[20], 0, "ICMP type echo-reply (0)");
+        // Identifier + sequence + payload preserved.
+        assert_eq!(&inner[24..28], &[0x42, 0x42, 0x00, 0x01]);
+        assert_eq!(&inner[28..28 + b"icmp-test".len()], b"icmp-test");
+
+        server.stop().await.unwrap();
+    }
+
+    /// IPv4 + ICMPv4 echo-request builder for the E2E test. Computes
+    /// both checksums.
+    fn build_icmp_echo_request(
+        src: [u8; 4],
+        dst: [u8; 4],
+        identifier: u16,
+        sequence: u16,
+        data: &[u8],
+    ) -> Vec<u8> {
+        let icmp_len = 8 + data.len();
+        let total_len = 20 + icmp_len;
+        let mut p = Vec::with_capacity(total_len);
+        p.push(0x45); // ver 4, IHL 5
+        p.push(0x00);
+        p.extend_from_slice(&(total_len as u16).to_be_bytes());
+        p.extend_from_slice(&[0x00, 0x00]); // id
+        p.extend_from_slice(&[0x40, 0x00]); // flags+frag
+        p.push(64);
+        p.push(1); // ICMPv4
+        p.extend_from_slice(&[0, 0]); // header checksum
+        p.extend_from_slice(&src);
+        p.extend_from_slice(&dst);
+        // Header checksum
+        let hcs = ones_complement_16(&p[..20]);
+        p[10] = (hcs >> 8) as u8;
+        p[11] = (hcs & 0xff) as u8;
+        // ICMPv4 echo-request
+        p.push(8);
+        p.push(0);
+        p.extend_from_slice(&[0, 0]); // checksum
+        p.extend_from_slice(&identifier.to_be_bytes());
+        p.extend_from_slice(&sequence.to_be_bytes());
+        p.extend_from_slice(data);
+        let ics = ones_complement_16(&p[20..]);
+        p[22] = (ics >> 8) as u8;
+        p[23] = (ics & 0xff) as u8;
+        p
+    }
+
+    fn ones_complement_16(bytes: &[u8]) -> u16 {
+        let mut sum: u32 = 0;
+        let mut i = 0;
+        while i + 1 < bytes.len() {
+            sum += u16::from_be_bytes([bytes[i], bytes[i + 1]]) as u32;
+            i += 2;
+        }
+        if i < bytes.len() {
+            sum += (bytes[i] as u32) << 8;
+        }
+        while (sum >> 16) != 0 {
+            sum = (sum & 0xffff) + (sum >> 16);
+        }
+        !(sum as u16)
     }
 
     /// Construct a minimal IPv4 packet with the given source / dest
