@@ -93,6 +93,12 @@ func (s *STUNServer) Close() error {
 	return s.conn.Close()
 }
 
+// LocalAddr returns the address the STUN server is bound to.
+// Useful for tests that bind to :0 and need to discover the chosen port.
+func (s *STUNServer) LocalAddr() net.Addr {
+	return s.conn.LocalAddr()
+}
+
 // STUN message type constants (RFC 5389 §6)
 const (
 	MessageTypeBindingRequest  = 0x0001
