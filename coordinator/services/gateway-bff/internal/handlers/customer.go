@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"time"
 
@@ -191,4 +192,55 @@ func (a *API) StreamWorkloadEvents(w http.ResponseWriter, r *http.Request) {
 		}
 		return stream.Err()
 	}), 15*time.Second).ServeHTTP(w, r)
+}
+
+// ListCustomerVPNSessions proxies to vpn-svc /v1/vpn/customers/{customer_id}/sessions.
+//
+// Customer ID is taken from the authenticated session — NOT from any
+// wire param — so a user can only see their own sessions even if they
+// craft a URL with someone else's customer_id.
+//
+//	GET /api/v1/customer/vpn/sessions
+//
+// Refs #541.
+func (a *API) ListCustomerVPNSessions(w http.ResponseWriter, r *http.Request) {
+	authCtx, ok := auth.FromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "valid Bearer token required")
+		return
+	}
+	customerID := authCtx.UserID().String()
+	if customerID == "" || customerID == "00000000-0000-0000-0000-000000000000" {
+		writeError(w, http.StatusInternalServerError, "no_customer_id", "auth context missing user id")
+		return
+	}
+	if a.VPNSvcBaseURL == "" {
+		// vpn-svc URL not wired — return an empty list so the web UI
+		// renders the "no sessions" empty state instead of an error toast.
+		writeJSON(w, http.StatusOK, map[string]any{
+			"customer_id": customerID,
+			"sessions":    []any{},
+			"count":       0,
+		})
+		return
+	}
+	url := a.VPNSvcBaseURL + "/v1/vpn/customers/" + customerID + "/sessions"
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, url, nil)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "request_build", err.Error())
+		return
+	}
+	client := a.HTTPClient
+	if client == nil {
+		client = &http.Client{Timeout: 5 * time.Second}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "vpn_svc_unreachable", err.Error())
+		return
+	}
+	defer resp.Body.Close()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, resp.Body)
 }

@@ -45,6 +45,13 @@ type API struct {
 	// Optional — when nil the /api/v1/vpn/config-for-platform endpoint
 	// responds 503 vpn_gateway_unavailable.
 	VPNGateway *VPNGatewayProxy
+	// VPNSvcBaseURL points at vpn-svc (#504 P2P control plane). Optional —
+	// when empty, /api/v1/customer/vpn/sessions returns an empty list so
+	// the web UI renders the "no sessions" state.
+	VPNSvcBaseURL string
+	// HTTPClient is the shared client for outbound calls (vpn-svc, etc).
+	// Default created in main.go with a 5s timeout.
+	HTTPClient *http.Client
 	// Workspaces is the proxy to identity-svc's WorkspaceService.
 	// Optional — when nil the /api/v1/workspaces tree returns 503.
 	Workspaces WorkspaceClient
