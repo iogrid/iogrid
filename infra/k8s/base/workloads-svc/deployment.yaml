@@ -31,7 +31,7 @@ spec:
         # cache-identical. Treated as an opaque ISO-8601 string by the
         # deploy-bot — do not hand-edit unless you intend to roll the
         # pods. Refs #335.
-        kubectl.kubernetes.io/restartedAt: "2026-05-31T18:46:28Z"
+        kubectl.kubernetes.io/restartedAt: "2026-05-31T18:49:49Z"
         prometheus.io/port: "9090"
         prometheus.io/path: "/metrics"
     spec:
@@ -46,7 +46,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: workloads-svc
-          image: ghcr.io/iogrid/workloads-svc@sha256:498eef8842beaa92c7e64900c1dbd8c9f4b95baf36690c8fe6a5f4f6c202d41a
+          image: ghcr.io/iogrid/workloads-svc@sha256:381183c4d8081105f937012ac59487e79c0d7e9ec06b5124fec2ee99d28793fe
           imagePullPolicy: Always
           ports:
             - name: http
