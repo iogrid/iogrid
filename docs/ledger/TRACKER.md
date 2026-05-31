@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-01T23:00Z` 🟢 Worker shipped #555 (STUN family 0x04 fix, #551 closed). Lead merged #555, then caught install-cli.sh 404 on iogrid.org — root cause `ApiClient.delete` typo in /customer/vpn panel blocked web-ci for 7 commits. Filed #558, shipped 4a8dc41 fix. 10 PRs this session, 7 issues closed (+#551, +#558 imminent). Worker now on #529 path (c) Linux TUN + iptables MASQUERADE, ETA ~1 session, will close #532 once landed. |
+| Last refreshed | `2026-06-01T23:10Z` 🟢 Caught + closed #559 (NEXTAUTH_URL=app.iogrid.org leftover; patched secret in cluster, /customer/vpn redirect chain now single-hop iogrid.org/account). vpn-svc rolled to c786ccfe (worker+lead CI green). Web-ci 2d184ed in flight on lint/canonical fixes for install-cli.sh route (#558). 11 PRs this session, 8 issues closed (+#551 #559). Worker on #529 path (c) Linux TUN+MASQUERADE — closes #532 when shipped. |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
 | Open PRs | **0** |
