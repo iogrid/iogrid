@@ -199,12 +199,20 @@ type SessionSnapshot struct {
 	ICECandidates           []ICECandidate  `json:"ice_candidates"`
 }
 
+// ICECandidate matches the wire format vpn-svc emits, which is the
+// proto-generated JSON shape (snake_case fields per protobuf JSON spec).
 type ICECandidate struct {
-	Candidate     string `json:"candidate"`
-	Port          uint32 `json:"port"`
-	Type          string `json:"type"`
-	LatencyMs     uint32 `json:"latency_ms"`
-	IsPreferred   bool   `json:"is_preferred"`
+	Foundation        string `json:"foundation"`
+	Component         uint32 `json:"component"`
+	Transport         string `json:"transport"`
+	Priority          uint32 `json:"priority"`
+	ConnectionAddress string `json:"connection_address"`
+	ConnectionPort    uint32 `json:"connection_port"`
+	CandidateType     string `json:"candidate_type"`
+	RelatedAddress    string `json:"related_address"`
+	RelatedPort       uint32 `json:"related_port"`
+	LatencyMs         uint32 `json:"latency_ms"`
+	IsPreferred       bool   `json:"is_preferred"`
 }
 
 type ConfirmCandidateReq struct {
@@ -226,15 +234,18 @@ type TerminateSessionReq struct {
 
 // requestSessionFromCoordinator requests a VPN session.
 func (c *BastionClient) requestSessionFromCoordinator(ctx context.Context, region string) (string, error) {
-	// Hash API key for transmission
-	hash := sha256.Sum256([]byte(c.apiKey))
-	apiKeyHash := base64.StdEncoding.EncodeToString(hash[:])
-
+	// Send the raw API key over TLS — vpn-svc forwards to billing-svc.ValidateApiKey
+	// which does the hash comparison server-side. (Hashing on the client was the
+	// original design but billing-svc's existing contract takes raw — keeping the
+	// proto field name `api_key_hash` for backward compat; new field `api_key` is
+	// authoritative.)
 	reqBody := map[string]string{
-		"customer_id":   c.customerID,
-		"region":        region,
-		"api_key_hash":  apiKeyHash,
+		"customer_id":  c.customerID,
+		"region":       region,
+		"api_key":      c.apiKey,
 	}
+	_ = sha256.New // keep crypto/sha256 imported for callers that want it
+	_ = base64.StdEncoding
 
 	body, _ := json.Marshal(reqBody)
 	req, err := http.NewRequestWithContext(ctx, "POST", c.coordinatorAddr+"/v1/vpn/sessions", bytes.NewReader(body))
@@ -295,9 +306,9 @@ func (c *BastionClient) getProviderInfo(ctx context.Context, sessionID string) (
 	var candidates []*MockIceCandidate
 	for _, cand := range sessionSnapshot.ICECandidates {
 		candidates = append(candidates, &MockIceCandidate{
-			ConnectionAddress: cand.Candidate,
-			ConnectionPort:    cand.Port,
-			CandidateType:     cand.Type,
+			ConnectionAddress: cand.ConnectionAddress,
+			ConnectionPort:    cand.ConnectionPort,
+			CandidateType:     cand.CandidateType,
 			LatencyMs:         cand.LatencyMs,
 		})
 	}

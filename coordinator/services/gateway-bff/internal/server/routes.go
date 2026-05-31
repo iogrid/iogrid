@@ -221,6 +221,11 @@ func Mount(deps Deps) func(chi.Router) {
 				r.Get("/usage", api.GetCustomerUsage)
 				r.Post("/workloads", api.SubmitWorkload)
 				r.Get("/workloads/{id}/events", api.StreamWorkloadEvents)
+				// /customer/vpn/sessions (#541) — active VPN sessions for
+				// the signed-in customer. Forwards customer_id from the
+				// authenticated session (NOT a wire param) to prevent
+				// cross-customer reads.
+				r.Get("/vpn/sessions", api.ListCustomerVPNSessions)
 				// /customer/billing — Phase 0 empty-state snapshot so
 				// /customer/billing renders the FREE/trial tier card
 				// instead of a 404 banner. Phase 1 wires this to

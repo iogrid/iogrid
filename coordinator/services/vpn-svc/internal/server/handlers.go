@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -12,30 +13,108 @@ import (
 	"github.com/iogrid/iogrid/coordinator/services/vpn-svc/internal/store"
 )
 
+// APIKeyValidator authenticates a raw customer API key against the upstream
+// billing-svc and resolves to a workspace + tier. The proxy-gateway already
+// implements this (internal/auth.Connect); vpn-svc reuses the same contract
+// to avoid drift. nil = unauthenticated mode (dev / smoke).
+type APIKeyValidator interface {
+	Validate(ctx context.Context, apiKey string) (workspaceID string, customerID string, err error)
+}
+
 // RequestSession handles POST /v1/vpn/sessions
 type RequestSession struct {
-	st     store.Store
-	logger *slog.Logger
+	st        store.Store
+	logger    *slog.Logger
+	validator APIKeyValidator // optional — if nil, requests are unauthenticated (dev mode)
 }
 
 func NewRequestSession(st store.Store, logger *slog.Logger) *RequestSession {
 	return &RequestSession{st: st, logger: logger}
 }
 
+// WithValidator wires up API key validation. Call from server.Mount when
+// VPN_SVC_BILLING_URL is set to enable per-key auth (#531).
+func (h *RequestSession) WithValidator(v APIKeyValidator) *RequestSession {
+	h.validator = v
+	return h
+}
+
+// requestSessionReq is the wire body — superset of pb.RequestVpnSession with
+// an api_key field. The proto's api_key_hash is treated as historic + ignored;
+// new clients send raw api_key and vpn-svc forwards to billing-svc.
+type requestSessionReq struct {
+	CustomerID string `json:"customer_id"`
+	Region     string `json:"region"`
+	APIKey     string `json:"api_key"`
+	APIKeyHash string `json:"api_key_hash"` // deprecated, ignored
+}
+
 func (h *RequestSession) Handle(w http.ResponseWriter, r *http.Request) {
-	req := &pb.RequestVpnSession{}
+	req := &requestSessionReq{}
 	if err := json.NewDecoder(r.Body).Decode(req); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+	if req.CustomerID == "" || req.Region == "" {
+		respondError(w, http.StatusBadRequest, "customer_id and region required")
+		return
+	}
+	customerUUID, err := uuid.Parse(req.CustomerID)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "customer_id must be a UUID")
+		return
+	}
+
+	// API key validation (#531). When validator wired, reject unauthenticated
+	// requests; otherwise (dev mode) skip and log a WARN.
+	if h.validator != nil {
+		if req.APIKey == "" {
+			respondError(w, http.StatusUnauthorized, "api_key required")
+			return
+		}
+		wsID, custID, err := h.validator.Validate(r.Context(), req.APIKey)
+		if err != nil {
+			h.logger.Warn("api key rejected",
+				slog.String("customer_id", req.CustomerID),
+				slog.String("error", err.Error()))
+			respondError(w, http.StatusUnauthorized, "invalid api_key")
+			return
+		}
+		// Trust billing-svc's customer_id over the claimed one — prevents
+		// a valid key from being used to spoof another customer's session.
+		if custID != "" {
+			customerUUID = uuid.MustParse(custID)
+		}
+		_ = wsID
+	} else {
+		h.logger.Warn("api key validation skipped (dev mode — set VPN_SVC_BILLING_URL to enable)")
+	}
+
+	// Assign a provider in the requested region. The Postgres schema
+	// constraints fk_primary_provider + fk_current_provider require
+	// non-zero provider UUIDs at INSERT time, so we MUST pick one here.
+	// If no healthy provider in region, 503.
+	providerID, err := h.st.SelectProviderForSession(r.Context(), req.Region)
+	if err != nil {
+		h.logger.Warn("no healthy provider in region",
+			slog.String("region", req.Region),
+			slog.String("error", err.Error()))
+		respondError(w, http.StatusServiceUnavailable,
+			"no healthy provider in region "+req.Region)
 		return
 	}
 
 	// Create session in store
 	sessionID := uuid.New()
 	session := &store.Session{
-		ID:         sessionID,
-		CustomerID: uuid.MustParse(req.CustomerId),
-		Region:     req.Region,
-		State:      pb.VpnSessionState_CREATING,
+		ID:              sessionID,
+		CustomerID:      customerUUID,
+		Region:          req.Region,
+		PrimaryProvider: providerID,
+		CurrentProvider: providerID,
+		State:           pb.VpnSessionState_CREATING,
+		CreatedAt:       time.Now(),
+		LastActivityAt:  time.Now(),
 	}
 	if err := h.st.CreateSession(r.Context(), session); err != nil {
 		h.logger.Error("create session failed", slog.String("error", err.Error()))
@@ -47,8 +126,10 @@ func (h *RequestSession) Handle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{
-		"session_id": sessionID.String(),
-		"status":     "CREATING",
+		"session_id":  sessionID.String(),
+		"status":      "CREATING",
+		"provider_id": providerID.String(),
+		"region":      req.Region,
 	})
 }
 
@@ -70,8 +151,30 @@ func (h *GetSession) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Build a wire-friendly response — Session.State is a proto enum
+	// which serialises as an int by default; the SDK expects a string.
+	// We surface the assigned provider's ICE candidates here as the
+	// customer's initial-tunnel candidate list, plus the provider's
+	// WG public key (populated when the daemon BindProvider call lands
+	// — until then it's empty and the customer SDK should poll).
+	candidates, _ := h.st.GetProviderCandidates(r.Context(), session.CurrentProvider)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(session)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"session_id":              session.ID.String(),
+		"customer_id":             session.CustomerID.String(),
+		"region":                  session.Region,
+		"primary_provider_id":     session.PrimaryProvider.String(),
+		"current_provider_id":     session.CurrentProvider.String(),
+		"state":                   session.State.String(),
+		"bytes_in":                session.BytesIn,
+		"bytes_out":               session.BytesOut,
+		"created_at":              session.CreatedAt,
+		"last_activity_at":        session.LastActivityAt,
+		"provider_id":             session.CurrentProvider.String(),
+		"provider_wg_public_key":  session.ProviderWgPublicKey,
+		"customer_wg_public_key":  session.CustomerWgPublicKey,
+		"ice_candidates":          candidates,
+	})
 }
 
 // ConfirmCandidate handles PUT /v1/vpn/sessions/{sessionID}/confirm
@@ -251,6 +354,16 @@ func (h *TriggerFailover) Handle(w http.ResponseWriter, r *http.Request) {
 	// so any later read of session.CurrentProvider would show the NEW value.
 	failedProviderID := session.CurrentProvider
 	region := session.Region
+
+	// Edge case (#535): if the session has no CurrentProvider yet (i.e. it
+	// was created but never confirmed), failover is meaningless — there's
+	// nothing to fail over from. Reject with a clear error instead of
+	// silently picking a "new" provider that's the same as the (nil) old.
+	if failedProviderID == uuid.Nil {
+		respondError(w, http.StatusConflict,
+			"session has no current provider — confirm an ICE candidate first")
+		return
+	}
 
 	// Select alternate provider in same region, EXCLUDING the failed provider
 	// (so we don't immediately retry the one that just died)
@@ -517,5 +630,181 @@ func (h *RegisterProvider) Handle(w http.ResponseWriter, r *http.Request) {
 		"status":      "registered",
 		"provider_id": providerID.String(),
 		"region":      req.Region,
+	})
+}
+
+// --- #536: WG peer binding handlers ---------------------------------------
+
+// ListAssignedSessions handles GET /v1/vpn/providers/{providerID}/assigned-sessions
+type ListAssignedSessions struct {
+	st     store.Store
+	logger *slog.Logger
+}
+
+func NewListAssignedSessions(st store.Store, logger *slog.Logger) *ListAssignedSessions {
+	return &ListAssignedSessions{st: st, logger: logger}
+}
+
+func (h *ListAssignedSessions) Handle(w http.ResponseWriter, r *http.Request) {
+	providerID, err := uuid.Parse(chi.URLParam(r, "providerID"))
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid provider id")
+		return
+	}
+	sessions, err := h.st.ListAssignedSessions(r.Context(), providerID)
+	if err != nil {
+		h.logger.Error("list assigned sessions failed",
+			slog.String("provider_id", providerID.String()),
+			slog.String("error", err.Error()))
+		respondError(w, http.StatusInternalServerError, "failed to list assigned sessions")
+		return
+	}
+	out := make([]map[string]interface{}, 0, len(sessions))
+	for _, s := range sessions {
+		out = append(out, map[string]interface{}{
+			"session_id":              s.ID.String(),
+			"customer_id":             s.CustomerID.String(),
+			"region":                  s.Region,
+			"current_provider_id":     s.CurrentProvider.String(),
+			"customer_wg_public_key":  s.CustomerWgPublicKey,
+			"created_at":              s.CreatedAt,
+		})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"provider_id": providerID.String(),
+		"sessions":    out,
+		"count":       len(out),
+	})
+}
+
+type bindProviderReq struct {
+	ProviderWgPublicKey string `json:"provider_wg_public_key"`
+}
+
+// BindProvider handles POST /v1/vpn/sessions/{sessionID}/bind-provider
+type BindProvider struct {
+	st     store.Store
+	logger *slog.Logger
+}
+
+func NewBindProvider(st store.Store, logger *slog.Logger) *BindProvider {
+	return &BindProvider{st: st, logger: logger}
+}
+
+func (h *BindProvider) Handle(w http.ResponseWriter, r *http.Request) {
+	sessionID, err := uuid.Parse(chi.URLParam(r, "sessionID"))
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid session id")
+		return
+	}
+	req := &bindProviderReq{}
+	if err := json.NewDecoder(r.Body).Decode(req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.ProviderWgPublicKey == "" {
+		respondError(w, http.StatusBadRequest, "provider_wg_public_key required")
+		return
+	}
+	if err := h.st.BindProviderToSession(r.Context(), sessionID, req.ProviderWgPublicKey); err != nil {
+		h.logger.Warn("bind provider failed",
+			slog.String("session_id", sessionID.String()),
+			slog.String("error", err.Error()))
+		respondError(w, http.StatusNotFound, "session not found")
+		return
+	}
+	h.logger.Info("provider bound to session",
+		slog.String("session_id", sessionID.String()))
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "bound"})
+}
+
+type bindCustomerWgKeyReq struct {
+	CustomerWgPublicKey string `json:"customer_wg_public_key"`
+}
+
+// BindCustomerWgKey handles POST /v1/vpn/sessions/{sessionID}/bind-customer-wg-key
+type BindCustomerWgKey struct {
+	st     store.Store
+	logger *slog.Logger
+}
+
+func NewBindCustomerWgKey(st store.Store, logger *slog.Logger) *BindCustomerWgKey {
+	return &BindCustomerWgKey{st: st, logger: logger}
+}
+
+func (h *BindCustomerWgKey) Handle(w http.ResponseWriter, r *http.Request) {
+	sessionID, err := uuid.Parse(chi.URLParam(r, "sessionID"))
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid session id")
+		return
+	}
+	req := &bindCustomerWgKeyReq{}
+	if err := json.NewDecoder(r.Body).Decode(req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.CustomerWgPublicKey == "" {
+		respondError(w, http.StatusBadRequest, "customer_wg_public_key required")
+		return
+	}
+	if err := h.st.BindCustomerWgKey(r.Context(), sessionID, req.CustomerWgPublicKey); err != nil {
+		respondError(w, http.StatusNotFound, "session not found")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "bound"})
+}
+
+// --- #541: customer sessions listing for /customer/vpn web page -----------
+
+// ListSessionsByCustomer handles GET /v1/vpn/customers/{customerID}/sessions
+type ListSessionsByCustomer struct {
+	st     store.Store
+	logger *slog.Logger
+}
+
+func NewListSessionsByCustomer(st store.Store, logger *slog.Logger) *ListSessionsByCustomer {
+	return &ListSessionsByCustomer{st: st, logger: logger}
+}
+
+func (h *ListSessionsByCustomer) Handle(w http.ResponseWriter, r *http.Request) {
+	customerID, err := uuid.Parse(chi.URLParam(r, "customerID"))
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid customer id")
+		return
+	}
+	sessions, err := h.st.ListSessionsByCustomer(r.Context(), customerID)
+	if err != nil {
+		h.logger.Error("list sessions failed",
+			slog.String("customer_id", customerID.String()),
+			slog.String("error", err.Error()))
+		respondError(w, http.StatusInternalServerError, "failed to list sessions")
+		return
+	}
+	// Wire format: only ACTIVE (non-terminated) sessions, with the fields
+	// the web UI displays.
+	out := make([]map[string]interface{}, 0, len(sessions))
+	for _, s := range sessions {
+		if s.TerminatedAt != nil {
+			continue
+		}
+		out = append(out, map[string]interface{}{
+			"session_id":          s.ID.String(),
+			"region":              s.Region,
+			"current_provider_id": s.CurrentProvider.String(),
+			"state":               s.State.String(),
+			"bytes_in":            s.BytesIn,
+			"bytes_out":           s.BytesOut,
+			"created_at":          s.CreatedAt,
+			"last_activity_at":    s.LastActivityAt,
+		})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"customer_id": customerID.String(),
+		"sessions":    out,
+		"count":       len(out),
 	})
 }

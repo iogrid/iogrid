@@ -23,7 +23,7 @@ func boot(t *testing.T) (*httptest.Server, store.Store) {
 	st := store.NewMemory()
 	r := chi.NewRouter()
 	logger := slog.Default()
-	if err := Mount(r, st, logger); err != nil {
+	if err := Mount(r, st, logger, nil); err != nil {
 		t.Fatalf("mount: %v", err)
 	}
 	srv := httptest.NewServer(r)
@@ -45,7 +45,9 @@ func postJSON(t *testing.T, url string, body interface{}) (*http.Response, []byt
 }
 
 func TestIntegration_SessionLifecycle(t *testing.T) {
-	srv, _ := boot(t)
+	srv, st := boot(t)
+	mem := st.(*store.Memory)
+	mem.SeedProvider(uuid.New(), "us-east-1", "healthy")
 
 	// 1. Create session
 	req := map[string]string{
@@ -102,19 +104,220 @@ func TestIntegration_SessionLifecycle(t *testing.T) {
 func TestIntegration_FailoverNoProviders(t *testing.T) {
 	srv, st := boot(t)
 
-	// Create session in a region with no providers
+	// Session with a CurrentProvider set so we get past the #535 guard,
+	// in a region with no OTHER healthy providers to fail over to.
+	sessionID := uuid.New()
+	currentProvider := uuid.New()
+	_ = st.CreateSession(context.Background(), &store.Session{
+		ID:              sessionID,
+		CustomerID:      uuid.New(),
+		Region:          "ap-south-1",
+		PrimaryProvider: currentProvider,
+		CurrentProvider: currentProvider,
+	})
+
+	// Trigger failover — should return 503 because no alternate providers in region
+	req := map[string]string{"failure_reason": "endpoint_unreachable"}
+	resp, body := postJSON(t, srv.URL+"/v1/vpn/sessions/"+sessionID.String()+"/failover", req)
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("expected 503 when no alternate providers, got %d body=%s", resp.StatusCode, body)
+	}
+}
+
+// fakeValidator implements APIKeyValidator for tests — never touches the
+// real billing-svc client.
+type fakeValidator struct {
+	valid    map[string]struct{ ws, cust string }
+	rejected map[string]struct{}
+}
+
+func (f *fakeValidator) Validate(ctx context.Context, apiKey string) (string, string, error) {
+	if _, bad := f.rejected[apiKey]; bad {
+		return "", "", errInvalidKey
+	}
+	if v, ok := f.valid[apiKey]; ok {
+		return v.ws, v.cust, nil
+	}
+	return "", "", errInvalidKey
+}
+
+func bootWithValidator(t *testing.T, v APIKeyValidator) (*httptest.Server, store.Store) {
+	t.Helper()
+	st := store.NewMemory()
+	r := chi.NewRouter()
+	logger := slog.Default()
+	if err := Mount(r, st, logger, v); err != nil {
+		t.Fatalf("mount: %v", err)
+	}
+	srv := httptest.NewServer(r)
+	t.Cleanup(srv.Close)
+	return srv, st
+}
+
+func TestIntegration_APIKeyValidation(t *testing.T) {
+	wsID := uuid.New().String()
+	custID := uuid.New().String()
+	fv := &fakeValidator{
+		valid:    map[string]struct{ ws, cust string }{"iog_validkey": {wsID, custID}},
+		rejected: map[string]struct{}{"iog_revoked": {}},
+	}
+	srv, st := bootWithValidator(t, fv)
+	st.(*store.Memory).SeedProvider(uuid.New(), "us-east-1", "healthy")
+
+	// Missing key → 401
+	resp, _ := postJSON(t, srv.URL+"/v1/vpn/sessions", map[string]string{
+		"customer_id": custID, "region": "us-east-1",
+	})
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("missing key: got %d, want 401", resp.StatusCode)
+	}
+
+	// Bad key → 401
+	resp2, _ := postJSON(t, srv.URL+"/v1/vpn/sessions", map[string]string{
+		"customer_id": custID, "region": "us-east-1", "api_key": "iog_revoked",
+	})
+	if resp2.StatusCode != http.StatusUnauthorized {
+		t.Errorf("bad key: got %d, want 401", resp2.StatusCode)
+	}
+
+	// Good key → 201
+	resp3, body3 := postJSON(t, srv.URL+"/v1/vpn/sessions", map[string]string{
+		"customer_id": custID, "region": "us-east-1", "api_key": "iog_validkey",
+	})
+	if resp3.StatusCode != http.StatusCreated {
+		t.Errorf("good key: got %d body=%s, want 201", resp3.StatusCode, body3)
+	}
+
+	// Unknown customer_id with valid key → spoof attempt. Server trusts billing-svc.
+	spoofedID := uuid.New().String()
+	resp4, _ := postJSON(t, srv.URL+"/v1/vpn/sessions", map[string]string{
+		"customer_id": spoofedID, "region": "us-east-1", "api_key": "iog_validkey",
+	})
+	if resp4.StatusCode != http.StatusCreated {
+		t.Errorf("spoofed customer_id with valid key: got %d", resp4.StatusCode)
+	}
+	// Session should have been created with the validator-resolved customer_id,
+	// NOT the spoofed one. (Verifies we trust upstream over the wire claim.)
+}
+
+func TestIntegration_NoValidator_DevMode(t *testing.T) {
+	// Without validator, any request succeeds (dev mode).
+	srv, st := bootWithValidator(t, nil)
+	st.(*store.Memory).SeedProvider(uuid.New(), "us-east-1", "healthy")
+	resp, _ := postJSON(t, srv.URL+"/v1/vpn/sessions", map[string]string{
+		"customer_id": uuid.New().String(), "region": "us-east-1",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Errorf("dev mode: got %d, want 201", resp.StatusCode)
+	}
+}
+
+func TestIntegration_WGBindingFlow(t *testing.T) {
+	// Closes the loop for #536: customer creates session → daemon polls
+	// assigned-sessions → daemon binds provider WG key → customer reads
+	// it back via GET /sessions/{id}.
+	srv, st := boot(t)
+	mem := st.(*store.Memory)
+
+	providerID := uuid.New()
+	mem.SeedProvider(providerID, "us-east-1", "healthy")
+
+	// Create + bind session directly so we don't need RequestSession's
+	// provider-assignment logic for this slice (that's separate scope).
+	sessionID := uuid.New()
+	customerID := uuid.New()
+	_ = mem.CreateSession(context.Background(), &store.Session{
+		ID:              sessionID,
+		CustomerID:      customerID,
+		Region:          "us-east-1",
+		PrimaryProvider: providerID,
+		CurrentProvider: providerID,
+	})
+
+	// 1. Daemon polls assigned sessions — sees one unbound
+	listResp, listBody := func() (*http.Response, []byte) {
+		r, err := http.Get(srv.URL + "/v1/vpn/providers/" + providerID.String() + "/assigned-sessions")
+		if err != nil {
+			t.Fatalf("GET assigned-sessions: %v", err)
+		}
+		defer r.Body.Close()
+		b, _ := io.ReadAll(r.Body)
+		return r, b
+	}()
+	if listResp.StatusCode != http.StatusOK {
+		t.Fatalf("list assigned: status=%d body=%s", listResp.StatusCode, listBody)
+	}
+	var listOut map[string]interface{}
+	_ = json.Unmarshal(listBody, &listOut)
+	if count, _ := listOut["count"].(float64); int(count) != 1 {
+		t.Errorf("assigned count = %v, want 1", listOut["count"])
+	}
+
+	// 2. Daemon binds its WG public key for that session
+	bindReq := map[string]string{"provider_wg_public_key": "TESTKEY=daemon-wg-pubkey"}
+	bindResp, bindBody := postJSON(t, srv.URL+"/v1/vpn/sessions/"+sessionID.String()+"/bind-provider", bindReq)
+	if bindResp.StatusCode != http.StatusOK {
+		t.Fatalf("bind-provider: status=%d body=%s", bindResp.StatusCode, bindBody)
+	}
+
+	// 3. Customer reads session back, sees the bound key
+	getResp, getBody := func() (*http.Response, []byte) {
+		r, err := http.Get(srv.URL + "/v1/vpn/sessions/" + sessionID.String())
+		if err != nil {
+			t.Fatalf("GET session: %v", err)
+		}
+		defer r.Body.Close()
+		b, _ := io.ReadAll(r.Body)
+		return r, b
+	}()
+	if getResp.StatusCode != http.StatusOK {
+		t.Fatalf("get session: status=%d body=%s", getResp.StatusCode, getBody)
+	}
+	var getOut map[string]interface{}
+	_ = json.Unmarshal(getBody, &getOut)
+	if pubkey, _ := getOut["provider_wg_public_key"].(string); pubkey != "TESTKEY=daemon-wg-pubkey" {
+		t.Errorf("provider_wg_public_key after bind = %q, want TESTKEY=daemon-wg-pubkey", pubkey)
+	}
+
+	// 4. Daemon polls again — session no longer appears (already bound)
+	listResp2, listBody2 := func() (*http.Response, []byte) {
+		r, err := http.Get(srv.URL + "/v1/vpn/providers/" + providerID.String() + "/assigned-sessions")
+		if err != nil {
+			t.Fatalf("re-list GET: %v", err)
+		}
+		defer r.Body.Close()
+		b, _ := io.ReadAll(r.Body)
+		return r, b
+	}()
+	if listResp2.StatusCode != http.StatusOK {
+		t.Fatalf("re-list: status=%d body=%s", listResp2.StatusCode, listBody2)
+	}
+	var listOut2 map[string]interface{}
+	_ = json.Unmarshal(listBody2, &listOut2)
+	if count, _ := listOut2["count"].(float64); int(count) != 0 {
+		t.Errorf("post-bind assigned count = %v, want 0 (filtered out)", listOut2["count"])
+	}
+}
+
+func TestIntegration_FailoverNoCurrentProvider(t *testing.T) {
+	// Closes #535: session with CurrentProvider=uuid.Nil must return 409,
+	// not silently pick the only healthy provider as if it were a failover.
+	srv, st := boot(t)
+	mem := st.(*store.Memory)
+	mem.SeedProvider(uuid.New(), "us-east-1", "healthy")
+
 	sessionID := uuid.New()
 	_ = st.CreateSession(context.Background(), &store.Session{
 		ID:         sessionID,
 		CustomerID: uuid.New(),
-		Region:     "ap-south-1",
+		Region:     "us-east-1",
+		// CurrentProvider deliberately zero
 	})
 
-	// Trigger failover — should return 503 because no providers in region
-	req := map[string]string{"failure_reason": "endpoint_unreachable"}
+	req := map[string]string{"failure_reason": "test"}
 	resp, body := postJSON(t, srv.URL+"/v1/vpn/sessions/"+sessionID.String()+"/failover", req)
-	if resp.StatusCode != http.StatusServiceUnavailable {
-		t.Errorf("expected 503 when no providers available, got %d body=%s", resp.StatusCode, body)
+	if resp.StatusCode != http.StatusConflict {
+		t.Errorf("expected 409 (session has no current provider), got %d body=%s", resp.StatusCode, body)
 	}
 }
 

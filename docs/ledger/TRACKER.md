@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-01T08:00Z` 🟢🟢🟢🟢 **VPN-PHASE-1-SHIPPED-LIVE**: EPIC #504 CLOSED. All 15 sub-issues #505-#519 + #523 closed. 49 tests passing + on-cluster smoke GREEN. vpn-svc pod Running on mothership (image @sha256:41483de7). Routes verified live: /healthz, /metrics with iogrid_vpn_svc_* counters, full lifecycle (register/heartbeat/session/refresh/failover/terminate). iogrid-worker peer shipped #520+#524+#525 daemon side. Phase 2-4 issues #521 #522 parked. |
+| Last refreshed | `2026-06-01T09:15Z` 🟢 **VPN-END-STATE-NON-STOP**: api.iogrid.org/v1/vpn/* live (#526 ✓), iogrid CLI + installer + cli-ci (#527), #535 fix ✓, WG binding handlers (#536 server), DB Postgres backend live on cluster (#533 ✓), embed.FS migrations ✓, API key validation via billing-svc (#531 backend ✓), session create assigns provider (fk constraint fix), CLI status from server (#538). Issues #526-#541 cover every gap. Remaining for full customer e2e: #528 RealTunnelManager, #529 boringtun (iogrid-worker), #530 paired provider, #532 E2E, #540 STUN LB, #541 web UI, #536 daemon side. |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
 | Open PRs | **0** |

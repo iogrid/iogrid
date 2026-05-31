@@ -78,7 +78,7 @@ func TestE2E_FailoverDoesNotTriggerRoaming(t *testing.T) {
 				OldProviderID: "old-prov",
 				NewProviderID: "new-prov",
 				ICECandidates: []ICECandidate{
-					{Candidate: "127.0.0.1", Port: 50000, Type: "host", LatencyMs: 5},
+					{ConnectionAddress: "127.0.0.1", ConnectionPort: 50000, CandidateType: "host", LatencyMs: 5},
 				},
 			}
 			_ = json.NewEncoder(w).Encode(resp)

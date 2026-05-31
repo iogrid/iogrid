@@ -161,6 +161,27 @@ func (m *Memory) CleanupExpiredCandidates(ctx context.Context) error {
 	return nil
 }
 
+// CleanupStaleSessions implements Store.
+func (m *Memory) CleanupStaleSessions(ctx context.Context, staleAfter time.Duration) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cutoff := time.Now().Add(-staleAfter)
+	cleaned := 0
+	for _, session := range m.sessions {
+		if session.TerminatedAt != nil {
+			continue
+		}
+		if session.LastActivityAt.Before(cutoff) {
+			now := time.Now()
+			session.TerminatedAt = &now
+			session.ExitReason = "stale_heartbeat"
+			session.State = pb.VpnSessionState_TERMINATING
+			cleaned++
+		}
+	}
+	return cleaned, nil
+}
+
 // SeedProvider is a test helper that injects a provider into the in-memory store.
 // Production code paths register providers via dedicated registration RPCs (TBD).
 func (m *Memory) SeedProvider(id uuid.UUID, region, status string) {
@@ -269,6 +290,52 @@ func (m *Memory) UpdateProviderHealth(ctx context.Context, providerID uuid.UUID,
 	provider.Status = status
 	provider.LastSeenAt = lastSeen
 	return nil
+}
+
+// BindProviderToSession implements Store.
+func (m *Memory) BindProviderToSession(ctx context.Context, sessionID uuid.UUID, providerWgPubKey string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	session, ok := m.sessions[sessionID]
+	if !ok {
+		return fmt.Errorf("session %s not found", sessionID)
+	}
+	session.ProviderWgPublicKey = providerWgPubKey
+	session.LastActivityAt = time.Now()
+	return nil
+}
+
+// BindCustomerWgKey implements Store.
+func (m *Memory) BindCustomerWgKey(ctx context.Context, sessionID uuid.UUID, customerWgPubKey string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	session, ok := m.sessions[sessionID]
+	if !ok {
+		return fmt.Errorf("session %s not found", sessionID)
+	}
+	session.CustomerWgPublicKey = customerWgPubKey
+	session.LastActivityAt = time.Now()
+	return nil
+}
+
+// ListAssignedSessions implements Store.
+func (m *Memory) ListAssignedSessions(ctx context.Context, providerID uuid.UUID) ([]*Session, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var result []*Session
+	for _, session := range m.sessions {
+		if session.TerminatedAt != nil {
+			continue
+		}
+		if session.CurrentProvider != providerID {
+			continue
+		}
+		if session.ProviderWgPublicKey != "" {
+			continue // already bound
+		}
+		result = append(result, session)
+	}
+	return result, nil
 }
 
 // TriggerFailover implements Store.

@@ -9,10 +9,14 @@ import (
 )
 
 // Mount registers all VPN service routes on the chi router.
-func Mount(h chi.Router, st store.Store, logger *slog.Logger) error {
+//
+// validator may be nil for dev / smoke mode — every POST /v1/vpn/sessions
+// is then accepted unauthenticated and the boot WARN log fires. Production
+// passes a BillingValidator pointed at billing-svc.
+func Mount(h chi.Router, st store.Store, logger *slog.Logger, validator APIKeyValidator) error {
 	h.Route("/v1/vpn", func(r chi.Router) {
 		// Session endpoints
-		r.Post("/sessions", NewRequestSession(st, logger).Handle)
+		r.Post("/sessions", NewRequestSession(st, logger).WithValidator(validator).Handle)
 		r.Get("/sessions/{sessionID}", NewGetSession(st, logger).Handle)
 		r.Put("/sessions/{sessionID}/confirm", NewConfirmCandidate(st, logger).Handle)
 		r.Post("/sessions/{sessionID}/refresh", NewRefreshSession(st, logger).Handle)
@@ -41,6 +45,21 @@ func Mount(h chi.Router, st store.Store, logger *slog.Logger) error {
 		// test. Returns providers grouped by region with health status
 		// + session_count. Read-only; no auth (read-mostly metadata).
 		r.Get("/regions/{region}/providers", NewListProvidersInRegion(st, logger).Handle)
+
+		// Customer's own sessions — used by /customer/vpn web page (#541).
+		// Auth is by customer_id query param; for now no upstream key
+		// validation since this is read-only. Gateway-bff scopes by
+		// authenticated workspace before forwarding.
+		r.Get("/customers/{customerID}/sessions", NewListSessionsByCustomer(st, logger).Handle)
+
+		// WG peer binding (#536) — provider daemon side. Daemon polls
+		// /providers/{id}/assigned-sessions every 5s; for each new
+		// session it allocates a peer slot and POSTs back its WG
+		// public key via /sessions/{id}/bind-provider. Customer SDK
+		// reads the same key via GET /sessions/{id} once bound.
+		r.Get("/providers/{providerID}/assigned-sessions", NewListAssignedSessions(st, logger).Handle)
+		r.Post("/sessions/{sessionID}/bind-provider", NewBindProvider(st, logger).Handle)
+		r.Post("/sessions/{sessionID}/bind-customer-wg-key", NewBindCustomerWgKey(st, logger).Handle)
 	})
 
 	logger.Info("vpn service routes mounted")

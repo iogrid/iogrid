@@ -343,6 +343,21 @@ func (p *Postgres) RegisterProvider(ctx context.Context, info *ProviderInfo) err
 	return err
 }
 
+// CleanupStaleSessions implements Store.
+func (p *Postgres) CleanupStaleSessions(ctx context.Context, staleAfter time.Duration) (int, error) {
+	query := `
+		UPDATE vpn_sessions
+		SET terminated_at = NOW(), exit_reason = 'stale_heartbeat', state = 'TERMINATING'
+		WHERE terminated_at IS NULL
+		  AND last_activity_at < NOW() - $1::interval
+	`
+	tag, err := p.pool.Exec(ctx, query, staleAfter)
+	if err != nil {
+		return 0, fmt.Errorf("cleanup stale sessions: %w", err)
+	}
+	return int(tag.RowsAffected()), nil
+}
+
 // SelectAlternateProvider implements Store.
 func (p *Postgres) SelectAlternateProvider(ctx context.Context, region string, exclude []uuid.UUID) (uuid.UUID, error) {
 	// Build a NOT IN clause; pgx supports = ANY($N::uuid[]) cleanly
@@ -390,6 +405,60 @@ func (p *Postgres) TriggerFailover(ctx context.Context, sessionID uuid.UUID, cur
 	`
 	_, err := p.pool.Exec(ctx, query, altProvider, pb.VpnSessionState_FAILING_OVER.String(), sessionID)
 	return err
+}
+
+// BindProviderToSession implements Store.
+func (p *Postgres) BindProviderToSession(ctx context.Context, sessionID uuid.UUID, providerWgPubKey string) error {
+	// Note: provider_wg_public_key + customer_wg_public_key columns added
+	// in migration 00004_session_wg_keys.sql (alters vpn_sessions table).
+	query := `
+		UPDATE vpn_sessions
+		SET provider_wg_public_key = $1, last_activity_at = NOW()
+		WHERE id = $2
+	`
+	_, err := p.pool.Exec(ctx, query, providerWgPubKey, sessionID)
+	return err
+}
+
+// BindCustomerWgKey implements Store.
+func (p *Postgres) BindCustomerWgKey(ctx context.Context, sessionID uuid.UUID, customerWgPubKey string) error {
+	query := `
+		UPDATE vpn_sessions
+		SET customer_wg_public_key = $1, last_activity_at = NOW()
+		WHERE id = $2
+	`
+	_, err := p.pool.Exec(ctx, query, customerWgPubKey, sessionID)
+	return err
+}
+
+// ListAssignedSessions implements Store.
+func (p *Postgres) ListAssignedSessions(ctx context.Context, providerID uuid.UUID) ([]*Session, error) {
+	query := `
+		SELECT id, customer_id, region, primary_provider_id, current_provider_id,
+		       state, bytes_in, bytes_out, roaming_events, failover_count,
+		       ice_candidate_count, ice_time_ms, wg_establish_time_ms,
+		       created_at, terminated_at, last_activity_at, exit_reason
+		FROM vpn_sessions
+		WHERE current_provider_id = $1
+		  AND terminated_at IS NULL
+		  AND (provider_wg_public_key IS NULL OR provider_wg_public_key = '')
+		ORDER BY created_at ASC
+	`
+	rows, err := p.pool.Query(ctx, query, providerID)
+	if err != nil {
+		return nil, fmt.Errorf("query assigned sessions: %w", err)
+	}
+	defer rows.Close()
+
+	var sessions []*Session
+	for rows.Next() {
+		session, err := p.scanSession(rows)
+		if err != nil {
+			return nil, err
+		}
+		sessions = append(sessions, session)
+	}
+	return sessions, rows.Err()
 }
 
 // Helper to scan a session row

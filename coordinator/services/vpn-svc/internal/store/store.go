@@ -47,6 +47,14 @@ type Store interface {
 	// CleanupExpiredCandidates deletes expired ICE candidates.
 	CleanupExpiredCandidates(ctx context.Context) error
 
+	// CleanupStaleSessions marks sessions terminated if they haven't
+	// received a /refresh heartbeat in `staleAfter`. Customer SDKs
+	// heartbeat every 30s by default, so a 5-minute threshold means
+	// ~10 missed ticks before cleanup — generous enough that a
+	// transient network hiccup on the bastion doesn't yank the session.
+	// Returns the number of sessions cleaned up.
+	CleanupStaleSessions(ctx context.Context, staleAfter time.Duration) (int, error)
+
 	// --- Provider Health & Failover ---
 
 	// RegisterProvider inserts (or refreshes) a provider row. Used at
@@ -73,27 +81,53 @@ type Store interface {
 
 	// TriggerFailover switches a session to an alternate provider.
 	TriggerFailover(ctx context.Context, sessionID uuid.UUID, currentProvider, altProvider uuid.UUID) error
+
+	// --- WG Peer Binding (#536) ---
+
+	// BindProviderToSession records the provider's WG public key for
+	// a session. Called by the provider daemon after it allocates a
+	// peer slot for the customer. Customer SDK then reads this via
+	// GetSession to know which key to authenticate against.
+	BindProviderToSession(ctx context.Context, sessionID uuid.UUID, providerWgPubKey string) error
+
+	// BindCustomerWgKey records the customer's WG public key for a
+	// session. Called by the customer SDK before connect so the daemon
+	// can pre-allocate the peer ahead of the WG handshake.
+	BindCustomerWgKey(ctx context.Context, sessionID uuid.UUID, customerWgPubKey string) error
+
+	// ListAssignedSessions returns sessions assigned to a provider that
+	// don't yet have ProviderWgPublicKey set. Daemon polls this every
+	// ~5s to find new customers to allocate peer slots for.
+	ListAssignedSessions(ctx context.Context, providerID uuid.UUID) ([]*Session, error)
 }
 
 // Session represents a VPN session in the ledger.
 type Session struct {
-	ID              uuid.UUID
-	CustomerID      uuid.UUID
-	Region          string
-	PrimaryProvider uuid.UUID
-	CurrentProvider uuid.UUID
-	State           pb.VpnSessionState
-	BytesIn         uint64
-	BytesOut        uint64
-	RoamingEvents   int64
-	FailoverCount   int64
-	IceCandidates   int32
-	IceTimeMs       int32
-	WgEstablishMs   int32
-	CreatedAt       time.Time
-	TerminatedAt    *time.Time
-	LastActivityAt  time.Time
-	ExitReason      string
+	ID                  uuid.UUID
+	CustomerID          uuid.UUID
+	Region              string
+	PrimaryProvider     uuid.UUID
+	CurrentProvider     uuid.UUID
+	State               pb.VpnSessionState
+	BytesIn             uint64
+	BytesOut            uint64
+	RoamingEvents       int64
+	FailoverCount       int64
+	IceCandidates       int32
+	IceTimeMs           int32
+	WgEstablishMs       int32
+	CreatedAt           time.Time
+	TerminatedAt        *time.Time
+	LastActivityAt      time.Time
+	ExitReason          string
+	// ProviderWgPublicKey is set by the provider daemon via BindProvider
+	// once it has allocated a peer slot for this customer. The customer
+	// SDK reads it via GetSession to know which key to authenticate against.
+	ProviderWgPublicKey string
+	// CustomerWgPublicKey is set by the customer SDK via ConfirmCandidate
+	// so the provider daemon can pre-allocate the peer ahead of the WG
+	// handshake landing.
+	CustomerWgPublicKey string
 }
 
 // ProviderInfo represents a provider for regional failover selection.

@@ -98,6 +98,20 @@ func main() {
 	}()
 	defer stunServer.Close()
 
+	// --- API key validator (#531) ------------------------------------------
+	// When BILLING_SVC_URL is set, every POST /v1/vpn/sessions must carry
+	// a valid api_key (validated against billing-svc.ValidateApiKey with a
+	// 60s positive cache). Unset = dev/smoke mode (unauthenticated,
+	// boot WARN logs).
+	var validator server.APIKeyValidator
+	if billingURL := os.Getenv("BILLING_SVC_URL"); billingURL != "" {
+		validator = server.NewBillingValidator(billingURL, nil)
+		logger.Info("api key validation enabled", slog.String("billing_url", billingURL))
+	} else {
+		logger.Warn("api key validation DISABLED — set BILLING_SVC_URL to enable",
+			slog.String("impact", "every POST /v1/vpn/sessions is unauthenticated"))
+	}
+
 	// --- HTTP server setup + run -------------------------------------------------
 	hr.MarkReady()
 	err = sharedserver.Run(ctx, sharedserver.Options{
@@ -105,7 +119,7 @@ func main() {
 		Logger:      logger,
 		Health:      hr,
 		Mount: func(r chi.Router) {
-			if err := server.Mount(r, st, logger); err != nil {
+			if err := server.Mount(r, st, logger, validator); err != nil {
 				logger.Error("server mount failed", slog.String("error", err.Error()))
 				os.Exit(1)
 			}
