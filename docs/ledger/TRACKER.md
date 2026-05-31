@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-31T10:45Z` 🟢 manual bump: PR #503 MERGED (SHA `a1d0367`) against #502 — coordinator-ci + image auto-bump in flight, Flux roll pending |
+| Last refreshed | `2026-05-31T11:00Z` 🟢 cron-refresh: +11 commits since last TRACKER bump |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
 | Open PRs | **0** |
