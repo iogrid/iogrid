@@ -124,6 +124,14 @@ type Store interface {
 	// successfully published the usage event. Idempotent: a second call
 	// is a no-op (billed_at column is not re-overwritten).
 	MarkSessionBilled(ctx context.Context, sessionID uuid.UUID) error
+
+	// --- Quota enforcement (#548) ---
+
+	// SumCustomerBytesThisMonth returns total bytes_in + bytes_out
+	// across every session this customer created since the start of the
+	// current calendar month (UTC). The free-tier quota check on
+	// RequestSession compares this against FreeTierQuotaBytes.
+	SumCustomerBytesThisMonth(ctx context.Context, customerID uuid.UUID) (uint64, error)
 }
 
 // RegionSummary is one row of the customer region picker.

@@ -18,7 +18,25 @@ import (
 // implements this (internal/auth.Connect); vpn-svc reuses the same contract
 // to avoid drift. nil = unauthenticated mode (dev / smoke).
 type APIKeyValidator interface {
-	Validate(ctx context.Context, apiKey string) (workspaceID string, customerID string, err error)
+	Validate(ctx context.Context, apiKey string) (workspaceID string, customerID string, tier string, err error)
+}
+
+// FreeTierQuotaBytes is the per-month byte cap for free-tier customers
+// (#548). 2 GiB matches the README marketing copy. PAID tiers
+// (STARTER / GROWTH / ENTERPRISE) are unlimited.
+const FreeTierQuotaBytes = uint64(2 * 1024 * 1024 * 1024)
+
+// isFreeTier maps the billing-svc tier enum string onto VPN's free-vs-paid
+// binary. UNSPECIFIED + PAYG are treated as Free; STARTER and above are
+// treated as Paid (unlimited bandwidth). Refs #548.
+func isFreeTier(tier string) bool {
+	switch tier {
+	case "SUBSCRIPTION_TIER_STARTER",
+		"SUBSCRIPTION_TIER_GROWTH",
+		"SUBSCRIPTION_TIER_ENTERPRISE":
+		return false
+	}
+	return true
 }
 
 // RequestSession handles POST /v1/vpn/sessions
@@ -72,7 +90,7 @@ func (h *RequestSession) Handle(w http.ResponseWriter, r *http.Request) {
 			respondError(w, http.StatusUnauthorized, "api_key required")
 			return
 		}
-		wsID, custID, err := h.validator.Validate(r.Context(), req.APIKey)
+		wsID, custID, tier, err := h.validator.Validate(r.Context(), req.APIKey)
 		if err != nil {
 			h.logger.Warn("api key rejected",
 				slog.String("customer_id", req.CustomerID),
@@ -86,6 +104,33 @@ func (h *RequestSession) Handle(w http.ResponseWriter, r *http.Request) {
 			customerUUID = uuid.MustParse(custID)
 		}
 		_ = wsID
+
+		// Free-tier quota gate (#548). Paid tiers are unlimited; free
+		// tiers get FreeTierQuotaBytes (2 GiB/mo). We sum bytes_in +
+		// bytes_out across this calendar month's sessions and reject
+		// with 429 if the customer is already over.
+		if isFreeTier(tier) {
+			used, err := h.st.SumCustomerBytesThisMonth(r.Context(), customerUUID)
+			if err != nil {
+				h.logger.Warn("free-tier quota query failed (allowing through)",
+					slog.String("customer_id", customerUUID.String()),
+					slog.String("error", err.Error()))
+			} else if used >= FreeTierQuotaBytes {
+				h.logger.Info("free-tier quota exhausted",
+					slog.String("customer_id", customerUUID.String()),
+					slog.Uint64("used_bytes", used),
+					slog.Uint64("quota_bytes", FreeTierQuotaBytes))
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusTooManyRequests)
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"error":       "quota_exceeded",
+					"detail":      "free-tier 2 GiB/month bandwidth quota exhausted — upgrade to plus or pro at https://iogrid.org/customer/vpn",
+					"quota_bytes": FreeTierQuotaBytes,
+					"used_bytes":  used,
+				})
+				return
+			}
+		}
 	} else {
 		h.logger.Warn("api key validation skipped (dev mode — set VPN_SVC_BILLING_URL to enable)")
 	}

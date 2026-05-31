@@ -352,6 +352,21 @@ func (m *Memory) ListUnbilledTerminatedSessions(ctx context.Context, limit int) 
 	return out, nil
 }
 
+// SumCustomerBytesThisMonth implements Store.
+func (m *Memory) SumCustomerBytesThisMonth(ctx context.Context, customerID uuid.UUID) (uint64, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	now := time.Now().UTC()
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	var total uint64
+	for _, s := range m.sessions {
+		if s.CustomerID == customerID && !s.CreatedAt.Before(monthStart) {
+			total += s.BytesIn + s.BytesOut
+		}
+	}
+	return total, nil
+}
+
 // MarkSessionBilled implements Store.
 func (m *Memory) MarkSessionBilled(ctx context.Context, sessionID uuid.UUID) error {
 	m.mu.Lock()

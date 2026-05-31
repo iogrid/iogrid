@@ -520,6 +520,24 @@ func (p *Postgres) ListUnbilledTerminatedSessions(ctx context.Context, limit int
 	return sessions, rows.Err()
 }
 
+// SumCustomerBytesThisMonth implements Store.
+func (p *Postgres) SumCustomerBytesThisMonth(ctx context.Context, customerID uuid.UUID) (uint64, error) {
+	var total int64
+	err := p.pool.QueryRow(ctx,
+		`SELECT COALESCE(SUM(bytes_in + bytes_out)::bigint, 0)
+		   FROM vpn_sessions
+		  WHERE customer_id = $1
+		    AND created_at >= date_trunc('month', NOW() AT TIME ZONE 'UTC')`,
+		customerID).Scan(&total)
+	if err != nil {
+		return 0, fmt.Errorf("sum bytes: %w", err)
+	}
+	if total < 0 {
+		return 0, nil
+	}
+	return uint64(total), nil
+}
+
 // MarkSessionBilled implements Store.
 func (p *Postgres) MarkSessionBilled(ctx context.Context, sessionID uuid.UUID) error {
 	_, err := p.pool.Exec(ctx,

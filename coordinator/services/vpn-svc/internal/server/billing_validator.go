@@ -42,6 +42,7 @@ type BillingValidator struct {
 type billingCacheEntry struct {
 	workspaceID string
 	customerID  string
+	tier        string
 	expiry      time.Time
 }
 
@@ -57,26 +58,29 @@ func NewBillingValidator(baseURL string, httpClient connect.HTTPClient) *Billing
 	}
 }
 
-// Validate implements APIKeyValidator.
-func (v *BillingValidator) Validate(ctx context.Context, apiKey string) (string, string, error) {
+// Validate implements APIKeyValidator. Returns the resolved
+// workspace ID, customer ID, and subscription tier string (matches
+// the proto enum string form — e.g. "SUBSCRIPTION_TIER_STARTER").
+// vpn-svc uses tier for free-tier quota enforcement (#548).
+func (v *BillingValidator) Validate(ctx context.Context, apiKey string) (string, string, string, error) {
 	apiKey = strings.TrimSpace(apiKey)
 	if apiKey == "" {
-		return "", "", errInvalidKey
+		return "", "", "", errInvalidKey
 	}
 
-	if ws, cust, ok := v.lookup(apiKey); ok {
-		return ws, cust, nil
+	if ws, cust, tier, ok := v.lookup(apiKey); ok {
+		return ws, cust, tier, nil
 	}
 
 	resp, err := v.client.ValidateApiKey(ctx, connect.NewRequest(&billingv1.ValidateApiKeyRequest{
 		ApiKey: apiKey,
 	}))
 	if err != nil {
-		return "", "", fmt.Errorf("%w: %v", errInvalidKey, err)
+		return "", "", "", fmt.Errorf("%w: %v", errInvalidKey, err)
 	}
 	r := resp.Msg
 	if !r.GetValid() || r.GetSuspended() {
-		return "", "", errInvalidKey
+		return "", "", "", errInvalidKey
 	}
 
 	wsID := ""
@@ -87,27 +91,29 @@ func (v *BillingValidator) Validate(ctx context.Context, apiKey string) (string,
 	if u := r.GetCustomerId(); u != nil {
 		custID = u.GetValue()
 	}
-	v.store(apiKey, wsID, custID)
-	return wsID, custID, nil
+	tier := r.GetTier().String()
+	v.store(apiKey, wsID, custID, tier)
+	return wsID, custID, tier, nil
 }
 
-func (v *BillingValidator) lookup(apiKey string) (string, string, bool) {
+func (v *BillingValidator) lookup(apiKey string) (string, string, string, bool) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	e, ok := v.cache[apiKey]
 	if !ok || time.Now().After(e.expiry) {
 		delete(v.cache, apiKey)
-		return "", "", false
+		return "", "", "", false
 	}
-	return e.workspaceID, e.customerID, true
+	return e.workspaceID, e.customerID, e.tier, true
 }
 
-func (v *BillingValidator) store(apiKey, wsID, custID string) {
+func (v *BillingValidator) store(apiKey, wsID, custID, tier string) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	v.cache[apiKey] = billingCacheEntry{
 		workspaceID: wsID,
 		customerID:  custID,
+		tier:        tier,
 		expiry:      time.Now().Add(billingCacheTTL),
 	}
 }

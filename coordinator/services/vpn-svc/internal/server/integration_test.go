@@ -125,20 +125,21 @@ func TestIntegration_FailoverNoProviders(t *testing.T) {
 }
 
 // fakeValidator implements APIKeyValidator for tests — never touches the
-// real billing-svc client.
+// real billing-svc client. `tier` defaults to "" (free); tests that want a
+// paid tier can populate it explicitly.
 type fakeValidator struct {
-	valid    map[string]struct{ ws, cust string }
+	valid    map[string]struct{ ws, cust, tier string }
 	rejected map[string]struct{}
 }
 
-func (f *fakeValidator) Validate(ctx context.Context, apiKey string) (string, string, error) {
+func (f *fakeValidator) Validate(ctx context.Context, apiKey string) (string, string, string, error) {
 	if _, bad := f.rejected[apiKey]; bad {
-		return "", "", errInvalidKey
+		return "", "", "", errInvalidKey
 	}
 	if v, ok := f.valid[apiKey]; ok {
-		return v.ws, v.cust, nil
+		return v.ws, v.cust, v.tier, nil
 	}
-	return "", "", errInvalidKey
+	return "", "", "", errInvalidKey
 }
 
 func bootWithValidator(t *testing.T, v APIKeyValidator) (*httptest.Server, store.Store) {
@@ -158,7 +159,7 @@ func TestIntegration_APIKeyValidation(t *testing.T) {
 	wsID := uuid.New().String()
 	custID := uuid.New().String()
 	fv := &fakeValidator{
-		valid:    map[string]struct{ ws, cust string }{"iog_validkey": {wsID, custID}},
+		valid:    map[string]struct{ ws, cust, tier string }{"iog_validkey": {wsID, custID, "SUBSCRIPTION_TIER_STARTER"}},
 		rejected: map[string]struct{}{"iog_revoked": {}},
 	}
 	srv, st := bootWithValidator(t, fv)
@@ -456,5 +457,65 @@ func TestIntegration_FailoverHappyPath(t *testing.T) {
 	got, _ := st.GetSession(context.Background(), sessionID)
 	if got.FailoverCount != 1 {
 		t.Errorf("FailoverCount = %d, want 1", got.FailoverCount)
+	}
+}
+
+func TestIntegration_FreeTierQuotaExceeded(t *testing.T) {
+	// Free-tier customer that has already consumed > 2 GiB this month
+	// must be rejected at RequestSession with 429.
+	custID := uuid.New()
+	fv := &fakeValidator{
+		valid: map[string]struct{ ws, cust, tier string }{
+			"iog_freekey": {uuid.New().String(), custID.String(), "SUBSCRIPTION_TIER_PAYG"},
+		},
+	}
+	srv, st := bootWithValidator(t, fv)
+	provID := uuid.New()
+	st.(*store.Memory).SeedProvider(provID, "us-east-1", "healthy")
+
+	// Seed a session that already burned through > FreeTierQuotaBytes.
+	prior := &store.Session{
+		ID: uuid.New(), CustomerID: custID, Region: "us-east-1",
+		PrimaryProvider: provID, CurrentProvider: provID,
+		BytesIn: FreeTierQuotaBytes + 1, BytesOut: 0,
+		CreatedAt: time.Now(), LastActivityAt: time.Now(),
+	}
+	if err := st.CreateSession(context.Background(), prior); err != nil {
+		t.Fatalf("seed session: %v", err)
+	}
+
+	resp, _ := postJSON(t, srv.URL+"/v1/vpn/sessions", map[string]string{
+		"customer_id": custID.String(), "region": "us-east-1", "api_key": "iog_freekey",
+	})
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 on free-tier quota exhaust, got %d", resp.StatusCode)
+	}
+}
+
+func TestIntegration_PaidTierIgnoresQuota(t *testing.T) {
+	// Paid-tier customer with high prior usage must still succeed.
+	custID := uuid.New()
+	fv := &fakeValidator{
+		valid: map[string]struct{ ws, cust, tier string }{
+			"iog_starterkey": {uuid.New().String(), custID.String(), "SUBSCRIPTION_TIER_STARTER"},
+		},
+	}
+	srv, st := bootWithValidator(t, fv)
+	provID := uuid.New()
+	st.(*store.Memory).SeedProvider(provID, "us-east-1", "healthy")
+
+	// Seed huge prior usage.
+	_ = st.CreateSession(context.Background(), &store.Session{
+		ID: uuid.New(), CustomerID: custID, Region: "us-east-1",
+		PrimaryProvider: provID, CurrentProvider: provID,
+		BytesIn: FreeTierQuotaBytes * 100, BytesOut: 0,
+		CreatedAt: time.Now(), LastActivityAt: time.Now(),
+	})
+
+	resp, _ := postJSON(t, srv.URL+"/v1/vpn/sessions", map[string]string{
+		"customer_id": custID.String(), "region": "us-east-1", "api_key": "iog_starterkey",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("paid tier must bypass quota; got status %d", resp.StatusCode)
 	}
 }
