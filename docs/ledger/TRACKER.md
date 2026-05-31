@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-01T03:45Z` 🟡 vpn-phase-1-in-flight: VPN-1 + VPN-2 shipped, handlers pending; VPN-3/5/8 in-flight |
+| Last refreshed | `2026-06-01T04:15Z` 🟡 vpn-phase-1-in-flight: VPN-1/2/3 complete, VPN-8 foundation, VPN-4/5/9 ready for next shift |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
 | Open PRs | **0** |
@@ -31,8 +31,10 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 | **VPN-1: Proto schemas** | ✅ COMPLETE | [#bbc8fd0](https://github.com/iogrid/iogrid/commit/bbc8fd0) — ice.proto (IceCandidate, RequestVpnSession), wireguard.proto (WireGuardPeer, tunnel handshake), session.proto (RoamingDetected, FailoverAssignment, StickySession). 291 lines. |
 | **VPN-2: Coordinator session ledger** | ✅ COMPLETE | [#2b591d1](https://github.com/iogrid/iogrid/commit/2b591d1) + [#2dfeb80](https://github.com/iogrid/iogrid/commit/2dfeb80) — vpn-svc microservice: DB schema (vpn_sessions + ice_candidates tables), Store interface (14 methods), Memory + Postgres backends, 7 HTTP handlers. 1094 lines. |
 | **VPN-3: STUN server** | ✅ COMPLETE | [#4096e03](https://github.com/iogrid/iogrid/commit/4096e03) — RFC 5389 STUN server (UDP :3478), BINDING REQUEST/SUCCESS, XOR-MAPPED-ADDRESS. Providers/customers discover external IP:port. 262 lines. |
-| **VPN-4: Regional failover** | 🟡 IN_PROGRESS | Coordinator regional provider grouping + failover selection algorithm (blocked: none, ready now) |
-| **VPN-5: Provider WireGuard** | 🟡 IN_PROGRESS | Provider daemon: create wg interface, configure WireGuard peers, accept customer keys (blocked: none, ready now) |
+| **VPN-4: Regional failover** | 🟡 PENDING | Coordinator regional provider grouping + failover selection algorithm. Blocked on: none, ready to start. |
+| **VPN-5: Provider WireGuard** | 🟡 PENDING | Provider daemon: create wg interface, configure WireGuard peers, accept customer keys. Requires boringtun crate. Blocked on: none, ready to start. |
+| **VPN-8: Customer ICE checker** | 🟡 IN_PROGRESS | [#c94556f](https://github.com/iogrid/iogrid/commit/c94556f) — Go SDK: ICEChecker (parallel UDP probes to candidates), Client (orchestrates RequestSession→ICECheck→CreateWG→AddPeer→Confirm flow). STUN request/response parsing. RPC calls stubbed. 286 lines. |
+| **VPN-9: Customer WireGuard** | 🟡 PENDING | Customer SDK: TunnelManager abstraction + boringtun integration. Blocked on: VPN-5 (provider ready), boringtun dependency. |
 | **Phase 1 checkpoint** | 📊 TRACKING | External IP via provider tunnel, latency <100ms, ICE discovers <5s, bastion no self-disconnect, >80% coverage. Target: 2026-06-08. |
 
 ---
