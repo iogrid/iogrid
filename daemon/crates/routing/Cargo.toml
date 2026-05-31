@@ -14,10 +14,12 @@ path = "src/lib.rs"
 
 [features]
 default = []
-# Pull in heavy crates (boringtun / socks5-server) only when the daemon binary
-# is built with the `routing-real` feature. The scaffold compiles trait-shaped
-# stubs that satisfy `cargo check --workspace`.
-routing-real = []
+# `routing-real` pulls in the real WireGuard userspace stack (boringtun)
+# + per-peer state + UDP packet pump. Without this feature the crate
+# compiles `NoopTunnel` only — the scaffold path tests + cargo check use.
+# See iogrid#529 for what's gated behind this feature and what the
+# follow-up SNAT/forwarding PR will plug in on top.
+routing-real = ["dep:boringtun", "dep:x25519-dalek", "dep:base64", "dep:rand", "dep:parking_lot"]
 
 [dependencies]
 tokio = { workspace = true }
@@ -38,3 +40,29 @@ iogrid-scheduler = { workspace = true }
 # already pinned in workspace deps (#327), so no extra link-map churn.
 if-addrs = "0.13"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# VPN-529 (#529): WireGuard userspace stack (boringtun) + key parsing.
+# All `optional = true` so the default `NoopTunnel` scaffold path
+# doesn't drag in ~30 transitive crates. Enabled via `routing-real`.
+#
+# Pulling boringtun from a pinned upstream commit instead of crates.io:
+# every published 0.5.x / 0.6.0 release pins `x25519-dalek =
+# "=2.0.0-rc.3"`, which transitively pulls `curve25519-dalek =
+# "=4.0.0-rc.3"`. The workspace already has `ed25519-dalek = "^2.1"`
+# (updater signature verification) which requires stable
+# `curve25519-dalek = "^4"`; cargo can't resolve a stable range against
+# a pre-release pin. Upstream master has moved on but no new release
+# was cut — pinning the SHA matches Cloudflare's internal practice.
+# Bumping requires confirming `Tunn::new` + `decapsulate` signatures.
+boringtun = { git = "https://github.com/cloudflare/boringtun", rev = "253f7afb2b", optional = true, default-features = false }
+x25519-dalek = { version = "2.0.1", optional = true }
+base64 = { version = "0.22", optional = true }
+rand = { version = "0.8", optional = true }
+# parking_lot::RwLock for the peer registry — std::sync::RwLock would
+# work but parking_lot avoids poisoning, which matters here because
+# each Tunn::decapsulate call holds the write lock briefly + a panic
+# inside boringtun would otherwise poison the whole peer table.
+parking_lot = { version = "0.12", optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }

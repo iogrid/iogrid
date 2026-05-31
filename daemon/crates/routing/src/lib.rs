@@ -26,6 +26,14 @@
 mod vpn_listener;
 pub use vpn_listener::VpnListener;
 
+pub mod inner_sink;
+pub use inner_sink::{InnerFamily, InnerPacket, InnerPacketSink, LoggingSink};
+
+#[cfg(feature = "routing-real")]
+pub mod boringtun_impl;
+#[cfg(feature = "routing-real")]
+pub use boringtun_impl::{BoringTun, BoringTunConfig};
+
 pub mod ice;
 pub use ice::{
     discover_all, discover_host_candidates, discover_srflx_candidate, spawn_reporter, IceCandidate,
