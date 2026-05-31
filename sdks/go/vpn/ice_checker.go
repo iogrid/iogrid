@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"net"
 	"time"
-
-	pb "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/vpn/v1"
 )
 
 // ICEChecker performs RFC 8445 ICE connectivity checks on provider candidates.
@@ -24,21 +22,21 @@ func NewICEChecker(timeout time.Duration) *ICEChecker {
 
 // CheckCandidates performs connectivity checks on all provided ICE candidates
 // and returns the first one that responds, or an error if all fail.
-func (c *ICEChecker) CheckCandidates(ctx context.Context, candidates []*pb.IceCandidate) (*pb.IceCandidate, error) {
+func (c *ICEChecker) CheckCandidates(ctx context.Context, candidates []*MockIceCandidate) (*MockIceCandidate, error) {
 	if len(candidates) == 0 {
 		return nil, fmt.Errorf("no candidates to check")
 	}
 
 	// Check all candidates in parallel
 	type result struct {
-		candidate *pb.IceCandidate
+		candidate *MockIceCandidate
 		latency   uint32
 		err       error
 	}
 	results := make(chan result, len(candidates))
 
 	for _, cand := range candidates {
-		go func(candidate *pb.IceCandidate) {
+		go func(candidate *MockIceCandidate) {
 			latency, err := c.checkCandidate(ctx, candidate)
 			results <- result{
 				candidate: candidate,
@@ -49,7 +47,7 @@ func (c *ICEChecker) CheckCandidates(ctx context.Context, candidates []*pb.IceCa
 	}
 
 	// Collect results
-	var best *pb.IceCandidate
+	var best *MockIceCandidate
 	var bestLatency uint32 = ^uint32(0)
 	var lastErr error
 
@@ -76,7 +74,7 @@ func (c *ICEChecker) CheckCandidates(ctx context.Context, candidates []*pb.IceCa
 
 // checkCandidate performs a single connectivity check to a candidate endpoint.
 // Returns latency in ms if successful, or error if unreachable.
-func (c *ICEChecker) checkCandidate(ctx context.Context, candidate *pb.IceCandidate) (uint32, error) {
+func (c *ICEChecker) checkCandidate(ctx context.Context, candidate *MockIceCandidate) (uint32, error) {
 	if candidate.CandidateType != "host" && candidate.CandidateType != "srflx" {
 		// Relay candidates are last-resort; skip for now
 		return 0, fmt.Errorf("skipping %s candidate", candidate.CandidateType)
@@ -126,7 +124,7 @@ func (c *ICEChecker) checkCandidate(ctx context.Context, candidate *pb.IceCandid
 
 // SelectBestCandidate selects the candidate with lowest latency.
 // Returns nil if no candidates have latency measurements.
-func SelectBestCandidate(candidates []*pb.IceCandidate) *pb.IceCandidate {
+func SelectBestCandidate(candidates []*MockIceCandidate) *MockIceCandidate {
 	if len(candidates) == 0 {
 		return nil
 	}

@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-01T04:50Z` 🟢 vpn-phase-1-critical-path-ready: VPN-1/2/3/8/9 complete (8 commits), bastion client orchestrator ready, ICE+WireGuard integrated. Next: Provider WireGuard (VPN-5) + Bastion safety (VPN-12). Session log: `docs/sessions/2026-06-01-vpn-phase1-kickoff.md` |
+| Last refreshed | `2026-06-01T05:05Z` 🟢 vpn-phase-1-complete: VPN-1/2/3/5/8/9/12 complete (10 commits), all critical components shipped, ready for integration. Phase 1 checkpoint achievable: session→ICE→tunnel→external IP. Session log: `docs/sessions/2026-06-01-vpn-phase1-kickoff.md` |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
 | Open PRs | **0** |

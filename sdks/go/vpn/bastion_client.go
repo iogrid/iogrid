@@ -1,10 +1,15 @@
 package vpn
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"time"
 )
 
@@ -14,6 +19,7 @@ type BastionClient struct {
 	coordinatorAddr string
 	customerID      string
 	apiKey          string
+	httpClient      *http.Client
 	tunnelMgr       TunnelManager
 	iceChecker      *ICEChecker
 	sessionID       string
@@ -28,8 +34,11 @@ func NewBastionClient(coordinatorAddr, customerID, apiKey string) *BastionClient
 		coordinatorAddr: coordinatorAddr,
 		customerID:      customerID,
 		apiKey:          apiKey,
-		tunnelMgr:       tunnelMgr,
-		iceChecker:      NewICEChecker(2 * time.Second),
+		httpClient: &http.Client{
+			Timeout: 30 * time.Second,
+		},
+		tunnelMgr:  tunnelMgr,
+		iceChecker: NewICEChecker(2 * time.Second),
 	}
 }
 
@@ -57,7 +66,7 @@ func (c *BastionClient) Connect(ctx context.Context, region string) error {
 
 	// Step 3: Get provider info + ICE candidates from Coordinator
 	fmt.Printf("[BASTION] Fetching provider info and ICE candidates...\n")
-	providerInfo, candidates, err := c.getProviderInfo(ctx, sessionID)
+	providerID, providerWgPubKey, candidates, err := c.getProviderInfo(ctx, sessionID)
 	if err != nil {
 		return fmt.Errorf("get provider info: %w", err)
 	}
@@ -76,7 +85,7 @@ func (c *BastionClient) Connect(ctx context.Context, region string) error {
 	fmt.Printf("[BASTION] Configuring WireGuard peer...\n")
 	endpoint := fmt.Sprintf("%s:%d", workingCandidate.ConnectionAddress, workingCandidate.ConnectionPort)
 	peer := WireGuardPeer{
-		PublicKey:  providerInfo.ProviderWgPublicKey,
+		PublicKey:  providerWgPubKey,
 		AllowedIPs: []string{"0.0.0.0/0"},  // Route all traffic through provider
 		Endpoint:   endpoint,
 	}
@@ -99,7 +108,7 @@ func (c *BastionClient) Connect(ctx context.Context, region string) error {
 	fmt.Printf("[BASTION] ✓ VPN tunnel established successfully!\n")
 	fmt.Printf("[BASTION] Session ID: %s\n", sessionID)
 	fmt.Printf("[BASTION] Interface: %s\n", ifName)
-	fmt.Printf("[BASTION] Provider: %s\n", providerInfo.ProviderId)
+	fmt.Printf("[BASTION] Provider: %s\n", providerID)
 	fmt.Printf("[BASTION] Latency: %dms\n", workingCandidate.LatencyMs)
 
 	return nil
@@ -135,62 +144,220 @@ func (c *BastionClient) RefreshMetrics(ctx context.Context, bytesIn, bytesOut ui
 	return c.refreshSession(ctx, c.sessionID, bytesIn, bytesOut)
 }
 
+// RPC request/response types (avoid importing internal proto)
+
+type RequestSessionReq struct {
+	CustomerID  string `json:"customer_id"`
+	Region      string `json:"region"`
+	APIKeyHash  string `json:"api_key_hash"`
+}
+
+type RequestSessionResp struct {
+	SessionID string `json:"session_id"`
+	Status    string `json:"status"`
+}
+
+type SessionSnapshot struct {
+	SessionID               string          `json:"session_id"`
+	State                   string          `json:"state"`
+	ProviderID              string          `json:"provider_id"`
+	ProviderWgPublicKey     string          `json:"provider_wg_public_key"`
+	ICECandidates           []ICECandidate  `json:"ice_candidates"`
+}
+
+type ICECandidate struct {
+	Candidate     string `json:"candidate"`
+	Port          uint32 `json:"port"`
+	Type          string `json:"type"`
+	LatencyMs     uint32 `json:"latency_ms"`
+	IsPreferred   bool   `json:"is_preferred"`
+}
+
+type ConfirmCandidateReq struct {
+	ChosenCandidate ICECandidate `json:"chosen_candidate"`
+}
+
+type RefreshSessionReq struct {
+	BytesIn        uint64 `json:"bytes_in"`
+	BytesOut       uint64 `json:"bytes_out"`
+	RoamingEvents  uint32 `json:"roaming_events"`
+	FailoverCount  uint32 `json:"failover_count"`
+}
+
+type TerminateSessionReq struct {
+	Reason string `json:"reason"`
+}
+
 // Stub methods (to be implemented with actual RPC calls)
 
 // requestSessionFromCoordinator requests a VPN session.
 func (c *BastionClient) requestSessionFromCoordinator(ctx context.Context, region string) (string, error) {
-	// TODO: Call vpn-svc POST /v1/vpn/sessions with {customer_id, region, api_key_hash}
-	// For MVP: generate a mock session ID
-	sessionID := generateMockID()
+	// Hash API key for transmission
+	hash := sha256.Sum256([]byte(c.apiKey))
+	apiKeyHash := base64.StdEncoding.EncodeToString(hash[:])
+
+	reqBody := map[string]string{
+		"customer_id":   c.customerID,
+		"region":        region,
+		"api_key_hash":  apiKeyHash,
+	}
+
+	body, _ := json.Marshal(reqBody)
+	req, err := http.NewRequestWithContext(ctx, "POST", c.coordinatorAddr+"/v1/vpn/sessions", bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		respBody, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var result map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("decode response: %w", err)
+	}
+
+	sessionID, ok := result["session_id"]
+	if !ok {
+		return "", fmt.Errorf("session_id not in response")
+	}
+
 	return sessionID, nil
 }
 
 // getProviderInfo fetches provider details and ICE candidates.
-func (c *BastionClient) getProviderInfo(ctx context.Context, sessionID string) (
-	*ProviderInfo, []*MockIceCandidate, error) {
+func (c *BastionClient) getProviderInfo(ctx context.Context, sessionID string) (string, string, []*MockIceCandidate, error) {
 
-	// TODO: Call vpn-svc GET /v1/vpn/sessions/{sessionID}
-	// For MVP: return mock data
-	providerInfo := &ProviderInfo{
-		ProviderId:           "provider-" + generateMockID()[:8],
-		ProviderWgPublicKey:  generateMockPublicKey(),
+	req, err := http.NewRequestWithContext(ctx, "GET", c.coordinatorAddr+"/v1/vpn/sessions/"+sessionID, nil)
+	if err != nil {
+		return "", "", nil, fmt.Errorf("create request: %w", err)
 	}
 
-	// Generate mock ICE candidates
-	candidates := []*MockIceCandidate{
-		{
-			ConnectionAddress: "192.0.2.1",  // Example provider IP
-			ConnectionPort:    51820,
-			CandidateType:     "srflx",
-			LatencyMs:         45,
-		},
-		{
-			ConnectionAddress: "198.51.100.1",
-			ConnectionPort:    51820,
-			CandidateType:     "relay",
-			LatencyMs:         150,
-		},
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", "", nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return "", "", nil, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	return providerInfo, candidates, nil
+	var sessionSnapshot SessionSnapshot
+	if err := json.NewDecoder(resp.Body).Decode(&sessionSnapshot); err != nil {
+		return "", "", nil, fmt.Errorf("decode response: %w", err)
+	}
+
+	// Convert ICE candidates to MockIceCandidate format for backward compatibility
+	var candidates []*MockIceCandidate
+	for _, cand := range sessionSnapshot.ICECandidates {
+		candidates = append(candidates, &MockIceCandidate{
+			ConnectionAddress: cand.Candidate,
+			ConnectionPort:    cand.Port,
+			CandidateType:     cand.Type,
+			LatencyMs:         cand.LatencyMs,
+		})
+	}
+
+	return sessionSnapshot.ProviderID, sessionSnapshot.ProviderWgPublicKey, candidates, nil
 }
 
 // confirmCandidate notifies Coordinator of the working candidate.
 func (c *BastionClient) confirmCandidate(ctx context.Context, sessionID string, candidate *MockIceCandidate) error {
-	// TODO: Call vpn-svc PUT /v1/vpn/sessions/{sessionID}/confirm
+	reqBody := map[string]interface{}{
+		"chosen_candidate": map[string]interface{}{
+			"candidate": candidate.ConnectionAddress,
+			"port":      candidate.ConnectionPort,
+			"type":      candidate.CandidateType,
+			"latency_ms": candidate.LatencyMs,
+		},
+	}
+
+	body, _ := json.Marshal(reqBody)
+	req, err := http.NewRequestWithContext(ctx, "PUT", c.coordinatorAddr+"/v1/vpn/sessions/"+sessionID+"/confirm", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(respBody))
+	}
+
 	fmt.Printf("[BASTION] Confirmed candidate: %s:%d\n", candidate.ConnectionAddress, candidate.ConnectionPort)
 	return nil
 }
 
 // refreshSession sends metrics to Coordinator.
 func (c *BastionClient) refreshSession(ctx context.Context, sessionID string, bytesIn, bytesOut uint64) error {
-	// TODO: Call vpn-svc POST /v1/vpn/sessions/{sessionID}/refresh
+	reqBody := map[string]interface{}{
+		"bytes_in":  bytesIn,
+		"bytes_out": bytesOut,
+		"roaming_events": 0,
+		"failover_count": 0,
+	}
+
+	body, _ := json.Marshal(reqBody)
+	req, err := http.NewRequestWithContext(ctx, "POST", c.coordinatorAddr+"/v1/vpn/sessions/"+sessionID+"/refresh", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(respBody))
+	}
+
 	return nil
 }
 
 // terminateSession closes the session on Coordinator.
 func (c *BastionClient) terminateSession(ctx context.Context, sessionID string, reason string) error {
-	// TODO: Call vpn-svc POST /v1/vpn/sessions/{sessionID}/terminate
+	reqBody := map[string]string{
+		"reason": reason,
+	}
+
+	body, _ := json.Marshal(reqBody)
+	req, err := http.NewRequestWithContext(ctx, "POST", c.coordinatorAddr+"/v1/vpn/sessions/"+sessionID+"/terminate", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(respBody))
+	}
+
 	return nil
 }
 
