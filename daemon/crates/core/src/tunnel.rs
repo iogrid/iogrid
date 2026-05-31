@@ -45,7 +45,6 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, Mutex};
 
-use chrono::Utc;
 use iogrid_anti_abuse::{Filter, FilterRequest, InMemoryFilter};
 use iogrid_transport::DispatchFrame;
 
