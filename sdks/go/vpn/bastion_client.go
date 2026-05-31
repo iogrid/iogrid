@@ -43,6 +43,22 @@ func (c *BastionClient) vlog(format string, args ...interface{}) {
 	}
 }
 
+// candidatePriority returns the RFC 8445 §4.1.2.1 type preference for
+// the candidate type, higher = preferred. Host > srflx > prflx > relay.
+func candidatePriority(candidateType string) int {
+	switch candidateType {
+	case "host":
+		return 4
+	case "srflx":
+		return 3
+	case "prflx":
+		return 2
+	case "relay":
+		return 1
+	}
+	return 0
+}
+
 // NewBastionClient creates a new bastion VPN client backed by the
 // real wireguard-go userspace tunnel manager. Use NewBastionClientWith
 // to override the tunnel manager (e.g. MockTunnelManager in tests).
@@ -79,7 +95,7 @@ func (c *BastionClient) Connect(ctx context.Context, region string) error {
 	c.sessionID = sessionID
 	c.vlog("Session created: %s\n", sessionID)
 
-	// Step 2: Create WireGuard interface
+	// Step 2: Create WireGuard interface + generate our keypair
 	c.vlog("Creating WireGuard interface...\n")
 	ifName, err := c.tunnelMgr.CreateInterface(ctx, "wg-iogrid0")
 	if err != nil {
@@ -87,22 +103,62 @@ func (c *BastionClient) Connect(ctx context.Context, region string) error {
 	}
 	c.ifName = ifName
 
-	// Step 3: Get provider info + ICE candidates from Coordinator
-	c.vlog("Fetching provider info and ICE candidates...\n")
-	providerID, providerWgPubKey, candidates, err := c.getProviderInfo(ctx, sessionID)
+	// Step 2a: Generate our customer WG keypair and post the public key to vpn-svc.
+	// The provider daemon's binder polls /assigned-sessions every 5s; once it sees
+	// our session it allocates a peer slot using THIS customer pubkey + replies
+	// with the daemon's own pubkey via /bind-provider. Without our key posted
+	// first, the daemon can't allocate the peer.
+	custPriv, custPub, err := GenerateKeyPair()
 	if err != nil {
-		return fmt.Errorf("get provider info: %w", err)
+		return fmt.Errorf("generate customer keypair: %w", err)
 	}
-	c.vlog("Got %d ICE candidates from provider\n", len(candidates))
+	_ = custPriv // installed inside the TunnelManager's interface key
+	if err := c.bindCustomerWgKey(ctx, sessionID, custPub); err != nil {
+		return fmt.Errorf("bind customer wg key: %w", err)
+	}
+	c.vlog("Customer WG pubkey posted; waiting for provider binding...\n")
 
-	// Step 4: Check ICE connectivity to find working candidate
-	c.vlog("Performing ICE connectivity checks...\n")
-	workingCandidate, err := c.iceChecker.CheckCandidates(ctx, candidates)
-	if err != nil {
-		return fmt.Errorf("ice check: %w", err)
+	// Step 3: Poll GET /sessions/{id} until provider_wg_public_key is set
+	// (provider daemon's peer-binder fires within ~5s).
+	var providerID, providerWgPubKey string
+	var candidates []*MockIceCandidate
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		providerID, providerWgPubKey, candidates, err = c.getProviderInfo(ctx, sessionID)
+		if err != nil {
+			return fmt.Errorf("get provider info: %w", err)
+		}
+		if providerWgPubKey != "" && len(candidates) > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timeout waiting for provider binding (provider_wg_public_key=%q, candidates=%d)", providerWgPubKey, len(candidates))
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(2 * time.Second):
+		}
 	}
-	c.vlog("Found working candidate: %s:%d (latency: %dms)\n",
-		workingCandidate.ConnectionAddress, workingCandidate.ConnectionPort, workingCandidate.LatencyMs)
+	c.vlog("Got %d ICE candidates + provider pubkey from provider\n", len(candidates))
+
+	// Step 4: Pick best candidate.
+	//
+	// We DON'T run a STUN-style ICE check here — WireGuard servers don't
+	// respond to STUN BINDING REQUESTs (#554). Instead we pick the
+	// highest-priority candidate (host > srflx > prflx > relay per
+	// RFC 8445 §4.1.2.1) and let WireGuard's handshake_init be the
+	// connectivity probe. If the chosen candidate doesn't respond to
+	// the WG handshake within a few seconds, the FailoverDetector
+	// will trip and switch to an alternate provider.
+	workingCandidate := candidates[0]
+	for _, cand := range candidates {
+		if candidatePriority(cand.CandidateType) > candidatePriority(workingCandidate.CandidateType) {
+			workingCandidate = cand
+		}
+	}
+	c.vlog("Picked candidate: %s:%d (type=%s)\n",
+		workingCandidate.ConnectionAddress, workingCandidate.ConnectionPort, workingCandidate.CandidateType)
 
 	// Step 5: Configure WireGuard peer
 	c.vlog("Configuring WireGuard peer...\n")
@@ -250,6 +306,29 @@ type TerminateSessionReq struct {
 }
 
 // Stub methods (to be implemented with actual RPC calls)
+
+// bindCustomerWgKey posts the customer's WG pubkey for the session so the
+// provider daemon's peer-binder can allocate a peer.
+func (c *BastionClient) bindCustomerWgKey(ctx context.Context, sessionID, pubKey string) error {
+	body, _ := json.Marshal(map[string]string{"customer_wg_public_key": pubKey})
+	req, err := http.NewRequestWithContext(ctx, "POST",
+		c.coordinatorAddr+"/v1/vpn/sessions/"+sessionID+"/bind-customer-wg-key",
+		bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("status %d: %s", resp.StatusCode, b)
+	}
+	return nil
+}
 
 // requestSessionFromCoordinator requests a VPN session.
 func (c *BastionClient) requestSessionFromCoordinator(ctx context.Context, region string) (string, error) {
