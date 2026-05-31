@@ -96,6 +96,11 @@ spec:
               value: http://antiabuse-svc.iogrid.svc.cluster.local:8080
             - name: WORKLOADS_SVC_URL
               value: http://workloads-svc.iogrid.svc.cluster.local:8080
+            # Wire billing-svc for live API key validation. DEV_API_KEYS
+            # env var is retired; keys are validated against billing.api_keys
+            # in real-time (LRU cache 60s). Refs #484.
+            - name: BILLING_SVC_URL
+              value: http://billing-svc.iogrid.svc.cluster.local:8080
           envFrom:
             - configMapRef:
                 name: proxy-gateway-config
