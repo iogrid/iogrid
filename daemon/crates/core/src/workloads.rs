@@ -89,6 +89,17 @@ impl ActiveRegistry {
     pub fn is_empty(&self) -> bool {
         self.inner.lock().is_empty()
     }
+    /// Look up the workload_id for a given attempt_id. O(n) scan — n is
+    /// bounded by max_concurrent (≤16 in practice). Used by TunnelManager
+    /// to attribute bytes_in/bytes_out to the correct workload on close.
+    pub fn workload_id_for_attempt(&self, attempt_id: &str) -> Option<String> {
+        self.inner
+            .lock()
+            .values()
+            .find(|a| a.attempt_id == attempt_id)
+            .map(|a| a.workload_id.clone())
+    }
+
     /// Snapshot the in-flight workload ids (for heartbeat reporting).
     pub fn snapshot(&self) -> Vec<(String, String, String)> {
         self.inner

@@ -673,6 +673,8 @@ impl Supervisor {
             self.filter.clone(),
         ));
         let tunnel_for_dispatch = tunnel_manager.clone();
+        // Registry clone for TunnelOpen → workload_id attribution (#490).
+        let registry_for_tunnel = router.registry();
         tasks.spawn(async move {
             while let Some(frame) = daemon_side.rx.recv().await {
                 match frame {
@@ -680,7 +682,17 @@ impl Supervisor {
                         attempt_id,
                         target_host_port,
                     } => {
-                        tunnel_for_dispatch.open(attempt_id, target_host_port).await;
+                        // Look up the workload_id for this attempt so the pump
+                        // can emit bytes_in/bytes_out in its Update on close.
+                        // Falls back to empty string if the assignment is gone
+                        // (race with Cancel/Drain — billing-svc matches on
+                        // attempt_id anyway).
+                        let workload_id = registry_for_tunnel
+                            .workload_id_for_attempt(&attempt_id)
+                            .unwrap_or_default();
+                        tunnel_for_dispatch
+                            .open(workload_id, attempt_id, target_host_port)
+                            .await;
                     }
                     DispatchFrame::TunnelData {
                         attempt_id,
