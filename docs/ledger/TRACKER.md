@@ -4,11 +4,11 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-31T10:30Z` 🟢 manual bump: PR #503 opened against #502 (Hatice provider-ID drift root-cause fix) |
+| Last refreshed | `2026-05-31T10:45Z` 🟢 manual bump: PR #503 MERGED (SHA `a1d0367`) against #502 — coordinator-ci + image auto-bump in flight, Flux roll pending |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
-| Merged PRs | **132+** since bootstrap (PRs #493/#495/#496/#497/#498/#499/#501 merged this session) |
-| Open PRs | **1** — [#503](https://github.com/iogrid/iogrid/pull/503) SPKI-fingerprint dedupe (daemon + providers-svc) — Refs #502 |
-| Open issues | **4** — #439/#398/#79 parked (external deps) + **[#502](https://github.com/iogrid/iogrid/issues/502)** in-progress (Hatice provider-ID drift RCA + fix, PR #503 in flight) |
+| Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
+| Open PRs | **0** |
+| Open issues | **4** — #439/#398/#79 parked (external deps) + **[#502](https://github.com/iogrid/iogrid/issues/502)** status/in-progress (Hatice provider-ID drift; fix shipped, post-merge verification on Hatice's Mac + one-time DB cleanup per `docs/sessions/2026-05-31-hatice-provider-id-cleanup.md` next) |
 | Live URL state post-#428 | <img alt="LIVE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> `iogrid.org` serves product app (was marketing). `app.iogrid.org` 301 → `iogrid.org`. `admin.iogrid.org` 503 (waiting #426 ghcr unblock). Marketing folded into web/ — `marketing/` workspace deleted. New design system live across landing + provide/customer/vpn/account/install. |
 | Prior false-progress | <img alt="REVERTED" src="https://img.shields.io/badge/-FALSE-cf222e?style=flat-square" /> PRs #364 / #383 / #408 — none satisfied founder's "INDEPENDENT admin app" criterion. Replaced by #425 (real separate admin codebase + Deployment + CI). |
 | EPIC closure | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 17 / 17 closed by audit |
@@ -35,7 +35,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 | [#498](https://github.com/iogrid/iogrid/pull/498) | [#484](https://github.com/iogrid/iogrid/issues/484) | feat(proxy-gateway): billing-svc ValidateApiKey Connect client, 60s LRU cache, retire DEV_API_KEYS | ✅ MERGED |
 | [#499](https://github.com/iogrid/iogrid/pull/499) | [#485](https://github.com/iogrid/iogrid/issues/485) | feat(infra/updates): manifestd Dockerfile + k8s manifests + IngressRoute + 4-job CI (updates.iogrid.org) | ✅ MERGED |
 | [#501](https://github.com/iogrid/iogrid/pull/501) | [#500](https://github.com/iogrid/iogrid/issues/500) | fix(netpol): proxy-gateway ↔ billing-svc egress/ingress — NetworkPolicy + CiliumNetworkPolicy (4 files) | ✅ MERGED |
-| [#503](https://github.com/iogrid/iogrid/pull/503) | [#502](https://github.com/iogrid/iogrid/issues/502) | fix(daemon,providers-svc): SPKI-fingerprint dedupe — re-pair from same Mac survives macOS hostname drift (Bonjour `-2`/`-3`, cold-boot `localhost`, rename) so provider_id is preserved instead of minting a fresh UUID. Root-causes the recurring "Hatice's daemon registered under wrong UUID" symptom (chased manually 3+ times before). Daemon: reuse persisted key.pem across `iogridd pair` ⇒ stable SPKI. Coordinator: `(owner, public_key)` lookup BEFORE `(owner, display_name)`, CreateProvider only when both miss. Display_name dedupe stays as legacy back-compat. | 🟡 OPEN — CI in flight |
+| [#503](https://github.com/iogrid/iogrid/pull/503) | [#502](https://github.com/iogrid/iogrid/issues/502) | fix(daemon,providers-svc): SPKI-fingerprint dedupe — re-pair from same Mac survives macOS hostname drift (Bonjour `-2`/`-3`, cold-boot `localhost`, rename) so provider_id is preserved instead of minting a fresh UUID. Root-causes the recurring "Hatice's daemon registered under wrong UUID" symptom (chased manually 3+ times before). Daemon: reuse persisted key.pem across `iogridd pair` ⇒ stable SPKI. Coordinator: `(owner, public_key)` lookup BEFORE `(owner, display_name)`, CreateProvider only when both miss. Display_name dedupe stays as legacy back-compat. | ✅ MERGED (Flux roll pending) |
 
 ---
 
