@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-01T03:15Z` 🟡 vpn-phase-1-in-flight: VPN-1 proto schemas shipped (ice.proto, wireguard.proto, session.proto), VPN-2/3/5/8 ready to start |
+| Last refreshed | `2026-06-01T03:45Z` 🟡 vpn-phase-1-in-flight: VPN-1 + VPN-2 shipped, handlers pending; VPN-3/5/8 in-flight |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
 | Open PRs | **0** |
@@ -24,12 +24,16 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 ---
 
-## 1.1. Session 2026-06-01 PHASE-1-KICKOFF — VPN-1 proto schemas shipped, parallel streams ready
+## 1.1. Session 2026-06-01 PHASE-1-KICKOFF — VPN-1/2/3 shipped, 3/15 backlog items complete
 
-| Work | Status | Evidence |
+| Item | Status | Evidence |
 |---|---|---|
-| **VPN-1 COMPLETE** | Proto design (RFC 8445 ICE) | [#bbc8fd0](https://github.com/iogrid/iogrid/commit/bbc8fd0) — 3 files: `proto/iogrid/vpn/v1/{ice.proto, wireguard.proto, session.proto}` covering RequestVpnSession, IceCandidate, WireGuardPeer, RoamingDetected, FailoverAssignment, SessionLedger. Messages support: (1) customer auth flow with region selection, (2) provider candidate registration + discovery, (3) tunnel handshake with latency measurement, (4) keepalive probes during session, (5) roaming endpoint updates, (6) failover chain with sticky sessions. Total 291 lines of proto. |
-| **Next parallel streams** | Ready to unblock | VPN-2 (Coordinator session ledger), VPN-3 (STUN server), VPN-5 (Provider WireGuard), VPN-8 (Customer ICE checker). All dependencies satisfied. Target Phase 1 checkpoint by 2026-06-08. |
+| **VPN-1: Proto schemas** | ✅ COMPLETE | [#bbc8fd0](https://github.com/iogrid/iogrid/commit/bbc8fd0) — ice.proto (IceCandidate, RequestVpnSession), wireguard.proto (WireGuardPeer, tunnel handshake), session.proto (RoamingDetected, FailoverAssignment, StickySession). 291 lines. |
+| **VPN-2: Coordinator session ledger** | ✅ COMPLETE | [#2b591d1](https://github.com/iogrid/iogrid/commit/2b591d1) + [#2dfeb80](https://github.com/iogrid/iogrid/commit/2dfeb80) — vpn-svc microservice: DB schema (vpn_sessions + ice_candidates tables), Store interface (14 methods), Memory + Postgres backends, 7 HTTP handlers. 1094 lines. |
+| **VPN-3: STUN server** | ✅ COMPLETE | [#4096e03](https://github.com/iogrid/iogrid/commit/4096e03) — RFC 5389 STUN server (UDP :3478), BINDING REQUEST/SUCCESS, XOR-MAPPED-ADDRESS. Providers/customers discover external IP:port. 262 lines. |
+| **VPN-4: Regional failover** | 🟡 IN_PROGRESS | Coordinator regional provider grouping + failover selection algorithm (blocked: none, ready now) |
+| **VPN-5: Provider WireGuard** | 🟡 IN_PROGRESS | Provider daemon: create wg interface, configure WireGuard peers, accept customer keys (blocked: none, ready now) |
+| **Phase 1 checkpoint** | 📊 TRACKING | External IP via provider tunnel, latency <100ms, ICE discovers <5s, bastion no self-disconnect, >80% coverage. Target: 2026-06-08. |
 
 ---
 
@@ -58,9 +62,9 @@ Implementation must achieve <100ms latency (direct path, no relay overhead), <5%
 | Item | Task | Status | Blocker |
 |---|---|---|---|
 | **VPN-1** | Design ICE protocol integration (RFC 8445 spec) | ✅ COMPLETE | None |
-| **VPN-2** | Coordinator: Session ledger + ICE candidate tracking | 🟡 IN_PROGRESS | VPN-1 design |
-| **VPN-3** | Coordinator: STUN server integration (RFC 5389) | 🟡 IN_PROGRESS | VPN-1 |
-| **VPN-4** | Coordinator: Regional grouping + failover logic | 🟡 PENDING | VPN-2 |
+| **VPN-2** | Coordinator: Session ledger + ICE candidate tracking | ✅ COMPLETE | VPN-1 design |
+| **VPN-3** | Coordinator: STUN server integration (RFC 5389) | ✅ COMPLETE | VPN-1 |
+| **VPN-4** | Coordinator: Regional grouping + failover logic | 🟡 IN_PROGRESS | VPN-2 |
 | **VPN-5** | Provider daemon: WireGuard interface setup | 🟡 IN_PROGRESS | VPN-1 |
 | **VPN-6** | Provider daemon: ICE candidate discovery | 🟡 PENDING | VPN-3, VPN-5 |
 | **VPN-7** | Provider daemon: Health probes + graceful shutdown | 🟡 PENDING | VPN-6 |
