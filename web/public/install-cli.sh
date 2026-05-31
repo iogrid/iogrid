@@ -114,7 +114,7 @@ fi
 
 echo
 echo "Next steps:"
-echo "  1. Get an API key + customer ID at https://iogrid.org/vpn"
+echo "  1. Get an API key + customer ID at https://iogrid.org/customer/vpn"
 echo "  2. iogrid login --api-key=YOUR_KEY --customer-id=YOUR_ID"
 echo "  3. iogrid vpn connect --region us-east-1"
 echo "  4. curl ifconfig.me      # verify your exit IP changed"

@@ -116,15 +116,14 @@ Run "iogrid login" first to store credentials, then "iogrid vpn connect --region
 
 func cmdLogin(args []string) {
 	fs := flag.NewFlagSet("login", flag.ExitOnError)
-	apiKey := fs.String("api-key", "", "iov_live_* API key (mint from iogrid.org/vpn)")
-	customerID := fs.String("customer-id", "", "your customer UUID (from iogrid.org/account)")
+	apiKey := fs.String("api-key", "", "iog_* API key (mint at https://iogrid.org/customer/vpn)")
+	customerID := fs.String("customer-id", "", "your customer UUID (shown beside the key on the same page)")
 	coordinator := fs.String("coordinator", defaultCoordinator, "Coordinator base URL")
 	_ = fs.Parse(args)
 
 	if *apiKey == "" || *customerID == "" {
 		fmt.Fprintln(os.Stderr, "ERROR: --api-key and --customer-id are required.")
-		fmt.Fprintln(os.Stderr, "       Get them at https://iogrid.org/vpn")
-		fmt.Fprintln(os.Stderr, "       (Interactive browser login coming via #531.)")
+		fmt.Fprintln(os.Stderr, "       Mint both at https://iogrid.org/customer/vpn")
 		os.Exit(1)
 	}
 

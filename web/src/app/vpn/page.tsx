@@ -123,6 +123,12 @@ export default function VpnPage() {
               Install the app
             </Link>
             <Link
+              href="/customer/vpn"
+              className="inline-flex items-center justify-center rounded-md border border-border bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+            >
+              Mint VPN key
+            </Link>
+            <Link
               href="/vpn/upgrade"
               className="inline-flex items-center justify-center rounded-md border border-border bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
             >
@@ -276,6 +282,12 @@ export default function VpnPage() {
               className="inline-flex items-center justify-center rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-foreground/90"
             >
               Install the app
+            </Link>
+            <Link
+              href="/customer/vpn"
+              className="inline-flex items-center justify-center rounded-md border border-border bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+            >
+              Mint VPN key
             </Link>
             <Link
               href="/vpn/upgrade"
