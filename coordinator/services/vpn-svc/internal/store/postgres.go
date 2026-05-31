@@ -51,7 +51,8 @@ func (p *Postgres) GetSession(ctx context.Context, sessionID uuid.UUID) (*Sessio
 		       state, bytes_in, bytes_out, roaming_events, failover_count,
 		       ice_candidate_count, ice_time_ms, wg_establish_time_ms,
 		       created_at, terminated_at, last_activity_at, exit_reason,
-		       COALESCE(provider_wg_public_key, ''), COALESCE(customer_wg_public_key, '')
+		       COALESCE(provider_wg_public_key, ''), COALESCE(customer_wg_public_key, ''),
+		       billed_at
 		FROM vpn_sessions
 		WHERE id = $1
 	`
@@ -100,7 +101,8 @@ func (p *Postgres) ListActiveSessionsByRegion(ctx context.Context, region string
 		       state, bytes_in, bytes_out, roaming_events, failover_count,
 		       ice_candidate_count, ice_time_ms, wg_establish_time_ms,
 		       created_at, terminated_at, last_activity_at, exit_reason,
-		       COALESCE(provider_wg_public_key, ''), COALESCE(customer_wg_public_key, '')
+		       COALESCE(provider_wg_public_key, ''), COALESCE(customer_wg_public_key, ''),
+		       billed_at
 		FROM vpn_sessions
 		WHERE region = $1 AND terminated_at IS NULL
 		ORDER BY created_at DESC
@@ -129,7 +131,8 @@ func (p *Postgres) ListSessionsByCustomer(ctx context.Context, customerID uuid.U
 		       state, bytes_in, bytes_out, roaming_events, failover_count,
 		       ice_candidate_count, ice_time_ms, wg_establish_time_ms,
 		       created_at, terminated_at, last_activity_at, exit_reason,
-		       COALESCE(provider_wg_public_key, ''), COALESCE(customer_wg_public_key, '')
+		       COALESCE(provider_wg_public_key, ''), COALESCE(customer_wg_public_key, ''),
+		       billed_at
 		FROM vpn_sessions
 		WHERE customer_id = $1
 		ORDER BY created_at DESC
@@ -419,7 +422,8 @@ func (p *Postgres) ListAssignedSessions(ctx context.Context, providerID uuid.UUI
 		       state, bytes_in, bytes_out, roaming_events, failover_count,
 		       ice_candidate_count, ice_time_ms, wg_establish_time_ms,
 		       created_at, terminated_at, last_activity_at, exit_reason,
-		       COALESCE(provider_wg_public_key, ''), COALESCE(customer_wg_public_key, '')
+		       COALESCE(provider_wg_public_key, ''), COALESCE(customer_wg_public_key, ''),
+		       billed_at
 		FROM vpn_sessions
 		WHERE current_provider_id = $1
 		  AND terminated_at IS NULL
@@ -470,6 +474,47 @@ func (p *Postgres) ListRegions(ctx context.Context) ([]*RegionSummary, error) {
 	return out, rows.Err()
 }
 
+// ListUnbilledTerminatedSessions implements Store.
+func (p *Postgres) ListUnbilledTerminatedSessions(ctx context.Context, limit int) ([]*Session, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	query := `
+		SELECT id, customer_id, region, primary_provider_id, current_provider_id,
+		       state, bytes_in, bytes_out, roaming_events, failover_count,
+		       ice_candidate_count, ice_time_ms, wg_establish_time_ms,
+		       created_at, terminated_at, last_activity_at, exit_reason,
+		       COALESCE(provider_wg_public_key, ''), COALESCE(customer_wg_public_key, ''),
+		       billed_at
+		FROM vpn_sessions
+		WHERE terminated_at IS NOT NULL AND billed_at IS NULL
+		ORDER BY terminated_at ASC
+		LIMIT $1
+	`
+	rows, err := p.pool.Query(ctx, query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query unbilled sessions: %w", err)
+	}
+	defer rows.Close()
+	var sessions []*Session
+	for rows.Next() {
+		s, err := p.scanSession(rows)
+		if err != nil {
+			return nil, err
+		}
+		sessions = append(sessions, s)
+	}
+	return sessions, rows.Err()
+}
+
+// MarkSessionBilled implements Store.
+func (p *Postgres) MarkSessionBilled(ctx context.Context, sessionID uuid.UUID) error {
+	_, err := p.pool.Exec(ctx,
+		`UPDATE vpn_sessions SET billed_at = NOW() WHERE id = $1 AND billed_at IS NULL`,
+		sessionID)
+	return err
+}
+
 // Helper to scan a session row
 func (p *Postgres) scanSession(row interface {
 	Scan(dest ...interface{}) error
@@ -498,6 +543,7 @@ func (p *Postgres) scanSession(row interface {
 		&exitReason,
 		&session.ProviderWgPublicKey,
 		&session.CustomerWgPublicKey,
+		&session.BilledAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("scan session: %w", err)

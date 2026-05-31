@@ -16,7 +16,10 @@ import (
 	"os"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/nats-io/nats.go"
+
 	vdb "github.com/iogrid/iogrid/coordinator/services/vpn-svc/internal/db"
+	"github.com/iogrid/iogrid/coordinator/services/vpn-svc/internal/earnings"
 	"github.com/iogrid/iogrid/coordinator/services/vpn-svc/internal/ice"
 	"github.com/iogrid/iogrid/coordinator/services/vpn-svc/internal/server"
 	"github.com/iogrid/iogrid/coordinator/services/vpn-svc/internal/store"
@@ -110,6 +113,39 @@ func main() {
 	} else {
 		logger.Warn("api key validation DISABLED — set BILLING_SVC_URL to enable",
 			slog.String("impact", "every POST /v1/vpn/sessions is unauthenticated"))
+	}
+
+	// --- Earnings batcher (#547) -------------------------------------------
+	// Periodic loop credits residential providers via the BILLING NATS
+	// stream. NATS_URL empty → batcher disabled (dev/local mode), the
+	// service still serves traffic but providers don't earn.
+	if natsURL := os.Getenv("NATS_URL"); natsURL != "" {
+		nc, err := nats.Connect(natsURL,
+			nats.Name(serviceName),
+			nats.MaxReconnects(-1))
+		if err != nil {
+			logger.Error("nats connect failed", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+		defer nc.Close()
+		batcher, err := earnings.New(earnings.Config{
+			Store:     st,
+			Publisher: &earnings.NATSPublisher{NC: nc},
+			Logger:    logger.With(slog.String("subsystem", "earnings")),
+		})
+		if err != nil {
+			logger.Error("earnings batcher setup failed", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+		go func() {
+			if err := batcher.Run(ctx); err != nil && err != context.Canceled {
+				logger.Warn("earnings batcher exited", slog.String("error", err.Error()))
+			}
+		}()
+		logger.Info("earnings batcher started", slog.String("nats_url", natsURL))
+	} else {
+		logger.Warn("earnings batcher DISABLED — set NATS_URL to enable",
+			slog.String("impact", "providers earn nothing from VPN bytes"))
 	}
 
 	// --- HTTP server setup + run -------------------------------------------------

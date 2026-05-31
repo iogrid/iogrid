@@ -87,6 +87,13 @@ spec:
             # accidentally grant access to unvalidated keys.
             - name: BILLING_SVC_URL
               value: "http://billing-svc.iogrid.svc.cluster.local:8080"
+            # NATS_URL enables the earnings batcher (#547) — every 5 min
+            # it publishes per-session VPN byte usage to
+            # BILLING.metering.vpn_bytes so billing-svc credits the
+            # provider. Empty/unset = providers earn nothing for VPN
+            # bytes (logs WARN at boot).
+            - name: NATS_URL
+              value: "nats://nats.iogrid.svc.cluster.local:4222"
           envFrom:
             - configMapRef:
                 name: vpn-svc-config

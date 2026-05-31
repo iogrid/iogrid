@@ -104,6 +104,19 @@ type Store interface {
 	// region picker. Returns one entry per known region with healthy +
 	// total counts. Empty regions are filtered out.
 	ListRegions(ctx context.Context) ([]*RegionSummary, error)
+
+	// --- Earnings batch (#547) ---
+
+	// ListUnbilledTerminatedSessions returns sessions where
+	// terminated_at IS NOT NULL AND billed_at IS NULL — the input
+	// queue for the periodic billing batcher. Bounded by `limit` to
+	// keep a single batch tick small.
+	ListUnbilledTerminatedSessions(ctx context.Context, limit int) ([]*Session, error)
+
+	// MarkSessionBilled stamps billed_at = now() once the batcher has
+	// successfully published the usage event. Idempotent: a second call
+	// is a no-op (billed_at column is not re-overwritten).
+	MarkSessionBilled(ctx context.Context, sessionID uuid.UUID) error
 }
 
 // RegionSummary is one row of the customer region picker.
@@ -140,6 +153,11 @@ type Session struct {
 	// so the provider daemon can pre-allocate the peer ahead of the WG
 	// handshake landing.
 	CustomerWgPublicKey string
+	// BilledAt is stamped by the earnings batcher (#547) once the
+	// session's bytes have been forwarded to billing-svc. Nil means
+	// the session is either still active OR terminated-but-unbilled
+	// (pending in the next batch tick).
+	BilledAt *time.Time
 }
 
 // ProviderInfo represents a provider for regional failover selection.

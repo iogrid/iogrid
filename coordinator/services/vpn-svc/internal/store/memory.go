@@ -318,6 +318,38 @@ func (m *Memory) BindCustomerWgKey(ctx context.Context, sessionID uuid.UUID, cus
 	return nil
 }
 
+// ListUnbilledTerminatedSessions implements Store.
+func (m *Memory) ListUnbilledTerminatedSessions(ctx context.Context, limit int) ([]*Session, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]*Session, 0)
+	for _, s := range m.sessions {
+		if s.TerminatedAt != nil && s.BilledAt == nil {
+			out = append(out, s)
+			if limit > 0 && len(out) >= limit {
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
+// MarkSessionBilled implements Store.
+func (m *Memory) MarkSessionBilled(ctx context.Context, sessionID uuid.UUID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	session, ok := m.sessions[sessionID]
+	if !ok {
+		return fmt.Errorf("session %s not found", sessionID)
+	}
+	if session.BilledAt != nil {
+		return nil
+	}
+	now := time.Now()
+	session.BilledAt = &now
+	return nil
+}
+
 // ListRegions implements Store.
 func (m *Memory) ListRegions(ctx context.Context) ([]*RegionSummary, error) {
 	m.mu.RLock()
