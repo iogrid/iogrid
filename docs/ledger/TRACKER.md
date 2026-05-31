@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-01T23:30Z` 🟢 v0.1.1-cli release published; one-liner install now serves END-STATE banner ("iogrid CLI — P2P VPN for residential exit IPs", no more Phase-1). Shipped e3ec53e (.github/workflows/vpn-e2e-smoke.yml) — runs the README quickstart against live api.iogrid.org every 3h, fails with "exit IP unchanged" until worker's #529 path c lands. 13 PRs this session, 9 issues closed. Only #532 + #529 remain open, both gated on TUN+MASQUERADE. |
+| Last refreshed | `2026-06-01T23:35Z` 🟢 vpn-e2e-smoke workflow LIVE + GREEN on control-plane half (curl install-cli → iogrid vpn regions vs live api.iogrid.org). Authed half (login → connect → exit-IP) gated on repo secrets (#560 to set). 14 PRs this session, 9 issues closed. Open: #560 (secrets), #532 (gated on #529), #529 (worker on path c TUN+MASQUERADE). |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
 | Open PRs | **0** |
