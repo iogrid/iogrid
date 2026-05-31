@@ -90,13 +90,31 @@ func (h *RequestSession) Handle(w http.ResponseWriter, r *http.Request) {
 		h.logger.Warn("api key validation skipped (dev mode — set VPN_SVC_BILLING_URL to enable)")
 	}
 
+	// Assign a provider in the requested region. The Postgres schema
+	// constraints fk_primary_provider + fk_current_provider require
+	// non-zero provider UUIDs at INSERT time, so we MUST pick one here.
+	// If no healthy provider in region, 503.
+	providerID, err := h.st.SelectProviderForSession(r.Context(), req.Region)
+	if err != nil {
+		h.logger.Warn("no healthy provider in region",
+			slog.String("region", req.Region),
+			slog.String("error", err.Error()))
+		respondError(w, http.StatusServiceUnavailable,
+			"no healthy provider in region "+req.Region)
+		return
+	}
+
 	// Create session in store
 	sessionID := uuid.New()
 	session := &store.Session{
-		ID:         sessionID,
-		CustomerID: customerUUID,
-		Region:     req.Region,
-		State:      pb.VpnSessionState_CREATING,
+		ID:              sessionID,
+		CustomerID:      customerUUID,
+		Region:          req.Region,
+		PrimaryProvider: providerID,
+		CurrentProvider: providerID,
+		State:           pb.VpnSessionState_CREATING,
+		CreatedAt:       time.Now(),
+		LastActivityAt:  time.Now(),
 	}
 	if err := h.st.CreateSession(r.Context(), session); err != nil {
 		h.logger.Error("create session failed", slog.String("error", err.Error()))
@@ -108,8 +126,10 @@ func (h *RequestSession) Handle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{
-		"session_id": sessionID.String(),
-		"status":     "CREATING",
+		"session_id":  sessionID.String(),
+		"status":      "CREATING",
+		"provider_id": providerID.String(),
+		"region":      req.Region,
 	})
 }
 

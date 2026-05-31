@@ -45,7 +45,9 @@ func postJSON(t *testing.T, url string, body interface{}) (*http.Response, []byt
 }
 
 func TestIntegration_SessionLifecycle(t *testing.T) {
-	srv, _ := boot(t)
+	srv, st := boot(t)
+	mem := st.(*store.Memory)
+	mem.SeedProvider(uuid.New(), "us-east-1", "healthy")
 
 	// 1. Create session
 	req := map[string]string{
@@ -159,7 +161,8 @@ func TestIntegration_APIKeyValidation(t *testing.T) {
 		valid:    map[string]struct{ ws, cust string }{"iog_validkey": {wsID, custID}},
 		rejected: map[string]struct{}{"iog_revoked": {}},
 	}
-	srv, _ := bootWithValidator(t, fv)
+	srv, st := bootWithValidator(t, fv)
+	st.(*store.Memory).SeedProvider(uuid.New(), "us-east-1", "healthy")
 
 	// Missing key → 401
 	resp, _ := postJSON(t, srv.URL+"/v1/vpn/sessions", map[string]string{
@@ -199,7 +202,8 @@ func TestIntegration_APIKeyValidation(t *testing.T) {
 
 func TestIntegration_NoValidator_DevMode(t *testing.T) {
 	// Without validator, any request succeeds (dev mode).
-	srv, _ := bootWithValidator(t, nil)
+	srv, st := bootWithValidator(t, nil)
+	st.(*store.Memory).SeedProvider(uuid.New(), "us-east-1", "healthy")
 	resp, _ := postJSON(t, srv.URL+"/v1/vpn/sessions", map[string]string{
 		"customer_id": uuid.New().String(), "region": "us-east-1",
 	})

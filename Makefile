@@ -19,7 +19,7 @@ help:
 	@echo "  make sdk-python         - build the iogrid PyPI package"
 	@echo "  make sdk-go             - go vet + test for the Go SDK"
 	@echo "  make sdk-java           - gradle build for the Java SDK"
-	@echo "  make vpn-test           - VPN P2P Phase 1 full test suite (#504)"
+	@echo "  make vpn-test           - VPN P2P full test suite (#504)"
 
 proto:
 	cd proto && buf generate
@@ -66,14 +66,14 @@ sdk-go:
 sdk-java:
 	cd sdks/java && ./gradlew check
 
-# --- VPN P2P Phase 1 (EPIC #504) -------------------------------------------
-# `make vpn-test` runs the full Phase 1 test suite (SDK + Coordinator)
+# --- VPN P2P (EPIC #504) ---------------------------------------------------
+# `make vpn-test` runs the full VPN test suite (SDK + Coordinator)
 # in one go — useful for quickly validating any VPN-touching change.
 .PHONY: vpn-test vpn-test-sdk vpn-test-coordinator
 
 vpn-test: vpn-test-sdk vpn-test-coordinator
 	@echo
-	@echo "✓ all VPN Phase 1 tests passed"
+	@echo "✓ all VPN tests passed"
 
 vpn-test-sdk:
 	@echo "=== sdks/go/vpn ==="
