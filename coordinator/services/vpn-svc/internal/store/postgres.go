@@ -202,6 +202,13 @@ func (p *Postgres) RegisterCandidates(ctx context.Context, providerID uuid.UUID,
 				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW() + INTERVAL '5 minutes'
 			)
 		`
+		// related_address is `inet` in Postgres which rejects empty
+		// string; convert "" → NULL so host candidates (which have no
+		// reflexive/relay related-address) insert cleanly.
+		var relatedAddr interface{}
+		if cand.RelatedAddress != "" {
+			relatedAddr = cand.RelatedAddress
+		}
 		_, err := p.pool.Exec(ctx, query,
 			providerID,
 			cand.Foundation,
@@ -211,7 +218,7 @@ func (p *Postgres) RegisterCandidates(ctx context.Context, providerID uuid.UUID,
 			cand.ConnectionAddress,
 			cand.ConnectionPort,
 			cand.CandidateType,
-			cand.RelatedAddress,
+			relatedAddr,
 			cand.RelatedPort,
 			cand.LatencyMs,
 		)
@@ -242,6 +249,7 @@ func (p *Postgres) GetProviderCandidates(ctx context.Context, providerID uuid.UU
 	for rows.Next() {
 		cand := &pb.IceCandidate{}
 		var discoveredAt time.Time
+		var relatedAddr sql.NullString
 		err := rows.Scan(
 			&cand.Foundation,
 			&cand.Component,
@@ -250,11 +258,12 @@ func (p *Postgres) GetProviderCandidates(ctx context.Context, providerID uuid.UU
 			&cand.ConnectionAddress,
 			&cand.ConnectionPort,
 			&cand.CandidateType,
-			&cand.RelatedAddress,
+			&relatedAddr,
 			&cand.RelatedPort,
 			&cand.LatencyMs,
 			&discoveredAt,
 		)
+		cand.RelatedAddress = relatedAddr.String
 		if err != nil {
 			return nil, fmt.Errorf("scan candidate: %w", err)
 		}
