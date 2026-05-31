@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-01T09:45Z` 🟢 **VPN-NON-STOP-PUSH-2** — boringtun #537 ✓ + peer binder #539 ✓ + #538 STUN LB external IP ✓ + #531 API auth (BillingValidator) ✓ + /customer/vpn page+panel+gateway-bff proxy+vpn-svc /customers/{id}/sessions handler ✓ + NULL exit_reason scan bug fixed ✓ + E2E control-plane harness ✓ + Postgres backend live on cluster ✓. v0.1.0-cli release tagged. 9 issues closed (#526/#531/#533/#534/#535/#536/#538/#540/#541). Open: #527 CLI release upload, #528 RealTunnelManager, #529 PR-B (iogrid-worker), #530 paired provider, #532 data-plane E2E, #542 supervisor wiring (iogrid-worker). Customer e2e CLI flow works against api.iogrid.org through control plane. Daemon binary built locally (1m45s release). |
+| Last refreshed | `2026-05-31T21:00Z` 🟢 cron-refresh: +12 commits since last TRACKER bump |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
 | Open PRs | **0** |
