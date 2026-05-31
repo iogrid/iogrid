@@ -233,8 +233,8 @@ func (p *Postgres) RegisterCandidates(ctx context.Context, providerID uuid.UUID,
 func (p *Postgres) GetProviderCandidates(ctx context.Context, providerID uuid.UUID) ([]*pb.IceCandidate, error) {
 	query := `
 		SELECT foundation, component, transport, priority,
-		       connection_address, connection_port, candidate_type,
-		       related_address, related_port, latency_ms, discovered_at
+		       connection_address::text, connection_port, candidate_type,
+		       related_address::text, related_port, latency_ms, discovered_at
 		FROM ice_candidates
 		WHERE provider_id = $1 AND expires_at > NOW()
 		ORDER BY priority ASC
