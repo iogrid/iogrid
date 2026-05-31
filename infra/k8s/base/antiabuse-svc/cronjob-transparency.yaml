@@ -59,7 +59,7 @@ spec:
             - name: transparency-report
               # Rewritten to ghcr.io/iogrid/antiabuse-svc-transparency-report@sha256:<digest>
               # by .github/workflows/coordinator-ci.yml on every push to main. Refs #335.
-              image: ghcr.io/iogrid/antiabuse-svc-transparency-report@sha256:358cb2a96bc3726b6e2da2113d4cce506cef5629929a40ad6dab9788e1301f7d
+              image: ghcr.io/iogrid/antiabuse-svc-transparency-report@sha256:cf4fd8c476ae401ebc45041f90447f939e0c7ce058b8299e2561376193b2ed93
               imagePullPolicy: Always
               args:
                 - "-bucket"
