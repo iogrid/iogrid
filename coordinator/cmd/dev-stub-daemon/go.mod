@@ -10,10 +10,7 @@ require (
 	google.golang.org/protobuf v1.35.1
 )
 
-require (
-	github.com/google/go-cmp v0.6.0 // indirect
-	golang.org/x/text v0.24.0 // indirect
-)
+require golang.org/x/text v0.24.0 // indirect
 
 // connectrpc.com/connect is pulled in transitively via the pb package's
 // generated workloadsv1connect — we don't reference it directly.
