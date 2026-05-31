@@ -26,6 +26,12 @@
 mod vpn_listener;
 pub use vpn_listener::VpnListener;
 
+pub mod ice;
+pub use ice::{
+    discover_all, discover_host_candidates, discover_srflx_candidate, spawn_reporter, IceCandidate,
+    IceConfig, IceError, RegisterRequest, REPORT_INTERVAL, STUN_TIMEOUT,
+};
+
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
