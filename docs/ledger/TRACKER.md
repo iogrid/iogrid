@@ -4,11 +4,11 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-31T06:35Z` — PR #492 CI: test failures blocking merge (fmt+clippy+test FAILED × 2 runs) |
+| Last refreshed | `2026-05-31T07:50Z` — PR #492 fmt fix pushed (CI re-running); PR #493 vpn-gateway userspace WG open |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap |
-| Open PRs | **1** — [#492](https://github.com/iogrid/iogrid/pull/492) security(daemon/tunnel): SSRF allowlist + dial timeout + per-provider cap (**test failures blocking**) |
-| Open issues | **9** — #487/#488 status/uat (PR #492 in review); #489/#490/#491 new daemon/tunnel; #478/#484/#485 parked; #79/#398/#439 founder-physical/parked |
+| Open PRs | **2** — [#492](https://github.com/iogrid/iogrid/pull/492) security(daemon/tunnel): SSRF+cap+timeout (**fmt fixed, CI re-running**); [#493](https://github.com/iogrid/iogrid/pull/493) fix(vpn-gateway): userspace WireGuard drop NET_ADMIN (CI running) |
+| Open issues | **9** — #487/#488 status/uat (PR #492); #478 status/in-progress (PR #493); #489/#490/#491 new daemon/tunnel; #484/#485 parked; #79/#398/#439 founder-physical/parked |
 | Live URL state post-#428 | <img alt="LIVE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> `iogrid.org` serves product app (was marketing). `app.iogrid.org` 301 → `iogrid.org`. `admin.iogrid.org` 503 (waiting #426 ghcr unblock). Marketing folded into web/ — `marketing/` workspace deleted. New design system live across landing + provide/customer/vpn/account/install. |
 | Prior false-progress | <img alt="REVERTED" src="https://img.shields.io/badge/-FALSE-cf222e?style=flat-square" /> PRs #364 / #383 / #408 — none satisfied founder's "INDEPENDENT admin app" criterion. Replaced by #425 (real separate admin codebase + Deployment + CI). |
 | EPIC closure | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 17 / 17 closed by audit |
