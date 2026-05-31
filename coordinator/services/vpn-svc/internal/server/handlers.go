@@ -43,6 +43,7 @@ func (h *RequestSession) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	SessionsCreated.Inc()
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{
@@ -132,6 +133,7 @@ func (h *RefreshSession) Handle(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
+	SessionRefreshes.Inc()
 	json.NewEncoder(w).Encode(map[string]string{"status": "refreshed"})
 }
 
@@ -260,12 +262,14 @@ func (h *TriggerFailover) Handle(w http.ResponseWriter, r *http.Request) {
 	}
 	altProviderID, err := h.st.SelectAlternateProvider(r.Context(), region, exclude)
 	if err != nil {
+		FailoversTriggered.WithLabelValues(region, "no_alternate").Inc()
 		h.logger.Error("no alternate provider available",
 			slog.String("region", region),
 			slog.String("error", err.Error()))
 		respondError(w, http.StatusServiceUnavailable, "no alternate provider available")
 		return
 	}
+	FailoversTriggered.WithLabelValues(region, "success").Inc()
 
 	// Trigger failover in store (updates session.CurrentProvider, increments FailoverCount, sets FAILING_OVER state)
 	if err := h.st.TriggerFailover(r.Context(), sessionID, failedProviderID, altProviderID); err != nil {
