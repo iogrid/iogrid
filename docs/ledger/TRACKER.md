@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-01T10:15Z` 🟢🟢 **VPN-CUSTOMER-CLI-LIVE** — 12 VPN issues closed (#526/#527/#528/#531/#533/#534/#535/#536/#538/#540/#541/#542). v0.1.0-cli release PUBLISHED, 5 cross-platform binaries on releases.iogrid.org. Customer one-line install + login + vpn connect against api.iogrid.org control plane verified end-to-end. API key auth ENFORCED on cluster (BILLING_SVC_URL wired). RealTunnelManager defaults to real wireguard-go UAPI. Remaining for data-plane demo: #529 PR-B SNAT (iogrid-worker), #544 standalone provider (iogrid-worker), #530 paired provider, #532 data-plane E2E proof. |
+| Last refreshed | `2026-05-31T21:30Z` 🟢 cron-refresh: +17 commits since last TRACKER bump |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
 | Open PRs | **0** |
