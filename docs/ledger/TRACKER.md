@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-31T22:00Z` 🟢 cron-refresh: +16 commits since last TRACKER bump |
+| Last refreshed | `2026-06-01T22:05Z` 🟢 vpn-svc scanSession fix (ead6581) — postgres GET now returns wg public keys; was empty due to omitted columns in SELECT. SDK bind-customer-wg-key + provider-binding poll loop (d61d6a7) ready to pair with daemon peer-binder once cluster rolls. |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
 | Open PRs | **0** |
