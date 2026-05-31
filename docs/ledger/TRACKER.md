@@ -4,11 +4,11 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-31T07:38Z` ✍️ hand-update: PRs #493/#495/#496/#497/#498 merged; issues #478/#489/#490/#491/#484 closed |
+| Last refreshed | `2026-05-31T07:43Z` ✍️ hand-update: PRs #499/#501 open; #501 merged (#500 closed); PR #499 CI re-running post-rebase |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
-| Merged PRs | **130+** since bootstrap (PRs #493/#495/#496/#497/#498 merged this session) |
-| Open PRs | **1** — [#499](https://github.com/iogrid/iogrid/pull/499) feat(infra/updates): deploy manifestd server — updates.iogrid.org (CI pending) |
-| Open issues | **4** — #485 status/in-progress (PR #499 in CI); #439/#398/#79 parked |
+| Merged PRs | **131+** since bootstrap (PRs #493/#495/#496/#497/#498/#501 merged this session) |
+| Open PRs | **1** — [#499](https://github.com/iogrid/iogrid/pull/499) feat(infra/updates): deploy manifestd server — updates.iogrid.org (CI re-running post-rebase) |
+| Open issues | **3** — #485 status/in-progress (PR #499 in CI); #439/#398/#79 parked |
 | Live URL state post-#428 | <img alt="LIVE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> `iogrid.org` serves product app (was marketing). `app.iogrid.org` 301 → `iogrid.org`. `admin.iogrid.org` 503 (waiting #426 ghcr unblock). Marketing folded into web/ — `marketing/` workspace deleted. New design system live across landing + provide/customer/vpn/account/install. |
 | Prior false-progress | <img alt="REVERTED" src="https://img.shields.io/badge/-FALSE-cf222e?style=flat-square" /> PRs #364 / #383 / #408 — none satisfied founder's "INDEPENDENT admin app" criterion. Replaced by #425 (real separate admin codebase + Deployment + CI). |
 | EPIC closure | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 17 / 17 closed by audit |
@@ -33,7 +33,8 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 | [#496](https://github.com/iogrid/iogrid/pull/496) | [#490](https://github.com/iogrid/iogrid/issues/490) | feat(transport): bytes telemetry v2 — open(workload_id+attempt_id+host) + pump(bytes_in/out) | ✅ MERGED |
 | [#497](https://github.com/iogrid/iogrid/pull/497) | [#491](https://github.com/iogrid/iogrid/issues/491) | test(transport): cancel_tx regression tests — drop vs retain contract | ✅ MERGED |
 | [#498](https://github.com/iogrid/iogrid/pull/498) | [#484](https://github.com/iogrid/iogrid/issues/484) | feat(proxy-gateway): billing-svc ValidateApiKey Connect client, 60s LRU cache, retire DEV_API_KEYS | ✅ MERGED |
-| [#499](https://github.com/iogrid/iogrid/pull/499) | [#485](https://github.com/iogrid/iogrid/issues/485) | feat(infra/updates): manifestd Dockerfile + k8s manifests + IngressRoute + 4-job CI (updates.iogrid.org) | 🟡 CI PENDING |
+| [#499](https://github.com/iogrid/iogrid/pull/499) | [#485](https://github.com/iogrid/iogrid/issues/485) | feat(infra/updates): manifestd Dockerfile + k8s manifests + IngressRoute + 4-job CI (updates.iogrid.org) | 🟡 CI RE-RUNNING |
+| [#501](https://github.com/iogrid/iogrid/pull/501) | [#500](https://github.com/iogrid/iogrid/issues/500) | fix(netpol): proxy-gateway ↔ billing-svc egress/ingress — NetworkPolicy + CiliumNetworkPolicy (4 files) | ✅ MERGED |
 
 ---
 
