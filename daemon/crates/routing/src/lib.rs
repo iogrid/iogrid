@@ -34,6 +34,12 @@ pub mod boringtun_impl;
 #[cfg(feature = "routing-real")]
 pub use boringtun_impl::{BoringTun, BoringTunConfig};
 
+pub mod peer_binder;
+pub use peer_binder::{
+    bind_session, spawn_binder as spawn_peer_binder, AssignedSession, AssignedSessionsResponse,
+    BindProviderRequest, BinderError, PeerBinderConfig, POLL_INTERVAL as BINDER_POLL_INTERVAL,
+};
+
 pub mod ice;
 pub use ice::{
     discover_all, discover_host_candidates, discover_srflx_candidate, spawn_reporter, IceCandidate,
@@ -106,6 +112,12 @@ pub trait Tunnel: Send + Sync {
 
     /// Add or update a peer.
     async fn upsert_peer(&self, peer: WireGuardPeer) -> Result<(), RoutingError>;
+
+    /// The WG public key the daemon advertises to customers — sent
+    /// back to the Coordinator on the `/bind-provider` POST per
+    /// VPN-536 (#536). For `BoringTun` this is the cached
+    /// `static_public_b64`; for stub impls a sentinel is fine.
+    fn provider_public_key(&self) -> String;
 }
 
 /// SOCKS5 acceptor running on the daemon side.
@@ -130,6 +142,11 @@ impl Tunnel for NoopTunnel {
     }
     async fn upsert_peer(&self, _peer: WireGuardPeer) -> Result<(), RoutingError> {
         Ok(())
+    }
+    fn provider_public_key(&self) -> String {
+        // Sentinel — the binder still POSTs this so wire-shape tests
+        // can assert the request body field is present and a string.
+        "noop-tunnel-public-key".to_owned()
     }
 }
 
