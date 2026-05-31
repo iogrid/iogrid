@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-01T04:15Z` 🟡 vpn-phase-1-in-flight: VPN-1/2/3 complete, VPN-8 foundation, VPN-4/5/9 ready for next shift |
+| Last refreshed | `2026-06-01T04:30Z` 🟢 vpn-phase-1-foundation: VPN-1/2/3 complete (6 commits), VPN-8 foundation, next: VPN-5/9 (boringtun integration required). Session log: `docs/sessions/2026-06-01-vpn-phase1-kickoff.md` |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
 | Open PRs | **0** |
