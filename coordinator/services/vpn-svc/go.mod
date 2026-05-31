@@ -3,6 +3,7 @@ module github.com/iogrid/iogrid/coordinator/services/vpn-svc
 go 1.22
 
 require (
+	connectrpc.com/connect v1.16.2
 	github.com/go-chi/chi/v5 v5.1.0
 	github.com/google/uuid v1.6.0
 	github.com/iogrid/iogrid/coordinator/internal/pb v0.1.0
