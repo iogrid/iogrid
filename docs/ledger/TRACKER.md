@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-01T04:30Z` 🟢 vpn-phase-1-foundation: VPN-1/2/3 complete (6 commits), VPN-8 foundation, next: VPN-5/9 (boringtun integration required). Session log: `docs/sessions/2026-06-01-vpn-phase1-kickoff.md` |
+| Last refreshed | `2026-06-01T04:50Z` 🟢 vpn-phase-1-critical-path-ready: VPN-1/2/3/8/9 complete (8 commits), bastion client orchestrator ready, ICE+WireGuard integrated. Next: Provider WireGuard (VPN-5) + Bastion safety (VPN-12). Session log: `docs/sessions/2026-06-01-vpn-phase1-kickoff.md` |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
 | Open PRs | **0** |
@@ -33,9 +33,10 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 | **VPN-3: STUN server** | ✅ COMPLETE | [#4096e03](https://github.com/iogrid/iogrid/commit/4096e03) — RFC 5389 STUN server (UDP :3478), BINDING REQUEST/SUCCESS, XOR-MAPPED-ADDRESS. Providers/customers discover external IP:port. 262 lines. |
 | **VPN-4: Regional failover** | 🟡 PENDING | Coordinator regional provider grouping + failover selection algorithm. Blocked on: none, ready to start. |
 | **VPN-5: Provider WireGuard** | 🟡 PENDING | Provider daemon: create wg interface, configure WireGuard peers, accept customer keys. Requires boringtun crate. Blocked on: none, ready to start. |
-| **VPN-8: Customer ICE checker** | 🟡 IN_PROGRESS | [#c94556f](https://github.com/iogrid/iogrid/commit/c94556f) — Go SDK: ICEChecker (parallel UDP probes to candidates), Client (orchestrates RequestSession→ICECheck→CreateWG→AddPeer→Confirm flow). STUN request/response parsing. RPC calls stubbed. 286 lines. |
-| **VPN-9: Customer WireGuard** | 🟡 PENDING | Customer SDK: TunnelManager abstraction + boringtun integration. Blocked on: VPN-5 (provider ready), boringtun dependency. |
-| **Phase 1 checkpoint** | 📊 TRACKING | External IP via provider tunnel, latency <100ms, ICE discovers <5s, bastion no self-disconnect, >80% coverage. Target: 2026-06-08. |
+| **VPN-8: Customer ICE checker** | ✅ COMPLETE | [#c94556f](https://github.com/iogrid/iogrid/commit/c94556f) — Go SDK: ICEChecker (parallel UDP probes, latency measurement, best-candidate selection). STUN UDP probes. 286 lines. |
+| **VPN-9: Customer WireGuard** | ✅ COMPLETE | [#a598594](https://github.com/iogrid/iogrid/commit/a598594) — RealTunnelManager (Linux WireGuard kernel via wgctrl), MockTunnelManager (testing), GenerateKeyPair helper. 187 lines. |
+| **Bastion Client** | ✅ READY | [#2797218](https://github.com/iogrid/iogrid/commit/2797218) — BastionClient: Connect() orchestrates full tunnel establishment (session→ICE→WireGuard→confirm), Disconnect() graceful shutdown, RefreshMetrics() heartbeat. Mock RPC stubs ready for Coordinator integration. 223 lines. |
+| **Phase 1 checkpoint** | 🔄 CRITICAL_PATH_READY | External IP via provider tunnel, latency <100ms, ICE discovers <5s, bastion no self-disconnect, >80% coverage. Remaining: VPN-5 (Provider WireGuard UDP listener), VPN-12 (Bastion routing isolation + kill switch). Target: 2026-06-08. |
 
 ---
 
@@ -66,11 +67,11 @@ Implementation must achieve <100ms latency (direct path, no relay overhead), <5%
 | **VPN-1** | Design ICE protocol integration (RFC 8445 spec) | ✅ COMPLETE | None |
 | **VPN-2** | Coordinator: Session ledger + ICE candidate tracking | ✅ COMPLETE | VPN-1 design |
 | **VPN-3** | Coordinator: STUN server integration (RFC 5389) | ✅ COMPLETE | VPN-1 |
-| **VPN-4** | Coordinator: Regional grouping + failover logic | 🟡 IN_PROGRESS | VPN-2 |
-| **VPN-5** | Provider daemon: WireGuard interface setup | 🟡 IN_PROGRESS | VPN-1 |
+| **VPN-4** | Coordinator: Regional grouping + failover logic | 🟡 PENDING | VPN-2 |
+| **VPN-5** | Provider daemon: WireGuard interface setup | 🟡 IN_PROGRESS | VPN-1 (UDP listener, non-boringtun) |
 | **VPN-6** | Provider daemon: ICE candidate discovery | 🟡 PENDING | VPN-3, VPN-5 |
 | **VPN-7** | Provider daemon: Health probes + graceful shutdown | 🟡 PENDING | VPN-6 |
-| **VPN-8** | Customer SDK: ICE connectivity checker | 🟡 IN_PROGRESS | VPN-1, VPN-3 |
+| **VPN-8** | Customer SDK: ICE connectivity checker | ✅ COMPLETE | VPN-1, VPN-3 |
 | **VPN-9** | Customer SDK: WireGuard tunnel manager | 🟡 PENDING | VPN-5 |
 | **VPN-10** | Customer SDK: Roaming detector + reconnect | 🟡 PENDING | VPN-9 |
 | **VPN-11** | Customer SDK: Regional failover logic | 🟡 PENDING | VPN-4, VPN-10 |
