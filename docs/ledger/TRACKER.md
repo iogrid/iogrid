@@ -4,11 +4,11 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-25T11:00Z` 🟢 cron-refresh: +2 commits since last TRACKER bump |
+| Last refreshed | `2026-05-31T06:30Z` — IG-Worker session: #487/#488 PR #492 in flight |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
-| Merged PRs | **120+** since bootstrap (+34 in 2026-05-21 session — see §0 below) |
-| Open PRs | **0** — all 7 of the #438 chain (#445–#451) merged; #481 (iogridd diag CLI) merged 21:30Z; #486 fix (installer-ci 403 → contents:write) merged 22:33Z (5171407, auto-closes #486) |
-| Open issues | **6** — all parked-or-external: #79 macOS Sonoma→Sequoia upgrade (founder-physical), #398 Authenticode EV cert (founder-physical), #439 Squads multisig (chore parked), #478 vpn-gateway NET_ADMIN PodSecurity (bug parked), #484 proxy-gateway ValidateApiKey RPC client (parked, removes DEV_API_KEYS env), #485 manifest server (parked, ed25519-signing scope). #482 closed pre-fix (21:36Z) but v0.1.2 fix verified live post-close at 22:29:51Z. |
+| Merged PRs | **120+** since bootstrap |
+| Open PRs | **1** — [#492](https://github.com/iogrid/iogrid/pull/492) security(daemon/tunnel): SSRF allowlist + dial timeout + per-provider cap (CI running) |
+| Open issues | **9** — #487/#488 status/uat (PR #492 in review); #489/#490/#491 new daemon/tunnel; #478/#484/#485 parked; #79/#398/#439 founder-physical/parked |
 | Live URL state post-#428 | <img alt="LIVE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> `iogrid.org` serves product app (was marketing). `app.iogrid.org` 301 → `iogrid.org`. `admin.iogrid.org` 503 (waiting #426 ghcr unblock). Marketing folded into web/ — `marketing/` workspace deleted. New design system live across landing + provide/customer/vpn/account/install. |
 | Prior false-progress | <img alt="REVERTED" src="https://img.shields.io/badge/-FALSE-cf222e?style=flat-square" /> PRs #364 / #383 / #408 — none satisfied founder's "INDEPENDENT admin app" criterion. Replaced by #425 (real separate admin codebase + Deployment + CI). |
 | EPIC closure | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 17 / 17 closed by audit |
