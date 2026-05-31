@@ -75,7 +75,7 @@ func main() {
 			os.Exit(1)
 		}
 	case "version":
-		fmt.Println("iogrid CLI (Phase-1 P2P VPN)")
+		fmt.Println("iogrid CLI — P2P VPN for residential exit IPs")
 		fmt.Println("Coordinator:", coordinatorFromEnvOrDefault())
 	case "--help", "-h", "help":
 		printUsage()

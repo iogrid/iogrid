@@ -179,6 +179,6 @@ func TestFailoverDetector_StrikesAccumulate(t *testing.T) {
 	d.Stop()
 
 	if d.strikes != 0 {
-		t.Errorf("MVP strikes = %d, want 0 (detectUnreachable is stub)", d.strikes)
+		t.Errorf("strikes = %d, want 0 (detectUnreachable is stub)", d.strikes)
 	}
 }

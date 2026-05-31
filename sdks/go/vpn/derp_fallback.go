@@ -10,7 +10,7 @@ import (
 // The customer falls back to a DERP-style encrypted relay that forwards
 // WireGuard packets between peers when no direct path exists.
 //
-// MVP status: SCAFFOLD ONLY. Real DERP relay servers are tracked in
+// Status: not yet implemented. Real DERP relay servers are tracked in
 // issue #521 — this file establishes the abstraction so the SDK
 // integration point exists, and a future iogrid DERP fleet can plug in
 // without touching ICEChecker or BastionClient.
@@ -41,7 +41,7 @@ var ErrNoRelayConfigured = fmt.Errorf("no DERP relays configured for region")
 // available DERP relay. Returns the relay endpoint string ("host:port")
 // that can be used as a WireGuard peer endpoint.
 //
-// MVP behavior: returns ErrNoRelayConfigured (since no relays are
+// Current behavior: returns ErrNoRelayConfigured (since no relays are
 // deployed yet). Once the DERP fleet is up (#521), this will:
 //  1. Iterate RelayHosts in order
 //  2. For each, perform a TLS handshake + control-channel auth

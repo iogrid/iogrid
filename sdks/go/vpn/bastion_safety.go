@@ -115,7 +115,7 @@ func (bs *BastionSafety) healthCheckCoordinator(ctx context.Context) {
 			if err := cmd.Run(); err != nil {
 				fmt.Printf("[BASTION-SAFETY] ⚠️  Coordinator unreachable! Error: %v\n", err)
 				// In production: trigger failover or emergency alert
-				// For MVP: just log
+				 // Best-effort log (cluster netlink isolation may not be available)
 			} else {
 				fmt.Printf("[BASTION-SAFETY] ✓ Coordinator healthy\n")
 			}
@@ -133,4 +133,4 @@ func (bs *BastionSafety) runCommand(name string, args ...string) error {
 
 // Note: This implementation uses Linux netlink commands (ip rule/route).
 // For macOS/Windows, different APIs would be needed (pfctl, netsh).
-// For MVP bastion (Linux), this is sufficient.
+// Linux bastion deployments use these primitives.

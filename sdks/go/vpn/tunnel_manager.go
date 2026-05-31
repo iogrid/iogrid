@@ -207,7 +207,7 @@ func GenerateKeyPair() (privateKey, publicKey string, err error) {
 
 	privKeyB64 := base64.StdEncoding.EncodeToString(privKeyBytes)
 
-	// For MVP: generate a matching public key by hashing (production would use x25519)
+	// Generate a matching public key by hashing (production would use x25519)
 	// This is sufficient for basic tunnel testing
 	pubKeyBytes := make([]byte, 32)
 	if _, err := rand.Read(pubKeyBytes); err != nil {

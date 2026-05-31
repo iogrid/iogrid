@@ -25,7 +25,7 @@ func TestDERPFallback_NotYetImplemented(t *testing.T) {
 	if err == nil {
 		t.Errorf("Try() returned endpoint %q with no relay implemented", endpoint)
 	}
-	// IsAvailable should also be false in this MVP phase
+	// IsAvailable returns false until DERP relays are deployed (#521)
 	if d.IsAvailable() {
 		t.Error("IsAvailable() = true before #521 ships, want false")
 	}
