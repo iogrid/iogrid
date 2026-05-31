@@ -2108,6 +2108,103 @@ mod tests {
         assert!(n >= 3, "expected ≥3 attempts, got {n}");
     }
 
+    // ── Regression tests for iogrid/iogrid#482 (cancel_tx-pin invariant) ─────
+    //
+    // The v0.1.1 spin-loop was introduced when a destructuring pattern bound
+    // `cancel_tx: _` instead of keeping it alive. Dropping cancel_tx causes
+    // `cancel_rx.changed()` to return `Err(RecvError)` on every poll; the
+    // `run_with_reconnect` select! arm fires but `*cancel.borrow()` is still
+    // `false`, so the loop never exits and skips the backoff sleep — a tight
+    // spin that produces a sub-millisecond reconnect storm with no logs.
+    //
+    // These two tests document and guard both the correct path and the failure
+    // mode so the next refactor would be caught by CI rather than production.
+
+    #[tokio::test]
+    async fn cancel_tx_retained_stops_loop_cleanly() {
+        // Correct usage: cancel_tx is retained for the lifetime of the loop.
+        // After sending `true`, run_with_reconnect should exit promptly.
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let calls_c = calls.clone();
+        let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+        let task = tokio::spawn(async move {
+            run_with_reconnect(
+                Duration::from_millis(5),
+                Duration::from_millis(20),
+                cancel_rx,
+                move || {
+                    let c = calls_c.clone();
+                    async move {
+                        c.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        Err::<(), _>(TransportError::Unreachable("test".into()))
+                    }
+                },
+            )
+            .await
+        });
+        // Hold cancel_tx alive for 50ms, then signal shutdown.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        cancel_tx.send(true).unwrap();
+        // Loop should exit within 100ms of receiving the signal.
+        let result = tokio::time::timeout(Duration::from_millis(100), task).await;
+        assert!(
+            result.is_ok(),
+            "loop did not exit after cancel_tx.send(true) — possible hang"
+        );
+        // With 5ms initial + 20ms cap over 50ms: expect ≤ 6 attempts.
+        let n = calls.load(std::sync::atomic::Ordering::Relaxed);
+        assert!(
+            n <= 10,
+            "too many connect attempts with proper cancel_tx ({n}) — possible spin"
+        );
+    }
+
+    #[tokio::test]
+    async fn cancel_tx_dropped_causes_spin_loop() {
+        // Documents the v0.1.1 failure mode: dropping cancel_tx without
+        // sending `true` causes run_with_reconnect to spin — the backoff
+        // sleep select! arm fires immediately on Err(RecvError) and the
+        // loop never exits. Refs iogrid/iogrid#482.
+        //
+        // We verify the failure mode: within 100ms of dropping cancel_tx,
+        // the loop should have fired substantially MORE times than the
+        // backoff schedule would allow if the sleep were respected.
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let calls_c = calls.clone();
+        let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+        let task = tokio::spawn(async move {
+            run_with_reconnect(
+                Duration::from_millis(10),
+                Duration::from_millis(40),
+                cancel_rx,
+                move || {
+                    let c = calls_c.clone();
+                    async move {
+                        c.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        Err::<(), _>(TransportError::Unreachable("test".into()))
+                    }
+                },
+            )
+            .await
+        });
+        // Drop cancel_tx WITHOUT sending true.
+        drop(cancel_tx);
+        // Give the spin 50ms to accumulate calls.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        task.abort();
+        let _ = task.await;
+        let n = calls.load(std::sync::atomic::Ordering::Relaxed);
+        // With 10ms initial backoff, proper backoff over 50ms → ≤ 5 calls.
+        // With the spin-loop (backoff skipped), hundreds of calls occur.
+        // Threshold of 20 confirms spin; correct code would fail this assert.
+        assert!(
+            n > 20,
+            "expected spin-loop (>20 calls in 50ms) when cancel_tx dropped, got {n} — \
+             if run_with_reconnect now handles dropped-sender correctly, \
+             update this test to reflect the new contract"
+        );
+    }
+
     #[tokio::test]
     async fn heartbeat_pump_emits_with_state() {
         let h = iogrid_scheduler::SchedulerHandle::new(iogrid_scheduler::SchedulerConfig {

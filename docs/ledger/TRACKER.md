@@ -4,11 +4,11 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-31T07:10Z` ✍️ manual — PR #492 merged, PR #494 merged |
+| Last refreshed | `2026-05-31T07:25Z` ✍️ manual — PRs #493/#495/#496 merged; #478 closed; #491 in-progress (PR #497) |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
-| Merged PRs | **122+** since bootstrap |
-| Open PRs | **1** — [#493](https://github.com/iogrid/iogrid/pull/493) fix(vpn-gateway): userspace WireGuard drop NET_ADMIN (go.mod fix pushed, CI re-running) |
-| Open issues | **7** — #487/#488 status/uat → closing (#492 all-green); #478 status/in-progress (PR #493); #490 status/uat → closing (#494 all-green); #489/#491 backlog; #484/#485 parked |
+| Merged PRs | **125+** since bootstrap |
+| Open PRs | **1** — [#497](https://github.com/iogrid/iogrid/pull/497) test(daemon/transport): cancel_tx-pin regression tests (CI running) |
+| Open issues | **6** — #491 status/in-progress (PR #497); #484/#485/#439/#398/#79 parked |
 | Live URL state post-#428 | <img alt="LIVE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> `iogrid.org` serves product app (was marketing). `app.iogrid.org` 301 → `iogrid.org`. `admin.iogrid.org` 503 (waiting #426 ghcr unblock). Marketing folded into web/ — `marketing/` workspace deleted. New design system live across landing + provide/customer/vpn/account/install. |
 | Prior false-progress | <img alt="REVERTED" src="https://img.shields.io/badge/-FALSE-cf222e?style=flat-square" /> PRs #364 / #383 / #408 — none satisfied founder's "INDEPENDENT admin app" criterion. Replaced by #425 (real separate admin codebase + Deployment + CI). |
 | EPIC closure | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 17 / 17 closed by audit |
