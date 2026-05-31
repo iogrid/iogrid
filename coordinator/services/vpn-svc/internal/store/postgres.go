@@ -343,6 +343,21 @@ func (p *Postgres) RegisterProvider(ctx context.Context, info *ProviderInfo) err
 	return err
 }
 
+// CleanupStaleSessions implements Store.
+func (p *Postgres) CleanupStaleSessions(ctx context.Context, staleAfter time.Duration) (int, error) {
+	query := `
+		UPDATE vpn_sessions
+		SET terminated_at = NOW(), exit_reason = 'stale_heartbeat', state = 'TERMINATING'
+		WHERE terminated_at IS NULL
+		  AND last_activity_at < NOW() - $1::interval
+	`
+	tag, err := p.pool.Exec(ctx, query, staleAfter)
+	if err != nil {
+		return 0, fmt.Errorf("cleanup stale sessions: %w", err)
+	}
+	return int(tag.RowsAffected()), nil
+}
+
 // SelectAlternateProvider implements Store.
 func (p *Postgres) SelectAlternateProvider(ctx context.Context, region string, exclude []uuid.UUID) (uuid.UUID, error) {
 	// Build a NOT IN clause; pgx supports = ANY($N::uuid[]) cleanly

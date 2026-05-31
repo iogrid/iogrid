@@ -1,0 +1,315 @@
+// iogrid — customer-facing CLI for the iogrid P2P VPN.
+//
+// Customers download the binary (releases.iogrid.org), then:
+//
+//	iogrid login                      # opens browser, magic-link auth
+//	iogrid vpn connect --region us-east-1   # bring tunnel up
+//	iogrid vpn status                       # show current session
+//	iogrid vpn disconnect                   # bring tunnel down
+//	iogrid logout
+//
+// All state lives in ~/.config/iogrid/. The binary talks to
+// https://api.iogrid.org by default; --coordinator overrides for dev.
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"net/http"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"syscall"
+	"time"
+
+	"github.com/iogrid/iogrid/sdks/go/vpn"
+)
+
+const (
+	defaultCoordinator = "https://api.iogrid.org"
+	configDirName      = "iogrid"
+	credsFileName      = "credentials.json"
+)
+
+type credentials struct {
+	CustomerID  string `json:"customer_id"`
+	APIKey      string `json:"api_key"`
+	Coordinator string `json:"coordinator"`
+}
+
+type sessionState struct {
+	SessionID  string    `json:"session_id"`
+	Region     string    `json:"region"`
+	InterfaceName string `json:"interface_name"`
+	ConnectedAt time.Time `json:"connected_at"`
+}
+
+func main() {
+	if len(os.Args) < 2 {
+		printUsage()
+		os.Exit(1)
+	}
+
+	switch os.Args[1] {
+	case "login":
+		cmdLogin(os.Args[2:])
+	case "logout":
+		cmdLogout(os.Args[2:])
+	case "vpn":
+		if len(os.Args) < 3 {
+			fmt.Fprintln(os.Stderr, "usage: iogrid vpn <connect|disconnect|status>")
+			os.Exit(1)
+		}
+		switch os.Args[2] {
+		case "connect":
+			cmdVPNConnect(os.Args[3:])
+		case "disconnect":
+			cmdVPNDisconnect(os.Args[3:])
+		case "status":
+			cmdVPNStatus(os.Args[3:])
+		default:
+			fmt.Fprintf(os.Stderr, "unknown vpn subcommand: %s\n", os.Args[2])
+			os.Exit(1)
+		}
+	case "version":
+		fmt.Println("iogrid CLI (Phase-1 P2P VPN)")
+		fmt.Println("Coordinator:", coordinatorFromEnvOrDefault())
+	case "--help", "-h", "help":
+		printUsage()
+	default:
+		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
+		printUsage()
+		os.Exit(1)
+	}
+}
+
+func printUsage() {
+	fmt.Fprintln(os.Stderr, `iogrid — P2P VPN for residential exit IPs
+
+Usage:
+  iogrid login [--api-key=KEY] [--customer-id=ID]
+  iogrid vpn connect --region <r> [--coordinator=URL]
+  iogrid vpn disconnect
+  iogrid vpn status
+  iogrid logout
+  iogrid version
+  iogrid help
+
+Run "iogrid login" first to store credentials, then "iogrid vpn connect --region us-east-1".`)
+}
+
+// --- login / logout ---------------------------------------------------------
+
+func cmdLogin(args []string) {
+	fs := flag.NewFlagSet("login", flag.ExitOnError)
+	apiKey := fs.String("api-key", "", "iov_live_* API key (mint from iogrid.org/vpn)")
+	customerID := fs.String("customer-id", "", "your customer UUID (from iogrid.org/account)")
+	coordinator := fs.String("coordinator", defaultCoordinator, "Coordinator base URL")
+	_ = fs.Parse(args)
+
+	if *apiKey == "" || *customerID == "" {
+		fmt.Fprintln(os.Stderr, "ERROR: --api-key and --customer-id are required.")
+		fmt.Fprintln(os.Stderr, "       Get them at https://iogrid.org/vpn")
+		fmt.Fprintln(os.Stderr, "       (Interactive browser login coming via #531.)")
+		os.Exit(1)
+	}
+
+	creds := credentials{
+		CustomerID:  *customerID,
+		APIKey:      *apiKey,
+		Coordinator: *coordinator,
+	}
+	if err := writeCredentials(creds); err != nil {
+		die("write credentials: %v", err)
+	}
+	fmt.Printf("✓ Logged in as %s (coordinator: %s)\n", *customerID, *coordinator)
+	fmt.Println("Now run: iogrid vpn connect --region us-east-1")
+}
+
+func cmdLogout(args []string) {
+	path := credsPath()
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		die("logout: %v", err)
+	}
+	fmt.Println("✓ Logged out — credentials removed from", path)
+}
+
+// --- vpn connect / disconnect / status -------------------------------------
+
+func cmdVPNConnect(args []string) {
+	fs := flag.NewFlagSet("connect", flag.ExitOnError)
+	region := fs.String("region", "us-east-1", "Region to connect to (us-east-1, eu-west-1, ap-south-1, ...)")
+	coordinatorOverride := fs.String("coordinator", "", "Override coordinator URL (debug only)")
+	_ = fs.Parse(args)
+
+	creds, err := readCredentials()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ERROR: not logged in. Run `iogrid login` first.")
+		os.Exit(1)
+	}
+
+	coordinator := creds.Coordinator
+	if *coordinatorOverride != "" {
+		coordinator = *coordinatorOverride
+	}
+
+	// Sanity-check the coordinator is reachable before starting tunnel setup
+	if err := pingCoordinator(coordinator); err != nil {
+		die("coordinator unreachable at %s: %v", coordinator, err)
+	}
+
+	fmt.Printf("Connecting to iogrid VPN (region=%s, coordinator=%s)...\n", *region, coordinator)
+
+	client := vpn.NewBastionClient(coordinator, creds.CustomerID, creds.APIKey)
+	ctx, cancel := signalContext()
+	defer cancel()
+
+	if err := client.Connect(ctx, *region); err != nil {
+		die("vpn connect failed: %v", err)
+	}
+
+	// Persist session state so `iogrid vpn status` + `iogrid vpn disconnect` work
+	// (the SDK exposes sessionID/ifName as private fields — we store what we
+	// know from the Connect log output for now; future revision should expose
+	// them via getters on BastionClient).
+	state := sessionState{
+		Region:      *region,
+		ConnectedAt: time.Now(),
+	}
+	_ = writeSessionState(state)
+
+	fmt.Println()
+	fmt.Println("✓ VPN tunnel established. Verify your exit IP:")
+	fmt.Println("    curl ifconfig.me")
+	fmt.Println()
+	fmt.Println("Run `iogrid vpn disconnect` when done.")
+}
+
+func cmdVPNDisconnect(args []string) {
+	state, err := readSessionState()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "no active VPN session — `iogrid vpn status` shows nothing.")
+		os.Exit(0)
+	}
+
+	creds, err := readCredentials()
+	if err != nil {
+		die("not logged in")
+	}
+
+	fmt.Printf("Disconnecting VPN session (region=%s)...\n", state.Region)
+
+	client := vpn.NewBastionClient(creds.Coordinator, creds.CustomerID, creds.APIKey)
+	ctx, cancel := signalContext()
+	defer cancel()
+
+	if err := client.Disconnect(ctx); err != nil {
+		// Even on failure, remove the local state so we don't get stuck
+		_ = os.Remove(sessionStatePath())
+		die("disconnect: %v", err)
+	}
+	_ = os.Remove(sessionStatePath())
+	fmt.Println("✓ VPN tunnel closed.")
+}
+
+func cmdVPNStatus(args []string) {
+	state, err := readSessionState()
+	if err != nil {
+		fmt.Println("status: no active VPN session")
+		return
+	}
+	fmt.Printf("status: connected\n")
+	fmt.Printf("  region:     %s\n", state.Region)
+	fmt.Printf("  session_id: %s\n", state.SessionID)
+	fmt.Printf("  connected:  %s (%s ago)\n", state.ConnectedAt.Format(time.RFC3339), time.Since(state.ConnectedAt).Round(time.Second))
+	fmt.Printf("  interface:  %s\n", state.InterfaceName)
+}
+
+// --- helpers ---------------------------------------------------------------
+
+func coordinatorFromEnvOrDefault() string {
+	if v := os.Getenv("IOGRID_COORDINATOR"); v != "" {
+		return v
+	}
+	if creds, err := readCredentials(); err == nil && creds.Coordinator != "" {
+		return creds.Coordinator
+	}
+	return defaultCoordinator
+}
+
+func pingCoordinator(base string) error {
+	c := &http.Client{Timeout: 5 * time.Second}
+	resp, err := c.Get(base + "/healthz")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("status %d", resp.StatusCode)
+	}
+	return nil
+}
+
+func signalContext() (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(context.Background())
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		fmt.Fprintln(os.Stderr, "\nsignal received, cleaning up...")
+		cancel()
+	}()
+	return ctx, cancel
+}
+
+func configDir() string {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		dir = filepath.Join(os.Getenv("HOME"), ".config")
+	}
+	return filepath.Join(dir, configDirName)
+}
+
+func credsPath() string        { return filepath.Join(configDir(), credsFileName) }
+func sessionStatePath() string { return filepath.Join(configDir(), "session.json") }
+
+func writeCredentials(c credentials) error {
+	if err := os.MkdirAll(configDir(), 0700); err != nil {
+		return err
+	}
+	data, _ := json.MarshalIndent(c, "", "  ")
+	return os.WriteFile(credsPath(), data, 0600)
+}
+
+func readCredentials() (credentials, error) {
+	var c credentials
+	data, err := os.ReadFile(credsPath())
+	if err != nil {
+		return c, err
+	}
+	return c, json.Unmarshal(data, &c)
+}
+
+func writeSessionState(s sessionState) error {
+	if err := os.MkdirAll(configDir(), 0700); err != nil {
+		return err
+	}
+	data, _ := json.MarshalIndent(s, "", "  ")
+	return os.WriteFile(sessionStatePath(), data, 0600)
+}
+
+func readSessionState() (sessionState, error) {
+	var s sessionState
+	data, err := os.ReadFile(sessionStatePath())
+	if err != nil {
+		return s, err
+	}
+	return s, json.Unmarshal(data, &s)
+}
+
+func die(format string, args ...interface{}) {
+	fmt.Fprintf(os.Stderr, "ERROR: "+format+"\n", args...)
+	os.Exit(1)
+}

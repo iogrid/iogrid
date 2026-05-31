@@ -70,8 +70,29 @@ func (h *GetSession) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Build a wire-friendly response — Session.State is a proto enum
+	// which serialises as an int by default; the SDK expects a string,
+	// and we surface alt-provider candidates here as the customer's
+	// initial-tunnel ICE list. Without this, BastionClient.Connect
+	// (which calls GET /sessions/{id} then builds a tunnel from the
+	// returned candidates) blows up on JSON decode.
+	candidates, _ := h.st.GetProviderCandidates(r.Context(), session.CurrentProvider)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(session)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"session_id":              session.ID.String(),
+		"customer_id":             session.CustomerID.String(),
+		"region":                  session.Region,
+		"primary_provider_id":     session.PrimaryProvider.String(),
+		"current_provider_id":     session.CurrentProvider.String(),
+		"state":                   session.State.String(),
+		"bytes_in":                session.BytesIn,
+		"bytes_out":               session.BytesOut,
+		"created_at":              session.CreatedAt,
+		"last_activity_at":        session.LastActivityAt,
+		"provider_id":             session.CurrentProvider.String(),
+		"provider_wg_public_key":  "", // populated when daemon registers WG key — TBD
+		"ice_candidates":          candidates,
+	})
 }
 
 // ConfirmCandidate handles PUT /v1/vpn/sessions/{sessionID}/confirm

@@ -47,6 +47,14 @@ type Store interface {
 	// CleanupExpiredCandidates deletes expired ICE candidates.
 	CleanupExpiredCandidates(ctx context.Context) error
 
+	// CleanupStaleSessions marks sessions terminated if they haven't
+	// received a /refresh heartbeat in `staleAfter`. Customer SDKs
+	// heartbeat every 30s by default, so a 5-minute threshold means
+	// ~10 missed ticks before cleanup — generous enough that a
+	// transient network hiccup on the bastion doesn't yank the session.
+	// Returns the number of sessions cleaned up.
+	CleanupStaleSessions(ctx context.Context, staleAfter time.Duration) (int, error)
+
 	// --- Provider Health & Failover ---
 
 	// RegisterProvider inserts (or refreshes) a provider row. Used at

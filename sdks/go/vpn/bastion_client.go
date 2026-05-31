@@ -199,12 +199,20 @@ type SessionSnapshot struct {
 	ICECandidates           []ICECandidate  `json:"ice_candidates"`
 }
 
+// ICECandidate matches the wire format vpn-svc emits, which is the
+// proto-generated JSON shape (snake_case fields per protobuf JSON spec).
 type ICECandidate struct {
-	Candidate     string `json:"candidate"`
-	Port          uint32 `json:"port"`
-	Type          string `json:"type"`
-	LatencyMs     uint32 `json:"latency_ms"`
-	IsPreferred   bool   `json:"is_preferred"`
+	Foundation        string `json:"foundation"`
+	Component         uint32 `json:"component"`
+	Transport         string `json:"transport"`
+	Priority          uint32 `json:"priority"`
+	ConnectionAddress string `json:"connection_address"`
+	ConnectionPort    uint32 `json:"connection_port"`
+	CandidateType     string `json:"candidate_type"`
+	RelatedAddress    string `json:"related_address"`
+	RelatedPort       uint32 `json:"related_port"`
+	LatencyMs         uint32 `json:"latency_ms"`
+	IsPreferred       bool   `json:"is_preferred"`
 }
 
 type ConfirmCandidateReq struct {
@@ -295,9 +303,9 @@ func (c *BastionClient) getProviderInfo(ctx context.Context, sessionID string) (
 	var candidates []*MockIceCandidate
 	for _, cand := range sessionSnapshot.ICECandidates {
 		candidates = append(candidates, &MockIceCandidate{
-			ConnectionAddress: cand.Candidate,
-			ConnectionPort:    cand.Port,
-			CandidateType:     cand.Type,
+			ConnectionAddress: cand.ConnectionAddress,
+			ConnectionPort:    cand.ConnectionPort,
+			CandidateType:     cand.CandidateType,
 			LatencyMs:         cand.LatencyMs,
 		})
 	}

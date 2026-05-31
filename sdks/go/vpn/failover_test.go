@@ -57,7 +57,7 @@ func TestFailoverDetector_HTTPRoundtrip(t *testing.T) {
 			OldProviderID: "old-prov",
 			NewProviderID: "new-prov",
 			ICECandidates: []ICECandidate{
-				{Candidate: "192.0.2.50", Port: 51820, Type: "srflx", LatencyMs: 40},
+				{ConnectionAddress: "192.0.2.50", ConnectionPort: 51820, CandidateType: "srflx", LatencyMs: 40},
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -81,8 +81,8 @@ func TestFailoverDetector_HTTPRoundtrip(t *testing.T) {
 	if len(resp.ICECandidates) != 1 {
 		t.Errorf("expected 1 candidate, got %d", len(resp.ICECandidates))
 	}
-	if resp.ICECandidates[0].Candidate != "192.0.2.50" {
-		t.Errorf("Candidate = %q, want 192.0.2.50", resp.ICECandidates[0].Candidate)
+	if resp.ICECandidates[0].ConnectionAddress != "192.0.2.50" {
+		t.Errorf("ConnectionAddress = %q, want 192.0.2.50", resp.ICECandidates[0].ConnectionAddress)
 	}
 }
 

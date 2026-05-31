@@ -138,9 +138,9 @@ func (f *FailoverDetector) triggerFailover(ctx context.Context, reason string) e
 	mockCandidates := make([]*MockIceCandidate, 0, len(resp.ICECandidates))
 	for _, c := range resp.ICECandidates {
 		mockCandidates = append(mockCandidates, &MockIceCandidate{
-			ConnectionAddress: c.Candidate,
-			ConnectionPort:    c.Port,
-			CandidateType:     c.Type,
+			ConnectionAddress: c.ConnectionAddress,
+			ConnectionPort:    c.ConnectionPort,
+			CandidateType:     c.CandidateType,
 			LatencyMs:         c.LatencyMs,
 		})
 	}
