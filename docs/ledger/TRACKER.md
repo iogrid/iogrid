@@ -4,11 +4,11 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-31T06:45Z` 🟢 cron-refresh: +3 commits since last TRACKER bump |
+| Last refreshed | `2026-05-31T07:10Z` ✍️ manual — PR #492 merged, PR #494 merged |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
-| Merged PRs | **120+** since bootstrap |
-| Open PRs | **2** — [#492](https://github.com/iogrid/iogrid/pull/492) security(daemon/tunnel): SSRF+cap+timeout (**fmt fixed, CI re-running**); [#493](https://github.com/iogrid/iogrid/pull/493) fix(vpn-gateway): userspace WireGuard drop NET_ADMIN (CI running) |
-| Open issues | **9** — #487/#488 status/uat (PR #492); #478 status/in-progress (PR #493); #489/#490/#491 new daemon/tunnel; #484/#485 parked; #79/#398/#439 founder-physical/parked |
+| Merged PRs | **122+** since bootstrap |
+| Open PRs | **1** — [#493](https://github.com/iogrid/iogrid/pull/493) fix(vpn-gateway): userspace WireGuard drop NET_ADMIN (go.mod fix pushed, CI re-running) |
+| Open issues | **7** — #487/#488 status/uat → closing (#492 all-green); #478 status/in-progress (PR #493); #490 status/uat → closing (#494 all-green); #489/#491 backlog; #484/#485 parked |
 | Live URL state post-#428 | <img alt="LIVE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> `iogrid.org` serves product app (was marketing). `app.iogrid.org` 301 → `iogrid.org`. `admin.iogrid.org` 503 (waiting #426 ghcr unblock). Marketing folded into web/ — `marketing/` workspace deleted. New design system live across landing + provide/customer/vpn/account/install. |
 | Prior false-progress | <img alt="REVERTED" src="https://img.shields.io/badge/-FALSE-cf222e?style=flat-square" /> PRs #364 / #383 / #408 — none satisfied founder's "INDEPENDENT admin app" criterion. Replaced by #425 (real separate admin codebase + Deployment + CI). |
 | EPIC closure | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 17 / 17 closed by audit |
