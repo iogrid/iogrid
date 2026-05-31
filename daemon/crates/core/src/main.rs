@@ -135,7 +135,7 @@ async fn run_daemon(state_dir: &std::path::Path) -> Result<()> {
     supervisor.run().await
 }
 
-/// CSR + keypair generated locally by the daemon at pairing time.
+/// CSR + keypair the daemon presents at pairing time.
 ///
 /// The PEM-encoded private key stays on disk (`~/.iogrid/key.pem`); only
 /// the CSR PEM travels over the wire to providers-svc. Without this the
@@ -146,16 +146,33 @@ struct LocalPairingKey {
     key_pem: String,
 }
 
-/// Generate a fresh ECDSA-P256 keypair + matching PKCS#10 CSR.
+/// Reuse the daemon's persisted ECDSA-P256 keypair if `state_dir/key.pem`
+/// exists + is non-empty; otherwise mint a fresh one.
 ///
 /// The CSR's subject CommonName is intentionally a placeholder
 /// ("daemon-pair-pending"): providers-svc rewrites the issued
 /// certificate's CN to the real provider id (it does not echo the CSR's
-/// subject back). Extracted so the round-trip test below can run without
-/// touching the network.
-fn mint_local_pairing_key() -> Result<LocalPairingKey> {
-    let key_pair = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256)
-        .context("rcgen: generate ECDSA P-256 keypair")?;
+/// subject back).
+///
+/// Why reuse — refs #502. providers-svc dedupes pair calls by the
+/// daemon's SubjectPublicKey: re-pairing from the same host MUST present
+/// the same SPKI so the coordinator recognises the row and refreshes it
+/// in-place (preserving `provider_id`) instead of minting a fresh UUID
+/// row that orphans every existing workload assignment / earnings entry.
+/// macOS hostnames drift (Bonjour `-2`/`-3` suffixes, cold-boot
+/// `localhost`, user-driven renames), so the OS-hostname-based
+/// `display_name` dedupe alone is not enough — the SPKI is the stable
+/// identity anchor. Wiping `~/.iogrid` (uninstall + reinstall) is the
+/// only path that mints a genuinely new identity, which is the desired
+/// contract.
+fn load_or_mint_pairing_key(state_dir: &std::path::Path) -> Result<LocalPairingKey> {
+    let key_path = state_dir.join("key.pem");
+    let key_pair = match std::fs::read_to_string(&key_path) {
+        Ok(pem) if !pem.trim().is_empty() => rcgen::KeyPair::from_pem(&pem)
+            .with_context(|| format!("rcgen: load existing key.pem at {}", key_path.display()))?,
+        _ => rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256)
+            .context("rcgen: generate ECDSA P-256 keypair")?,
+    };
     let mut params = rcgen::CertificateParams::new(Vec::<String>::new())
         .context("rcgen: create CertificateParams")?;
     params.distinguished_name = rcgen::DistinguishedName::new();
@@ -183,9 +200,11 @@ async fn run_pair(
     // Persist so the supervisor picks up the URL on its next launch.
     cfg.save()?;
 
-    // Mint a local ECDSA-P256 keypair + CSR BEFORE the network call so
-    // that a server-side failure leaves nothing half-written on disk.
-    let local = mint_local_pairing_key().context("generate local keypair")?;
+    // Build the local CSR BEFORE the network call so that a server-side
+    // failure leaves nothing half-written on disk. Reuses the persisted
+    // keypair when present (refs #502) so re-pairs from the same host
+    // present a stable SubjectPublicKey to providers-svc.
+    let local = load_or_mint_pairing_key(state_dir).context("load or mint local keypair")?;
 
     let url = format!("{}/api/v1/providers/pair", cfg.coordinator_url);
     let client = iogrid_transport::identity::PairingClient { pair_endpoint: url };
@@ -589,8 +608,9 @@ mod pairing_tests {
     /// must succeed so that downstream `Identity::from_pem(cert, key)`
     /// in tonic does not abort with "tls configuration failed".
     #[test]
-    fn mint_local_pairing_key_emits_real_csr_and_key() {
-        let local = mint_local_pairing_key().expect("mint local key");
+    fn load_or_mint_pairing_key_emits_real_csr_and_key() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let local = load_or_mint_pairing_key(dir.path()).expect("mint local key");
         assert!(
             local
                 .csr_pem
@@ -631,5 +651,56 @@ mod pairing_tests {
         bundle.save(dir.path()).expect("save bundle");
         let reloaded = IdentityBundle::load(dir.path()).expect("load bundle");
         assert_eq!(reloaded.key_pem, bundle.key_pem);
+    }
+
+    /// Refs #502. Re-pairing from the same `state_dir` MUST reuse the
+    /// persisted keypair so the CSR carries the same SubjectPublicKey on
+    /// every call. Without this, providers-svc's `(owner, public_key)`
+    /// dedupe would miss on every re-pair and orphan the existing
+    /// provider row with a fresh UUID.
+    #[test]
+    fn load_or_mint_pairing_key_reuses_existing_keypair() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let first = load_or_mint_pairing_key(dir.path()).expect("first pair");
+        // Simulate what run_pair does on success — persist key.pem alongside
+        // the issued cert (IdentityBundle::save).
+        std::fs::write(dir.path().join("key.pem"), first.key_pem.as_bytes())
+            .expect("persist key.pem");
+        let second = load_or_mint_pairing_key(dir.path()).expect("second pair");
+        assert_eq!(
+            first.key_pem, second.key_pem,
+            "re-pair must reuse the persisted keypair (refs #502)",
+        );
+    }
+
+    /// Refs #502. Genuine first-pair (no `key.pem` on disk) mints fresh
+    /// each time. Two back-to-back invocations on an empty state_dir
+    /// produce different keypairs — confirms the reuse path is gated on
+    /// the file actually existing rather than always producing the same
+    /// deterministic bytes.
+    #[test]
+    fn load_or_mint_pairing_key_mints_fresh_when_no_existing_key() {
+        let dir_a = tempfile::tempdir().expect("tempdir");
+        let dir_b = tempfile::tempdir().expect("tempdir");
+        let a = load_or_mint_pairing_key(dir_a.path()).expect("mint a");
+        let b = load_or_mint_pairing_key(dir_b.path()).expect("mint b");
+        assert_ne!(
+            a.key_pem, b.key_pem,
+            "two fresh-mint calls must produce distinct keypairs",
+        );
+    }
+
+    /// Refs #502. An empty `key.pem` (truncated file, half-written from a
+    /// crash) is treated as "no key" — fresh-mint path runs rather than
+    /// failing the parse.
+    #[test]
+    fn load_or_mint_pairing_key_mints_fresh_when_existing_key_is_empty() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("key.pem"), b"   \n").expect("write empty");
+        let local = load_or_mint_pairing_key(dir.path()).expect("fresh mint");
+        assert!(
+            local.key_pem.contains("-----BEGIN"),
+            "fresh-mint must produce a real PEM block",
+        );
     }
 }

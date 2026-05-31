@@ -383,6 +383,33 @@ func (p *pgStore) GetProviderByOwnerAndDisplayName(ctx context.Context, ownerUse
 	return prov, nil
 }
 
+// GetProviderByOwnerAndPublicKey implements the Store contract — see
+// the interface comment. SQL filter is exact bytes-match on
+// (owner_user_id, public_key). Returns ErrNotFound when publicKey is
+// empty or the owner_user_id fails UUID parse so the handler falls
+// through cleanly to the display_name fallback path. Refs #502.
+func (p *pgStore) GetProviderByOwnerAndPublicKey(ctx context.Context, ownerUserID string, publicKey []byte) (*Provider, error) {
+	if len(publicKey) == 0 {
+		return nil, ErrNotFound
+	}
+	owner, err := parseUUID("ownerUserID", ownerUserID)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	row := p.pool.QueryRow(ctx,
+		`SELECT `+selectProviderCols+` FROM providers WHERE owner_user_id = $1 AND public_key = $2 LIMIT 1`,
+		owner, publicKey,
+	)
+	prov, err := scanProvider(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get provider by owner+public_key: %w", err)
+	}
+	return prov, nil
+}
+
 func (p *pgStore) ListProviders(ctx context.Context, opts ListOptions) ([]*Provider, string, error) {
 	args := []any{}
 	where := []string{}

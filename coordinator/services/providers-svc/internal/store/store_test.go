@@ -449,3 +449,58 @@ func TestMemStore_GetProviderByOwnerAndDisplayName_EmptyDisplayNameNotFound(t *t
 		t.Fatalf("expected ErrNotFound for empty display_name, got %v", err)
 	}
 }
+
+// --- #502 — owner+public_key (SPKI) lookup ---------------------------------
+
+// TestMemStore_GetProviderByOwnerAndPublicKey_HappyPath exercises the
+// cryptographic dedupe key — what the handler hits BEFORE the
+// display_name lookup to survive macOS hostname drift.
+func TestMemStore_GetProviderByOwnerAndPublicKey_HappyPath(t *testing.T) {
+	ctx := context.Background()
+	s := NewInMemory()
+	key := []byte{0x30, 0x59, 0x30, 0x13, 0x06, 0x07, 0xDE, 0xAD, 0xBE, 0xEF}
+	p := &Provider{OwnerUserID: "ownerSPKI", DisplayName: "any-name", PublicKey: key}
+	if err := s.CreateProvider(ctx, p); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	got, err := s.GetProviderByOwnerAndPublicKey(ctx, "ownerSPKI", key)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.ID != p.ID {
+		t.Fatalf("expected same row id, got %q vs %q", got.ID, p.ID)
+	}
+}
+
+// TestMemStore_GetProviderByOwnerAndPublicKey_WrongOwnerNotFound guards
+// the multi-tenant boundary: even if two owners somehow ended up with
+// the same public_key bytes, the lookup MUST filter by owner_user_id.
+func TestMemStore_GetProviderByOwnerAndPublicKey_WrongOwnerNotFound(t *testing.T) {
+	ctx := context.Background()
+	s := NewInMemory()
+	key := []byte{0xCA, 0xFE, 0xBA, 0xBE}
+	if err := s.CreateProvider(ctx, &Provider{OwnerUserID: "ownerX", PublicKey: key, DisplayName: "x"}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if _, err := s.GetProviderByOwnerAndPublicKey(ctx, "ownerY", key); err != ErrNotFound {
+		t.Fatalf("expected ErrNotFound for cross-owner public_key lookup, got %v", err)
+	}
+}
+
+// TestMemStore_GetProviderByOwnerAndPublicKey_EmptyKeyNotFound locks
+// the safety contract: an empty public_key (legacy / partial proto)
+// MUST return ErrNotFound so the handler falls through to the
+// display_name fallback instead of collapsing every legacy row.
+func TestMemStore_GetProviderByOwnerAndPublicKey_EmptyKeyNotFound(t *testing.T) {
+	ctx := context.Background()
+	s := NewInMemory()
+	if err := s.CreateProvider(ctx, &Provider{OwnerUserID: "ownerZ", DisplayName: "z"}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if _, err := s.GetProviderByOwnerAndPublicKey(ctx, "ownerZ", nil); err != ErrNotFound {
+		t.Fatalf("expected ErrNotFound for nil public_key, got %v", err)
+	}
+	if _, err := s.GetProviderByOwnerAndPublicKey(ctx, "ownerZ", []byte{}); err != ErrNotFound {
+		t.Fatalf("expected ErrNotFound for empty public_key, got %v", err)
+	}
+}

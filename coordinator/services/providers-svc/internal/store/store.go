@@ -10,6 +10,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"sort"
@@ -204,6 +205,23 @@ type Store interface {
 	// fallback path (legacy daemons that don't ship the field) is forced
 	// to create a fresh row rather than colliding on the empty string.
 	GetProviderByOwnerAndDisplayName(ctx context.Context, ownerUserID, displayName string) (*Provider, error)
+
+	// GetProviderByOwnerAndPublicKey returns the existing row keyed by
+	// (owner_user_id, public_key) — the cryptographic dedupe key (#502).
+	// Preferred over GetProviderByOwnerAndDisplayName: the daemon's SPKI
+	// is daemon-controlled and survives macOS hostname drift (Bonjour
+	// `-2`/`-3` suffixes on neighbour collisions, cold-boot `localhost`
+	// before Wi-Fi, System Preferences renames, post-reimaging factory
+	// reset) where the OS hostname does not. Handlers call this BEFORE
+	// the display_name lookup so a re-pair from the same daemon (which
+	// persists its key.pem across `iogridd pair` invocations as of the
+	// matching daemon-side fix) lands on the existing row.
+	//
+	// MUST be exact bytes-match on the public_key column. Empty
+	// publicKey returns ErrNotFound immediately so callers fall through
+	// to the legacy display_name path rather than colliding on the
+	// empty byte slice.
+	GetProviderByOwnerAndPublicKey(ctx context.Context, ownerUserID string, publicKey []byte) (*Provider, error)
 
 	// SelectProviderForOwner returns the deterministic "which paired
 	// daemon answers for this user" pick for /provide/* surfaces:
@@ -430,6 +448,24 @@ func (m *memStore) GetProviderByOwnerAndDisplayName(_ context.Context, ownerUser
 	defer m.mu.RUnlock()
 	for _, p := range m.providers {
 		if p.OwnerUserID == ownerUserID && p.DisplayName == displayName {
+			out := *p
+			return &out, nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
+// GetProviderByOwnerAndPublicKey implements the Store contract — see the
+// interface comment. In-memory version: linear scan over the owner's
+// rows, exact bytes-match on public_key.
+func (m *memStore) GetProviderByOwnerAndPublicKey(_ context.Context, ownerUserID string, publicKey []byte) (*Provider, error) {
+	if ownerUserID == "" || len(publicKey) == 0 {
+		return nil, ErrNotFound
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, p := range m.providers {
+		if p.OwnerUserID == ownerUserID && bytes.Equal(p.PublicKey, publicKey) {
 			out := *p
 			return &out, nil
 		}
