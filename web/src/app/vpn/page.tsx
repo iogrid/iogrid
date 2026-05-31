@@ -12,18 +12,18 @@ export const metadata: Metadata = {
 const STEPS = [
   {
     n: "1",
-    title: "Install the daemon (or the mobile app)",
-    body: "On a PC or Mac, install iogridd from /install — it runs as a tiny background service and routes your apps through the mesh. On iOS or Android, install the iogrid mobile app from the App Store or Play Store. Same identity, all platforms.",
+    title: "Install the CLI (one line)",
+    body: "On a Mac or Linux box, run: curl -fsSL https://iogrid.org/install-cli.sh | sh. Windows users grab the .msi from releases.iogrid.org. The iogrid CLI is a small static binary — no daemon, no system tray, no autostart. Mobile users install the iogrid app from the App Store / Play Store (consume-only by App Store policy).",
   },
   {
     n: "2",
-    title: "Pick an exit region",
-    body: "Choose any region in the mesh. The router connects you over WireGuard to an opted-in provider in that geography. Sessions are sticky to the same exit while you stay on the same network.",
+    title: "Mint a VPN key + connect",
+    body: "Sign in at iogrid.org/customer/vpn and click 'Mint VPN key'. Paste it: iogrid login --api-key=KEY --customer-id=ID. Then: iogrid vpn connect --region us-east-1. WireGuard handshake happens over an automatically-discovered direct path to a residential provider — no central proxy hop, no latency tax.",
   },
   {
     n: "3",
     title: "Browse — your bytes do not get sold",
-    body: "Free tier traffic comes from the same residential providers that power the proxy network, but the routing log is keyed to you only as a counter, not a sellable profile. We make money on the B2B side, not by reselling your DNS.",
+    body: "Free tier traffic comes from the same residential providers that power the proxy network. The routing log is keyed to you only as a counter, not a sellable profile. iogrid makes money on the B2B side, not by reselling your DNS. Run iogrid vpn doctor anytime for a connectivity self-check.",
   },
 ];
 
