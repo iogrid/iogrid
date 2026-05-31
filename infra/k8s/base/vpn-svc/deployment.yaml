@@ -79,6 +79,14 @@ spec:
               value: ":3478"
             - name: LISTEN_ADDR
               value: ":8080"
+            # API key validation against billing-svc (#531). Without this,
+            # every POST /v1/vpn/sessions is unauthenticated (boot WARN).
+            # Set to the in-cluster billing-svc Service URL — BillingValidator
+            # caches positive ValidateApiKey results for 60s; fails closed
+            # on RPC errors so a transient billing-svc outage doesn't
+            # accidentally grant access to unvalidated keys.
+            - name: BILLING_SVC_URL
+              value: "http://billing-svc.iogrid.svc.cluster.local:8080"
           envFrom:
             - configMapRef:
                 name: vpn-svc-config
