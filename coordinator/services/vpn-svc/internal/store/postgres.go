@@ -327,6 +327,32 @@ func (p *Postgres) SelectProviderForSession(ctx context.Context, region string) 
 	return providerID, nil
 }
 
+// SelectAlternateProvider implements Store.
+func (p *Postgres) SelectAlternateProvider(ctx context.Context, region string, exclude []uuid.UUID) (uuid.UUID, error) {
+	// Build a NOT IN clause; pgx supports = ANY($N::uuid[]) cleanly
+	query := `
+		SELECT id FROM vpn_providers
+		WHERE region = $1 AND status = 'healthy' AND id <> ALL($2::uuid[])
+		ORDER BY session_count ASC
+		LIMIT 1
+	`
+	excludeStrs := make([]uuid.UUID, len(exclude))
+	copy(excludeStrs, exclude)
+
+	var providerID uuid.UUID
+	err := p.pool.QueryRow(ctx, query, region, excludeStrs).Scan(&providerID)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("select alternate provider: %w", err)
+	}
+	updateQuery := `
+		UPDATE vpn_providers
+		SET session_count = session_count + 1, last_seen_at = NOW()
+		WHERE id = $1
+	`
+	_, _ = p.pool.Exec(ctx, updateQuery, providerID)
+	return providerID, nil
+}
+
 // UpdateProviderHealth implements Store.
 func (p *Postgres) UpdateProviderHealth(ctx context.Context, providerID uuid.UUID, status string, lastSeen time.Time) error {
 	query := `

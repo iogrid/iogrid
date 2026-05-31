@@ -161,6 +161,19 @@ func (m *Memory) CleanupExpiredCandidates(ctx context.Context) error {
 	return nil
 }
 
+// SeedProvider is a test helper that injects a provider into the in-memory store.
+// Production code paths register providers via dedicated registration RPCs (TBD).
+func (m *Memory) SeedProvider(id uuid.UUID, region, status string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.providers[id] = &ProviderInfo{
+		ID:         id,
+		Region:     region,
+		Status:     status,
+		LastSeenAt: time.Now(),
+	}
+}
+
 // GetProvidersInRegion implements Store.
 func (m *Memory) GetProvidersInRegion(ctx context.Context, region string) ([]*ProviderInfo, error) {
 	m.mu.RLock()
@@ -194,6 +207,34 @@ func (m *Memory) SelectProviderForSession(ctx context.Context, region string) (u
 		if p.SessionCount < selected.SessionCount {
 			selected = p
 		}
+	}
+	selected.SessionCount++
+	selected.LastSeenAt = time.Now()
+	return selected.ID, nil
+}
+
+// SelectAlternateProvider implements Store.
+func (m *Memory) SelectAlternateProvider(ctx context.Context, region string, exclude []uuid.UUID) (uuid.UUID, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	excludeSet := make(map[uuid.UUID]bool, len(exclude))
+	for _, id := range exclude {
+		excludeSet[id] = true
+	}
+	var selected *ProviderInfo
+	for _, provider := range m.providers {
+		if provider.Region != region || provider.Status != "healthy" {
+			continue
+		}
+		if excludeSet[provider.ID] {
+			continue
+		}
+		if selected == nil || provider.SessionCount < selected.SessionCount {
+			selected = provider
+		}
+	}
+	if selected == nil {
+		return uuid.Nil, fmt.Errorf("no alternate healthy provider in region %s (excluded %d)", region, len(exclude))
 	}
 	selected.SessionCount++
 	selected.LastSeenAt = time.Now()
