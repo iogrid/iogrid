@@ -27,7 +27,10 @@ mod vpn_listener;
 pub use vpn_listener::VpnListener;
 
 pub mod inner_sink;
-pub use inner_sink::{InnerFamily, InnerPacket, InnerPacketSink, LoggingSink};
+pub use inner_sink::{
+    IcmpEchoSink, InnerFamily, InnerPacket, InnerPacketSink, LoggingSink, OutboundEncapsulator,
+    OutboundError,
+};
 
 #[cfg(feature = "routing-real")]
 pub mod boringtun_impl;
