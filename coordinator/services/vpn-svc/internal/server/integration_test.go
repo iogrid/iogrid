@@ -122,6 +122,90 @@ func TestIntegration_FailoverNoProviders(t *testing.T) {
 	}
 }
 
+func TestIntegration_WGBindingFlow(t *testing.T) {
+	// Closes the loop for #536: customer creates session → daemon polls
+	// assigned-sessions → daemon binds provider WG key → customer reads
+	// it back via GET /sessions/{id}.
+	srv, st := boot(t)
+	mem := st.(*store.Memory)
+
+	providerID := uuid.New()
+	mem.SeedProvider(providerID, "us-east-1", "healthy")
+
+	// Create + bind session directly so we don't need RequestSession's
+	// provider-assignment logic for this slice (that's separate scope).
+	sessionID := uuid.New()
+	customerID := uuid.New()
+	_ = mem.CreateSession(context.Background(), &store.Session{
+		ID:              sessionID,
+		CustomerID:      customerID,
+		Region:          "us-east-1",
+		PrimaryProvider: providerID,
+		CurrentProvider: providerID,
+	})
+
+	// 1. Daemon polls assigned sessions — sees one unbound
+	listResp, listBody := func() (*http.Response, []byte) {
+		r, err := http.Get(srv.URL + "/v1/vpn/providers/" + providerID.String() + "/assigned-sessions")
+		if err != nil {
+			t.Fatalf("GET assigned-sessions: %v", err)
+		}
+		defer r.Body.Close()
+		b, _ := io.ReadAll(r.Body)
+		return r, b
+	}()
+	if listResp.StatusCode != http.StatusOK {
+		t.Fatalf("list assigned: status=%d body=%s", listResp.StatusCode, listBody)
+	}
+	var listOut map[string]interface{}
+	_ = json.Unmarshal(listBody, &listOut)
+	if count, _ := listOut["count"].(float64); int(count) != 1 {
+		t.Errorf("assigned count = %v, want 1", listOut["count"])
+	}
+
+	// 2. Daemon binds its WG public key for that session
+	bindReq := map[string]string{"provider_wg_public_key": "TESTKEY=daemon-wg-pubkey"}
+	bindResp, bindBody := postJSON(t, srv.URL+"/v1/vpn/sessions/"+sessionID.String()+"/bind-provider", bindReq)
+	if bindResp.StatusCode != http.StatusOK {
+		t.Fatalf("bind-provider: status=%d body=%s", bindResp.StatusCode, bindBody)
+	}
+
+	// 3. Customer reads session back, sees the bound key
+	getResp, getBody := func() (*http.Response, []byte) {
+		r, err := http.Get(srv.URL + "/v1/vpn/sessions/" + sessionID.String())
+		if err != nil {
+			t.Fatalf("GET session: %v", err)
+		}
+		defer r.Body.Close()
+		b, _ := io.ReadAll(r.Body)
+		return r, b
+	}()
+	if getResp.StatusCode != http.StatusOK {
+		t.Fatalf("get session: status=%d body=%s", getResp.StatusCode, getBody)
+	}
+	var getOut map[string]interface{}
+	_ = json.Unmarshal(getBody, &getOut)
+	if pubkey, _ := getOut["provider_wg_public_key"].(string); pubkey != "TESTKEY=daemon-wg-pubkey" {
+		t.Errorf("provider_wg_public_key after bind = %q, want TESTKEY=daemon-wg-pubkey", pubkey)
+	}
+
+	// 4. Daemon polls again — session no longer appears (already bound)
+	listResp2, listBody2 := func() (*http.Response, []byte) {
+		r, _ := http.Get(srv.URL + "/v1/vpn/providers/" + providerID.String() + "/assigned-sessions")
+		defer r.Body.Close()
+		b, _ := io.ReadAll(r.Body)
+		return r, b
+	}()
+	if listResp2.StatusCode != http.StatusOK {
+		t.Fatalf("re-list: status=%d body=%s", listResp2.StatusCode, listBody2)
+	}
+	var listOut2 map[string]interface{}
+	_ = json.Unmarshal(listBody2, &listOut2)
+	if count, _ := listOut2["count"].(float64); int(count) != 0 {
+		t.Errorf("post-bind assigned count = %v, want 0 (filtered out)", listOut2["count"])
+	}
+}
+
 func TestIntegration_FailoverNoCurrentProvider(t *testing.T) {
 	// Closes #535: session with CurrentProvider=uuid.Nil must return 409,
 	// not silently pick the only healthy provider as if it were a failover.

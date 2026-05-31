@@ -41,6 +41,15 @@ func Mount(h chi.Router, st store.Store, logger *slog.Logger) error {
 		// test. Returns providers grouped by region with health status
 		// + session_count. Read-only; no auth (read-mostly metadata).
 		r.Get("/regions/{region}/providers", NewListProvidersInRegion(st, logger).Handle)
+
+		// WG peer binding (#536) — provider daemon side. Daemon polls
+		// /providers/{id}/assigned-sessions every 5s; for each new
+		// session it allocates a peer slot and POSTs back its WG
+		// public key via /sessions/{id}/bind-provider. Customer SDK
+		// reads the same key via GET /sessions/{id} once bound.
+		r.Get("/providers/{providerID}/assigned-sessions", NewListAssignedSessions(st, logger).Handle)
+		r.Post("/sessions/{sessionID}/bind-provider", NewBindProvider(st, logger).Handle)
+		r.Post("/sessions/{sessionID}/bind-customer-wg-key", NewBindCustomerWgKey(st, logger).Handle)
 	})
 
 	logger.Info("vpn service routes mounted")

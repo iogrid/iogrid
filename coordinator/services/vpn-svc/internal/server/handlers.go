@@ -71,11 +71,11 @@ func (h *GetSession) Handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build a wire-friendly response — Session.State is a proto enum
-	// which serialises as an int by default; the SDK expects a string,
-	// and we surface alt-provider candidates here as the customer's
-	// initial-tunnel ICE list. Without this, BastionClient.Connect
-	// (which calls GET /sessions/{id} then builds a tunnel from the
-	// returned candidates) blows up on JSON decode.
+	// which serialises as an int by default; the SDK expects a string.
+	// We surface the assigned provider's ICE candidates here as the
+	// customer's initial-tunnel candidate list, plus the provider's
+	// WG public key (populated when the daemon BindProvider call lands
+	// — until then it's empty and the customer SDK should poll).
 	candidates, _ := h.st.GetProviderCandidates(r.Context(), session.CurrentProvider)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
@@ -90,7 +90,8 @@ func (h *GetSession) Handle(w http.ResponseWriter, r *http.Request) {
 		"created_at":              session.CreatedAt,
 		"last_activity_at":        session.LastActivityAt,
 		"provider_id":             session.CurrentProvider.String(),
-		"provider_wg_public_key":  "", // populated when daemon registers WG key — TBD
+		"provider_wg_public_key":  session.ProviderWgPublicKey,
+		"customer_wg_public_key":  session.CustomerWgPublicKey,
 		"ice_candidates":          candidates,
 	})
 }
@@ -549,4 +550,128 @@ func (h *RegisterProvider) Handle(w http.ResponseWriter, r *http.Request) {
 		"provider_id": providerID.String(),
 		"region":      req.Region,
 	})
+}
+
+// --- #536: WG peer binding handlers ---------------------------------------
+
+// ListAssignedSessions handles GET /v1/vpn/providers/{providerID}/assigned-sessions
+type ListAssignedSessions struct {
+	st     store.Store
+	logger *slog.Logger
+}
+
+func NewListAssignedSessions(st store.Store, logger *slog.Logger) *ListAssignedSessions {
+	return &ListAssignedSessions{st: st, logger: logger}
+}
+
+func (h *ListAssignedSessions) Handle(w http.ResponseWriter, r *http.Request) {
+	providerID, err := uuid.Parse(chi.URLParam(r, "providerID"))
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid provider id")
+		return
+	}
+	sessions, err := h.st.ListAssignedSessions(r.Context(), providerID)
+	if err != nil {
+		h.logger.Error("list assigned sessions failed",
+			slog.String("provider_id", providerID.String()),
+			slog.String("error", err.Error()))
+		respondError(w, http.StatusInternalServerError, "failed to list assigned sessions")
+		return
+	}
+	out := make([]map[string]interface{}, 0, len(sessions))
+	for _, s := range sessions {
+		out = append(out, map[string]interface{}{
+			"session_id":              s.ID.String(),
+			"customer_id":             s.CustomerID.String(),
+			"region":                  s.Region,
+			"current_provider_id":     s.CurrentProvider.String(),
+			"customer_wg_public_key":  s.CustomerWgPublicKey,
+			"created_at":              s.CreatedAt,
+		})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"provider_id": providerID.String(),
+		"sessions":    out,
+		"count":       len(out),
+	})
+}
+
+type bindProviderReq struct {
+	ProviderWgPublicKey string `json:"provider_wg_public_key"`
+}
+
+// BindProvider handles POST /v1/vpn/sessions/{sessionID}/bind-provider
+type BindProvider struct {
+	st     store.Store
+	logger *slog.Logger
+}
+
+func NewBindProvider(st store.Store, logger *slog.Logger) *BindProvider {
+	return &BindProvider{st: st, logger: logger}
+}
+
+func (h *BindProvider) Handle(w http.ResponseWriter, r *http.Request) {
+	sessionID, err := uuid.Parse(chi.URLParam(r, "sessionID"))
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid session id")
+		return
+	}
+	req := &bindProviderReq{}
+	if err := json.NewDecoder(r.Body).Decode(req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.ProviderWgPublicKey == "" {
+		respondError(w, http.StatusBadRequest, "provider_wg_public_key required")
+		return
+	}
+	if err := h.st.BindProviderToSession(r.Context(), sessionID, req.ProviderWgPublicKey); err != nil {
+		h.logger.Warn("bind provider failed",
+			slog.String("session_id", sessionID.String()),
+			slog.String("error", err.Error()))
+		respondError(w, http.StatusNotFound, "session not found")
+		return
+	}
+	h.logger.Info("provider bound to session",
+		slog.String("session_id", sessionID.String()))
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "bound"})
+}
+
+type bindCustomerWgKeyReq struct {
+	CustomerWgPublicKey string `json:"customer_wg_public_key"`
+}
+
+// BindCustomerWgKey handles POST /v1/vpn/sessions/{sessionID}/bind-customer-wg-key
+type BindCustomerWgKey struct {
+	st     store.Store
+	logger *slog.Logger
+}
+
+func NewBindCustomerWgKey(st store.Store, logger *slog.Logger) *BindCustomerWgKey {
+	return &BindCustomerWgKey{st: st, logger: logger}
+}
+
+func (h *BindCustomerWgKey) Handle(w http.ResponseWriter, r *http.Request) {
+	sessionID, err := uuid.Parse(chi.URLParam(r, "sessionID"))
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid session id")
+		return
+	}
+	req := &bindCustomerWgKeyReq{}
+	if err := json.NewDecoder(r.Body).Decode(req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.CustomerWgPublicKey == "" {
+		respondError(w, http.StatusBadRequest, "customer_wg_public_key required")
+		return
+	}
+	if err := h.st.BindCustomerWgKey(r.Context(), sessionID, req.CustomerWgPublicKey); err != nil {
+		respondError(w, http.StatusNotFound, "session not found")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "bound"})
 }

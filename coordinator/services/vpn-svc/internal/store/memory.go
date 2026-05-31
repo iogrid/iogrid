@@ -292,6 +292,52 @@ func (m *Memory) UpdateProviderHealth(ctx context.Context, providerID uuid.UUID,
 	return nil
 }
 
+// BindProviderToSession implements Store.
+func (m *Memory) BindProviderToSession(ctx context.Context, sessionID uuid.UUID, providerWgPubKey string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	session, ok := m.sessions[sessionID]
+	if !ok {
+		return fmt.Errorf("session %s not found", sessionID)
+	}
+	session.ProviderWgPublicKey = providerWgPubKey
+	session.LastActivityAt = time.Now()
+	return nil
+}
+
+// BindCustomerWgKey implements Store.
+func (m *Memory) BindCustomerWgKey(ctx context.Context, sessionID uuid.UUID, customerWgPubKey string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	session, ok := m.sessions[sessionID]
+	if !ok {
+		return fmt.Errorf("session %s not found", sessionID)
+	}
+	session.CustomerWgPublicKey = customerWgPubKey
+	session.LastActivityAt = time.Now()
+	return nil
+}
+
+// ListAssignedSessions implements Store.
+func (m *Memory) ListAssignedSessions(ctx context.Context, providerID uuid.UUID) ([]*Session, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var result []*Session
+	for _, session := range m.sessions {
+		if session.TerminatedAt != nil {
+			continue
+		}
+		if session.CurrentProvider != providerID {
+			continue
+		}
+		if session.ProviderWgPublicKey != "" {
+			continue // already bound
+		}
+		result = append(result, session)
+	}
+	return result, nil
+}
+
 // TriggerFailover implements Store.
 func (m *Memory) TriggerFailover(ctx context.Context, sessionID uuid.UUID, currentProvider, altProvider uuid.UUID) error {
 	m.mu.Lock()
