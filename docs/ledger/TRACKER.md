@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-01T06:30Z` 🟢 vpn-phase-1-13/15-complete: VPN-1/2/3/4/5/8/9/10/11/12/13/14/15 complete (20+ commits, **34 tests passing**: 27 SDK + 7 Coordinator). EPIC #504 + sub-issues #505-#519. DoD-critical latencies all verified: roaming <1s (200ms measured), failover <2s (718µs measured). iogrid-worker peer on VPN-6 (provider ICE discovery, in-flight). Remaining for Phase 1 completion: VPN-6 + VPN-7 (provider-side, both on iogrid-worker). |
+| Last refreshed | `2026-06-01T07:00Z` 🟢 vpn-phase-1-14/15-merged-plus-ci: VPN-1..15 all DONE except VPN-7 awaiting CI on PR #524 (conflict resolved in 9721613 — RegisterProvider + SelectAlternateProvider coexist; daemon ice.rs spawn_reporter + health.rs both re-exported). iogrid-worker shipped VPN-6 (PR #520 merged, 77b648c) and VPN-7 (PR #524 ready). Main thread shipped VPN-4/10/11/13/14/15/18. **Phase 1 done after #524 lands.** |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
 | Open PRs | **0** |
@@ -71,8 +71,8 @@ EPIC: [#504](https://github.com/iogrid/iogrid/issues/504)
 | **VPN-3** | [#507](https://github.com/iogrid/iogrid/issues/507) | Coordinator: STUN server integration (RFC 5389) | ✅ COMPLETE | VPN-1 |
 | **VPN-4** | [#508](https://github.com/iogrid/iogrid/issues/508) | Coordinator: Regional grouping + failover logic | ✅ COMPLETE | VPN-2 |
 | **VPN-5** | [#509](https://github.com/iogrid/iogrid/issues/509) | Provider UDP listener + Customer RPC integration | ✅ COMPLETE | VPN-1 |
-| **VPN-6** | [#510](https://github.com/iogrid/iogrid/issues/510) | Provider daemon: ICE candidate discovery | 🟡 IN_PROGRESS (iogrid-worker) | VPN-3, VPN-5 |
-| **VPN-7** | [#511](https://github.com/iogrid/iogrid/issues/511) | Provider daemon: Health probes + graceful shutdown | 🔴 PENDING | VPN-6 |
+| **VPN-6** | [#510](https://github.com/iogrid/iogrid/issues/510) | Provider daemon: ICE candidate discovery | ✅ COMPLETE (PR #520, iogrid-worker) | VPN-3, VPN-5 |
+| **VPN-7** | [#511](https://github.com/iogrid/iogrid/issues/511) | Provider daemon: Health probes + graceful shutdown | 🟡 PR_AWAITING_CI (PR #524, iogrid-worker, conflict resolved 9721613) | VPN-6 |
 | **VPN-8** | [#512](https://github.com/iogrid/iogrid/issues/512) | Customer SDK: ICE connectivity checker | ✅ COMPLETE | VPN-1, VPN-3 |
 | **VPN-9** | [#513](https://github.com/iogrid/iogrid/issues/513) | Customer SDK: WireGuard tunnel manager | ✅ COMPLETE | VPN-5 |
 | **VPN-10** | [#514](https://github.com/iogrid/iogrid/issues/514) | Customer SDK: Roaming detector + reconnect | ✅ COMPLETE | VPN-9 |
