@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-01T08:30Z` 🟢 **VPN-END-STATE-PUSH**: Public api.iogrid.org/v1/vpn/* live (#526 ✓), iogrid CLI binary shipped + installer + cli-ci workflow (#527 in flight), #535 failover edge fixed, WG binding flow vpn-svc side shipped (#536 — store + 3 handlers + integration test). CLI now drives control plane through "Got 0 ICE candidates" against deployed pod — blocked on #530 (no paired provider) which needs #529 (boringtun data plane, iogrid-worker). Issues #526-#536 filed for every remaining gap. End-state DoD "`curl ifconfig.me` returns provider's IP" still blocked on data plane. |
+| Last refreshed | `2026-05-31T20:15Z` 🟢 cron-refresh: +26 commits since last TRACKER bump |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
 | Open PRs | **0** |
