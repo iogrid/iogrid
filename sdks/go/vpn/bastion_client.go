@@ -43,20 +43,67 @@ func (c *BastionClient) vlog(format string, args ...interface{}) {
 	}
 }
 
-// candidatePriority returns the RFC 8445 §4.1.2.1 type preference for
-// the candidate type, higher = preferred. Host > srflx > prflx > relay.
+// candidatePriority returns a sortable score that prefers:
+//   1. publicly-routable host candidates (e.g. provider's public IP),
+//   2. server-reflexive (post-STUN) candidates,
+//   3. peer-reflexive,
+//   4. private-network host candidates (10.x, 172.16-31, 192.168.x —
+//      reachable only from the same LAN as the provider),
+//   5. relay.
+// Higher score = picked first. Public host beats LAN host because a
+// LAN address from a residential provider is unreachable from the
+// internet; only same-LAN customers could ever use it.
 func candidatePriority(candidateType string) int {
 	switch candidateType {
 	case "host":
-		return 4
+		return 5
 	case "srflx":
-		return 3
+		return 4
 	case "prflx":
-		return 2
+		return 3
 	case "relay":
 		return 1
 	}
 	return 0
+}
+
+// candidateScore combines candidatePriority with a publicly-routable
+// bonus so a host candidate at a public IP outranks a host candidate
+// at a private IP. Picker uses this; tests can still pass MockIceCandidate
+// with any address.
+func candidateScore(c *MockIceCandidate) int {
+	s := candidatePriority(c.CandidateType) * 10
+	addr := c.ConnectionAddress
+	if i := strings.Index(addr, "/"); i > 0 {
+		addr = addr[:i]
+	}
+	if ip := net.ParseIP(addr); ip != nil {
+		// Public IPv4 → +5; private LAN → 0. Doubles as a fallback
+		// when the daemon publishes both public + LAN host candidates
+		// (the #557 --public-ip path).
+		if v4 := ip.To4(); v4 != nil && !isPrivateIPv4(v4) && !v4.IsLoopback() && !v4.IsLinkLocalUnicast() {
+			s += 5
+		}
+	}
+	return s
+}
+
+// isPrivateIPv4 returns true for RFC 1918 + CGNAT (100.64/10) ranges,
+// which are NOT directly routable on the public internet.
+func isPrivateIPv4(ip net.IP) bool {
+	if ip4 := ip.To4(); ip4 != nil {
+		switch {
+		case ip4[0] == 10:
+			return true
+		case ip4[0] == 172 && ip4[1] >= 16 && ip4[1] <= 31:
+			return true
+		case ip4[0] == 192 && ip4[1] == 168:
+			return true
+		case ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127:
+			return true
+		}
+	}
+	return false
 }
 
 // NewBastionClient creates a new bastion VPN client backed by the
@@ -153,7 +200,7 @@ func (c *BastionClient) Connect(ctx context.Context, region string) error {
 	// will trip and switch to an alternate provider.
 	workingCandidate := candidates[0]
 	for _, cand := range candidates {
-		if candidatePriority(cand.CandidateType) > candidatePriority(workingCandidate.CandidateType) {
+		if candidateScore(cand) > candidateScore(workingCandidate) {
 			workingCandidate = cand
 		}
 	}

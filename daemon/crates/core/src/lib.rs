@@ -151,6 +151,13 @@ pub struct VpnConfig {
     /// string defaults to `us-east-1` at register time.
     #[serde(default)]
     pub region: String,
+    /// #557: manually-configured public IP to publish as an extra host
+    /// ICE candidate. Use when the daemon sits behind a UDP load
+    /// balancer / static port-forward whose external address can't
+    /// be derived from local interface enumeration AND the STUN
+    /// srflx path is unavailable. Empty = disabled.
+    #[serde(default)]
+    pub public_ip: String,
 }
 
 fn default_vpn_listen_addr() -> String {
@@ -167,6 +174,7 @@ impl Default for VpnConfig {
             vpn_listen_addr: default_vpn_listen_addr(),
             stun_server: default_stun_server(),
             region: String::new(),
+            public_ip: String::new(),
         }
     }
 }

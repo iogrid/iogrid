@@ -255,11 +255,30 @@ pub async fn spawn_vpn_modules(config: &DaemonConfig) -> Option<VpnHandles> {
     let health_handle = health::spawn_reporter(health_cfg, http.clone(), shutdown_rx.clone());
 
     // ---- ICE candidate reporter ----
+    let public_ip = if vpn.public_ip.trim().is_empty() {
+        None
+    } else {
+        match vpn.public_ip.trim().parse::<std::net::IpAddr>() {
+            Ok(ip) => {
+                tracing::info!(public_ip = %ip, "publishing manual public-IP host candidate (#557)");
+                Some(ip)
+            }
+            Err(e) => {
+                tracing::warn!(
+                    public_ip = %vpn.public_ip,
+                    error = %e,
+                    "ignoring malformed VPN_PUBLIC_IP / vpn.public_ip"
+                );
+                None
+            }
+        }
+    };
     let ice_cfg = IceConfig {
         provider_id: config.provider_id.clone(),
         stun_server,
         vpn_svc_base_url: vpn.vpn_svc_url.clone(),
         vpn_listen_addr,
+        public_ip,
     };
     let ice_handle = ice::spawn_reporter(ice_cfg, http.clone());
 

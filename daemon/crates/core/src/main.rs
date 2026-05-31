@@ -58,6 +58,15 @@ struct Cli {
     #[arg(long = "provider-id", env = "IOGRID_PROVIDER_ID")]
     provider_id: Option<String>,
 
+    /// #557: manually-configured public IP to publish as an extra
+    /// host ICE candidate. Useful when the daemon sits behind a UDP
+    /// load balancer / static port-forward whose external address
+    /// can't be derived from local-interface enumeration AND the
+    /// STUN srflx path is broken or unavailable. Customer SDKs will
+    /// prefer this candidate over private LAN addresses.
+    #[arg(long = "public-ip", env = "IOGRID_PUBLIC_IP")]
+    public_ip: Option<String>,
+
     #[command(subcommand)]
     command: Option<Cmd>,
 }
@@ -179,6 +188,9 @@ fn apply_cli_vpn_overrides(config: &mut DaemonConfig, cli: &Cli) {
     }
     if let Some(pid) = cli.provider_id.as_deref() {
         config.provider_id = pid.to_string();
+    }
+    if let Some(ip) = cli.public_ip.as_deref() {
+        config.vpn.public_ip = ip.to_string();
     }
 }
 

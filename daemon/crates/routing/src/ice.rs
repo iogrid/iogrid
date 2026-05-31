@@ -128,6 +128,16 @@ pub struct IceConfig {
     /// daemon advertises as the connection address for host + srflx
     /// candidates.
     pub vpn_listen_addr: SocketAddr,
+    /// Optional manually-configured public IP for #557. When set the
+    /// daemon publishes an EXTRA host candidate at this address +
+    /// vpn_listen_addr.port. Use when:
+    ///   * STUN srflx discovery is broken or the STUN server is
+    ///     unreachable
+    ///   * The daemon sits behind a UDP load balancer / static port
+    ///     forward whose external address can't be derived from a
+    ///     local interface enumeration
+    /// Empty / None disables the override (no extra candidate appended).
+    pub public_ip: Option<IpAddr>,
 }
 
 /// ICE-side errors. Failures here are non-fatal — the reporter loop
@@ -483,6 +493,7 @@ fn decode_mapped(value: &[u8], xor: bool, tx_id: &[u8; 12]) -> Result<SocketAddr
 pub async fn discover_all(
     stun_server: SocketAddr,
     vpn_listen_addr: SocketAddr,
+    public_ip: Option<IpAddr>,
 ) -> Vec<IceCandidate> {
     let mut out = match discover_host_candidates(vpn_listen_addr) {
         Ok(v) => v,
@@ -491,6 +502,32 @@ pub async fn discover_all(
             Vec::new()
         }
     };
+    // #557: prepend a manually-configured public-IP host candidate
+    // when present. We dedupe against the local-iface list so the same
+    // address never appears twice.
+    if let Some(ip) = public_ip {
+        let ip_string = ip.to_string();
+        let already_present = out.iter().any(|c| c.connection_address == ip_string);
+        if !already_present {
+            let now_ms = now_unix_ms();
+            out.insert(0, IceCandidate {
+                foundation: foundation_host(&ip_string),
+                component: 1,
+                transport: "udp".into(),
+                // Highest local pref so picker prefers the public IP
+                // over LAN candidates.
+                priority: priority(TYPE_PREF_HOST, 65535, 1),
+                connection_address: ip_string,
+                connection_port: vpn_listen_addr.port() as u32,
+                candidate_type: "host".into(),
+                related_address: String::new(),
+                related_port: 0,
+                discovered_at_unix_ms: now_ms,
+                latency_ms: 0,
+                is_preferred: false,
+            });
+        }
+    }
     match discover_srflx_candidate(stun_server, vpn_listen_addr).await {
         Ok(c) => out.push(c),
         Err(e) => {
@@ -524,7 +561,7 @@ async fn run_reporter_loop(config: IceConfig, http: reqwest::Client) {
 
     loop {
         ticker.tick().await;
-        let candidates = discover_all(config.stun_server, config.vpn_listen_addr).await;
+        let candidates = discover_all(config.stun_server, config.vpn_listen_addr, config.public_ip).await;
         if candidates.is_empty() {
             tracing::warn!("no candidates discovered this tick");
             continue;
