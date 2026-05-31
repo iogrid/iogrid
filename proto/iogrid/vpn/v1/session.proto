@@ -1,0 +1,120 @@
+syntax = "proto3";
+
+package iogrid.vpn.v1;
+
+option go_package = "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/vpn/v1;pb";
+
+import "iogrid/vpn/v1/ice.proto";
+
+// Regional grouping of providers
+message RegionalProviders {
+  string region = 1;                  // "us-east", "eu-west", etc.
+  repeated ProviderInfo providers = 2;  // All providers in this region
+}
+
+// Provider information (as seen by coordinator)
+message ProviderInfo {
+  string provider_id = 1;
+  bool available = 2;                 // Is provider healthy (heartbeat recent)?
+  int64 last_seen_unix_ms = 3;        // Last heartbeat timestamp
+  int64 registered_at_unix_ms = 4;    // When provider first registered
+  uint32 active_sessions = 5;         // Current session count
+  uint32 estimated_latency_ms = 6;    // Typical latency from region center
+  repeated IceCandidate current_candidates = 7;  // Latest known candidates
+}
+
+// Roaming detection event (customer → coordinator)
+message RoamingDetected {
+  string session_id = 1;
+  string provider_id = 2;
+  string old_endpoint = 3;            // Previous endpoint
+  string new_endpoint = 4;            // New endpoint after IP change
+  string detection_method = 5;        // "stun_probe", "heartbeat_timeout", "packet_loss"
+  int64 detected_at_unix_ms = 6;
+  int64 reconnected_at_unix_ms = 7;   // When tunnel reestablished
+}
+
+// Failover trigger (customer → coordinator when primary provider dead)
+message TriggerFailover {
+  string session_id = 1;
+  string failed_provider_id = 2;      // Which provider failed
+  string failure_reason = 3;          // "heartbeat_timeout", "endpoint_unreachable", "wg_handshake_failed"
+  int64 triggered_at_unix_ms = 4;
+  repeated string exclude_provider_ids = 5;  // Providers to skip (e.g., if we just tried #2 and it failed)
+}
+
+// Failover response (coordinator → customer)
+message FailoverAssignment {
+  string session_id = 1;
+  string new_provider_id = 2;
+  repeated IceCandidate candidates = 3;  // New provider's candidates
+  string new_provider_wg_public_key = 4;
+  int64 assigned_at_unix_ms = 5;
+  string derp_fallback = 6;           // Fallback if no ICE candidates work
+}
+
+// Session persistence across failover
+message StickySession {
+  string session_id = 1;
+  string customer_id = 2;
+  string region = 3;
+  string primary_provider_id = 4;     // Initially assigned
+  string current_provider_id = 5;     // After any failovers
+  int64 created_at_unix_ms = 6;
+  int64 last_provider_switch_unix_ms = 7;  // When we switched providers
+  uint32 failover_count = 8;          // How many times switched
+  int32 sticky_ttl_seconds = 9;       // How long to prefer current provider (30min typical)
+  bool sticky_expired = 10;           // If true, Coordinator can reassign on reconnect
+}
+
+// Session refresh/heartbeat (customer → coordinator, every 15min)
+message RefreshVpnSession {
+  string session_id = 1;
+  string customer_id = 2;
+  string current_provider_id = 3;
+  uint32 latency_ms = 4;              // Current path latency
+  uint64 bytes_in = 5;                // Bytes received this session
+  uint64 bytes_out = 6;               // Bytes sent this session
+  int64 roaming_events = 7;           // Number of IP changes so far
+  int64 failover_count = 8;           // Number of provider switches
+  int64 refreshed_at_unix_ms = 9;
+}
+
+// Coordinator ACKs refresh
+message RefreshAck {
+  string session_id = 1;
+  int64 acked_at_unix_ms = 2;
+  bool sticky_expired = 3;            // If true, customer may re-request for different provider
+  int32 extended_ttl_seconds = 4;     // New TTL after refresh
+}
+
+// Terminate session (customer → coordinator, graceful shutdown)
+message TerminateVpnSession {
+  string session_id = 1;
+  string provider_id = 2;
+  string reason = 3;                  // "user_initiated", "api_key_expired", "quota_exceeded"
+  uint64 bytes_in = 4;                // Final byte counts
+  uint64 bytes_out = 5;
+  int64 duration_seconds = 6;         // Session lifetime
+  int64 terminated_at_unix_ms = 7;
+}
+
+// Session ledger entry (coordinator maintains)
+message SessionLedger {
+  string session_id = 1;
+  string customer_id = 2;
+  string region = 3;
+  string primary_provider_id = 4;
+  string current_provider_id = 5;
+  int64 created_at_unix_ms = 6;
+  int64 terminated_at_unix_ms = 7;   // 0 if still active
+  int64 duration_seconds = 8;
+  uint64 bytes_in = 9;
+  uint64 bytes_out = 10;
+  uint32 roaming_events = 11;
+  uint32 failover_count = 12;
+  uint32 ice_candidate_count = 13;
+  uint32 ice_time_ms = 14;            // Time to find first working candidate
+  uint32 wg_establish_time_ms = 15;   // Time for WireGuard handshake
+  string exit_reason = 16;            // "user_initiated", "provider_failure", "api_key_expired"
+}

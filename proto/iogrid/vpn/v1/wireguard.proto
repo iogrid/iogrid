@@ -1,0 +1,85 @@
+syntax = "proto3";
+
+package iogrid.vpn.v1;
+
+option go_package = "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/vpn/v1;pb";
+
+// WireGuard peer configuration
+message WireGuardPeer {
+  string public_key = 1;              // Base64-encoded WireGuard public key (33 bytes)
+  string endpoint = 2;                // IP:port of the peer (from chosen ICE candidate)
+  string allowed_ips = 3;             // CIDR ranges for this peer (e.g., "10.64.0.1/32")
+  int64 persistent_keepalive = 4;     // Seconds between keepalive packets (0 = disabled)
+  int64 last_handshake_unix_ms = 5;   // Last successful handshake timestamp
+  uint64 bytes_received = 6;          // Data bytes received from peer
+  uint64 bytes_sent = 7;              // Data bytes sent to peer
+}
+
+// Tunnel establishment request (customer → coordinator, after ICE done)
+message EstablishWireGuardTunnel {
+  string session_id = 1;              // Which session
+  string customer_id = 2;             // Customer UUID
+  string provider_id = 3;             // Provider UUID
+  string customer_wg_public_key = 4;  // Customer's WireGuard public key (base64)
+  string endpoint = 5;                // Customer's chosen endpoint (from ICE candidate)
+  int64 requested_at_unix_ms = 6;     // Request timestamp
+}
+
+// Tunnel established acknowledgement (provider → coordinator → customer)
+message WireGuardTunnelEstablished {
+  string session_id = 1;
+  string provider_id = 2;
+  string provider_wg_public_key = 3;  // Provider's WireGuard public key (echoed)
+  string tunnel_ipv4 = 4;             // Provider's tunnel IP (e.g., "10.64.0.1/32")
+  string customer_tunnel_ipv4 = 5;    // Customer's tunnel IP (e.g., "10.64.0.2/32")
+  string tunnel_ipv6 = 6;             // Provider's tunnel IPv6 (if available)
+  string customer_tunnel_ipv6 = 7;    // Customer's tunnel IPv6 (if available)
+  int64 established_at_unix_ms = 8;   // Handshake completion timestamp
+  int32 mtu = 9;                      // MTU for this tunnel (typically 1420)
+}
+
+// Tunnel down/error (either side → coordinator)
+message WireGuardTunnelDown {
+  string session_id = 1;
+  string provider_id = 2;
+  string reason = 3;                  // "peer_unreachable", "handshake_failed", "user_initiated", etc.
+  int64 down_at_unix_ms = 4;
+  uint64 bytes_transferred = 5;       // Total bytes that flowed through tunnel
+}
+
+// Health check: provider probes customer for keepalive
+message KeepAliveProbe {
+  string session_id = 1;
+  string provider_id = 2;
+  int64 sent_at_unix_ms = 3;         // Timestamp when probe sent
+  uint32 sequence = 4;                // Probe sequence number
+}
+
+// Health check: customer acknowledges probe
+message KeepAliveAck {
+  string session_id = 1;
+  string provider_id = 2;
+  uint32 sequence = 3;                // Which probe this acks
+  int64 acked_at_unix_ms = 4;         // Customer's ack timestamp
+}
+
+// Endpoint update during roaming (customer → coordinator)
+message UpdateWireGuardEndpoint {
+  string session_id = 1;
+  string provider_id = 2;
+  string new_endpoint = 3;            // New IP:port (from new ICE candidate)
+  string new_customer_wg_public_key = 4;  // May have regenerated local WG key
+  int64 updated_at_unix_ms = 5;
+}
+
+// Tunnel metrics snapshot (for monitoring)
+message TunnelMetrics {
+  string session_id = 1;
+  string provider_id = 2;
+  uint64 bytes_in = 3;
+  uint64 bytes_out = 4;
+  uint32 packet_loss_percent = 5;     // Estimated packet loss %
+  uint32 latency_p50_ms = 6;          // Median latency
+  uint32 latency_p99_ms = 7;          // P99 latency
+  int64 measured_at_unix_ms = 8;
+}
