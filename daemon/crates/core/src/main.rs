@@ -25,6 +25,28 @@ struct Cli {
     #[arg(long, env = "IOGRID_STATE_DIR")]
     state_dir: Option<PathBuf>,
 
+    /// vpn-svc base URL — `https://api.iogrid.org` in prod. Setting
+    /// this enables the VPN modules (register + health + ICE +
+    /// peer-binder) and the boringtun WG server on `--vpn-listen-addr`.
+    /// Empty / unset = pure-SOCKS5 deployment (legacy default).
+    #[arg(long = "vpn-svc", env = "IOGRID_VPN_SVC_URL")]
+    vpn_svc: Option<String>,
+
+    /// UDP address the boringtun WG server binds to. Default
+    /// `0.0.0.0:51820`. Only used when `--vpn-svc` is set.
+    #[arg(long = "vpn-listen-addr", env = "IOGRID_VPN_LISTEN_ADDR")]
+    vpn_listen_addr: Option<String>,
+
+    /// STUN server endpoint for srflx candidate discovery. Default
+    /// `stun.iogrid.org:3478`. Only used when `--vpn-svc` is set.
+    #[arg(long = "stun-server", env = "IOGRID_STUN_SERVER")]
+    stun_server: Option<String>,
+
+    /// Region slug the daemon advertises on register + health POSTs.
+    /// Default `us-east-1`. Only used when `--vpn-svc` is set.
+    #[arg(long, env = "IOGRID_REGION")]
+    region: Option<String>,
+
     #[command(subcommand)]
     command: Option<Cmd>,
 }
@@ -91,10 +113,10 @@ async fn main() -> Result<()> {
             .expect("rustls: failed to install default CryptoProvider");
     }
     let cli = Cli::parse();
-    let state_dir = cli.state_dir.unwrap_or_else(default_state_dir);
+    let state_dir = cli.state_dir.clone().unwrap_or_else(default_state_dir);
 
     match cli.command {
-        None => run_daemon(&state_dir).await,
+        None => run_daemon(&state_dir, &cli).await,
         Some(Cmd::Pair {
             token,
             coordinator_url,
@@ -128,9 +150,28 @@ fn default_state_dir() -> PathBuf {
         .join(".iogrid")
 }
 
-async fn run_daemon(state_dir: &std::path::Path) -> Result<()> {
+/// CLI flags > env vars > config.toml: clap already collapsed env into
+/// `cli.*` (via `#[arg(env = ...)]`), so this is a straightforward
+/// "if Some, overwrite the loaded config" pass.
+fn apply_cli_vpn_overrides(config: &mut DaemonConfig, cli: &Cli) {
+    if let Some(url) = cli.vpn_svc.as_deref() {
+        config.vpn.vpn_svc_url = url.to_string();
+    }
+    if let Some(addr) = cli.vpn_listen_addr.as_deref() {
+        config.vpn.vpn_listen_addr = addr.to_string();
+    }
+    if let Some(stun) = cli.stun_server.as_deref() {
+        config.vpn.stun_server = stun.to_string();
+    }
+    if let Some(region) = cli.region.as_deref() {
+        config.vpn.region = region.to_string();
+    }
+}
+
+async fn run_daemon(state_dir: &std::path::Path, cli: &Cli) -> Result<()> {
     tracing::info!(version = env!("CARGO_PKG_VERSION"), "starting iogridd");
-    let config = DaemonConfig::load_or_init(state_dir).context("load daemon config")?;
+    let mut config = DaemonConfig::load_or_init(state_dir).context("load daemon config")?;
+    apply_cli_vpn_overrides(&mut config, cli);
     let supervisor = Supervisor::new(config);
     supervisor.run().await
 }

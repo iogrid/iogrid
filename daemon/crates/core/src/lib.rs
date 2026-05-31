@@ -19,6 +19,7 @@
 #![deny(missing_docs)]
 
 pub mod tunnel;
+pub mod vpn_wiring;
 pub mod workloads;
 
 use std::path::{Path, PathBuf};
@@ -120,6 +121,54 @@ pub struct DaemonConfig {
     /// config.toml or the `/account/updates` web UI.
     #[serde(default)]
     pub updater: updater::UpdateConfig,
+
+    /// VPN-542 (#542): VPN module configuration. `None` means
+    /// disabled — pure SOCKS5 mode (the legacy default). The CLI
+    /// flags `--vpn-svc / --vpn-listen-addr / --stun-server /
+    /// --region` populate this when present.
+    #[serde(default)]
+    pub vpn: VpnConfig,
+}
+
+/// VPN-side configuration. Populated from the `--vpn-svc` etc. CLI
+/// flags or from `config.toml`'s `[vpn]` table. When `vpn_svc_url`
+/// is empty the supervisor skips spawning the VPN modules entirely.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VpnConfig {
+    /// vpn-svc base URL (e.g. `https://api.iogrid.org`). Empty
+    /// string disables the VPN modules.
+    #[serde(default)]
+    pub vpn_svc_url: String,
+    /// UDP address the boringtun WG server binds to. Defaults to
+    /// `0.0.0.0:51820` (the IANA-registered WG port).
+    #[serde(default = "default_vpn_listen_addr")]
+    pub vpn_listen_addr: String,
+    /// STUN server endpoint for srflx candidate discovery (#538 LB
+    /// front). Defaults to `stun.iogrid.org:3478`.
+    #[serde(default = "default_stun_server")]
+    pub stun_server: String,
+    /// Region slug we advertise on register + health POSTs. Empty
+    /// string defaults to `us-east-1` at register time.
+    #[serde(default)]
+    pub region: String,
+}
+
+fn default_vpn_listen_addr() -> String {
+    "0.0.0.0:51820".to_string()
+}
+fn default_stun_server() -> String {
+    "stun.iogrid.org:3478".to_string()
+}
+
+impl Default for VpnConfig {
+    fn default() -> Self {
+        Self {
+            vpn_svc_url: String::new(),
+            vpn_listen_addr: default_vpn_listen_addr(),
+            stun_server: default_stun_server(),
+            region: String::new(),
+        }
+    }
 }
 
 impl Default for DaemonConfig {
@@ -142,6 +191,7 @@ impl Default for DaemonConfig {
             heartbeat_secs: 5,
             filter_refresh_secs: 300,
             updater: updater::UpdateConfig::default(),
+            vpn: VpnConfig::default(),
         }
     }
 }
@@ -827,12 +877,34 @@ impl Supervisor {
         });
 
         // Block on Ctrl+C / SIGTERM / status-bar Quit. We don't kill
+        // VPN-542 (#542): spin up the VPN modules — boringtun WG
+        // server + register + health + ICE + peer-binder — if the
+        // operator passed --vpn-svc (or set [vpn] vpn_svc_url in
+        // config.toml). Disabled by default so pure-SOCKS5 deployments
+        // are unaffected.
+        let vpn_handles = vpn_wiring::spawn_vpn_modules(&self.config).await;
+
         // in-flight workloads — the JoinSet drains on drop and tasks
         // see the cancellation token.
         wait_for_shutdown(ipc_shutdown.clone()).await;
         tracing::info!("iogridd shutdown requested");
         // Best-effort: cancel everything still in-flight.
         router.revoke_all("daemon_shutdown").await;
+        // Signal the VPN modules to exit; the BoringTun pump and all
+        // 3 reporter loops watch this `watch::Sender<bool>`.
+        if let Some(handles) = vpn_handles {
+            let _ = handles.shutdown_tx.send(true);
+            // `Tunnel::stop` is the trait method — bring it into scope
+            // for the call so the BoringTun shutdown sequence runs.
+            use iogrid_routing::Tunnel;
+            if let Err(e) = handles.boringtun.stop().await {
+                tracing::warn!(error = %e, "boringtun stop returned err during shutdown");
+            }
+            // We don't await `handles.task_handles` — each task has a
+            // bounded shutdown path (offline POST budget = 3 s on the
+            // health loop, instant on the others); the JoinSet drain
+            // below catches any straggler the tokio runtime tracks.
+        }
         tasks.shutdown().await;
         Ok(())
     }

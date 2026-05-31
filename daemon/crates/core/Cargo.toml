@@ -56,7 +56,20 @@ rustls = { workspace = true }
 rcgen = { version = "0.13", default-features = false, features = ["pem", "ring"] }
 
 iogrid-transport = { workspace = true }
-iogrid-routing = { workspace = true }
+# VPN-542 (#542) wires the iogrid-routing VPN modules into this
+# binary's supervisor; routing-real pulls in boringtun for the real
+# WG userspace stack. Default-on so `cargo build --release` produces
+# a binary that actually serves the VPN data plane (per the issue
+# DoD); CI scaffold builds opt out with `--no-default-features`.
+iogrid-routing = { workspace = true, features = ["routing-real"] }
+
+# VPN-542: the supervisor wiring constructs a shared `reqwest::Client`
+# + reads the boringtun `x25519::StaticSecret` type for WG-key
+# persistence. Both crates are already in the transitive graph via
+# iogrid-routing's routing-real feature — we just promote them to
+# direct deps so the wiring code can name the types.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+boringtun = { git = "https://github.com/cloudflare/boringtun", rev = "253f7afb2b", default-features = false }
 iogrid-anti-abuse = { workspace = true }
 iogrid-scheduler = { workspace = true }
 iogrid-ui-bridge = { workspace = true }
