@@ -37,7 +37,7 @@ spec:
       annotations:
         # Bumped by updates-ci.yml on every push to main so the rolling
         # update fires even when the image digest is cache-identical.
-        kubectl.kubernetes.io/restartedAt: "2026-05-31T00:00:00Z"
+        kubectl.kubernetes.io/restartedAt: "2026-05-31T07:50:56Z"
     spec:
       serviceAccountName: updates
       automountServiceAccountToken: false
@@ -51,7 +51,7 @@ spec:
       containers:
         - name: updates
           # Image is rewritten by updates-ci.yml on every push to main.
-          image: ghcr.io/iogrid/updates-server:local
+          image: ghcr.io/iogrid/updates-server@sha256:a3c4c1376970d66ac1160bed5d19196afa2dec6004beed13722bb8acdb05ea24
           imagePullPolicy: Always
           env:
             - name: IOGRID_MANIFEST_PATH
