@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-31T18:30Z` 🟢 cron-refresh: +1 commits since last TRACKER bump |
+| Last refreshed | `2026-06-01T07:30Z` 🟢🟢🟢 **VPN-PHASE-1-COMPLETE**: all 15 issues #505-#519 closed, EPIC #504 ready for closure pending VPN-18 on-cluster smoke. **46 tests passing** (27 SDK + 19 vpn-svc). iogrid-worker peer merged #520 (VPN-6 ICE discovery) + #524 (VPN-7 health/graceful). Main-thread shipped VPN-4/10/11/13/14/15/18 with full failover end-to-end (Coordinator handler → store round-robin with provider exclusion → SDK detector triggers <2s). DoD-critical latencies: roaming <1s (200ms measured), failover <2s (718µs measured). Phase 2/3/4 issues #521 #522 #523 created (DERP, stress, integration smoke). |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
 | Open PRs | **0** |
