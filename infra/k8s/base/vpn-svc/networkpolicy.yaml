@@ -1,0 +1,89 @@
+# vpn-svc — VPN session ledger + ICE candidate tracking + STUN server.
+# Ingress: gateway-bff (customer session requests), providers-svc
+# (provider candidate registration), proxy-gateway (legacy bridge),
+# and the public Internet for STUN on UDP :3478.
+# Egress: Postgres (session ledger), Redis (provider health cache - tbd).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vpn-svc-allow
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: vpn-svc
+    app.kubernetes.io/part-of: iogrid
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: vpn-svc
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # HTTP — control plane RPCs from gateway-bff, providers-svc, etc.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: gateway-bff
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: providers-svc
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: proxy-gateway
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: web
+      ports:
+        - protocol: TCP
+          port: 8080
+    # STUN — open to the world on UDP :3478. Provider daemons and
+    # customer SDKs use this for srflx candidate discovery (RFC 5389).
+    # Source IP comes through the LoadBalancer so anyone on the Internet
+    # can send a BINDING REQUEST; the server only echoes the XOR-MAPPED-
+    # ADDRESS back, no state mutation possible.
+    - from: []
+      ports:
+        - protocol: UDP
+          port: 3478
+    # Traefik ingress for /v1/vpn/* exposed to external clients (bastion
+    # client SDK polls these endpoints from outside the cluster).
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Prometheus scraping
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9090
+  egress:
+    # Postgres (session ledger + provider table)
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: iogrid-pg
+      ports:
+        - protocol: TCP
+          port: 5432
+    # DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

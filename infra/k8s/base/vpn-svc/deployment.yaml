@@ -1,0 +1,130 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vpn-svc
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: vpn-svc
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: backend
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vpn-svc
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vpn-svc
+        app.kubernetes.io/part-of: iogrid
+        app.kubernetes.io/component: backend
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+        # Bumped by .github/workflows/coordinator-ci.yml on every push to
+        # main so the rolling update fires even when the image digest is
+        # cache-identical.
+        kubectl.kubernetes.io/restartedAt: "2026-06-01T07:30:00Z"
+    spec:
+      serviceAccountName: vpn-svc
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: vpn-svc
+          image: ghcr.io/iogrid/vpn-svc:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: stun
+              containerPort: 3478
+              protocol: UDP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: LOG_LEVEL
+              value: info
+            - name: SERVICE_NAME
+              value: vpn-svc
+            # DATABASE_URL points at the shared CNPG Postgres cluster
+            # used by other coordinator services. The DB user is
+            # provisioned by Atlas migration or, in dev, by the vpn-svc
+            # binary's embedded goose migrations on first start. Until
+            # the SealedSecret lands, vpn-svc falls back to its
+            # in-memory store with WARN logging.
+            - name: STUN_LISTEN_ADDR
+              value: ":3478"
+            - name: LISTEN_ADDR
+              value: ":8080"
+          envFrom:
+            - configMapRef:
+                name: vpn-svc-config
+                optional: true
+            - secretRef:
+                name: vpn-svc-secrets
+                optional: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 1000m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: vpn-svc

@@ -1,0 +1,49 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: vpn-svc
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: vpn-svc
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: backend
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: vpn-svc
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+      protocol: TCP
+---
+# Separate Service for the STUN UDP port. NLB-style routing requires
+# UDP-only services for STUN to work properly behind a LoadBalancer
+# (TCP and UDP cannot share a Service port in earlier K8s; even where
+# they can, the LB controller often only forwards TCP).
+apiVersion: v1
+kind: Service
+metadata:
+  name: vpn-svc-stun
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: vpn-svc
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: stun
+spec:
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: vpn-svc
+  ports:
+    - name: stun
+      port: 3478
+      targetPort: stun
+      protocol: UDP
+  # externalTrafficPolicy: Local would preserve client source IP for
+  # accurate XOR-MAPPED-ADDRESS. Kept as Cluster for MVP — fixing this
+  # post-deploy when we have visibility into the LB controller behavior.
+  externalTrafficPolicy: Cluster

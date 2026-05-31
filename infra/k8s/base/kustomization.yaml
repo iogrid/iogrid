@@ -18,6 +18,7 @@ resources:
   - gateway-bff
   - proxy-gateway
   - vpn-gateway
+  - vpn-svc
   - build-gateway
   - web
   - admin

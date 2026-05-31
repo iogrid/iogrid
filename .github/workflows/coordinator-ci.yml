@@ -180,6 +180,8 @@ jobs:
             manifest: infra/k8s/base/build-gateway/deployment.yaml
           - service: vpn-gateway
             manifest: infra/k8s/base/vpn-gateway/deployment.yaml
+          - service: vpn-svc
+            manifest: infra/k8s/base/vpn-svc/deployment.yaml
     steps:
       - uses: actions/checkout@v4
 

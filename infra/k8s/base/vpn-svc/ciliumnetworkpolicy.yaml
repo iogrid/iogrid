@@ -1,0 +1,52 @@
+---
+# vpn-svc CiliumNetworkPolicy — SPIFFE-style mutual auth.
+# Companion to networkpolicy.yaml (issue #35).
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: vpn-svc-mtls
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: vpn-svc
+    app.kubernetes.io/part-of: iogrid
+    iogrid.org/policy-class: spiffe-mtls
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: vpn-svc
+  ingress:
+    # iogrid peers that call vpn-svc.
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: gateway-bff
+            io.kubernetes.pod.namespace: iogrid
+        - matchLabels:
+            app.kubernetes.io/name: providers-svc
+            io.kubernetes.pod.namespace: iogrid
+        - matchLabels:
+            app.kubernetes.io/name: proxy-gateway
+            io.kubernetes.pod.namespace: iogrid
+        - matchLabels:
+            app.kubernetes.io/name: web
+            io.kubernetes.pod.namespace: iogrid
+      authentication:
+        mode: required
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # STUN — public Internet (no SPIFFE auth — UDP echo doesn't trust the peer)
+    - fromEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "3478"
+              protocol: UDP
+    # Prometheus scrape
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: monitoring
+      toPorts:
+        - ports:
+            - port: "9090"
+              protocol: TCP
