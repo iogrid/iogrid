@@ -75,6 +75,8 @@ func main() {
 			cmdVPNDoctor(os.Args[3:])
 		case "regions":
 			cmdVPNRegions(os.Args[3:])
+		case "run":
+			cmdVPNRun(os.Args[3:])
 		default:
 			fmt.Fprintf(os.Stderr, "unknown vpn subcommand: %s\n", os.Args[2])
 			os.Exit(1)
@@ -97,6 +99,8 @@ func printUsage() {
 Usage:
   iogrid login [--api-key=KEY] [--customer-id=ID]
   iogrid vpn connect --region <r> [--coordinator=URL]
+  iogrid vpn run --region <r>     # connect + heartbeat-loop (recommended)
+  iogrid vpn regions              # list available regions
   iogrid vpn disconnect
   iogrid vpn status
   iogrid vpn doctor       # connectivity self-check
@@ -222,6 +226,56 @@ func cmdVPNDisconnect(args []string) {
 	}
 	_ = os.Remove(sessionStatePath())
 	fmt.Println("✓ VPN tunnel closed.")
+}
+
+// cmdVPNRun is connect + heartbeat-every-30s + clean Disconnect on SIGINT/SIGTERM.
+// The user-facing equivalent of running the daemon — keeps the session alive
+// past the coordinator's idle-cleanup window (default 5 min).
+func cmdVPNRun(args []string) {
+	fs := flag.NewFlagSet("run", flag.ExitOnError)
+	region := fs.String("region", "us-east-1", "Region to connect to")
+	refreshInterval := fs.Duration("refresh-interval", 30*time.Second, "Heartbeat interval")
+	_ = fs.Parse(args)
+
+	creds, err := readCredentials()
+	if err != nil {
+		die("not logged in — run: iogrid login")
+	}
+
+	client := vpn.NewBastionClient(creds.Coordinator, creds.CustomerID, creds.APIKey)
+	if os.Getenv("IOGRID_VERBOSE") != "" {
+		client.Verbose = true
+	}
+	ctx, cancel := signalContext()
+	defer cancel()
+
+	fmt.Printf("Connecting to region=%s...\n", *region)
+	if err := client.Connect(ctx, *region); err != nil {
+		die("connect: %v", err)
+	}
+	state := sessionState{Region: *region, ConnectedAt: time.Now()}
+	_ = writeSessionState(state)
+	fmt.Printf("✓ VPN tunnel established. Refreshing every %s. Ctrl-C to disconnect.\n", refreshInterval)
+
+	ticker := time.NewTicker(*refreshInterval)
+	defer ticker.Stop()
+	var bytesIn, bytesOut uint64
+	for {
+		select {
+		case <-ctx.Done():
+			fmt.Println("\nDisconnecting...")
+			if err := client.Disconnect(context.Background()); err != nil {
+				fmt.Fprintf(os.Stderr, "disconnect: %v\n", err)
+			}
+			_ = os.Remove(sessionStatePath())
+			fmt.Println("✓ Tunnel closed.")
+			return
+		case <-ticker.C:
+			if err := client.RefreshMetrics(ctx, bytesIn, bytesOut); err != nil {
+				fmt.Fprintf(os.Stderr, "refresh: %v (will retry next tick)\n", err)
+			}
+		}
+	}
 }
 
 // cmdVPNRegions lists every region with at least one healthy provider
