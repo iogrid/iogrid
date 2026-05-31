@@ -273,6 +273,16 @@ func (h *TriggerFailover) Handle(w http.ResponseWriter, r *http.Request) {
 	failedProviderID := session.CurrentProvider
 	region := session.Region
 
+	// Edge case (#535): if the session has no CurrentProvider yet (i.e. it
+	// was created but never confirmed), failover is meaningless — there's
+	// nothing to fail over from. Reject with a clear error instead of
+	// silently picking a "new" provider that's the same as the (nil) old.
+	if failedProviderID == uuid.Nil {
+		respondError(w, http.StatusConflict,
+			"session has no current provider — confirm an ICE candidate first")
+		return
+	}
+
 	// Select alternate provider in same region, EXCLUDING the failed provider
 	// (so we don't immediately retry the one that just died)
 	exclude := []uuid.UUID{failedProviderID}

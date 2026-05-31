@@ -102,19 +102,45 @@ func TestIntegration_SessionLifecycle(t *testing.T) {
 func TestIntegration_FailoverNoProviders(t *testing.T) {
 	srv, st := boot(t)
 
-	// Create session in a region with no providers
+	// Session with a CurrentProvider set so we get past the #535 guard,
+	// in a region with no OTHER healthy providers to fail over to.
+	sessionID := uuid.New()
+	currentProvider := uuid.New()
+	_ = st.CreateSession(context.Background(), &store.Session{
+		ID:              sessionID,
+		CustomerID:      uuid.New(),
+		Region:          "ap-south-1",
+		PrimaryProvider: currentProvider,
+		CurrentProvider: currentProvider,
+	})
+
+	// Trigger failover — should return 503 because no alternate providers in region
+	req := map[string]string{"failure_reason": "endpoint_unreachable"}
+	resp, body := postJSON(t, srv.URL+"/v1/vpn/sessions/"+sessionID.String()+"/failover", req)
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("expected 503 when no alternate providers, got %d body=%s", resp.StatusCode, body)
+	}
+}
+
+func TestIntegration_FailoverNoCurrentProvider(t *testing.T) {
+	// Closes #535: session with CurrentProvider=uuid.Nil must return 409,
+	// not silently pick the only healthy provider as if it were a failover.
+	srv, st := boot(t)
+	mem := st.(*store.Memory)
+	mem.SeedProvider(uuid.New(), "us-east-1", "healthy")
+
 	sessionID := uuid.New()
 	_ = st.CreateSession(context.Background(), &store.Session{
 		ID:         sessionID,
 		CustomerID: uuid.New(),
-		Region:     "ap-south-1",
+		Region:     "us-east-1",
+		// CurrentProvider deliberately zero
 	})
 
-	// Trigger failover — should return 503 because no providers in region
-	req := map[string]string{"failure_reason": "endpoint_unreachable"}
+	req := map[string]string{"failure_reason": "test"}
 	resp, body := postJSON(t, srv.URL+"/v1/vpn/sessions/"+sessionID.String()+"/failover", req)
-	if resp.StatusCode != http.StatusServiceUnavailable {
-		t.Errorf("expected 503 when no providers available, got %d body=%s", resp.StatusCode, body)
+	if resp.StatusCode != http.StatusConflict {
+		t.Errorf("expected 409 (session has no current provider), got %d body=%s", resp.StatusCode, body)
 	}
 }
 
