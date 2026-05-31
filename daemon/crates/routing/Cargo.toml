@@ -26,6 +26,15 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 bytes = { workspace = true }
 iogrid-anti-abuse = { workspace = true }
 iogrid-scheduler = { workspace = true }
+
+# VPN-6 (#510): ICE candidate discovery + reporting.
+# `if-addrs` is a tiny pure-Rust crate that wraps getifaddrs / iphlpapi
+# for cross-platform local-interface enumeration. `reqwest` matches the
+# workspace TLS posture — `rustls-tls` reuses the ring CryptoProvider
+# already pinned in workspace deps (#327), so no extra link-map churn.
+if-addrs = "0.13"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
