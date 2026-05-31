@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -320,11 +321,17 @@ func (c *BastionClient) getProviderInfo(ctx context.Context, sessionID string) (
 		return "", "", nil, fmt.Errorf("decode response: %w", err)
 	}
 
-	// Convert ICE candidates to MockIceCandidate format for backward compatibility
+	// Convert ICE candidates to MockIceCandidate format for backward compatibility.
+	// Postgres inet column renders as "10.x.x.x/32" — strip CIDR suffix before
+	// using the address as a UDP dial target.
 	var candidates []*MockIceCandidate
 	for _, cand := range sessionSnapshot.ICECandidates {
+		addr := cand.ConnectionAddress
+		if i := strings.Index(addr, "/"); i > 0 {
+			addr = addr[:i]
+		}
 		candidates = append(candidates, &MockIceCandidate{
-			ConnectionAddress: cand.ConnectionAddress,
+			ConnectionAddress: addr,
 			ConnectionPort:    cand.ConnectionPort,
 			CandidateType:     cand.CandidateType,
 			LatencyMs:         cand.LatencyMs,
