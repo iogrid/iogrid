@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-31T07:48Z` ✍️ hand-update: PR #499 merged (#485 closed) — session complete |
+| Last refreshed | `2026-05-31T08:00Z` 🟢 cron-refresh: +1 commits since last TRACKER bump |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **132+** since bootstrap (PRs #493/#495/#496/#497/#498/#499/#501 merged this session) |
 | Open PRs | **0** |
