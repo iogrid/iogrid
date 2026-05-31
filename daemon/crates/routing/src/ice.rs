@@ -446,7 +446,34 @@ fn decode_mapped(value: &[u8], xor: bool, tx_id: &[u8; 12]) -> Result<SocketAddr
     } else {
         raw_port
     };
-    match family {
+    // VPN-551 defensive alias: vpn-svc shipped a Family byte of 0x04
+    // (Go's `net.IPv4len` — byte-length of an IPv4 address, NOT the
+    // RFC 5389 §15.2 address-family enum). The server-side fix in the
+    // same PR sends 0x01 going forward, but daemons deployed in the
+    // field will still encounter 0x04 from any server that hasn't
+    // rolled the image yet — accept it as IPv4 with a one-time WARN
+    // so providers behind NAT can still discover srflx during the
+    // staggered rollout. Remove this alias once every Sovereign is on
+    // the fixed image. See iogrid/iogrid#551.
+    let canonical_family = match family {
+        0x01 | 0x02 => family,
+        0x04 => {
+            static WARN_ONCE: std::sync::Once = std::sync::Once::new();
+            WARN_ONCE.call_once(|| {
+                tracing::warn!(
+                    "STUN server sent non-RFC family byte 0x04 (Go's net.IPv4len); \
+                     treating as IPv4. Server needs the #551 fix (Family: 0x01)."
+                );
+            });
+            0x01
+        }
+        other => {
+            return Err(IceError::StunProtocol(format!(
+                "unknown address family 0x{other:02x}"
+            )));
+        }
+    };
+    match canonical_family {
         0x01 => {
             if value.len() < 8 {
                 return Err(IceError::StunProtocol("ipv4 mapped too short".into()));
@@ -478,9 +505,7 @@ fn decode_mapped(value: &[u8], xor: bool, tx_id: &[u8; 12]) -> Result<SocketAddr
             }
             Ok(SocketAddr::new(IpAddr::V6(octets.into()), port))
         }
-        other => Err(IceError::StunProtocol(format!(
-            "unknown address family 0x{other:02x}"
-        ))),
+        _ => unreachable!("canonical_family already filtered to 0x01 / 0x02"),
     }
 }
 
@@ -684,6 +709,61 @@ mod tests {
             got,
             SocketAddr::new(IpAddr::V4(Ipv4Addr::new(203, 0, 113, 5)), 51820)
         );
+    }
+
+    #[test]
+    fn xor_mapped_ipv4_accepts_family_0x04_alias() {
+        // VPN-551 regression: pre-fix vpn-svc sent Family=0x04
+        // (Go's `net.IPv4len`) instead of the RFC 5389 §15.2 0x01.
+        // Parser must tolerate this so providers behind NAT discover
+        // srflx during the staggered server rollout.
+        let tx = [0x77u8; 12];
+        let mut msg = Vec::new();
+        msg.extend_from_slice(&STUN_BINDING_SUCCESS.to_be_bytes());
+        msg.extend_from_slice(&12u16.to_be_bytes());
+        msg.extend_from_slice(&STUN_MAGIC_COOKIE.to_be_bytes());
+        msg.extend_from_slice(&tx);
+        msg.extend_from_slice(&STUN_ATTR_XOR_MAPPED_ADDRESS.to_be_bytes());
+        msg.extend_from_slice(&8u16.to_be_bytes());
+        let xport = 47512u16 ^ ((STUN_MAGIC_COOKIE >> 16) as u16);
+        let cookie = STUN_MAGIC_COOKIE.to_be_bytes();
+        let real_ip = [188, 66, 253, 46];
+        let xip = [
+            real_ip[0] ^ cookie[0],
+            real_ip[1] ^ cookie[1],
+            real_ip[2] ^ cookie[2],
+            real_ip[3] ^ cookie[3],
+        ];
+        msg.push(0);
+        // The bug: 0x04 instead of 0x01. Parser must still treat
+        // this as IPv4 and un-XOR the address correctly.
+        msg.push(0x04);
+        msg.extend_from_slice(&xport.to_be_bytes());
+        msg.extend_from_slice(&xip);
+
+        let got = parse_binding_response(&msg, &tx).expect("parse ok with 0x04 alias");
+        assert_eq!(
+            got,
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(188, 66, 253, 46)), 47512)
+        );
+    }
+
+    #[test]
+    fn xor_mapped_rejects_truly_unknown_family() {
+        // 0xff is not 0x01 / 0x02 / 0x04 — should still 400 cleanly.
+        let tx = [0u8; 12];
+        let mut msg = Vec::new();
+        msg.extend_from_slice(&STUN_BINDING_SUCCESS.to_be_bytes());
+        msg.extend_from_slice(&12u16.to_be_bytes());
+        msg.extend_from_slice(&STUN_MAGIC_COOKIE.to_be_bytes());
+        msg.extend_from_slice(&tx);
+        msg.extend_from_slice(&STUN_ATTR_XOR_MAPPED_ADDRESS.to_be_bytes());
+        msg.extend_from_slice(&8u16.to_be_bytes());
+        msg.push(0);
+        msg.push(0xff); // bogus family
+        msg.extend_from_slice(&[0u8; 6]);
+        let err = parse_binding_response(&msg, &tx);
+        assert!(matches!(err, Err(IceError::StunProtocol(_))));
     }
 
     #[test]
