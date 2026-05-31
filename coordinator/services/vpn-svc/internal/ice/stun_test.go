@@ -92,6 +92,67 @@ func TestSTUN_BindingRequestRoundtrip(t *testing.T) {
 	t.Logf("STUN roundtrip OK: msg_len=%d bytes, response_size=%d", msgLen, n)
 }
 
+// VPN-551 regression: vpn-svc was setting Family=net.IPv4len (=4) on
+// the XOR-MAPPED-ADDRESS attribute instead of the RFC 5389 §15.2 value
+// of 0x01. Strict STUN clients (the iogridd Rust parser) rejected the
+// response with "unknown address family 0x04" and providers behind NAT
+// silently fell back to host-only ICE candidates. This test verifies
+// the response now carries the RFC-correct Family + the right
+// attribute Type code (0x0020 XOR-MAPPED-ADDRESS, not the legacy 0x0001
+// MAPPED-ADDRESS — those carry different XOR semantics).
+func TestSTUN_BindingResponse_FamilyIs0x01(t *testing.T) {
+	srv, err := NewSTUNServer("127.0.0.1:0", slog.Default())
+	if err != nil {
+		t.Fatalf("create STUN server: %v", err)
+	}
+	defer srv.Close()
+	bound := srv.LocalAddr()
+	go func() { _ = srv.Start() }()
+	time.Sleep(50 * time.Millisecond)
+
+	conn, err := net.DialUDP("udp", nil, bound.(*net.UDPAddr))
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	req := []byte{
+		0x00, 0x01, 0x00, 0x00,
+		0x21, 0x12, 0xa4, 0x42,
+		0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+		0x18, 0x19, 0x1a, 0x1b,
+	}
+	_ = conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
+	if _, err := conn.Write(req); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	buf := make([]byte, 1500)
+	n, err := conn.Read(buf)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if n < 20+4+8 {
+		t.Fatalf("response too short for XOR-MAPPED-ADDRESS, got %d bytes", n)
+	}
+
+	// First attribute (offset 20): type 0x0020, length 8, then body.
+	attrType := binary.BigEndian.Uint16(buf[20:22])
+	if attrType != 0x0020 {
+		t.Errorf("attribute type = 0x%04x, want 0x0020 (XOR-MAPPED-ADDRESS); pre-#551 sent 0x0001 (legacy MAPPED-ADDRESS) which has different XOR semantics", attrType)
+	}
+
+	// Body: reserved(1) + family(1) + xport(2) + xip(4).
+	reserved := buf[24]
+	family := buf[25]
+	if reserved != 0x00 {
+		t.Errorf("reserved byte = 0x%02x, want 0x00", reserved)
+	}
+	if family != 0x01 {
+		t.Errorf("family byte = 0x%02x, want 0x01 (IPv4 per RFC 5389 §15.2); pre-#551 sent 0x04 (Go's net.IPv4len, wrong constant)", family)
+	}
+}
+
 // TestSTUN_RejectsNonBindingRequests checks that the server doesn't
 // crash on garbage / non-BINDING-REQUEST traffic.
 func TestSTUN_RejectsNonBindingRequests(t *testing.T) {

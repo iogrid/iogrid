@@ -59,15 +59,30 @@ func (s *STUNServer) Start() error {
 			continue
 		}
 
-		// Send BINDING SUCCESS response with MAPPED-ADDRESS = sender IP:port
+		// Send BINDING SUCCESS response with XOR-MAPPED-ADDRESS = sender IP:port.
+		// `encodeAttribute` hardcodes the wire type to
+		// `AttributeXORMappedAddress` based on the *Value variant, so the
+		// `Type` field below is informational on this code path; setting
+		// it to match avoids reader confusion. See #551.
 		response := &STUNMessage{
 			MessageType: MessageTypeBindingSuccess,
 			TransactionID: msg.TransactionID,
 			Attributes: []*STUNAttribute{
 				{
-					Type:  AttributeMappedAddress,
+					Type: AttributeXORMappedAddress,
 					Value: &XORMappedAddress{
-						Family: net.IPv4len,
+						// RFC 5389 §15.2: Family is the address-family
+						// enum — 0x01 for IPv4, 0x02 for IPv6. The
+						// pre-#551 code used `net.IPv4len` (= 4), which
+						// is Go's byte-length-of-an-IPv4-address
+						// constant — a different concept that happens
+						// to share the "4" digit. Strict STUN clients
+						// (including the iogridd Rust parser) rejected
+						// the response with "unknown address family
+						// 0x04" and providers behind NAT silently fell
+						// back to host-only ICE candidates, so customer
+						// SDKs couldn't reach them through srflx.
+						Family: STUNAddressFamilyIPv4,
 						Port:   uint16(remoteAddr.Port),
 						IP:     remoteAddr.IP,
 					},
@@ -113,6 +128,15 @@ const (
 	AttributeUsername          = 0x0006
 	AttributeMessageIntegrity  = 0x0008
 	AttributeFingerprint       = 0x8028
+)
+
+// STUN address-family values for MAPPED-ADDRESS / XOR-MAPPED-ADDRESS
+// attributes (RFC 5389 §15.2). Do NOT confuse with `net.IPv4len` (= 4)
+// which is the byte-length of an IPv4 address; that mix-up is exactly
+// what caused #551.
+const (
+	STUNAddressFamilyIPv4 uint8 = 0x01
+	STUNAddressFamilyIPv6 uint8 = 0x02
 )
 
 // STUNMessage represents a STUN message
