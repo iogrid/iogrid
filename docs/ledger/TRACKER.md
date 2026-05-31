@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-01T23:10Z` 🟢 Caught + closed #559 (NEXTAUTH_URL=app.iogrid.org leftover; patched secret in cluster, /customer/vpn redirect chain now single-hop iogrid.org/account). vpn-svc rolled to c786ccfe (worker+lead CI green). Web-ci 2d184ed in flight on lint/canonical fixes for install-cli.sh route (#558). 11 PRs this session, 8 issues closed (+#551 #559). Worker on #529 path (c) Linux TUN+MASQUERADE — closes #532 when shipped. |
+| Last refreshed | `2026-06-01T23:25Z` 🟢 **`curl -fsSL https://iogrid.org/install-cli.sh \| sh` WORKS END-TO-END.** Closed #558 — web pod rolled to 8d408030, install-cli.sh returns 200 + valid content + binary downloads + installs to ~/.local/bin without sudo. Tagged v0.1.1-cli release for fresh binaries with the latest 9 SDK/CLI fixes. Bulk-rolled 9 coordinator services to git-pinned SHAs, recovered providers-svc from a transient mis-roll inside 30s. 12 PRs this session, 9 issues closed. Open: #532 (gated on worker's #529 path c TUN+MASQUERADE). |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
 | Open PRs | **0** |
