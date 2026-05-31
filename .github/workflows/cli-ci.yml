@@ -1,0 +1,98 @@
+name: cli-ci
+
+# Builds the customer-facing `iogrid` CLI binary across all supported
+# platforms and uploads the artifacts. On tag pushes (v*) attaches the
+# binaries to a GitHub Release at releases.iogrid.org.
+#
+# This is the customer entry point — `curl -fsSL https://iogrid.org/install.sh | sh`
+# fetches the latest release for the user's OS+arch from these artifacts.
+#
+# Refs #527.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'cmd/iogrid/**'
+      - 'sdks/go/vpn/**'
+      - '.github/workflows/cli-ci.yml'
+  pull_request:
+    paths:
+      - 'cmd/iogrid/**'
+      - 'sdks/go/vpn/**'
+      - '.github/workflows/cli-ci.yml'
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    name: ${{ matrix.os }}-${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+          - os: linux
+            arch: arm64
+          - os: darwin
+            arch: amd64
+          - os: darwin
+            arch: arm64
+          - os: windows
+            arch: amd64
+            ext: .exe
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          check-latest: true
+          # Workspace replaces ../../sdks/go/vpn relatively; no proxy.
+          cache: false
+
+      - name: Build iogrid CLI
+        working-directory: cmd/iogrid
+        env:
+          CGO_ENABLED: '0'
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+        run: |
+          go mod tidy
+          go build -trimpath \
+            -ldflags="-s -w -X 'main.version=${GITHUB_REF_NAME}' -X 'main.commit=${GITHUB_SHA}'" \
+            -o ../../iogrid-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }} .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: iogrid-${{ matrix.os }}-${{ matrix.arch }}
+          path: iogrid-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }}
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: attach to release
+    needs: [build]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: ./release-artifacts
+
+      - name: Upload binaries to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${GITHUB_REF_NAME}" \
+            ./release-artifacts/* \
+            --clobber
