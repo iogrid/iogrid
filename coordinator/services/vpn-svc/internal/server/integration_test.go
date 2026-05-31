@@ -147,7 +147,10 @@ func TestIntegration_ListProvidersInRegion(t *testing.T) {
 	}
 
 	// eu-west-1 should return 1
-	resp2, _ := http.Get(srv.URL + "/v1/vpn/regions/eu-west-1/providers")
+	resp2, err := http.Get(srv.URL + "/v1/vpn/regions/eu-west-1/providers")
+	if err != nil {
+		t.Fatalf("GET eu-west-1: %v", err)
+	}
 	defer resp2.Body.Close()
 	var result2 map[string]interface{}
 	_ = json.NewDecoder(resp2.Body).Decode(&result2)
@@ -156,7 +159,10 @@ func TestIntegration_ListProvidersInRegion(t *testing.T) {
 	}
 
 	// ap-south-1 (no providers) returns count=0, not error
-	resp3, _ := http.Get(srv.URL + "/v1/vpn/regions/ap-south-1/providers")
+	resp3, err := http.Get(srv.URL + "/v1/vpn/regions/ap-south-1/providers")
+	if err != nil {
+		t.Fatalf("GET ap-south-1: %v", err)
+	}
 	defer resp3.Body.Close()
 	if resp3.StatusCode != http.StatusOK {
 		t.Errorf("empty region returned %d, want 200", resp3.StatusCode)
