@@ -299,7 +299,9 @@ impl TunnelManager {
                         "tunnel cap reached — evicting oldest-idle"
                     );
                     // Signal the evicted tunnel's pump to stop.
-                    let _ = old_tx.send(Inbound::Close("evicted_for_newer".into())).await;
+                    let _ = old_tx
+                        .send(Inbound::Close("evicted_for_newer".into()))
+                        .await;
                     // Notify coordinator so the forwarder unblocks.
                     let _ = self
                         .outbound
@@ -727,10 +729,7 @@ mod tests {
 
     #[test]
     fn ssrf_guard_ipv6_loopback() {
-        assert_eq!(
-            is_private_addr("::1".parse().unwrap()),
-            Some("loopback")
-        );
+        assert_eq!(is_private_addr("::1".parse().unwrap()), Some("loopback"));
     }
 
     #[test]
@@ -743,7 +742,11 @@ mod tests {
 
     #[test]
     fn ssrf_guard_ipv6_ula() {
-        for addr in ["fc00::1", "fd00::1", "fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"] {
+        for addr in [
+            "fc00::1",
+            "fd00::1",
+            "fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+        ] {
             assert_eq!(
                 is_private_addr(addr.parse().unwrap()),
                 Some("ula"),
@@ -754,7 +757,12 @@ mod tests {
 
     #[test]
     fn ssrf_guard_allows_public_addrs() {
-        for addr in ["8.8.8.8", "1.1.1.1", "93.184.216.34", "2001:4860:4860::8888"] {
+        for addr in [
+            "8.8.8.8",
+            "1.1.1.1",
+            "93.184.216.34",
+            "2001:4860:4860::8888",
+        ] {
             assert_eq!(
                 is_private_addr(addr.parse().unwrap()),
                 None,
@@ -802,7 +810,8 @@ mod tests {
         // and the dial path — the integration test in e2e/ covers the
         // full cap eviction end-to-end. For now exercise the code path:
         for (i, port) in ports.iter().enumerate() {
-            mgr.open(format!("cap-{i}"), format!("0.0.0.0:{port}")).await;
+            mgr.open(format!("cap-{i}"), format!("0.0.0.0:{port}"))
+                .await;
         }
 
         // Each open() on 0.0.0.0 emits a TunnelClose immediately (SSRF blocked).
