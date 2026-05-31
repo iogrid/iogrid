@@ -16,6 +16,7 @@ import (
 	"os"
 
 	vdb "github.com/iogrid/iogrid/coordinator/services/vpn-svc/internal/db"
+	"github.com/iogrid/iogrid/coordinator/services/vpn-svc/internal/ice"
 	"github.com/iogrid/iogrid/coordinator/services/vpn-svc/internal/server"
 	"github.com/iogrid/iogrid/coordinator/services/vpn-svc/internal/store"
 	"github.com/iogrid/iogrid/coordinator/shared/db"
@@ -77,14 +78,33 @@ func main() {
 			slog.String("impact", "sessions are LOST on pod restart; set DATABASE_URL for prod"))
 	}
 
-	// --- Server setup -------------------------------------------------------
+	// --- STUN server setup (RFC 5389) ----------------------------------------
+	stunAddr := os.Getenv("STUN_LISTEN_ADDR")
+	if stunAddr == "" {
+		stunAddr = ":3478" // Standard STUN port
+	}
+	stunServer, err := ice.NewSTUNServer(stunAddr, logger)
+	if err != nil {
+		logger.Error("stun server setup failed", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+
+	// Start STUN server in background
+	go func() {
+		if err := stunServer.Start(); err != nil {
+			logger.Error("stun server error", slog.String("error", err.Error()))
+		}
+	}()
+	defer stunServer.Close()
+
+	// --- HTTP server setup -------------------------------------------------------
 	h := sharedserver.Bootstrap(serviceName, logger, hr)
 	if err := server.Mount(h, st, logger); err != nil {
 		logger.Error("server mount failed", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
 
-	// --- Start server -------------------------------------------------------
+	// --- Start HTTP server -------------------------------------------------------
 	addr := os.Getenv("LISTEN_ADDR")
 	if addr == "" {
 		addr = ":8080"
