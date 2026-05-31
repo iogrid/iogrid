@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -181,7 +182,20 @@ func cmdVPNConnect(args []string) {
 	defer cancel()
 
 	if err := client.Connect(ctx, *region); err != nil {
-		die("vpn connect failed: %v", err)
+		// Map common failure modes to actionable hints.
+		msg := err.Error()
+		switch {
+		case strings.Contains(msg, "401"):
+			die("api key rejected. Mint a fresh one at https://iogrid.org/customer/vpn and `iogrid login` again.")
+		case strings.Contains(msg, "503"):
+			die("no providers in region %q. Try `iogrid vpn regions` to see what's online.", *region)
+		case strings.Contains(msg, "no candidates to check"):
+			die("provider returned 0 ICE candidates. The provider may be unreachable behind NAT — try a different --region.")
+		case strings.Contains(msg, "create tun") && strings.Contains(msg, "operation not permitted"):
+			die("WireGuard interface creation needs CAP_NET_ADMIN. Try: sudo setcap cap_net_admin+eip $(command -v iogrid) && iogrid vpn connect …")
+		default:
+			die("vpn connect failed: %v", err)
+		}
 	}
 
 	// Persist session state so `iogrid vpn status` + `iogrid vpn disconnect` work
