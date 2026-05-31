@@ -1,0 +1,53 @@
+# api.iogrid.org/v1/vpn/* → vpn-svc :8080
+#
+# Public ingress for the iogrid VPN P2P control plane (EPIC #504).
+# Closes #526 — without this the customer SDK / iogrid CLI cannot
+# reach vpn-svc from outside the cluster (no port-forward needed).
+#
+# Surfaces:
+#   POST /v1/vpn/sessions                                — customer creates session
+#   GET  /v1/vpn/sessions/{id}                           — fetch assignment
+#   PUT  /v1/vpn/sessions/{id}/confirm                   — confirm ICE candidate
+#   POST /v1/vpn/sessions/{id}/refresh                   — heartbeat
+#   POST /v1/vpn/sessions/{id}/terminate                 — close
+#   POST /v1/vpn/sessions/{id}/failover                  — regional failover
+#   POST /v1/vpn/providers/{id}/register                 — provider daemon pairing
+#   POST /v1/vpn/providers/{id}/candidates               — ICE candidate POST
+#   GET  /v1/vpn/providers/{id}/candidates               — peer ICE retrieval
+#   POST /v1/vpn/providers/{id}/health                   — heartbeat (every 15s)
+#   POST /v1/vpn/providers/{id}/offline                  — graceful shutdown
+#   GET  /v1/vpn/regions/{region}/providers              — list providers
+#
+# STUN UDP :3478 is exposed separately via vpn-svc-stun LoadBalancer
+# Service (UDP can't share a Traefik IngressRoute with TCP traffic).
+# DNS for stun.iogrid.org should point at that LB's external IP.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: api-iogrid-org-vpn
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: vpn-svc
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - kind: Rule
+      match: Host(`api.iogrid.org`) && PathPrefix(`/v1/vpn`)
+      priority: 100
+      middlewares:
+        - name: cors-app-iogrid
+      services:
+        - name: vpn-svc
+          port: 8080
+          # vpn-svc speaks plain HTTP/1.1 + HTTP/2 cleartext (h2c) like
+          # the other coordinator services. Use the long-lived transport
+          # so /sessions/{id}/refresh polling doesn't get prematurely
+          # closed mid-stream when the customer holds the session open.
+          scheme: h2c
+          serversTransport: long-lived-bidi
+          responseForwarding:
+            flushInterval: "100ms"
+  tls:
+    secretName: iogrid-tls
