@@ -50,46 +50,13 @@ func (p *Postgres) GetSession(ctx context.Context, sessionID uuid.UUID) (*Sessio
 		SELECT id, customer_id, region, primary_provider_id, current_provider_id,
 		       state, bytes_in, bytes_out, roaming_events, failover_count,
 		       ice_candidate_count, ice_time_ms, wg_establish_time_ms,
-		       created_at, terminated_at, last_activity_at, exit_reason
+		       created_at, terminated_at, last_activity_at, exit_reason,
+		       COALESCE(provider_wg_public_key, ''), COALESCE(customer_wg_public_key, '')
 		FROM vpn_sessions
 		WHERE id = $1
 	`
 	row := p.pool.QueryRow(ctx, query, sessionID)
-	session := &Session{}
-	var stateStr string
-	var terminatedAt *time.Time
-	var exitReason sql.NullString
-	err := row.Scan(
-		&session.ID,
-		&session.CustomerID,
-		&session.Region,
-		&session.PrimaryProvider,
-		&session.CurrentProvider,
-		&stateStr,
-		&session.BytesIn,
-		&session.BytesOut,
-		&session.RoamingEvents,
-		&session.FailoverCount,
-		&session.IceCandidates,
-		&session.IceTimeMs,
-		&session.WgEstablishMs,
-		&session.CreatedAt,
-		&terminatedAt,
-		&session.LastActivityAt,
-		&exitReason,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("query session: %w", err)
-	}
-	session.TerminatedAt = terminatedAt
-	session.ExitReason = exitReason.String
-	// Parse state from string
-	stateVal, ok := pb.VpnSessionState_value[stateStr]
-	if !ok {
-		stateVal = int32(pb.VpnSessionState_VPN_SESSION_STATE_UNSPECIFIED)
-	}
-	session.State = pb.VpnSessionState(stateVal)
-	return session, nil
+	return p.scanSession(row)
 }
 
 // UpdateSessionState implements Store.
@@ -132,7 +99,8 @@ func (p *Postgres) ListActiveSessionsByRegion(ctx context.Context, region string
 		SELECT id, customer_id, region, primary_provider_id, current_provider_id,
 		       state, bytes_in, bytes_out, roaming_events, failover_count,
 		       ice_candidate_count, ice_time_ms, wg_establish_time_ms,
-		       created_at, terminated_at, last_activity_at, exit_reason
+		       created_at, terminated_at, last_activity_at, exit_reason,
+		       COALESCE(provider_wg_public_key, ''), COALESCE(customer_wg_public_key, '')
 		FROM vpn_sessions
 		WHERE region = $1 AND terminated_at IS NULL
 		ORDER BY created_at DESC
@@ -160,7 +128,8 @@ func (p *Postgres) ListSessionsByCustomer(ctx context.Context, customerID uuid.U
 		SELECT id, customer_id, region, primary_provider_id, current_provider_id,
 		       state, bytes_in, bytes_out, roaming_events, failover_count,
 		       ice_candidate_count, ice_time_ms, wg_establish_time_ms,
-		       created_at, terminated_at, last_activity_at, exit_reason
+		       created_at, terminated_at, last_activity_at, exit_reason,
+		       COALESCE(provider_wg_public_key, ''), COALESCE(customer_wg_public_key, '')
 		FROM vpn_sessions
 		WHERE customer_id = $1
 		ORDER BY created_at DESC
@@ -449,7 +418,8 @@ func (p *Postgres) ListAssignedSessions(ctx context.Context, providerID uuid.UUI
 		SELECT id, customer_id, region, primary_provider_id, current_provider_id,
 		       state, bytes_in, bytes_out, roaming_events, failover_count,
 		       ice_candidate_count, ice_time_ms, wg_establish_time_ms,
-		       created_at, terminated_at, last_activity_at, exit_reason
+		       created_at, terminated_at, last_activity_at, exit_reason,
+		       COALESCE(provider_wg_public_key, ''), COALESCE(customer_wg_public_key, '')
 		FROM vpn_sessions
 		WHERE current_provider_id = $1
 		  AND terminated_at IS NULL
@@ -526,6 +496,8 @@ func (p *Postgres) scanSession(row interface {
 		&terminatedAt,
 		&session.LastActivityAt,
 		&exitReason,
+		&session.ProviderWgPublicKey,
+		&session.CustomerWgPublicKey,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("scan session: %w", err)
