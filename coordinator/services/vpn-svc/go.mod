@@ -10,3 +10,8 @@ require (
 	github.com/jackc/pgx/v5 v5.6.0
 	github.com/pressly/goose/v3 v3.18.0
 )
+
+replace (
+	github.com/iogrid/iogrid/coordinator/internal/pb => ../../internal/pb
+	github.com/iogrid/iogrid/coordinator/shared => ../../shared
+)

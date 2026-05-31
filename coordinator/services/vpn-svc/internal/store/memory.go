@@ -15,6 +15,7 @@ type Memory struct {
 	mu         sync.RWMutex
 	sessions   map[uuid.UUID]*Session
 	candidates map[uuid.UUID][]*pb.IceCandidate // provider_id -> candidates
+	providers  map[uuid.UUID]*ProviderInfo      // provider_id -> info
 }
 
 // NewMemory creates a new in-memory store.
@@ -22,6 +23,7 @@ func NewMemory() Store {
 	return &Memory{
 		sessions:   make(map[uuid.UUID]*Session),
 		candidates: make(map[uuid.UUID][]*pb.IceCandidate),
+		providers:  make(map[uuid.UUID]*ProviderInfo),
 	}
 }
 
@@ -156,5 +158,72 @@ func (m *Memory) ConfirmWorkingCandidate(ctx context.Context, sessionID uuid.UUI
 // CleanupExpiredCandidates implements Store.
 func (m *Memory) CleanupExpiredCandidates(ctx context.Context) error {
 	// In-memory store doesn't actually expire candidates
+	return nil
+}
+
+// GetProvidersInRegion implements Store.
+func (m *Memory) GetProvidersInRegion(ctx context.Context, region string) ([]*ProviderInfo, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var result []*ProviderInfo
+	for _, provider := range m.providers {
+		if provider.Region == region && provider.Status != "offline" {
+			result = append(result, provider)
+		}
+	}
+	return result, nil
+}
+
+// SelectProviderForSession implements Store.
+// Round-robin selection among healthy providers in region.
+func (m *Memory) SelectProviderForSession(ctx context.Context, region string) (uuid.UUID, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var healthy []*ProviderInfo
+	for _, provider := range m.providers {
+		if provider.Region == region && provider.Status == "healthy" {
+			healthy = append(healthy, provider)
+		}
+	}
+	if len(healthy) == 0 {
+		return uuid.Nil, fmt.Errorf("no healthy providers in region %s", region)
+	}
+	// Simple round-robin: pick the one with fewest sessions
+	selected := healthy[0]
+	for _, p := range healthy[1:] {
+		if p.SessionCount < selected.SessionCount {
+			selected = p
+		}
+	}
+	selected.SessionCount++
+	selected.LastSeenAt = time.Now()
+	return selected.ID, nil
+}
+
+// UpdateProviderHealth implements Store.
+func (m *Memory) UpdateProviderHealth(ctx context.Context, providerID uuid.UUID, status string, lastSeen time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	provider, exists := m.providers[providerID]
+	if !exists {
+		return fmt.Errorf("provider %s not found", providerID)
+	}
+	provider.Status = status
+	provider.LastSeenAt = lastSeen
+	return nil
+}
+
+// TriggerFailover implements Store.
+func (m *Memory) TriggerFailover(ctx context.Context, sessionID uuid.UUID, currentProvider, altProvider uuid.UUID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	session, exists := m.sessions[sessionID]
+	if !exists {
+		return fmt.Errorf("session %s not found", sessionID)
+	}
+	session.CurrentProvider = altProvider
+	session.FailoverCount++
+	session.State = pb.VpnSessionState_FAILING_OVER
+	session.LastActivityAt = time.Now()
 	return nil
 }

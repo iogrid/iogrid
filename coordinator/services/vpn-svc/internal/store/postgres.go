@@ -279,6 +279,77 @@ func (p *Postgres) CleanupExpiredCandidates(ctx context.Context) error {
 	return err
 }
 
+// GetProvidersInRegion implements Store.
+func (p *Postgres) GetProvidersInRegion(ctx context.Context, region string) ([]*ProviderInfo, error) {
+	query := `
+		SELECT id, region, status, last_seen_at, session_count
+		FROM vpn_providers
+		WHERE region = $1 AND status != 'offline'
+		ORDER BY session_count ASC
+	`
+	rows, err := p.pool.Query(ctx, query, region)
+	if err != nil {
+		return nil, fmt.Errorf("query providers: %w", err)
+	}
+	defer rows.Close()
+
+	var providers []*ProviderInfo
+	for rows.Next() {
+		provider := &ProviderInfo{}
+		if err := rows.Scan(&provider.ID, &provider.Region, &provider.Status, &provider.LastSeenAt, &provider.SessionCount); err != nil {
+			return nil, fmt.Errorf("scan provider: %w", err)
+		}
+		providers = append(providers, provider)
+	}
+	return providers, rows.Err()
+}
+
+// SelectProviderForSession implements Store.
+func (p *Postgres) SelectProviderForSession(ctx context.Context, region string) (uuid.UUID, error) {
+	query := `
+		SELECT id FROM vpn_providers
+		WHERE region = $1 AND status = 'healthy'
+		ORDER BY session_count ASC
+		LIMIT 1
+	`
+	var providerID uuid.UUID
+	err := p.pool.QueryRow(ctx, query, region).Scan(&providerID)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("select provider: %w", err)
+	}
+	// Increment session count
+	updateQuery := `
+		UPDATE vpn_providers
+		SET session_count = session_count + 1, last_seen_at = NOW()
+		WHERE id = $1
+	`
+	_, _ = p.pool.Exec(ctx, updateQuery, providerID)
+	return providerID, nil
+}
+
+// UpdateProviderHealth implements Store.
+func (p *Postgres) UpdateProviderHealth(ctx context.Context, providerID uuid.UUID, status string, lastSeen time.Time) error {
+	query := `
+		UPDATE vpn_providers
+		SET status = $1, last_seen_at = $2
+		WHERE id = $3
+	`
+	_, err := p.pool.Exec(ctx, query, status, lastSeen, providerID)
+	return err
+}
+
+// TriggerFailover implements Store.
+func (p *Postgres) TriggerFailover(ctx context.Context, sessionID uuid.UUID, currentProvider, altProvider uuid.UUID) error {
+	query := `
+		UPDATE vpn_sessions
+		SET current_provider_id = $1, failover_count = failover_count + 1,
+		    state = $2, last_activity_at = NOW()
+		WHERE id = $3
+	`
+	_, err := p.pool.Exec(ctx, query, altProvider, pb.VpnSessionState_FAILING_OVER.String(), sessionID)
+	return err
+}
+
 // Helper to scan a session row
 func (p *Postgres) scanSession(row interface {
 	Scan(dest ...interface{}) error

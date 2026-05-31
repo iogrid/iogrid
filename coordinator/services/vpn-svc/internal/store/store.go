@@ -46,6 +46,20 @@ type Store interface {
 
 	// CleanupExpiredCandidates deletes expired ICE candidates.
 	CleanupExpiredCandidates(ctx context.Context) error
+
+	// --- Provider Health & Failover ---
+
+	// GetProvidersInRegion retrieves all healthy providers in a region for failover.
+	GetProvidersInRegion(ctx context.Context, region string) ([]*ProviderInfo, error)
+
+	// SelectProviderForSession picks a provider for a new session (round-robin or health-based).
+	SelectProviderForSession(ctx context.Context, region string) (uuid.UUID, error)
+
+	// UpdateProviderHealth updates provider status (healthy/degraded/offline).
+	UpdateProviderHealth(ctx context.Context, providerID uuid.UUID, status string, lastSeen time.Time) error
+
+	// TriggerFailover switches a session to an alternate provider.
+	TriggerFailover(ctx context.Context, sessionID uuid.UUID, currentProvider, altProvider uuid.UUID) error
 }
 
 // Session represents a VPN session in the ledger.
@@ -67,4 +81,13 @@ type Session struct {
 	TerminatedAt    *time.Time
 	LastActivityAt  time.Time
 	ExitReason      string
+}
+
+// ProviderInfo represents a provider for regional failover selection.
+type ProviderInfo struct {
+	ID          uuid.UUID
+	Region      string
+	Status      string // "healthy", "degraded", "offline"
+	LastSeenAt  time.Time
+	SessionCount int32
 }
