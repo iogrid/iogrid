@@ -46,6 +46,9 @@ func Mount(h chi.Router, st store.Store, logger *slog.Logger, validator APIKeyVa
 		// + session_count. Read-only; no auth (read-mostly metadata).
 		r.Get("/regions/{region}/providers", NewListProvidersInRegion(st, logger).Handle)
 
+		// Region picker for customer CLI / web UI (#545).
+		r.Get("/regions", NewListRegions(st, logger).Handle)
+
 		// Customer's own sessions — used by /customer/vpn web page (#541).
 		// Auth is by customer_id query param; for now no upstream key
 		// validation since this is read-only. Gateway-bff scopes by

@@ -464,6 +464,33 @@ func (p *Postgres) ListAssignedSessions(ctx context.Context, providerID uuid.UUI
 	return sessions, rows.Err()
 }
 
+// ListRegions implements Store.
+func (p *Postgres) ListRegions(ctx context.Context) ([]*RegionSummary, error) {
+	query := `
+		SELECT region,
+		       COUNT(*) FILTER (WHERE status = 'healthy') AS healthy,
+		       COUNT(*) AS total
+		FROM vpn_providers
+		GROUP BY region
+		HAVING COUNT(*) FILTER (WHERE status = 'healthy') > 0
+		ORDER BY healthy DESC
+	`
+	rows, err := p.pool.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("query regions: %w", err)
+	}
+	defer rows.Close()
+	var out []*RegionSummary
+	for rows.Next() {
+		s := &RegionSummary{}
+		if err := rows.Scan(&s.Region, &s.HealthyProviders, &s.TotalProviders); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
 // Helper to scan a session row
 func (p *Postgres) scanSession(row interface {
 	Scan(dest ...interface{}) error

@@ -808,3 +808,35 @@ func (h *ListSessionsByCustomer) Handle(w http.ResponseWriter, r *http.Request) 
 		"count":       len(out),
 	})
 }
+
+// ListRegions handles GET /v1/vpn/regions — customer region picker (#545).
+type ListRegions struct {
+	st     store.Store
+	logger *slog.Logger
+}
+
+func NewListRegions(st store.Store, logger *slog.Logger) *ListRegions {
+	return &ListRegions{st: st, logger: logger}
+}
+
+func (h *ListRegions) Handle(w http.ResponseWriter, r *http.Request) {
+	regions, err := h.st.ListRegions(r.Context())
+	if err != nil {
+		h.logger.Error("list regions failed", slog.String("error", err.Error()))
+		respondError(w, http.StatusInternalServerError, "failed to list regions")
+		return
+	}
+	out := make([]map[string]interface{}, 0, len(regions))
+	for _, s := range regions {
+		out = append(out, map[string]interface{}{
+			"region":            s.Region,
+			"healthy_providers": s.HealthyProviders,
+			"total_providers":   s.TotalProviders,
+		})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"regions": out,
+		"count":   len(out),
+	})
+}

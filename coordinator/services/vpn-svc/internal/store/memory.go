@@ -318,6 +318,29 @@ func (m *Memory) BindCustomerWgKey(ctx context.Context, sessionID uuid.UUID, cus
 	return nil
 }
 
+// ListRegions implements Store.
+func (m *Memory) ListRegions(ctx context.Context) ([]*RegionSummary, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	byRegion := make(map[string]*RegionSummary)
+	for _, p := range m.providers {
+		s, ok := byRegion[p.Region]
+		if !ok {
+			s = &RegionSummary{Region: p.Region}
+			byRegion[p.Region] = s
+		}
+		s.TotalProviders++
+		if p.Status == "healthy" {
+			s.HealthyProviders++
+		}
+	}
+	out := make([]*RegionSummary, 0, len(byRegion))
+	for _, s := range byRegion {
+		out = append(out, s)
+	}
+	return out, nil
+}
+
 // ListAssignedSessions implements Store.
 func (m *Memory) ListAssignedSessions(ctx context.Context, providerID uuid.UUID) ([]*Session, error) {
 	m.mu.RLock()

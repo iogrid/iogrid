@@ -99,6 +99,18 @@ type Store interface {
 	// don't yet have ProviderWgPublicKey set. Daemon polls this every
 	// ~5s to find new customers to allocate peer slots for.
 	ListAssignedSessions(ctx context.Context, providerID uuid.UUID) ([]*Session, error)
+
+	// ListRegions aggregates provider counts per region for the customer
+	// region picker. Returns one entry per known region with healthy +
+	// total counts. Empty regions are filtered out.
+	ListRegions(ctx context.Context) ([]*RegionSummary, error)
+}
+
+// RegionSummary is one row of the customer region picker.
+type RegionSummary struct {
+	Region           string
+	HealthyProviders int32
+	TotalProviders   int32
 }
 
 // Session represents a VPN session in the ledger.

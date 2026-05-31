@@ -73,6 +73,8 @@ func main() {
 			cmdVPNStatus(os.Args[3:])
 		case "doctor":
 			cmdVPNDoctor(os.Args[3:])
+		case "regions":
+			cmdVPNRegions(os.Args[3:])
 		default:
 			fmt.Fprintf(os.Stderr, "unknown vpn subcommand: %s\n", os.Args[2])
 			os.Exit(1)
@@ -220,6 +222,39 @@ func cmdVPNDisconnect(args []string) {
 	}
 	_ = os.Remove(sessionStatePath())
 	fmt.Println("✓ VPN tunnel closed.")
+}
+
+// cmdVPNRegions lists every region with at least one healthy provider
+// + provider counts. Customers use it to pick --region for vpn connect.
+func cmdVPNRegions(args []string) {
+	coordinator := coordinatorFromEnvOrDefault()
+	c := &http.Client{Timeout: 5 * time.Second}
+	resp, err := c.Get(coordinator + "/v1/vpn/regions")
+	if err != nil {
+		die("coordinator unreachable: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		die("status %d from coordinator", resp.StatusCode)
+	}
+	var out struct {
+		Regions []struct {
+			Region           string `json:"region"`
+			HealthyProviders int    `json:"healthy_providers"`
+			TotalProviders   int    `json:"total_providers"`
+		} `json:"regions"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		die("decode response: %v", err)
+	}
+	if len(out.Regions) == 0 {
+		fmt.Println("no regions with healthy providers right now — try again in a few minutes")
+		return
+	}
+	fmt.Printf("%-20s %-10s %-10s\n", "REGION", "HEALTHY", "TOTAL")
+	for _, r := range out.Regions {
+		fmt.Printf("%-20s %-10d %-10d\n", r.Region, r.HealthyProviders, r.TotalProviders)
+	}
 }
 
 // cmdVPNDoctor runs end-to-end self-checks the customer can paste into
