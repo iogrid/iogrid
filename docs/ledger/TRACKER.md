@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-01T22:35Z` 🟢 6 VPN PRs this cycle: d61d6a7 (SDK bind+poll), ead6581 (postgres scanSession reads wg cols — root cause), 45d46a4 (#547 earnings batcher), db9ecee (#549 logout cascade), f84ff06 (go.work revert), c8bb7a8 (#548 free-tier 2 GiB quota). 3 issues closed (#547, #548, #549). Worker tasked on #551 daemon STUN parser. #532 pending cluster roll. |
+| Last refreshed | `2026-06-01T22:40Z` 🟢 CONTROL PLANE END-TO-END LIVE — `iogrid vpn connect` on bastion produces "✓ VPN tunnel established successfully!" against api.iogrid.org with real session, key bind, ICE candidates, confirm. 8 VPN PRs this session: d61d6a7, ead6581 (scanSession root cause), 45d46a4 (#547), db9ecee (#549), f84ff06, c8bb7a8 (#548), 9f0cae6 (#554), e0cbb2b (#556 confirm field names), 028300b (go.sum tidy). 5 issues closed (#544 #547 #548 #549 #554). Data plane gated on daemon side: #551 STUN parser + #529 NAT forward + new #557 (daemon WG port public reachability — candidates are private 10.10.1.201). |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
 | Open PRs | **0** |
