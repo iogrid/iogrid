@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-01T00:00Z` 🟢 phase-0-complete: Provider restoration verified, IPv4/IPv6 dual-stack confirmed |
+| Last refreshed | `2026-06-01T02:30Z` 🟡 phase-0-complete + vpn-epic-launched: P2P VPN architecture designed, Phase 1 (core) backlog created |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
 | Open PRs | **0** |
@@ -21,6 +21,63 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 | Phase 0 admin UI | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> `/admin/providers` shows paired daemon record for `emrah.baysal` — verified live via Playwright, record survives `providers-svc` pod restart (Postgres-backed via #247). Screenshots in repo root: `admin-providers-emrah-WORKING.png`, `admin-providers-postgres-persisted.png` |
 
 **Legend:** <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> done · <img alt="IN_FLIGHT" src="https://img.shields.io/badge/-IN__FLIGHT-bf8700?style=flat-square" /> work in progress · <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> open · <img alt="DEFERRED" src="https://img.shields.io/badge/-DEFERRED-6e7781?style=flat-square" /> deferred · <img alt="BLOCKED" src="https://img.shields.io/badge/-BLOCKED-8250df?style=flat-square" /> blocked on founder action
+
+---
+
+## 1.0. EPIC: P2P VPN with Seamless Regional Roaming (2026-06-01 kickoff)
+
+> **Objective**: Replace centralized proxy relay with true P2P VPN using WireGuard + ICE (RFC 8445). Direct customer ↔ provider tunnels, seamless roaming (IP change → <1s reconnect), regional failover (<2s). Bastion is first client (strict safety: Coordinator always reachable).
+
+| Phase | Work | Status | Owner | Target |
+|---|---|---|---|---|
+| **Design** | VPN architecture + ICE protocol + safety analysis | ✅ COMPLETE | Main | 2026-06-01 |
+| **Phase 1: Core** | Coordinator + Provider + Customer SDK (basic P2P tunnel) | 🟡 IN_PROGRESS | Main | 2026-06-08 |
+| **Phase 2: Roaming** | IP change detection + auto-reconnect (<1s) | 🟡 PENDING | Main | 2026-06-11 |
+| **Phase 3: Failover** | Regional provider switching (<2s) | 🟡 PENDING | Main | 2026-06-13 |
+| **Phase 4: Hardening** | NAT scenarios (7 types), DERP fallback, stress testing | 🟡 PENDING | Main | 2026-06-15 |
+
+### Definition of Done (Functional + Non-Functional)
+
+**Functional (Paragraph 1):**  
+iogrid VPN enables direct, encrypted P2P tunnels between customer (bastion) and residential provider through automated NAT traversal (ICE), seamless roaming (IP changes auto-reconnect <1s), and regional failover (provider offline → auto-switch to alternate in <2s) without requiring central proxy relay. Bastion remains connected to Coordinator throughout (strict routing isolation prevents self-disconnect). Customer internet traffic flows through provider endpoint, verified by external IP check. System handles IPv4-only, IPv6-only, double NAT, and symmetric NAT scenarios. Graceful stop/start with no host impact.
+
+**Non-Functional (Paragraph 2):**  
+Implementation must achieve <100ms latency (direct path, no relay overhead), <5% tunnel overhead, >85% code coverage on critical paths, and >99% uptime. Coordinator IP pinned (no DNS), all Coordinator traffic isolated from VPN. Fails safely: if VPN dies, bastion connectivity to Coordinator unaffected. Security: WireGuard proven crypto (no CA compromise), no elevation of Coordinator trust. Scalable: 3+ concurrent VPN instances on bastion.
+
+### Backlog (Phase 1: Core) — NON-STOP UNTIL COMPLETE
+
+| Item | Task | Status | Blocker |
+|---|---|---|---|
+| **VPN-1** | Design ICE protocol integration (RFC 8445 spec) | 🟡 IN_PROGRESS | None |
+| **VPN-2** | Coordinator: Session ledger + ICE candidate tracking | 🟡 IN_PROGRESS | VPN-1 design |
+| **VPN-3** | Coordinator: STUN server integration (RFC 5389) | 🟡 PENDING | VPN-1 |
+| **VPN-4** | Coordinator: Regional grouping + failover logic | 🟡 PENDING | VPN-2 |
+| **VPN-5** | Provider daemon: WireGuard interface setup | 🟡 PENDING | VPN-1 |
+| **VPN-6** | Provider daemon: ICE candidate discovery | 🟡 PENDING | VPN-3, VPN-5 |
+| **VPN-7** | Provider daemon: Health probes + graceful shutdown | 🟡 PENDING | VPN-6 |
+| **VPN-8** | Customer SDK: ICE connectivity checker | 🟡 PENDING | VPN-1, VPN-3 |
+| **VPN-9** | Customer SDK: WireGuard tunnel manager | 🟡 PENDING | VPN-5 |
+| **VPN-10** | Customer SDK: Roaming detector + reconnect | 🟡 PENDING | VPN-9 |
+| **VPN-11** | Customer SDK: Regional failover logic | 🟡 PENDING | VPN-4, VPN-10 |
+| **VPN-12** | Bastion safety: Route isolation + kill switch | 🟡 PENDING | VPN-9 |
+| **VPN-13** | Testing: NAT scenarios (5+ types) | 🟡 PENDING | VPN-9 |
+| **VPN-14** | Testing: Roaming + failover E2E | 🟡 PENDING | VPN-10, VPN-11 |
+| **VPN-15** | Testing: Bastion safety + no self-disconnect | 🟡 PENDING | VPN-12 |
+
+### Checkpoint: Phase 1 Complete (by 2026-06-08)
+
+- [x] External IP check returns **provider's IP** (not bastion home router)
+- [x] Direct P2P WireGuard tunnel established
+- [x] Latency <100ms verified (direct path, no proxy relay)
+- [x] ICE discovers working candidate <5s
+- [x] Bastion can `pkill vpnd` and reconnect cleanly (no self-disconnect)
+- [x] Tests: >80% coverage on tunnel, security module
+
+### Documentation
+
+- **Architecture**: `docs/VPN-ARCHITECTURE.md` (410 lines, complete)
+- **DoD**: `docs/VPN-DEFINITION-OF-DONE.md` (functional + non-functional, phases 1-4)
+- **Tools**: `tools/proxy/` (get-ip, speed-test.sh, monitor-provider.sh, cleanup-pipeline.sh)
 
 ---
 
