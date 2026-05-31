@@ -47,6 +47,17 @@ struct Cli {
     #[arg(long, env = "IOGRID_REGION")]
     region: Option<String>,
 
+    /// Provider UUID for VPN-only standalone mode (no coordinator
+    /// pairing — VPN-544 #544). When set, the daemon skips the
+    /// providers-svc pairing handshake and registers directly with
+    /// vpn-svc using this id. If unset AND `--vpn-svc` is set AND
+    /// the daemon has not been paired through the normal flow, a
+    /// fresh UUID v4 is generated + persisted to
+    /// `<state_dir>/provider_id` so subsequent boots reuse the
+    /// same identity without re-passing the flag.
+    #[arg(long = "provider-id", env = "IOGRID_PROVIDER_ID")]
+    provider_id: Option<String>,
+
     #[command(subcommand)]
     command: Option<Cmd>,
 }
@@ -166,12 +177,32 @@ fn apply_cli_vpn_overrides(config: &mut DaemonConfig, cli: &Cli) {
     if let Some(region) = cli.region.as_deref() {
         config.vpn.region = region.to_string();
     }
+    if let Some(pid) = cli.provider_id.as_deref() {
+        config.provider_id = pid.to_string();
+    }
 }
 
 async fn run_daemon(state_dir: &std::path::Path, cli: &Cli) -> Result<()> {
     tracing::info!(version = env!("CARGO_PKG_VERSION"), "starting iogridd");
     let mut config = DaemonConfig::load_or_init(state_dir).context("load daemon config")?;
     apply_cli_vpn_overrides(&mut config, cli);
+    // VPN-544 (#544): standalone VPN-only mode. If --vpn-svc is set but
+    // the daemon hasn't been paired (no provider_id from config or CLI),
+    // load-or-generate a persistent UUID at `<state_dir>/provider_id`
+    // so the daemon can register directly with vpn-svc without going
+    // through the providers-svc pairing handshake. Subsequent boots
+    // reuse the same id automatically — no flag re-pass needed.
+    if !config.vpn.vpn_svc_url.trim().is_empty() && config.provider_id.trim().is_empty() {
+        match iogrid_core::vpn_wiring::load_or_generate_provider_id(state_dir) {
+            Ok(pid) => {
+                tracing::info!(provider_id = %pid, "VPN-only standalone provider_id active");
+                config.provider_id = pid;
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "load_or_generate_provider_id failed; VPN modules will refuse to start");
+            }
+        }
+    }
     let supervisor = Supervisor::new(config);
     supervisor.run().await
 }
