@@ -32,6 +32,11 @@ func Mount(h chi.Router, st store.Store, logger *slog.Logger) error {
 
 		// Regional failover
 		r.Post("/sessions/{sessionID}/failover", NewTriggerFailover(st, logger).Handle)
+
+		// Regional provider listing — for debugging + the VPN-18 smoke
+		// test. Returns providers grouped by region with health status
+		// + session_count. Read-only; no auth (read-mostly metadata).
+		r.Get("/regions/{region}/providers", NewListProvidersInRegion(st, logger).Handle)
 	})
 
 	logger.Info("vpn service routes mounted")

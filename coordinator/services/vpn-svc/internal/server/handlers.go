@@ -422,3 +422,38 @@ func (h *MarkOffline) Handle(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"status": "offline", "reason": req.Reason})
 }
+
+// ListProvidersInRegion handles GET /v1/vpn/regions/{region}/providers
+type ListProvidersInRegion struct {
+	st     store.Store
+	logger *slog.Logger
+}
+
+func NewListProvidersInRegion(st store.Store, logger *slog.Logger) *ListProvidersInRegion {
+	return &ListProvidersInRegion{st: st, logger: logger}
+}
+
+func (h *ListProvidersInRegion) Handle(w http.ResponseWriter, r *http.Request) {
+	region := chi.URLParam(r, "region")
+	if region == "" {
+		respondError(w, http.StatusBadRequest, "region required")
+		return
+	}
+
+	providers, err := h.st.GetProvidersInRegion(r.Context(), region)
+	if err != nil {
+		h.logger.Error("list providers failed",
+			slog.String("region", region),
+			slog.String("error", err.Error()))
+		respondError(w, http.StatusInternalServerError, "failed to list providers")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"region":    region,
+		"providers": providers,
+		"count":     len(providers),
+	})
+}

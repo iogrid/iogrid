@@ -117,6 +117,52 @@ func TestIntegration_FailoverNoProviders(t *testing.T) {
 	}
 }
 
+func TestIntegration_ListProvidersInRegion(t *testing.T) {
+	srv, st := boot(t)
+	mem := st.(*store.Memory)
+
+	// Seed 3 providers in us-east-1 + 1 in eu-west-1
+	mem.SeedProvider(uuid.New(), "us-east-1", "healthy")
+	mem.SeedProvider(uuid.New(), "us-east-1", "degraded")
+	mem.SeedProvider(uuid.New(), "us-east-1", "offline") // should NOT appear
+	mem.SeedProvider(uuid.New(), "eu-west-1", "healthy")
+
+	// us-east-1 should return 2 (offline excluded)
+	resp, err := http.Get(srv.URL + "/v1/vpn/regions/us-east-1/providers")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d", resp.StatusCode)
+	}
+
+	var result map[string]interface{}
+	_ = json.NewDecoder(resp.Body).Decode(&result)
+	if result["region"] != "us-east-1" {
+		t.Errorf("region = %v, want us-east-1", result["region"])
+	}
+	if count, ok := result["count"].(float64); !ok || int(count) != 2 {
+		t.Errorf("count = %v, want 2 (offline excluded)", result["count"])
+	}
+
+	// eu-west-1 should return 1
+	resp2, _ := http.Get(srv.URL + "/v1/vpn/regions/eu-west-1/providers")
+	defer resp2.Body.Close()
+	var result2 map[string]interface{}
+	_ = json.NewDecoder(resp2.Body).Decode(&result2)
+	if count, ok := result2["count"].(float64); !ok || int(count) != 1 {
+		t.Errorf("eu-west-1 count = %v, want 1", result2["count"])
+	}
+
+	// ap-south-1 (no providers) returns count=0, not error
+	resp3, _ := http.Get(srv.URL + "/v1/vpn/regions/ap-south-1/providers")
+	defer resp3.Body.Close()
+	if resp3.StatusCode != http.StatusOK {
+		t.Errorf("empty region returned %d, want 200", resp3.StatusCode)
+	}
+}
+
 func TestIntegration_FailoverHappyPath(t *testing.T) {
 	srv, st := boot(t)
 	mem := st.(*store.Memory)
