@@ -218,10 +218,11 @@ func encodeAttribute(attr *STUNAttribute) []byte {
 		attrValue = append(attrValue, byte(xorPort >> 8), byte(xorPort & 0xFF))
 
 		// XOR IP with magic cookie (and transaction ID for IPv6)
-		const stunMagicCookie = 0x2112A442
+		const stunMagicCookie uint32 = 0x2112A442
 		for i, b := range v.IP {
 			if i < 4 {
-				attrValue = append(attrValue, b ^ byte((stunMagicCookie >> (24 - (i * 8))) & 0xFF))
+				shift := uint32(24 - (i * 8))
+				attrValue = append(attrValue, b^byte((stunMagicCookie>>shift)&0xFF))
 			}
 		}
 

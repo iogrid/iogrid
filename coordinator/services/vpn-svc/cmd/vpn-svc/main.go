@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/go-chi/chi/v5"
 	vdb "github.com/iogrid/iogrid/coordinator/services/vpn-svc/internal/db"
 	"github.com/iogrid/iogrid/coordinator/services/vpn-svc/internal/ice"
 	"github.com/iogrid/iogrid/coordinator/services/vpn-svc/internal/server"
@@ -97,20 +98,20 @@ func main() {
 	}()
 	defer stunServer.Close()
 
-	// --- HTTP server setup -------------------------------------------------------
-	h := sharedserver.Bootstrap(serviceName, logger, hr)
-	if err := server.Mount(h, st, logger); err != nil {
-		logger.Error("server mount failed", slog.String("error", err.Error()))
-		os.Exit(1)
-	}
-
-	// --- Start HTTP server -------------------------------------------------------
-	addr := os.Getenv("LISTEN_ADDR")
-	if addr == "" {
-		addr = ":8080"
-	}
-	logger.Info("starting http server", slog.String("addr", addr))
-	if err := sharedserver.ListenAndServe(h, addr); err != nil {
+	// --- HTTP server setup + run -------------------------------------------------
+	hr.MarkReady()
+	err = sharedserver.Run(ctx, sharedserver.Options{
+		ServiceName: serviceName,
+		Logger:      logger,
+		Health:      hr,
+		Mount: func(r chi.Router) {
+			if err := server.Mount(r, st, logger); err != nil {
+				logger.Error("server mount failed", slog.String("error", err.Error()))
+				os.Exit(1)
+			}
+		},
+	})
+	if err != nil {
 		logger.Error("http server error", slog.String("error", err.Error()))
 		os.Exit(1)
 	}

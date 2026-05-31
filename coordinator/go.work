@@ -14,6 +14,7 @@ use (
 	./services/proxy-gateway
 	./services/telemetry-svc
 	./services/vpn-gateway
+	./services/vpn-svc
 	./services/workloads-svc
 	./shared
 )

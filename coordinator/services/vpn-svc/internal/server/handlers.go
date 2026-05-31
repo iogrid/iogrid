@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -236,17 +237,45 @@ func (h *TriggerFailover) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Update session state to FAILING_OVER
-	if err := h.st.UpdateSessionState(r.Context(), sessionID, pb.VpnSessionState_FAILING_OVER); err != nil {
-		h.logger.Error("update state failed", slog.String("error", err.Error()))
+	// Get current session to determine region
+	session, err := h.st.GetSession(r.Context(), sessionID)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "session not found")
+		return
+	}
+
+	// Select alternate provider in same region
+	altProviderID, err := h.st.SelectProviderForSession(r.Context(), session.Region)
+	if err != nil {
+		h.logger.Error("no alternate provider available",
+			slog.String("region", session.Region),
+			slog.String("error", err.Error()))
+		respondError(w, http.StatusServiceUnavailable, "no alternate provider available")
+		return
+	}
+
+	// Trigger failover in store (updates session.CurrentProvider, increments FailoverCount, sets FAILING_OVER state)
+	if err := h.st.TriggerFailover(r.Context(), sessionID, session.CurrentProvider, altProviderID); err != nil {
+		h.logger.Error("failover failed", slog.String("error", err.Error()))
 		respondError(w, http.StatusInternalServerError, "failed to trigger failover")
 		return
 	}
 
+	// Mark previous provider as degraded (if reason indicates unreachability)
+	if req.FailureReason != "" {
+		_ = h.st.UpdateProviderHealth(r.Context(), session.CurrentProvider, "degraded", time.Now())
+	}
+
+	// Fetch alt provider's ICE candidates
+	altCandidates, _ := h.st.GetProviderCandidates(r.Context(), altProviderID)
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{
-		"status":     "failover_triggered",
-		"session_id": sessionID.String(),
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":          "failover_complete",
+		"session_id":      sessionID.String(),
+		"old_provider_id": session.CurrentProvider.String(),
+		"new_provider_id": altProviderID.String(),
+		"ice_candidates":  altCandidates,
 	})
 }
