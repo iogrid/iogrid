@@ -4,11 +4,11 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-31T07:30Z` 🟢 cron-refresh: +14 commits since last TRACKER bump |
+| Last refreshed | `2026-05-31T07:38Z` ✍️ hand-update: PRs #493/#495/#496/#497/#498 merged; issues #478/#489/#490/#491/#484 closed |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
-| Merged PRs | **122+** since bootstrap |
-| Open PRs | **1** — [#493](https://github.com/iogrid/iogrid/pull/493) fix(vpn-gateway): userspace WireGuard drop NET_ADMIN (go.mod fix pushed, CI re-running) |
-| Open issues | **7** — #487/#488 status/uat → closing (#492 all-green); #478 status/in-progress (PR #493); #490 status/uat → closing (#494 all-green); #489/#491 backlog; #484/#485 parked |
+| Merged PRs | **130+** since bootstrap (PRs #493/#495/#496/#497/#498 merged this session) |
+| Open PRs | **1** — [#499](https://github.com/iogrid/iogrid/pull/499) feat(infra/updates): deploy manifestd server — updates.iogrid.org (CI pending) |
+| Open issues | **4** — #485 status/in-progress (PR #499 in CI); #439/#398/#79 parked |
 | Live URL state post-#428 | <img alt="LIVE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> `iogrid.org` serves product app (was marketing). `app.iogrid.org` 301 → `iogrid.org`. `admin.iogrid.org` 503 (waiting #426 ghcr unblock). Marketing folded into web/ — `marketing/` workspace deleted. New design system live across landing + provide/customer/vpn/account/install. |
 | Prior false-progress | <img alt="REVERTED" src="https://img.shields.io/badge/-FALSE-cf222e?style=flat-square" /> PRs #364 / #383 / #408 — none satisfied founder's "INDEPENDENT admin app" criterion. Replaced by #425 (real separate admin codebase + Deployment + CI). |
 | EPIC closure | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 17 / 17 closed by audit |
@@ -21,6 +21,19 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 | Phase 0 admin UI | <img alt="DONE" src="https://img.shields.io/badge/-LIVE-2ea043?style=flat-square" /> `/admin/providers` shows paired daemon record for `emrah.baysal` — verified live via Playwright, record survives `providers-svc` pod restart (Postgres-backed via #247). Screenshots in repo root: `admin-providers-emrah-WORKING.png`, `admin-providers-postgres-persisted.png` |
 
 **Legend:** <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> done · <img alt="IN_FLIGHT" src="https://img.shields.io/badge/-IN__FLIGHT-bf8700?style=flat-square" /> work in progress · <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> open · <img alt="DEFERRED" src="https://img.shields.io/badge/-DEFERRED-6e7781?style=flat-square" /> deferred · <img alt="BLOCKED" src="https://img.shields.io/badge/-BLOCKED-8250df?style=flat-square" /> blocked on founder action
+
+---
+
+## 0.9. Session 2026-05-31 — 6 PRs merged, 5 issues closed, updates.iogrid.org stack shipped
+
+| PR | Issue | Scope | Status |
+|---|---|---|---|
+| [#493](https://github.com/iogrid/iogrid/pull/493) | [#478](https://github.com/iogrid/iogrid/issues/478) | fix(vpn-gateway): userspace WireGuard via wireguard-go + gVisor netstack, drops CAP_NET_ADMIN, PodSecurity restricted:latest compliant | ✅ MERGED |
+| [#495](https://github.com/iogrid/iogrid/pull/495) | [#489](https://github.com/iogrid/iogrid/issues/489) | fix(tunnel): HOL-block — `tx.send().await` → `tx.try_send()` in TunnelManager::data() | ✅ MERGED |
+| [#496](https://github.com/iogrid/iogrid/pull/496) | [#490](https://github.com/iogrid/iogrid/issues/490) | feat(transport): bytes telemetry v2 — open(workload_id+attempt_id+host) + pump(bytes_in/out) | ✅ MERGED |
+| [#497](https://github.com/iogrid/iogrid/pull/497) | [#491](https://github.com/iogrid/iogrid/issues/491) | test(transport): cancel_tx regression tests — drop vs retain contract | ✅ MERGED |
+| [#498](https://github.com/iogrid/iogrid/pull/498) | [#484](https://github.com/iogrid/iogrid/issues/484) | feat(proxy-gateway): billing-svc ValidateApiKey Connect client, 60s LRU cache, retire DEV_API_KEYS | ✅ MERGED |
+| [#499](https://github.com/iogrid/iogrid/pull/499) | [#485](https://github.com/iogrid/iogrid/issues/485) | feat(infra/updates): manifestd Dockerfile + k8s manifests + IngressRoute + 4-job CI (updates.iogrid.org) | 🟡 CI PENDING |
 
 ---
 
