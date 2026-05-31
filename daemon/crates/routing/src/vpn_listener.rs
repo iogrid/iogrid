@@ -1,9 +1,9 @@
 //! VPN UDP listener for accepting WireGuard packets from customers.
 //! This is the provider-side counterpart to the customer's WireGuard tunnel.
 
+use crate::RoutingError;
 use std::net::SocketAddr;
 use tokio::net::UdpSocket;
-use crate::RoutingError;
 
 /// VPN listener accepts WireGuard packets from customers on a UDP socket.
 pub struct VpnListener {
@@ -43,7 +43,9 @@ impl VpnListener {
                         match pkt_type {
                             0x01000000 => tracing::debug!("handshake init from {}", src_addr),
                             0x02000000 => tracing::debug!("handshake response from {}", src_addr),
-                            0x03000000 => tracing::debug!("transport data from {}, {} bytes", src_addr, n),
+                            0x03000000 => {
+                                tracing::debug!("transport data from {}, {} bytes", src_addr, n)
+                            }
                             0x04000000 => tracing::debug!("keepalive from {}", src_addr),
                             _ => tracing::debug!("unknown packet type from {}", src_addr),
                         }
