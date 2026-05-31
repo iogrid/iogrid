@@ -1,6 +1,6 @@
 module github.com/iogrid/iogrid/coordinator/services/vpn-svc
 
-go 1.24
+go 1.23.1
 
 require (
 	connectrpc.com/connect v1.18.1
@@ -34,7 +34,6 @@ require (
 	github.com/prometheus/common v0.55.0 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect
 	github.com/sethvargo/go-retry v0.3.0 // indirect
-	github.com/stretchr/testify v1.10.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.56.0 // indirect
 	go.opentelemetry.io/otel v1.31.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.31.0 // indirect
