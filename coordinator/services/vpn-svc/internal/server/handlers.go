@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -12,28 +13,88 @@ import (
 	"github.com/iogrid/iogrid/coordinator/services/vpn-svc/internal/store"
 )
 
+// APIKeyValidator authenticates a raw customer API key against the upstream
+// billing-svc and resolves to a workspace + tier. The proxy-gateway already
+// implements this (internal/auth.Connect); vpn-svc reuses the same contract
+// to avoid drift. nil = unauthenticated mode (dev / smoke).
+type APIKeyValidator interface {
+	Validate(ctx context.Context, apiKey string) (workspaceID string, customerID string, err error)
+}
+
 // RequestSession handles POST /v1/vpn/sessions
 type RequestSession struct {
-	st     store.Store
-	logger *slog.Logger
+	st        store.Store
+	logger    *slog.Logger
+	validator APIKeyValidator // optional — if nil, requests are unauthenticated (dev mode)
 }
 
 func NewRequestSession(st store.Store, logger *slog.Logger) *RequestSession {
 	return &RequestSession{st: st, logger: logger}
 }
 
+// WithValidator wires up API key validation. Call from server.Mount when
+// VPN_SVC_BILLING_URL is set to enable per-key auth (#531).
+func (h *RequestSession) WithValidator(v APIKeyValidator) *RequestSession {
+	h.validator = v
+	return h
+}
+
+// requestSessionReq is the wire body — superset of pb.RequestVpnSession with
+// an api_key field. The proto's api_key_hash is treated as historic + ignored;
+// new clients send raw api_key and vpn-svc forwards to billing-svc.
+type requestSessionReq struct {
+	CustomerID string `json:"customer_id"`
+	Region     string `json:"region"`
+	APIKey     string `json:"api_key"`
+	APIKeyHash string `json:"api_key_hash"` // deprecated, ignored
+}
+
 func (h *RequestSession) Handle(w http.ResponseWriter, r *http.Request) {
-	req := &pb.RequestVpnSession{}
+	req := &requestSessionReq{}
 	if err := json.NewDecoder(r.Body).Decode(req); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid request")
 		return
+	}
+	if req.CustomerID == "" || req.Region == "" {
+		respondError(w, http.StatusBadRequest, "customer_id and region required")
+		return
+	}
+	customerUUID, err := uuid.Parse(req.CustomerID)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "customer_id must be a UUID")
+		return
+	}
+
+	// API key validation (#531). When validator wired, reject unauthenticated
+	// requests; otherwise (dev mode) skip and log a WARN.
+	if h.validator != nil {
+		if req.APIKey == "" {
+			respondError(w, http.StatusUnauthorized, "api_key required")
+			return
+		}
+		wsID, custID, err := h.validator.Validate(r.Context(), req.APIKey)
+		if err != nil {
+			h.logger.Warn("api key rejected",
+				slog.String("customer_id", req.CustomerID),
+				slog.String("error", err.Error()))
+			respondError(w, http.StatusUnauthorized, "invalid api_key")
+			return
+		}
+		// Trust billing-svc's customer_id over the claimed one — prevents
+		// a valid key from being used to spoof another customer's session.
+		if custID != "" {
+			customerUUID = uuid.MustParse(custID)
+		}
+		_ = wsID
+	} else {
+		h.logger.Warn("api key validation skipped (dev mode — set VPN_SVC_BILLING_URL to enable)")
 	}
 
 	// Create session in store
 	sessionID := uuid.New()
 	session := &store.Session{
 		ID:         sessionID,
-		CustomerID: uuid.MustParse(req.CustomerId),
+		CustomerID: customerUUID,
 		Region:     req.Region,
 		State:      pb.VpnSessionState_CREATING,
 	}

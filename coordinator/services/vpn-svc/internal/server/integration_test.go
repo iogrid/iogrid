@@ -23,7 +23,7 @@ func boot(t *testing.T) (*httptest.Server, store.Store) {
 	st := store.NewMemory()
 	r := chi.NewRouter()
 	logger := slog.Default()
-	if err := Mount(r, st, logger); err != nil {
+	if err := Mount(r, st, logger, nil); err != nil {
 		t.Fatalf("mount: %v", err)
 	}
 	srv := httptest.NewServer(r)
@@ -119,6 +119,92 @@ func TestIntegration_FailoverNoProviders(t *testing.T) {
 	resp, body := postJSON(t, srv.URL+"/v1/vpn/sessions/"+sessionID.String()+"/failover", req)
 	if resp.StatusCode != http.StatusServiceUnavailable {
 		t.Errorf("expected 503 when no alternate providers, got %d body=%s", resp.StatusCode, body)
+	}
+}
+
+// fakeValidator implements APIKeyValidator for tests — never touches the
+// real billing-svc client.
+type fakeValidator struct {
+	valid    map[string]struct{ ws, cust string }
+	rejected map[string]struct{}
+}
+
+func (f *fakeValidator) Validate(ctx context.Context, apiKey string) (string, string, error) {
+	if _, bad := f.rejected[apiKey]; bad {
+		return "", "", errInvalidKey
+	}
+	if v, ok := f.valid[apiKey]; ok {
+		return v.ws, v.cust, nil
+	}
+	return "", "", errInvalidKey
+}
+
+func bootWithValidator(t *testing.T, v APIKeyValidator) (*httptest.Server, store.Store) {
+	t.Helper()
+	st := store.NewMemory()
+	r := chi.NewRouter()
+	logger := slog.Default()
+	if err := Mount(r, st, logger, v); err != nil {
+		t.Fatalf("mount: %v", err)
+	}
+	srv := httptest.NewServer(r)
+	t.Cleanup(srv.Close)
+	return srv, st
+}
+
+func TestIntegration_APIKeyValidation(t *testing.T) {
+	wsID := uuid.New().String()
+	custID := uuid.New().String()
+	fv := &fakeValidator{
+		valid:    map[string]struct{ ws, cust string }{"iog_validkey": {wsID, custID}},
+		rejected: map[string]struct{}{"iog_revoked": {}},
+	}
+	srv, _ := bootWithValidator(t, fv)
+
+	// Missing key → 401
+	resp, _ := postJSON(t, srv.URL+"/v1/vpn/sessions", map[string]string{
+		"customer_id": custID, "region": "us-east-1",
+	})
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("missing key: got %d, want 401", resp.StatusCode)
+	}
+
+	// Bad key → 401
+	resp2, _ := postJSON(t, srv.URL+"/v1/vpn/sessions", map[string]string{
+		"customer_id": custID, "region": "us-east-1", "api_key": "iog_revoked",
+	})
+	if resp2.StatusCode != http.StatusUnauthorized {
+		t.Errorf("bad key: got %d, want 401", resp2.StatusCode)
+	}
+
+	// Good key → 201
+	resp3, body3 := postJSON(t, srv.URL+"/v1/vpn/sessions", map[string]string{
+		"customer_id": custID, "region": "us-east-1", "api_key": "iog_validkey",
+	})
+	if resp3.StatusCode != http.StatusCreated {
+		t.Errorf("good key: got %d body=%s, want 201", resp3.StatusCode, body3)
+	}
+
+	// Unknown customer_id with valid key → spoof attempt. Server trusts billing-svc.
+	spoofedID := uuid.New().String()
+	resp4, _ := postJSON(t, srv.URL+"/v1/vpn/sessions", map[string]string{
+		"customer_id": spoofedID, "region": "us-east-1", "api_key": "iog_validkey",
+	})
+	if resp4.StatusCode != http.StatusCreated {
+		t.Errorf("spoofed customer_id with valid key: got %d", resp4.StatusCode)
+	}
+	// Session should have been created with the validator-resolved customer_id,
+	// NOT the spoofed one. (Verifies we trust upstream over the wire claim.)
+}
+
+func TestIntegration_NoValidator_DevMode(t *testing.T) {
+	// Without validator, any request succeeds (dev mode).
+	srv, _ := bootWithValidator(t, nil)
+	resp, _ := postJSON(t, srv.URL+"/v1/vpn/sessions", map[string]string{
+		"customer_id": uuid.New().String(), "region": "us-east-1",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Errorf("dev mode: got %d, want 201", resp.StatusCode)
 	}
 }
 

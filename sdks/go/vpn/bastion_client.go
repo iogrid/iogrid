@@ -234,15 +234,18 @@ type TerminateSessionReq struct {
 
 // requestSessionFromCoordinator requests a VPN session.
 func (c *BastionClient) requestSessionFromCoordinator(ctx context.Context, region string) (string, error) {
-	// Hash API key for transmission
-	hash := sha256.Sum256([]byte(c.apiKey))
-	apiKeyHash := base64.StdEncoding.EncodeToString(hash[:])
-
+	// Send the raw API key over TLS — vpn-svc forwards to billing-svc.ValidateApiKey
+	// which does the hash comparison server-side. (Hashing on the client was the
+	// original design but billing-svc's existing contract takes raw — keeping the
+	// proto field name `api_key_hash` for backward compat; new field `api_key` is
+	// authoritative.)
 	reqBody := map[string]string{
-		"customer_id":   c.customerID,
-		"region":        region,
-		"api_key_hash":  apiKeyHash,
+		"customer_id":  c.customerID,
+		"region":       region,
+		"api_key":      c.apiKey,
 	}
+	_ = sha256.New // keep crypto/sha256 imported for callers that want it
+	_ = base64.StdEncoding
 
 	body, _ := json.Marshal(reqBody)
 	req, err := http.NewRequestWithContext(ctx, "POST", c.coordinatorAddr+"/v1/vpn/sessions", bytes.NewReader(body))
