@@ -86,6 +86,14 @@ spec:
             - secretRef:
                 name: vpn-svc-secrets
                 optional: true
+            # CNPG Postgres connection — carries DATABASE_URL. Created
+            # per-service by the iogrid-pg Cluster bootstrap step
+            # (same pattern as providers-svc, identity-svc). Without
+            # this Secret, vpn-svc falls back to its in-memory store
+            # and loses every session on pod restart (logs WARN at boot).
+            - secretRef:
+                name: iogrid-vpn-svc-db
+                optional: true
           resources:
             requests:
               cpu: 100m
