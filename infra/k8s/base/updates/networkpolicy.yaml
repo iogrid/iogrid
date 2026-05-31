@@ -1,0 +1,52 @@
+---
+# updates — manifest server for updates.iogrid.org.
+#
+# Ingress from Traefik (kube-system) and Cilium Gateway (gateway-system).
+# Egress to cluster DNS only — manifestd serves static JSON from a
+# ConfigMap mount; no upstream HTTP calls at request time. Refs #485.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: updates-allow
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: updates
+    app.kubernetes.io/part-of: iogrid
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: updates
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - protocol: TCP
+          port: 8080
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: gateway-system
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
