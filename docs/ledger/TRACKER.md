@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-01T23:35Z` 🟢 vpn-e2e-smoke workflow LIVE + GREEN on control-plane half (curl install-cli → iogrid vpn regions vs live api.iogrid.org). Authed half (login → connect → exit-IP) gated on repo secrets (#560 to set). 14 PRs this session, 9 issues closed. Open: #560 (secrets), #532 (gated on #529), #529 (worker on path c TUN+MASQUERADE). |
+| Last refreshed | `2026-06-01T23:40Z` 🟢 Caught + fixed silent auth bypass on vpn-svc — cluster was pulling ghcr.io (403) so every `kubectl set image` workaround stripped BILLING_SVC_URL + NATS_URL env. POST /v1/vpn/sessions returned 201 with `iog_test` bogus key for HOURS. 950f913 flips deployment.yaml to harbor.openova.io; auth now enforced (401 on bad key) + earnings batcher started. Filed #561 for same flip across all 12 iogrid services. 15 PRs, 9 closures. |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
 | Open PRs | **0** |
