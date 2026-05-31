@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-01T05:30Z` 🟢 vpn-phase-1-integration-started: VPN-1/2/3/5/8/9/12 complete (11 commits), RPC calls wired to actual vpn-svc endpoints. BastionClient now calls real Coordinator APIs for session management. Phase 1 checkpoint achievable: session→ICE→tunnel→external IP. Next: VPN-4 (regional failover) and integration testing. Session log: `docs/sessions/2026-06-01-vpn-phase1-kickoff.md` |
+| Last refreshed | `2026-06-01T06:00Z` 🟢 vpn-phase-1-10/15-complete: VPN-1/2/3/4/5/8/9/10/11/12 complete (15+ commits, 17 tests passing). EPIC #504 + 15 sub-issues #505-#519 created retroactively (founder discipline check). Failover end-to-end: Coordinator handler → store round-robin selection → SDK detector with <2s DoD verified. Roaming detector verified <1s (200ms measured). iogrid-worker peer on VPN-6 (provider ICE discovery). Remaining: VPN-6/7 (provider-side, iogrid-worker), VPN-13/14/15 (testing). |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
 | Open PRs | **0** |
@@ -69,14 +69,14 @@ EPIC: [#504](https://github.com/iogrid/iogrid/issues/504)
 | **VPN-1** | [#505](https://github.com/iogrid/iogrid/issues/505) | Design ICE protocol integration (RFC 8445 spec) | ✅ COMPLETE | None |
 | **VPN-2** | [#506](https://github.com/iogrid/iogrid/issues/506) | Coordinator: Session ledger + ICE candidate tracking | ✅ COMPLETE | VPN-1 design |
 | **VPN-3** | [#507](https://github.com/iogrid/iogrid/issues/507) | Coordinator: STUN server integration (RFC 5389) | ✅ COMPLETE | VPN-1 |
-| **VPN-4** | [#508](https://github.com/iogrid/iogrid/issues/508) | Coordinator: Regional grouping + failover logic | 🟡 IN_PROGRESS | VPN-2 |
+| **VPN-4** | [#508](https://github.com/iogrid/iogrid/issues/508) | Coordinator: Regional grouping + failover logic | ✅ COMPLETE | VPN-2 |
 | **VPN-5** | [#509](https://github.com/iogrid/iogrid/issues/509) | Provider UDP listener + Customer RPC integration | ✅ COMPLETE | VPN-1 |
-| **VPN-6** | [#510](https://github.com/iogrid/iogrid/issues/510) | Provider daemon: ICE candidate discovery | 🔴 PENDING | VPN-3, VPN-5 |
+| **VPN-6** | [#510](https://github.com/iogrid/iogrid/issues/510) | Provider daemon: ICE candidate discovery | 🟡 IN_PROGRESS (iogrid-worker) | VPN-3, VPN-5 |
 | **VPN-7** | [#511](https://github.com/iogrid/iogrid/issues/511) | Provider daemon: Health probes + graceful shutdown | 🔴 PENDING | VPN-6 |
 | **VPN-8** | [#512](https://github.com/iogrid/iogrid/issues/512) | Customer SDK: ICE connectivity checker | ✅ COMPLETE | VPN-1, VPN-3 |
 | **VPN-9** | [#513](https://github.com/iogrid/iogrid/issues/513) | Customer SDK: WireGuard tunnel manager | ✅ COMPLETE | VPN-5 |
-| **VPN-10** | [#514](https://github.com/iogrid/iogrid/issues/514) | Customer SDK: Roaming detector + reconnect | 🔴 PENDING | VPN-9 |
-| **VPN-11** | [#515](https://github.com/iogrid/iogrid/issues/515) | Customer SDK: Regional failover logic | 🔴 PENDING | VPN-4, VPN-10 |
+| **VPN-10** | [#514](https://github.com/iogrid/iogrid/issues/514) | Customer SDK: Roaming detector + reconnect | ✅ COMPLETE | VPN-9 |
+| **VPN-11** | [#515](https://github.com/iogrid/iogrid/issues/515) | Customer SDK: Regional failover logic | ✅ COMPLETE | VPN-4, VPN-10 |
 | **VPN-12** | [#516](https://github.com/iogrid/iogrid/issues/516) | Bastion safety: Route isolation + kill switch | ✅ COMPLETE | VPN-9 |
 | **VPN-13** | [#517](https://github.com/iogrid/iogrid/issues/517) | Testing: NAT scenarios (5+ types) | 🔴 PENDING | VPN-9 |
 | **VPN-14** | [#518](https://github.com/iogrid/iogrid/issues/518) | Testing: Roaming + failover E2E | 🔴 PENDING | VPN-10, VPN-11 |
