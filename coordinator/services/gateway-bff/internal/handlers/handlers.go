@@ -17,8 +17,10 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
@@ -81,7 +83,13 @@ func New(c *clients.Set, store APIKeyStore, logger *slog.Logger) *API {
 	if store == nil {
 		store = NewMemoryAPIKeyStore()
 	}
-	return &API{Clients: c, Logger: logger, APIKeyStore: store}
+	return &API{
+		Clients:       c,
+		Logger:        logger,
+		APIKeyStore:   store,
+		VPNSvcBaseURL: os.Getenv("VPN_SVC_URL"),
+		HTTPClient:    &http.Client{Timeout: 5 * time.Second},
+	}
 }
 
 // --- JSON helpers --------------------------------------------------------

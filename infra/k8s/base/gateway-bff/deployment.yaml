@@ -68,6 +68,11 @@ spec:
               value: info
             - name: SERVICE_NAME
               value: gateway-bff
+            # vpn-svc backend for /api/v1/customer/vpn/sessions proxy (#541).
+            # Without this env the BFF returns an empty session list (200,
+            # count=0) so the /customer/vpn page renders the empty state.
+            - name: VPN_SVC_URL
+              value: "http://vpn-svc.iogrid.svc.cluster.local:8080"
           envFrom:
             - configMapRef:
                 name: gateway-bff-config
