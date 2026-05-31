@@ -421,13 +421,19 @@ func (c *BastionClient) getProviderInfo(ctx context.Context, sessionID string) (
 }
 
 // confirmCandidate notifies Coordinator of the working candidate.
+//
+// Field names MUST match the pb.IceCandidate proto JSON tags
+// (connection_address / connection_port / candidate_type) — earlier
+// versions used the shorter (candidate/port/type) shape which decoded
+// to a zero-valued struct on the server side, then exploded on the
+// inet column compare with "" (#557).
 func (c *BastionClient) confirmCandidate(ctx context.Context, sessionID string, candidate *MockIceCandidate) error {
 	reqBody := map[string]interface{}{
 		"chosen_candidate": map[string]interface{}{
-			"candidate": candidate.ConnectionAddress,
-			"port":      candidate.ConnectionPort,
-			"type":      candidate.CandidateType,
-			"latency_ms": candidate.LatencyMs,
+			"connection_address": candidate.ConnectionAddress,
+			"connection_port":    candidate.ConnectionPort,
+			"candidate_type":     candidate.CandidateType,
+			"latency_ms":         candidate.LatencyMs,
 		},
 	}
 

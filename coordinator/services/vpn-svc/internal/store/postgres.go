@@ -247,6 +247,12 @@ func (p *Postgres) GetProviderCandidates(ctx context.Context, providerID uuid.UU
 
 // ConfirmWorkingCandidate implements Store.
 func (p *Postgres) ConfirmWorkingCandidate(ctx context.Context, sessionID uuid.UUID, candidate *pb.IceCandidate) error {
+	// Reject empty addresses up front — Postgres rejects "" for the
+	// inet column and explodes the connection. A malformed SDK request
+	// must surface as 4xx, not a 500.
+	if candidate == nil || candidate.GetConnectionAddress() == "" || candidate.GetConnectionPort() == 0 {
+		return fmt.Errorf("confirm candidate: chosen_candidate.connection_address + connection_port required")
+	}
 	query := `
 		UPDATE ice_candidates
 		SET session_id = $1, is_preferred = TRUE
