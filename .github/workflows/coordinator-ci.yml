@@ -273,7 +273,12 @@ jobs:
               exit 1
             fi
           fi
-          IMAGE="ghcr.io/iogrid/${{ matrix.service }}@${DIGEST}"
+          # Pin to harbor.openova.io — the cluster k3s pulls from there
+          # (ghcr.io/iogrid/* packages return 403 to unauthenticated
+          # cluster pulls; see #561). The substitution regex accepts
+          # either prefix so historic manifests don't need a separate
+          # bump pass; new ones land at harbor directly.
+          IMAGE="harbor.openova.io/iogrid/${{ matrix.service }}@${DIGEST}"
           RESTARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           echo "image=${IMAGE}"             | tee -a "$GITHUB_OUTPUT"
           echo "restartedAt=${RESTARTED_AT}" | tee -a "$GITHUB_OUTPUT"

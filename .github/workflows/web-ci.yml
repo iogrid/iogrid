@@ -176,8 +176,10 @@ jobs:
           fi
           # docker/build-push-action emits the digest as "sha256:<hex>"; the
           # deployment manifest needs the fully-qualified
-          # `ghcr.io/iogrid/web@sha256:<hex>` form.
-          IMAGE="ghcr.io/iogrid/web@${DIGEST}"
+          # `harbor.openova.io/iogrid/web@sha256:<hex>` form. Pinned to
+          # harbor not ghcr because cluster k3s gets 403 from
+          # ghcr.io/iogrid/* (see #561).
+          IMAGE="harbor.openova.io/iogrid/web@${DIGEST}"
           RESTARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           echo "image=${IMAGE}"        | tee -a "$GITHUB_OUTPUT"
           echo "restartedAt=${RESTARTED_AT}" | tee -a "$GITHUB_OUTPUT"

@@ -58,7 +58,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: vpn-gateway
-          image: ghcr.io/iogrid/vpn-gateway@sha256:189ccc282035ba83f0a159d41176f5a570d846698379232cf566139f237b7e59
+          image: harbor.openova.io/iogrid/vpn-gateway@sha256:189ccc282035ba83f0a159d41176f5a570d846698379232cf566139f237b7e59
           imagePullPolicy: Always
           ports:
             - name: http

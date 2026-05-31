@@ -57,7 +57,7 @@ spec:
           #       node pulls the digest even when the tag string is unchanged
           # Refs #335 (and #324, which depends on this loop to actually
           # ship the new EarningsService RPCs to prod).
-          image: ghcr.io/iogrid/billing-svc@sha256:c89c208350613da41af4395d424e8b7afaa0b9483a70aeabcdf7210ad2148ac4
+          image: harbor.openova.io/iogrid/billing-svc@sha256:c89c208350613da41af4395d424e8b7afaa0b9483a70aeabcdf7210ad2148ac4
           imagePullPolicy: Always
           ports:
             - name: http
@@ -105,6 +105,13 @@ spec:
             - secretRef:
                 name: billing-svc-secrets
                 optional: true
+            # CNPG Postgres connection — carries DATABASE_URL. Same
+            # pattern as other coordinator services (vpn-svc has
+            # iogrid-vpn-svc-db, identity-svc has iogrid-identity-svc-db,
+            # etc.). Made required so the pod refuses to boot rather
+            # than crash-loop on missing DB.
+            - secretRef:
+                name: iogrid-billing-db
           resources:
             requests:
               cpu: 100m

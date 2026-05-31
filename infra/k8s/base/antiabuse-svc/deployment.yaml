@@ -46,7 +46,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: antiabuse-svc
-          image: ghcr.io/iogrid/antiabuse-svc@sha256:6df3bff8347eaebd11e82171608203dc4422d25c7855e2be79d4b9b5fa4eefee
+          image: harbor.openova.io/iogrid/antiabuse-svc@sha256:6df3bff8347eaebd11e82171608203dc4422d25c7855e2be79d4b9b5fa4eefee
           imagePullPolicy: Always
           ports:
             - name: http

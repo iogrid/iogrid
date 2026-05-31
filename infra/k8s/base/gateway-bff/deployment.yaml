@@ -46,7 +46,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: gateway-bff
-          image: ghcr.io/iogrid/gateway-bff@sha256:5f3bb3eed66486382b0d764be6723f6a341a033c6904595d9fafb3d06591db34
+          image: harbor.openova.io/iogrid/gateway-bff@sha256:5f3bb3eed66486382b0d764be6723f6a341a033c6904595d9fafb3d06591db34
           imagePullPolicy: Always
           ports:
             - name: http
