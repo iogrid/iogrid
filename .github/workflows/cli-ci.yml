@@ -84,16 +84,26 @@ jobs:
     permissions:
       contents: write
     steps:
+      # gh CLI requires a git checkout to resolve owner/repo.
+      - uses: actions/checkout@v4
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           merge-multiple: true
           path: ./release-artifacts
 
-      - name: Upload binaries to GitHub Release
+      - name: Create release if missing + upload binaries
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # If the release doesn't exist yet (cli-ci fired before someone
+          # ran gh release create), create it from the tag message.
+          if ! gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release create "${GITHUB_REF_NAME}" \
+              --title "iogrid CLI ${GITHUB_REF_NAME}" \
+              --generate-notes
+          fi
           gh release upload "${GITHUB_REF_NAME}" \
             ./release-artifacts/* \
             --clobber
