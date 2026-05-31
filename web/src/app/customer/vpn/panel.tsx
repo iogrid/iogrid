@@ -134,7 +134,7 @@ export function VpnPanel() {
   const onRevoke = async (id: string) => {
     if (!confirm("Revoke this key? Any device using it will immediately lose VPN access.")) return;
     try {
-      await browserApi().delete(`/api/v1/customer/api-keys/${id}?workspace_id=${wsId}`);
+      await browserApi().del(`/api/v1/customer/api-keys/${id}?workspace_id=${wsId}`);
       toast.success("Key revoked.");
       void refreshKeys();
     } catch (e) {
