@@ -756,3 +756,55 @@ func (h *BindCustomerWgKey) Handle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "bound"})
 }
+
+// --- #541: customer sessions listing for /customer/vpn web page -----------
+
+// ListSessionsByCustomer handles GET /v1/vpn/customers/{customerID}/sessions
+type ListSessionsByCustomer struct {
+	st     store.Store
+	logger *slog.Logger
+}
+
+func NewListSessionsByCustomer(st store.Store, logger *slog.Logger) *ListSessionsByCustomer {
+	return &ListSessionsByCustomer{st: st, logger: logger}
+}
+
+func (h *ListSessionsByCustomer) Handle(w http.ResponseWriter, r *http.Request) {
+	customerID, err := uuid.Parse(chi.URLParam(r, "customerID"))
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid customer id")
+		return
+	}
+	sessions, err := h.st.ListSessionsByCustomer(r.Context(), customerID)
+	if err != nil {
+		h.logger.Error("list sessions failed",
+			slog.String("customer_id", customerID.String()),
+			slog.String("error", err.Error()))
+		respondError(w, http.StatusInternalServerError, "failed to list sessions")
+		return
+	}
+	// Wire format: only ACTIVE (non-terminated) sessions, with the fields
+	// the web UI displays.
+	out := make([]map[string]interface{}, 0, len(sessions))
+	for _, s := range sessions {
+		if s.TerminatedAt != nil {
+			continue
+		}
+		out = append(out, map[string]interface{}{
+			"session_id":          s.ID.String(),
+			"region":              s.Region,
+			"current_provider_id": s.CurrentProvider.String(),
+			"state":               s.State.String(),
+			"bytes_in":            s.BytesIn,
+			"bytes_out":           s.BytesOut,
+			"created_at":          s.CreatedAt,
+			"last_activity_at":    s.LastActivityAt,
+		})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"customer_id": customerID.String(),
+		"sessions":    out,
+		"count":       len(out),
+	})
+}
