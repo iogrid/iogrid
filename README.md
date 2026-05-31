@@ -43,6 +43,26 @@ Free unlimited VPN. No subscription required, no ads, no data sale. We make mone
 - **Plus** — $2.99/month — unlimited bandwidth, 30 countries
 - **Pro** — $4.99/month — Plus + ad/tracker blocking, kill switch
 
+#### Quick start (Linux/macOS)
+
+```bash
+curl -fsSL https://iogrid.org/install-cli.sh | sh         # 1. install
+# Mint a key at https://iogrid.org/customer/vpn, then:
+iogrid login --api-key=iog_YOUR_KEY --customer-id=YOUR_ID  # 2. login
+iogrid vpn regions                                         # 3. pick a region
+iogrid vpn run --region us-east-1                          # 4. tunnel up (Ctrl-C to exit)
+# in another shell:
+curl ifconfig.me                                           # 5. verify exit IP changed
+```
+
+Windows users grab the `.msi` from [releases.iogrid.org](https://releases.iogrid.org). Mobile users install the
+iogrid app from the App Store / Play Store.
+
+`iogrid vpn doctor` runs a connectivity self-check; paste the output to a GitHub issue
+if anything fails. The control plane is at `https://api.iogrid.org/v1/vpn/*`; the WG
+data plane is direct peer-to-peer between your machine and an opted-in residential
+provider — iogrid never sees your decrypted traffic.
+
 ---
 
 ## Why iogrid exists
