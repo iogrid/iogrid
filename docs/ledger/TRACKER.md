@@ -24,7 +24,18 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 ---
 
-## 0.9. Session 2026-05-31 — 6 PRs merged, 5 issues closed, updates.iogrid.org stack shipped
+## 0.9. Session 2026-05-31 LATE — customer-auth E2E verified, provider offline recovery runbook prepared
+
+| Phase | Work | Status | Notes |
+|---|---|---|---|
+| **Auth verification** | Customer SOCKS5 auth flow (RFC 1929) via `proxy.iogrid.org:443` | ✅ VERIFIED end-to-end | TLS handshake → greeting → API-key auth (status=0) → CONNECT dispatch. API key `iog_c9a6fbb02c9d31efb1039242f11b58af577b0bc71981e85a5d5d44491d10a6c7` minted, hashed, inserted into billing-svc DB. Go SOCKS5 client confirmed auth succeeds against both localhost port-forward and live 45.151.123.50:443 endpoint. |
+| **Provider dispatch** | CONNECT request routing through proxy-gateway to workloads-svc | ✅ VERIFIED code-path; ⚠️ provider offline | Dispatch to `ifconfig.me:443` returns "no eligible provider" gracefully (expected). Hatice's provider (id: `808ce330-79c1-4390-8cc6-87c5ce5a94d8`) registered in DB but last_seen_at = 2026-05-31 11:03:21 UTC (~11 hours stale). Daemon must restart on Hatice's Mac to accept workloads. |
+| **Anti-abuse pre-flight** | antiabuse-svc scaling + routing | ✅ VERIFIED | Was scaled to 0/0 replicas. Scaled to 1/1. Service answering CheckUrl calls on dispatch path. |
+| **Infrastructure** | TLS cert + NetworkPolicy + IngressRouteTCP routing | ✅ VERIFIED | All in place from prior PRs. |
+| **Recovery runbook** | Step-by-step DB cleanup post-#503 + Hatice re-pair | ✅ DOCUMENTED | `docs/sessions/2026-05-31-hatice-provider-id-cleanup.md` outlines 8 steps: snapshot → audit_events rebind → 808ce330 re-key → issue pairing token → iogridd pair → verify. Executable once Hatice's daemon restarts and #503 is live in cluster (Flux pending). |
+| **Test scripts** | End-to-end verification on provider restart | ✅ DOCUMENTED | `/tmp/verify-full-proxy-flow.sh` (bash) + `/tmp/iogrid-socks5-test.go` (Go) ready to run once provider online. Both scripts perform: TLS → greeting → auth (iog_c9...) → CONNECT to ifconfig.me → HTTP GET → print provider-routed IP. |
+
+### Prior PRs this session (from §0.9 beginning)
 
 | PR | Issue | Scope | Status |
 |---|---|---|---|
@@ -36,6 +47,15 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 | [#499](https://github.com/iogrid/iogrid/pull/499) | [#485](https://github.com/iogrid/iogrid/issues/485) | feat(infra/updates): manifestd Dockerfile + k8s manifests + IngressRoute + 4-job CI (updates.iogrid.org) | ✅ MERGED |
 | [#501](https://github.com/iogrid/iogrid/pull/501) | [#500](https://github.com/iogrid/iogrid/issues/500) | fix(netpol): proxy-gateway ↔ billing-svc egress/ingress — NetworkPolicy + CiliumNetworkPolicy (4 files) | ✅ MERGED |
 | [#503](https://github.com/iogrid/iogrid/pull/503) | [#502](https://github.com/iogrid/iogrid/issues/502) | fix(daemon,providers-svc): SPKI-fingerprint dedupe — re-pair from same Mac survives macOS hostname drift (Bonjour `-2`/`-3`, cold-boot `localhost`, rename) so provider_id is preserved instead of minting a fresh UUID. Root-causes the recurring "Hatice's daemon registered under wrong UUID" symptom (chased manually 3+ times before). Daemon: reuse persisted key.pem across `iogridd pair` ⇒ stable SPKI. Coordinator: `(owner, public_key)` lookup BEFORE `(owner, display_name)`, CreateProvider only when both miss. Display_name dedupe stays as legacy back-compat. | ✅ MERGED (Flux roll pending) |
+
+### Next work: awaiting Hatice provider restart + executing cleanup runbook
+
+| Step | Owner | Blocker | ETA |
+|---|---|---|---|
+| Restart `iogridd` daemon on Hatice's Mac (Bonjour name: `Hatices-Mac-mini-2`) | Hatice | 🟣 founder-physical | founder directs Hatice to run restart sequence |
+| Execute cleanup runbook `docs/sessions/2026-05-31-hatice-provider-id-cleanup.md` steps 0-8 | Agent (main thread) | Hatice's daemon up + Flux rolls #503 | <2min total (DB ops only) |
+| Run `/tmp/verify-full-proxy-flow.sh` to confirm HTTP via provider | Agent (main thread) | cleanup complete | <5sec (one HTTP round-trip) |
+| Close #502 with cleanup evidence + screenshots | Agent (main thread) | verification passes | immediate |
 
 ---
 
