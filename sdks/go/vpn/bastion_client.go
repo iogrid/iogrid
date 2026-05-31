@@ -42,10 +42,16 @@ func (c *BastionClient) vlog(format string, args ...interface{}) {
 	}
 }
 
-// NewBastionClient creates a new bastion VPN client.
+// NewBastionClient creates a new bastion VPN client backed by the
+// real wireguard-go userspace tunnel manager. Use NewBastionClientWith
+// to override the tunnel manager (e.g. MockTunnelManager in tests).
 func NewBastionClient(coordinatorAddr, customerID, apiKey string) *BastionClient {
-	// Use mock tunnel manager by default (can be switched to RealTunnelManager for production)
-	tunnelMgr := NewMockTunnelManager()
+	return NewBastionClientWith(coordinatorAddr, customerID, apiKey, NewRealTunnelManager())
+}
+
+// NewBastionClientWith allows the caller to inject a TunnelManager —
+// tests typically pass NewMockTunnelManager().
+func NewBastionClientWith(coordinatorAddr, customerID, apiKey string, tunnelMgr TunnelManager) *BastionClient {
 	return &BastionClient{
 		coordinatorAddr: coordinatorAddr,
 		customerID:      customerID,
