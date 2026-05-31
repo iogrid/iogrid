@@ -44,7 +44,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: vpn-svc
-          image: ghcr.io/iogrid/vpn-svc@sha256:c786ccfe8abee81a8b3bcb975cc2bcdc7ff78b9635e8c0a3c9147cf9382af1ec
+          image: harbor.openova.io/iogrid/vpn-svc@sha256:c786ccfe8abee81a8b3bcb975cc2bcdc7ff78b9635e8c0a3c9147cf9382af1ec
           imagePullPolicy: Always
           ports:
             - name: http
