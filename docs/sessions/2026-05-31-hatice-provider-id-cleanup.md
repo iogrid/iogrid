@@ -65,22 +65,33 @@ cat /tmp/hatice-pre-cleanup.tsv
 
 Verify the two rows match the Baseline table above.
 
-### Step 2 — migrate FK references from cac83611 → 808ce330
+### Step 2 — migrate provider_id references from cac83611 → 808ce330
 
-Audit events, scheduling configs, earnings entries — anything keyed by
-`provider_id`. Run in ONE transaction:
+Schema audit (run on 2026-05-31 against live `providers` DB):
+
+| table | provider_id rows for cac83611 | provider_id rows for 808ce330 |
+|---|---|---|
+| `audit_events` | 16894 | 1 |
+| `earnings_entries` | 0 | 0 |
+| `scheduling_configs` | 0 | 0 |
+
+No FK constraints from child tables to `providers.id` (logical references
+only), so plain UPDATE/DELETE will not trip referential integrity errors.
+
+Run all child-table rebinds in ONE transaction:
 
 ```bash
 kubectl -n iogrid exec iogrid-pg-1 -- psql -U postgres -d providers <<'SQL'
 BEGIN;
 
--- Audit events
-UPDATE provider_audit_events
+-- audit_events (~16894 rows for cac83611 + 1 row for 808ce330)
+UPDATE audit_events
    SET provider_id = '808ce330-79c1-4390-8cc6-87c5ce5a94d8'
  WHERE provider_id = 'cac83611-4a6f-4937-95b4-8f4fb2538808';
 
--- Scheduling config (ON CONFLICT collapse: cac83611's config wins if
--- both rows have one; otherwise just rebind the FK).
+-- scheduling_configs (defensive — currently 0 rows for either side).
+-- The ON CONFLICT collapse handles the future case where cac83611's
+-- config exists alone OR both sides have a row.
 INSERT INTO scheduling_configs (provider_id, bandwidth_cap_gb, cpu_cap_pct, memory_cap_pct, idle_threshold_secs, idle_enabled, allowed_categories, disallowed_categories, destination_blocklist, per_customer_minutes_cap, updated_at, updated_by_user_id)
 SELECT '808ce330-79c1-4390-8cc6-87c5ce5a94d8',
        bandwidth_cap_gb, cpu_cap_pct, memory_cap_pct, idle_threshold_secs,
@@ -102,22 +113,19 @@ ON CONFLICT (provider_id) DO UPDATE SET
   updated_by_user_id     = EXCLUDED.updated_by_user_id;
 DELETE FROM scheduling_configs WHERE provider_id = 'cac83611-4a6f-4937-95b4-8f4fb2538808';
 
--- Earnings (in billing-svc DB? check provider_id column there too).
--- iogrid keeps earnings per-service; this UPDATE only touches the
--- providers-DB local entries if present. The billing-svc table lives
--- separately under iogrid-billing-db.
+-- earnings_entries (defensive — currently 0 rows for either side).
+UPDATE earnings_entries
+   SET provider_id = '808ce330-79c1-4390-8cc6-87c5ce5a94d8'
+ WHERE provider_id = 'cac83611-4a6f-4937-95b4-8f4fb2538808';
 
 COMMIT;
 SQL
 ```
 
-If the workloads-svc or billing-svc tables also key on `provider_id`,
-mirror the rebinding there. Use:
-
-```bash
-kubectl -n iogrid get cluster.postgresql.cnpg.io iogrid-pg -o jsonpath='{.spec.bootstrap.initdb.postInitApplicationSQL}' | head -40
-# Inspect schemas to confirm whether they reference providers.id.
-```
+Other coordinator services (`workloads-svc`, `billing-svc`,
+`telemetry-svc`) maintain their own databases. Audit each for a
+`provider_id` column that references the providers table. As of
+2026-05-31 they're not enumerated here — extend this step if found.
 
 ### Step 3 — rebind the 808ce330 row to Hatice's CURRENT public_key + activate
 
