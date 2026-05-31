@@ -23,6 +23,9 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+mod vpn_listener;
+pub use vpn_listener::VpnListener;
+
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
