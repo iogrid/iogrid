@@ -1,19 +1,17 @@
-go 1.22
-
-toolchain go1.23.4
+go 1.26.3
 
 use (
+	./cmd/dev-stub-daemon
 	./internal/pb
-	./shared
-	./services/identity-svc
-	./services/providers-svc
-	./services/workloads-svc
 	./services/antiabuse-svc
 	./services/billing-svc
-	./services/telemetry-svc
-	./services/gateway-bff
-	./services/proxy-gateway
 	./services/build-gateway
+	./services/gateway-bff
+	./services/identity-svc
+	./services/providers-svc
+	./services/proxy-gateway
+	./services/telemetry-svc
 	./services/vpn-gateway
-	./cmd/dev-stub-daemon
+	./services/workloads-svc
+	./shared
 )

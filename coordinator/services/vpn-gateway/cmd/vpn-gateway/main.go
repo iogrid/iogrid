@@ -14,6 +14,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"log/slog"
 	"net"
 	"os"
@@ -95,17 +96,22 @@ func main() {
 				port = v
 			}
 		}
-		// The Mock keeps us compileable + testable; the production
-		// build swaps in a wgctrl-go-backed implementation behind the
-		// same interface. (Wiring belongs in a follow-up PR — see
-		// internal/wireguard/wireguard.go for the contract.)
-		wg := wireguard.NewMock()
-		var priv [32]byte
+		// Userspace wireguard-go backend — no CAP_NET_ADMIN required.
+		// Runs under PodSecurity 'restricted:latest'. Refs iogrid/iogrid#478.
+		wg := wireguard.NewUserspace()
+		var priv [32]byte // zero → ephemeral key generated on Start
 		if err := wg.Start(ctx, &net.UDPAddr{Port: port}, priv); err != nil {
 			logger.Error("wireguard start failed", slog.String("error", err.Error()))
 			os.Exit(1)
 		}
-		logger.Info("wireguard server up (mock backend)", slog.Int("port", port))
+		// Expose the real server public key so gateway-bff can embed it
+		// in client configs. Overrides the SERVER_PUBLIC_KEY_B64 env var.
+		pub := wg.PublicKey()
+		gw.ServerPublicKeyB64 = base64.StdEncoding.EncodeToString(pub[:])
+		logger.Info("wireguard server up (userspace backend)",
+			slog.Int("port", port),
+			slog.String("public_key_b64", gw.ServerPublicKeyB64),
+		)
 	} else {
 		logger.Info("wireguard listener disabled — set WG_LISTEN_ENABLE=true to enable")
 	}
