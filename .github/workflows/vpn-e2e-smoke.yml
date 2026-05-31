@@ -1,0 +1,160 @@
+name: vpn-e2e-smoke
+
+# Customer-perspective end-to-end smoke for the live VPN service.
+#
+# Mirrors the README quickstart literally:
+#   1. curl -fsSL https://iogrid.org/install-cli.sh | sh
+#   2. iogrid login --api-key=$IOGRID_API_KEY --customer-id=$IOGRID_CUSTOMER_ID
+#   3. iogrid vpn regions      (expect us-east-1 / 1 healthy provider)
+#   4. iogrid vpn connect --region us-east-1
+#   5. curl -sf ifconfig.me    (expect exit IP != runner's original IP)
+#   6. iogrid vpn disconnect
+#   7. iogrid logout
+#
+# The exit-IP assertion (step 5) is the data-plane proof for #532. It
+# will surface as the visible CI signal the moment the provider daemon
+# can actually forward customer traffic (worker's #529 path c TUN +
+# iptables MASQUERADE). Until then this workflow fails on step 5 with
+# a clear "exit IP unchanged" message — that's the intended progress
+# indicator, not noise.
+#
+# Refs #532. Closes #532 the first time exit-IP changes successfully
+# (a maintainer flips the issue manually after watching the workflow
+# go green — automating closure is too easy to get wrong on a
+# data-plane outage).
+#
+# Secrets required (set at repo level):
+#   - VPN_SMOKE_API_KEY      raw API key (iog_…) from a long-lived
+#                            customer the test re-uses
+#   - VPN_SMOKE_CUSTOMER_ID  matching customer UUID
+#
+# Both are mintable from https://iogrid.org/customer/vpn — keep one
+# pinned in repo secrets so the workflow doesn't have to mint on
+# every run (which would race the free-tier quota gate).
+
+on:
+  schedule:
+    - cron: '17 */3 * * *'   # every 3 hours
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths:
+      - 'cmd/iogrid/**'
+      - 'sdks/go/vpn/**'
+      - 'daemon/**'
+      - 'coordinator/services/vpn-svc/**'
+      - 'e2e/smoke/vpn-customer-connect-live.sh'
+      - '.github/workflows/vpn-e2e-smoke.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vpn-e2e-smoke
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: customer-perspective live smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      IOGRID_API_KEY: ${{ secrets.VPN_SMOKE_API_KEY }}
+      IOGRID_CUSTOMER_ID: ${{ secrets.VPN_SMOKE_CUSTOMER_ID }}
+      COORDINATOR: https://api.iogrid.org
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Capture runner's baseline exit IP
+        id: baseline
+        run: |
+          set -e
+          IP=$(curl -sSf --max-time 10 https://ifconfig.me)
+          echo "Runner baseline exit IP: $IP"
+          echo "baseline_ip=$IP" >> "$GITHUB_OUTPUT"
+
+      - name: Install iogrid CLI via the public one-liner
+        run: |
+          set -e
+          # Use the same path real customers hit — catches install-cli.sh
+          # regressions before they reach a live user.
+          curl -fsSL https://iogrid.org/install-cli.sh | sh
+          # install-cli.sh resolves PREFIX to /usr/local/bin or ~/.local/bin
+          # depending on writability; the runner has writable
+          # /usr/local/bin so iogrid lands there.
+          command -v iogrid
+          iogrid version
+
+      - name: Probe regions (control-plane sanity)
+        run: |
+          set -e
+          # Skips login — `iogrid vpn regions` is unauthenticated by design
+          # (the customer needs to know where they can connect before
+          # paying for a key). One healthy provider in us-east-1 is
+          # the demo invariant.
+          OUT=$(iogrid vpn regions)
+          echo "$OUT"
+          echo "$OUT" | grep -q us-east-1 || {
+            echo "::error::us-east-1 missing from regions output"; exit 1; }
+
+      - name: Skip if smoke credentials are missing
+        if: env.IOGRID_API_KEY == '' || env.IOGRID_CUSTOMER_ID == ''
+        run: |
+          echo "::warning::VPN_SMOKE_API_KEY / VPN_SMOKE_CUSTOMER_ID not set; control-plane regions check passed but skipping connect+exit-IP. Mint a long-lived key at https://iogrid.org/customer/vpn and stash both values under repo Settings → Secrets and variables → Actions."
+          exit 0
+
+      - name: iogrid login
+        run: |
+          set -e
+          iogrid login \
+            --api-key="$IOGRID_API_KEY" \
+            --customer-id="$IOGRID_CUSTOMER_ID" \
+            --coordinator="$COORDINATOR"
+
+      - name: iogrid vpn connect (require CAP_NET_ADMIN)
+        run: |
+          set -e
+          # Userspace WireGuard via wireguard-go still needs
+          # CAP_NET_ADMIN to create the TUN. The runner has sudo.
+          sudo setcap cap_net_admin+eip "$(command -v iogrid)"
+          # Verbose so any partial-progress failure shows where in the
+          # control-plane chain it stalled.
+          IOGRID_VERBOSE=1 iogrid vpn connect --region us-east-1 \
+            2>&1 | tee /tmp/vpn-connect.log
+          grep -q "VPN tunnel established successfully" /tmp/vpn-connect.log
+
+      - name: Data-plane assertion — exit IP must change
+        env:
+          BASELINE_IP: ${{ steps.baseline.outputs.baseline_ip }}
+        run: |
+          set -e
+          echo "Baseline (pre-tunnel) IP: $BASELINE_IP"
+          # WireGuard handshake + first packet round-trip can take a few
+          # seconds after BringUp — retry up to 15s before declaring a
+          # data-plane miss.
+          NEW_IP=""
+          for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+            NEW_IP=$(curl -sSf --max-time 4 https://ifconfig.me || echo "")
+            if [ -n "$NEW_IP" ] && [ "$NEW_IP" != "$BASELINE_IP" ]; then
+              break
+            fi
+            sleep 1
+          done
+          echo "Post-tunnel IP: $NEW_IP"
+          if [ -z "$NEW_IP" ]; then
+            echo "::error::ifconfig.me unreachable through tunnel — likely WG handshake failed or no upstream reachability via provider"
+            exit 1
+          fi
+          if [ "$NEW_IP" = "$BASELINE_IP" ]; then
+            echo "::error::Exit IP unchanged ($NEW_IP). Tunnel handshake may have completed but provider isn't forwarding traffic — gated on #529 path c (Linux TUN + iptables MASQUERADE in the daemon)."
+            exit 1
+          fi
+          echo "::notice::EXIT IP CHANGED: $BASELINE_IP → $NEW_IP via iogrid VPN"
+
+      - name: Graceful cleanup
+        if: always()
+        run: |
+          set +e
+          iogrid vpn disconnect 2>/dev/null || true
+          iogrid logout 2>/dev/null || true
