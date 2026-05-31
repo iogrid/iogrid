@@ -32,6 +32,12 @@ pub use ice::{
     IceConfig, IceError, RegisterRequest, REPORT_INTERVAL, STUN_TIMEOUT,
 };
 
+pub mod health;
+pub use health::{
+    notify_offline as notify_health_offline, HealthConfig, HealthError, HealthReport, HealthStatus,
+    OfflineReport, HEALTH_INTERVAL, SHUTDOWN_BUDGET,
+};
+
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;

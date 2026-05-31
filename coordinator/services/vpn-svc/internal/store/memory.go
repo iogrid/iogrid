@@ -213,6 +213,23 @@ func (m *Memory) SelectProviderForSession(ctx context.Context, region string) (u
 	return selected.ID, nil
 }
 
+// RegisterProvider implements Store. Idempotent — re-registering an
+// existing provider preserves its SessionCount and replaces the rest.
+func (m *Memory) RegisterProvider(ctx context.Context, p *ProviderInfo) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if existing, ok := m.providers[p.ID]; ok {
+		existing.Region = p.Region
+		existing.Status = p.Status
+		existing.LastSeenAt = p.LastSeenAt
+		return nil
+	}
+	// Copy so the caller mutating their input doesn't poke the store.
+	clone := *p
+	m.providers[p.ID] = &clone
+	return nil
+}
+
 // SelectAlternateProvider implements Store.
 func (m *Memory) SelectAlternateProvider(ctx context.Context, region string, exclude []uuid.UUID) (uuid.UUID, error) {
 	m.mu.Lock()

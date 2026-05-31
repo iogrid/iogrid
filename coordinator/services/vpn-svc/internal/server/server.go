@@ -22,6 +22,14 @@ func Mount(h chi.Router, st store.Store, logger *slog.Logger) error {
 		r.Post("/providers/{providerID}/candidates", NewRegisterCandidates(st, logger).Handle)
 		r.Get("/providers/{providerID}/candidates", NewGetCandidates(st, logger).Handle)
 
+		// Provider health probes + graceful shutdown (VPN-7, #511).
+		// `/health` is the periodic heartbeat (every 15 s from the
+		// daemon); `/offline` is the one-shot SIGTERM notification
+		// the daemon emits during graceful shutdown so customer
+		// SDKs can failover before the staleness window expires.
+		r.Post("/providers/{providerID}/health", NewUpdateHealth(st, logger).Handle)
+		r.Post("/providers/{providerID}/offline", NewMarkOffline(st, logger).Handle)
+
 		// Regional failover
 		r.Post("/sessions/{sessionID}/failover", NewTriggerFailover(st, logger).Handle)
 	})
