@@ -192,7 +192,7 @@ export function VpnPanel() {
         <h2 className="mb-3 text-lg font-semibold">VPN keys</h2>
         <div className="mb-4 flex items-end gap-2">
           <div className="flex-1">
-            <label className="mb-1 block text-xs text-muted-foreground">Label (e.g. "My laptop", "Home server")</label>
+            <label className="mb-1 block text-xs text-muted-foreground">Label (e.g. &ldquo;My laptop&rdquo;, &ldquo;Home server&rdquo;)</label>
             <Input
               value={newLabel}
               onChange={(e) => setNewLabel(e.target.value)}
