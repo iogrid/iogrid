@@ -49,10 +49,15 @@ if [ "$PROVIDERS" -lt 1 ]; then
   ok "test provider registered"
 fi
 
-# Step 1: API key (use a dev key for now; #531 UI/mint pending) -------------
+# Step 1: API key. BILLING_SVC_URL is wired on the cluster so
+# unauthenticated requests get 401. Caller must supply a real key
+# via API_KEY env (mint via iogrid.org/customer/vpn UI or the
+# billing-svc.CreateApiKey RPC). Without one, expect the connect
+# step to fail with 401 — that's a correctness signal, not a bug.
 if [ -z "$API_KEY" ]; then
+  log "WARN: API_KEY env not set — connect will 401 (auth enforced). Mint at iogrid.org/customer/vpn"
+  log "      Set API_KEY=iog_... to run the full end-to-end."
   API_KEY="iog_e2e_smoke_$(openssl rand -hex 16)"
-  log "Using ephemeral dev key (BILLING_SVC_URL not enforced on cluster yet)"
 fi
 
 # Step 2: login -------------------------------------------------------------
