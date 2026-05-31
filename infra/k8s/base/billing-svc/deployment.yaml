@@ -31,7 +31,7 @@ spec:
         # cache-identical. Treated as an opaque ISO-8601 string by the
         # deploy-bot — do not hand-edit unless you intend to roll the
         # pods. Refs #335.
-        kubectl.kubernetes.io/restartedAt: "2026-05-31T18:34:44Z"
+        kubectl.kubernetes.io/restartedAt: "2026-05-31T18:50:45Z"
         prometheus.io/port: "9090"
         prometheus.io/path: "/metrics"
     spec:
@@ -57,7 +57,7 @@ spec:
           #       node pulls the digest even when the tag string is unchanged
           # Refs #335 (and #324, which depends on this loop to actually
           # ship the new EarningsService RPCs to prod).
-          image: ghcr.io/iogrid/billing-svc@sha256:a650203980638df0f70e322d42d6564492b31fc69b848a186eb07e8a826fbdce
+          image: ghcr.io/iogrid/billing-svc@sha256:2d23f1e8287fde019145ad8b79954659185de91402c857674feb91890e61e54c
           imagePullPolicy: Always
           ports:
             - name: http
