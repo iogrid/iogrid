@@ -387,23 +387,25 @@ impl TunnelManager {
         });
     }
 
-    /// Forward a `TunnelData` payload to the tunnel's mailbox. Drops
-    /// silently if the attempt_id is unknown (cleanup race with EOF).
+    /// Forward a `TunnelData` payload to the tunnel's mailbox.
+    ///
+    /// Uses `try_send` (non-blocking) so a single slow upstream cannot
+    /// HOL-block ALL tunnels on the dispatch loop. A full mailbox means
+    /// the upstream is slower than the coordinator is sending — the
+    /// payload is dropped and a debug event is emitted; the tunnel will
+    /// continue once its write half drains. Refs iogrid/iogrid#489.
     pub async fn data(&self, attempt_id: &str, payload: Vec<u8>) {
         let tx = {
             let g = self.tunnels.lock().await;
             g.get(attempt_id).cloned()
         };
         if let Some(tx) = tx {
-            // try_send to avoid blocking the dispatch pump if the
-            // upstream socket is slow; a full mailbox means the slow
-            // side is the destination, not us.
-            if let Err(e) = tx.send(Inbound::Data(payload)).await {
+            if let Err(e) = tx.try_send(Inbound::Data(payload)) {
                 tracing::debug!(
                     target: "tunnel",
                     attempt_id = %attempt_id,
                     error = ?e,
-                    "tunnel mailbox send failed (task already exited)"
+                    "tunnel mailbox try_send failed (full or task exited) — dropping payload"
                 );
             }
         } else {
