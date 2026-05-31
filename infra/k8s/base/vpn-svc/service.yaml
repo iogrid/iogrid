@@ -43,7 +43,12 @@ spec:
       port: 3478
       targetPort: stun
       protocol: UDP
-  # externalTrafficPolicy: Local would preserve client source IP for
-  # accurate XOR-MAPPED-ADDRESS. Kept as Cluster for MVP — fixing this
-  # post-deploy when we have visibility into the LB controller behavior.
-  externalTrafficPolicy: Cluster
+  # externalTrafficPolicy: Local preserves client source IP through the
+  # Hetzner LB → node → Pod hop, which is REQUIRED for STUN: the
+  # XOR-MAPPED-ADDRESS attribute echoes the client's apparent IP back.
+  # With Cluster mode the Hetzner LB CCM SNATs to the node IP and STUN
+  # returns 0.0.0.0 (provider/customer can't discover their srflx). Local
+  # mode + healthCheckNodePort gates per-node LB forwarding to nodes
+  # with healthy vpn-svc pods (need replicas ≥ 2 to avoid flap during
+  # rollout — HPA min is 1; bumped to maintain availability).
+  externalTrafficPolicy: Local
