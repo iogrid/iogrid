@@ -31,7 +31,7 @@ spec:
         # cache-identical. Treated as an opaque ISO-8601 string by the
         # deploy-bot — do not hand-edit unless you intend to roll the
         # pods. Refs #335.
-        kubectl.kubernetes.io/restartedAt: "2026-05-31T20:17:20Z"
+        kubectl.kubernetes.io/restartedAt: "2026-05-31T20:31:59Z"
         prometheus.io/port: "9090"
         prometheus.io/path: "/metrics"
     spec:
@@ -46,7 +46,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: build-gateway
-          image: ghcr.io/iogrid/build-gateway@sha256:065eacb31befc452eebd7a1e9cb93a149e397fdad647f851025fdd16954e3b8b
+          image: ghcr.io/iogrid/build-gateway@sha256:d82002baed0c9b4ca95a4275728ef0f4a355e225521a799c7578b6f63b8e7ab8
           imagePullPolicy: Always
           ports:
             - name: http
