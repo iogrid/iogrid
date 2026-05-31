@@ -126,6 +126,10 @@ func GenerateKeyPair() (privateKey, publicKey string, err error) {
 type MockTunnelManager struct {
 	interfaces map[string]bool
 	peers      map[string]map[string]WireGuardPeer
+	// PeerStatsSeed pre-populates counters per (ifName + "/" + publicKey).
+	// Tests use this to simulate the "no inbound bytes" condition that
+	// FailoverDetector watches for.
+	PeerStatsSeed MockPeerStats
 }
 
 // NewMockTunnelManager creates a mock tunnel manager for testing.
@@ -191,4 +195,29 @@ func (m *MockTunnelManager) BringDown(ctx context.Context, ifName string) error 
 	delete(m.peers, ifName)
 	fmt.Printf("[MOCK] Interface %s brought down\n", ifName)
 	return nil
+}
+
+// MockPeerStats lets tests pre-seed peer counters per (ifName, publicKey).
+type MockPeerStats map[string]PeerStats // key = ifName + "/" + publicKey
+
+// PeerStats returns mock counters. Tests can set m.PeerStatsSeed["wg0/<pubkey>"]
+// to a PeerStats value to simulate counter changes. Default = zeroed.
+func (m *MockTunnelManager) PeerStats(ctx context.Context, ifName, publicKey string) (PeerStats, error) {
+	if !m.interfaces[ifName] {
+		return PeerStats{}, fmt.Errorf("interface %s not found", ifName)
+	}
+	if m.PeerStatsSeed != nil {
+		if stats, ok := m.PeerStatsSeed[ifName+"/"+publicKey]; ok {
+			return stats, nil
+		}
+	}
+	return PeerStats{}, nil
+}
+
+// PeerStats returns ErrNotImplemented for the kernel WireGuard backend.
+// Real impl would use golang.zx2c4.com/wireguard/wgctrl to read peer counters.
+// Deferred until the bastion integration phase — TunnelManager users
+// can fall back to time-based detection until then.
+func (m *RealTunnelManager) PeerStats(ctx context.Context, ifName, publicKey string) (PeerStats, error) {
+	return PeerStats{}, ErrNotImplemented
 }

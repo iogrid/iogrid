@@ -92,13 +92,32 @@ func (f *FailoverDetector) loop(ctx context.Context) {
 }
 
 // detectUnreachable returns true if the WireGuard tunnel appears dead.
-// MVP heuristic: no inbound bytes since last check (use real wgctrl
-// counters in production via tunnelMgr).
+// Reads the peer's RxBytes via TunnelManager.PeerStats — if RxBytes
+// hasn't increased since the last check (i.e., no inbound traffic
+// from the provider), the tunnel is suspect. After StrikesNeeded
+// consecutive unhealthy checks the loop triggers failover.
+//
+// Returns false (healthy) when PeerStats returns ErrNotImplemented —
+// the platform doesn't support live counters so we trust the SDK's
+// time-based fallback and roaming detection instead.
 func (f *FailoverDetector) detectUnreachable() bool {
-	// MVP: stub returns false (peers always considered healthy).
-	// Real impl: query wgctrl ReceiveBytes for the peer + compare to
-	// f.lastByteCount; if no change in HealthTimeout window, unhealthy.
-	return false
+	if f.client == nil || f.client.tunnelMgr == nil || f.client.ifName == "" || f.client.providerWgPubKey == "" {
+		return false
+	}
+	stats, err := f.client.tunnelMgr.PeerStats(context.Background(), f.client.ifName, f.client.providerWgPubKey)
+	if err != nil {
+		return false
+	}
+	if stats.RxBytes > f.lastByteCount {
+		f.lastByteCount = stats.RxBytes
+		return false
+	}
+	// Brand-new tunnel that hasn't received its first packet yet — defer
+	// judgment until we have a baseline rather than fire spurious failover.
+	if f.lastByteCount == 0 && stats.RxBytes == 0 {
+		return false
+	}
+	return true
 }
 
 // triggerFailover calls vpn-svc to switch sessions to an alternate

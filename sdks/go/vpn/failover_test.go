@@ -108,9 +108,67 @@ func TestFailoverDetector_HTTPError(t *testing.T) {
 	}
 }
 
+func TestFailoverDetector_DetectsRxBytesStall(t *testing.T) {
+	mock := NewMockTunnelManager()
+	_, _ = mock.CreateInterface(context.Background(), "wg-test")
+	_ = mock.AddPeer(context.Background(), "wg-test", WireGuardPeer{PublicKey: "test-pubkey"})
+	mock.PeerStatsSeed = MockPeerStats{
+		"wg-test/test-pubkey": {RxBytes: 10000},
+	}
+	client := &BastionClient{
+		tunnelMgr:        mock,
+		ifName:           "wg-test",
+		providerWgPubKey: "test-pubkey",
+	}
+	d := NewFailoverDetector(client)
+	d.lastByteCount = 10000 // baseline matches current → flat-line
+
+	if !d.detectUnreachable() {
+		t.Error("expected detectUnreachable=true when RxBytes flat-lined at 10000")
+	}
+}
+
+func TestFailoverDetector_HealthyWhenRxBytesGrowing(t *testing.T) {
+	mock := NewMockTunnelManager()
+	_, _ = mock.CreateInterface(context.Background(), "wg-test")
+	_ = mock.AddPeer(context.Background(), "wg-test", WireGuardPeer{PublicKey: "test-pubkey"})
+	mock.PeerStatsSeed = MockPeerStats{
+		"wg-test/test-pubkey": {RxBytes: 20000},
+	}
+	client := &BastionClient{
+		tunnelMgr:        mock,
+		ifName:           "wg-test",
+		providerWgPubKey: "test-pubkey",
+	}
+	d := NewFailoverDetector(client)
+	d.lastByteCount = 10000
+
+	if d.detectUnreachable() {
+		t.Error("healthy when RxBytes grew 10000 → 20000")
+	}
+	if d.lastByteCount != 20000 {
+		t.Errorf("lastByteCount = %d, want 20000", d.lastByteCount)
+	}
+}
+
+func TestFailoverDetector_FreshTunnelNoBaseline(t *testing.T) {
+	mock := NewMockTunnelManager()
+	_, _ = mock.CreateInterface(context.Background(), "wg-test")
+	_ = mock.AddPeer(context.Background(), "wg-test", WireGuardPeer{PublicKey: "test-pubkey"})
+	client := &BastionClient{
+		tunnelMgr:        mock,
+		ifName:           "wg-test",
+		providerWgPubKey: "test-pubkey",
+	}
+	d := NewFailoverDetector(client)
+	if d.detectUnreachable() {
+		t.Error("fresh tunnel (0/0) must not be flagged on first poll")
+	}
+}
+
 func TestFailoverDetector_StrikesAccumulate(t *testing.T) {
-	// Sanity test: detectUnreachable returns false in MVP, so strikes
-	// should never reach threshold and trigger failover.
+	// No tunnel context → detectUnreachable returns false (insufficient info),
+	// so strikes should never accumulate.
 	client := &BastionClient{tunnelMgr: NewMockTunnelManager()}
 	d := NewFailoverDetector(client)
 	d.HealthInterval = 30 * time.Millisecond
@@ -120,7 +178,6 @@ func TestFailoverDetector_StrikesAccumulate(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 	d.Stop()
 
-	// MVP detectUnreachable always returns false, so strikes should stay 0
 	if d.strikes != 0 {
 		t.Errorf("MVP strikes = %d, want 0 (detectUnreachable is stub)", d.strikes)
 	}

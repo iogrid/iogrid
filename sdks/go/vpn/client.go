@@ -27,7 +27,25 @@ type TunnelManager interface {
 	BringUp(ctx context.Context, ifName string) error
 	// BringDown brings the interface down.
 	BringDown(ctx context.Context, ifName string) error
+	// PeerStats returns liveness counters for a peer. Used by
+	// FailoverDetector to detect a dead tunnel (no inbound bytes
+	// in the health window → trigger failover). Returning
+	// ErrNotImplemented from a mock or unsupported platform is fine —
+	// the detector falls back to its time-based heuristic.
+	PeerStats(ctx context.Context, ifName, publicKey string) (PeerStats, error)
 }
+
+// PeerStats is a snapshot of WireGuard peer counters at one point in time.
+type PeerStats struct {
+	RxBytes           uint64 // bytes received from peer
+	TxBytes           uint64 // bytes sent to peer
+	LastHandshakeUnix int64  // unix seconds of last successful handshake; 0 if never
+}
+
+// ErrNotImplemented is returned by TunnelManager methods on platforms
+// or implementations where the underlying primitive isn't available.
+// Callers should treat it as "unknown" rather than "failure".
+var ErrNotImplemented = fmt.Errorf("not implemented on this platform")
 
 // WireGuardPeer represents a WireGuard peer configuration.
 type WireGuardPeer struct {
