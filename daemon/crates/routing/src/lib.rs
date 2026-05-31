@@ -28,8 +28,8 @@ pub use vpn_listener::VpnListener;
 
 pub mod ice;
 pub use ice::{
-    discover_all, discover_host_candidates, discover_srflx_candidate, IceCandidate, IceConfig,
-    IceError, RegisterRequest, REPORT_INTERVAL, STUN_TIMEOUT,
+    discover_all, discover_host_candidates, discover_srflx_candidate, spawn_reporter, IceCandidate,
+    IceConfig, IceError, RegisterRequest, REPORT_INTERVAL, STUN_TIMEOUT,
 };
 
 pub mod health;

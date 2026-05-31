@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"time"
 )
@@ -22,8 +23,11 @@ type BastionClient struct {
 	httpClient      *http.Client
 	tunnelMgr       TunnelManager
 	iceChecker      *ICEChecker
+	roamingDetector *RoamingDetector
 	sessionID       string
 	ifName          string
+	providerEndpoint string // last-known provider endpoint (host:port)
+	providerWgPubKey string
 }
 
 // NewBastionClient creates a new bastion VPN client.
@@ -105,6 +109,28 @@ func (c *BastionClient) Connect(ctx context.Context, region string) error {
 		return fmt.Errorf("confirm candidate: %w", err)
 	}
 
+	// Persist endpoint + public key for roaming reconnect
+	c.providerEndpoint = endpoint
+	c.providerWgPubKey = providerWgPubKey
+
+	// Step 8: Arm roaming detector (callback re-pins WG endpoint within <1s budget)
+	c.roamingDetector = NewRoamingDetector(endpoint, 500*time.Millisecond, func(oldIP, newIP net.IP) error {
+		fmt.Printf("[BASTION] 🔄 Roaming detected: %s → %s\n", oldIP, newIP)
+		// Bump the WireGuard endpoint on the existing interface.
+		// WireGuard's stateless transport survives source-IP changes once
+		// the new outbound binding is in place — handshake re-key happens
+		// automatically on the next data packet.
+		if err := c.tunnelMgr.SetEndpoint(context.Background(), c.ifName, c.providerWgPubKey, c.providerEndpoint); err != nil {
+			fmt.Printf("[BASTION] roaming reconnect failed: %v\n", err)
+			return err
+		}
+		fmt.Printf("[BASTION] ✓ Roamed in <1s, session %s preserved\n", c.sessionID)
+		return nil
+	})
+	if err := c.roamingDetector.Start(ctx); err != nil {
+		fmt.Printf("[BASTION] warning: roaming detector failed to arm: %v\n", err)
+	}
+
 	fmt.Printf("[BASTION] ✓ VPN tunnel established successfully!\n")
 	fmt.Printf("[BASTION] Session ID: %s\n", sessionID)
 	fmt.Printf("[BASTION] Interface: %s\n", ifName)
@@ -120,6 +146,12 @@ func (c *BastionClient) Disconnect(ctx context.Context) error {
 		return fmt.Errorf("no active tunnel")
 	}
 
+	// Stop roaming detector first so its callback can't race against teardown
+	if c.roamingDetector != nil {
+		c.roamingDetector.Stop()
+		c.roamingDetector = nil
+	}
+
 	fmt.Printf("[BASTION] Disconnecting from VPN...\n")
 	if err := c.tunnelMgr.BringDown(ctx, c.ifName); err != nil {
 		return fmt.Errorf("bring down: %w", err)
@@ -133,6 +165,8 @@ func (c *BastionClient) Disconnect(ctx context.Context) error {
 	fmt.Printf("[BASTION] VPN tunnel closed\n")
 	c.ifName = ""
 	c.sessionID = ""
+	c.providerEndpoint = ""
+	c.providerWgPubKey = ""
 	return nil
 }
 

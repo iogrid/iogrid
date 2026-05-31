@@ -64,6 +64,10 @@ type Store interface {
 	// SelectProviderForSession picks a provider for a new session (round-robin or health-based).
 	SelectProviderForSession(ctx context.Context, region string) (uuid.UUID, error)
 
+	// SelectAlternateProvider picks a provider in the same region but excluding the listed IDs.
+	// Used by failover to avoid re-selecting the provider that just failed.
+	SelectAlternateProvider(ctx context.Context, region string, exclude []uuid.UUID) (uuid.UUID, error)
+
 	// UpdateProviderHealth updates provider status (healthy/degraded/offline).
 	UpdateProviderHealth(ctx context.Context, providerID uuid.UUID, status string, lastSeen time.Time) error
 
