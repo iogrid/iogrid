@@ -148,9 +148,16 @@ func (f *FailoverDetector) triggerFailover(ctx context.Context, reason string) e
 		return fmt.Errorf("alternate provider returned 0 candidates")
 	}
 
-	workingCandidate, err := f.client.iceChecker.CheckCandidates(ctx, mockCandidates)
-	if err != nil {
-		return fmt.Errorf("ice check alt: %w", err)
+	// Pick best candidate by RFC 8445 type preference (host > srflx >
+	// prflx > relay) — same approach as Connect(). The STUN-probe check
+	// removed per #554: WG endpoints don't speak STUN so the probe
+	// always failed; if the picked candidate doesn't work, the WG
+	// handshake itself will trip a re-failover.
+	workingCandidate := mockCandidates[0]
+	for _, cand := range mockCandidates {
+		if candidatePriority(cand.CandidateType) > candidatePriority(workingCandidate.CandidateType) {
+			workingCandidate = cand
+		}
 	}
 
 	// Re-pin WireGuard endpoint
