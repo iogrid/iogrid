@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-01T22:50Z` 🟢 CONTROL PLANE LIVE on PUBLIC IP. 4be3d80 (#557 daemon --public-ip + SDK public-host scoring) → `iogrid vpn connect` picks 212.72.24.20:51820 over 10.10.1.201; daemon peer-binder upserts customer peer + posts provider key. 9 PRs this session, 6 issues closed (#544 #547 #548 #549 #554 #557). Exit-IP proof pending #529 NAT forward + #551 STUN parser (worker). |
+| Last refreshed | `2026-06-01T23:00Z` 🟢 Worker shipped #555 (STUN family 0x04 fix, #551 closed). Lead merged #555, then caught install-cli.sh 404 on iogrid.org — root cause `ApiClient.delete` typo in /customer/vpn panel blocked web-ci for 7 commits. Filed #558, shipped 4a8dc41 fix. 10 PRs this session, 7 issues closed (+#551, +#558 imminent). Worker now on #529 path (c) Linux TUN + iptables MASQUERADE, ETA ~1 session, will close #532 once landed. |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
 | Open PRs | **0** |
