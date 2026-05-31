@@ -49,14 +49,14 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 | [#501](https://github.com/iogrid/iogrid/pull/501) | [#500](https://github.com/iogrid/iogrid/issues/500) | fix(netpol): proxy-gateway ↔ billing-svc egress/ingress — NetworkPolicy + CiliumNetworkPolicy (4 files) | ✅ MERGED |
 | [#503](https://github.com/iogrid/iogrid/pull/503) | [#502](https://github.com/iogrid/iogrid/issues/502) | fix(daemon,providers-svc): SPKI-fingerprint dedupe — re-pair from same Mac survives macOS hostname drift (Bonjour `-2`/`-3`, cold-boot `localhost`, rename) so provider_id is preserved instead of minting a fresh UUID. Root-causes the recurring "Hatice's daemon registered under wrong UUID" symptom (chased manually 3+ times before). Daemon: reuse persisted key.pem across `iogridd pair` ⇒ stable SPKI. Coordinator: `(owner, public_key)` lookup BEFORE `(owner, display_name)`, CreateProvider only when both miss. Display_name dedupe stays as legacy back-compat. | ✅ MERGED (Flux roll pending) |
 
-### Next work: awaiting Hatice provider restart + executing cleanup runbook
+### ✅ Hatice provider restoration complete (2026-06-01)
 
-| Step | Owner | Blocker | ETA |
+| Step | Owner | Status | Evidence |
 |---|---|---|---|
-| Restart `iogridd` daemon on Hatice's Mac (Bonjour name: `Hatices-Mac-mini-2`) | Hatice | 🟣 founder-physical | founder directs Hatice to run restart sequence |
-| Execute cleanup runbook `docs/sessions/2026-05-31-hatice-provider-id-cleanup.md` steps 0-8 | Agent (main thread) | Hatice's daemon up + Flux rolls #503 | <2min total (DB ops only) |
-| Run `/tmp/verify-full-proxy-flow.sh` to confirm HTTP via provider | Agent (main thread) | cleanup complete | <5sec (one HTTP round-trip) |
-| Close #502 with cleanup evidence + screenshots | Agent (main thread) | verification passes | immediate |
+| Daemon restart on Hatice's Mac | Hatice | ✅ COMPLETE | Provider heartbeat fresh (last_seen_at = 2s old) |
+| Execute cleanup pipeline | Main thread | ✅ COMPLETE | `/tmp/post-provider-restart-pipeline.sh` output logs provider consolidated, all orphaned rows deleted |
+| Verify proxy flow end-to-end | Main thread | ✅ PASSED | HTTP via provider tunnel: TLS → greeting → auth → CONNECT → HTTP GET ✓ |
+| Issue closure + documentation | Main thread | ✅ COMPLETE | Issue #502 closed. IPv4/IPv6 dual-stack documented. `/tmp/iogrid-get-ip` tool created with `-ipversion {ipv4|ipv6|auto}` |
 
 ---
 
