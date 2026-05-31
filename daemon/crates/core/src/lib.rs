@@ -667,7 +667,11 @@ impl Supervisor {
         // sends TunnelOpen down the bidi stream and the daemon silently
         // drops it — the proxy-gateway side then waits forever for
         // upstream bytes. See iogrid/iogrid#482.
-        let tunnel_manager = Arc::new(tunnel::TunnelManager::new(daemon_side.tx.clone()));
+        let tunnel_manager = Arc::new(tunnel::TunnelManager::new(
+            daemon_side.tx.clone(),
+            4, // matches DaemonHello.max_concurrent advertised above
+            self.filter.clone(),
+        ));
         let tunnel_for_dispatch = tunnel_manager.clone();
         tasks.spawn(async move {
             while let Some(frame) = daemon_side.rx.recv().await {
