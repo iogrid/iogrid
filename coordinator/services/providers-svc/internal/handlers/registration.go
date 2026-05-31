@@ -158,26 +158,52 @@ func (h *RegistrationHandler) PairDaemon(
 		LastSeenAt:   now,
 	}
 
-	// Re-pair dedupe (#327): when the same machine pairs again (e.g. the
-	// daemon was reinstalled and the on-disk keypair regenerated), the
-	// daemon ships its OS hostname as display_name. If we already have
-	// a row for (owner_user_id, display_name) we UPDATE in place — same
-	// row id, fresh public key, fresh last_seen_at — instead of inserting
-	// a duplicate. Without this, /admin/providers accumulates one ghost
-	// per reinstall (the "Hatice's Mac" + "provider-a7a93576-…" duplicate
-	// pair was the founder-visible symptom).
+	// Re-pair dedupe — two layers, SPKI-first (#502).
 	//
-	// The lookup is skipped when display_name was server-derived from the
-	// owner_user_id ("provider-<short-id>") because that fallback is per-
-	// owner-unique-ish but NOT a stable machine identity; two distinct
-	// machines for the same owner that both miss the hostname read would
-	// otherwise collide on a single row.
-	if in.GetDisplayName() != "" {
+	// Layer 1: (owner_user_id, public_key). The daemon now persists its
+	// keypair across `iogridd pair` calls (matching daemon-side fix),
+	// so the SubjectPublicKey is a STABLE machine identity that survives
+	// macOS hostname drift (Bonjour `-2`/`-3` neighbour collisions,
+	// cold-boot `localhost`, System-Preferences renames, post-reimage
+	// factory reset). Match → UPDATE in-place, refreshing display_name
+	// to the current hostname so admin chrome stays accurate. Provider
+	// id is preserved.
+	//
+	// Layer 2: (owner_user_id, display_name) — legacy back-compat for
+	// older daemons that still mint a fresh keypair on every pair (or
+	// for the first pair of a brand-new daemon that has just been
+	// upgraded but hasn't yet flushed its old key.pem). Same UPDATE-in-
+	// place semantics as before, including PublicKey overwrite.
+	//
+	// Layer 3: CreateProvider — only when BOTH layers miss. That's a
+	// genuine first-pair (new owner OR `rm -rf ~/.iogrid` wiped the
+	// keypair on purpose).
+	//
+	// Without layer 1, every macOS hostname drift produces a fresh
+	// CreateProvider with a new UUID — the "Hatice's Mac registered
+	// under cac83611 instead of 808ce330" recurrence chased manually
+	// 3+ times before #502.
+	matched := false
+	if existing, err := h.Store.GetProviderByOwnerAndPublicKey(ctx, pt.OwnerUserID, in.GetDaemonPublicKey()); err == nil && existing != nil {
+		existing.DisplayName = display
+		existing.HostInfo = p.HostInfo
+		existing.NetworkInfo = p.NetworkInfo
+		existing.PublicKey = p.PublicKey
+		existing.Status = store.StatusActive
+		existing.LastSeenAt = now
+		if err := h.Store.UpdateProvider(ctx, existing); err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+		p = existing
+		matched = true
+		h.Log.Info("daemon re-paired (SPKI match)",
+			slog.String("provider_id", p.ID),
+			slog.String("owner_user_id", p.OwnerUserID),
+			slog.String("display_name", p.DisplayName),
+		)
+	}
+	if !matched && in.GetDisplayName() != "" {
 		if existing, err := h.Store.GetProviderByOwnerAndDisplayName(ctx, pt.OwnerUserID, display); err == nil && existing != nil {
-			// Preserve immutable bits (RegisteredAt, IsPrimary, ID); refresh
-			// everything the new pair changes (HostInfo may have moved
-			// across an OS upgrade; the keypair is brand-new; NetworkInfo
-			// reflects the latest egress).
 			existing.HostInfo = p.HostInfo
 			existing.NetworkInfo = p.NetworkInfo
 			existing.PublicKey = p.PublicKey
@@ -187,16 +213,18 @@ func (h *RegistrationHandler) PairDaemon(
 				return nil, connect.NewError(connect.CodeInternal, err)
 			}
 			p = existing
-			h.Log.Info("daemon re-paired (existing row updated)",
+			matched = true
+			h.Log.Info("daemon re-paired (display_name match — legacy)",
 				slog.String("provider_id", p.ID),
 				slog.String("owner_user_id", p.OwnerUserID),
 				slog.String("display_name", p.DisplayName),
 			)
-		} else if err := h.Store.CreateProvider(ctx, p); err != nil {
+		}
+	}
+	if !matched {
+		if err := h.Store.CreateProvider(ctx, p); err != nil {
 			return nil, connect.NewError(connect.CodeInternal, err)
 		}
-	} else if err := h.Store.CreateProvider(ctx, p); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
 	leafPEM, err := h.CA.IssueDaemonCert(ca.IssueRequest{

@@ -65,6 +65,9 @@ func (f *fakeStore) SetPrimaryProvider(context.Context, string, string) (*store.
 func (f *fakeStore) GetProviderByOwnerAndDisplayName(context.Context, string, string) (*store.Provider, error) {
 	panic("unused")
 }
+func (f *fakeStore) GetProviderByOwnerAndPublicKey(context.Context, string, []byte) (*store.Provider, error) {
+	panic("unused")
+}
 func (f *fakeStore) SelectProviderForOwner(context.Context, string) (*store.Provider, error) {
 	panic("unused")
 }

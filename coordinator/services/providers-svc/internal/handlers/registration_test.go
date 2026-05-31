@@ -544,6 +544,117 @@ func TestPairDaemon_EmptyDisplayNameUsesFallbackAndDoesNotDedupe(t *testing.T) {
 	}
 }
 
+// --- #502 — SPKI-fingerprint dedupe (owner_user_id + public_key) ---------
+
+// TestPairDaemon_SPKIDedupe_HostnameDriftPreservesProviderID is the
+// regression receipt for the founder-visible bug: Hatice's daemon
+// (provider 808ce330-…) showed up under a NEW UUID (cac83611-…) after
+// the macOS hostname drifted from "Hatices-Mac-mini" to
+// "Hatices-Mac-mini-2" (Bonjour neighbour collision). With SPKI-first
+// dedupe, the same persisted keypair on the daemon side resolves to
+// the EXISTING row regardless of hostname change — provider_id is
+// preserved, display_name on the row is refreshed to the current
+// hostname so admin chrome stays accurate.
+func TestPairDaemon_SPKIDedupe_HostnameDriftPreservesProviderID(t *testing.T) {
+	h := newTestHandler(t)
+	ctx := context.Background()
+	const owner = "owner-spki-drift"
+	persistentKey := newDaemonPubKey(t)
+
+	tok1, _ := h.Store.IssuePairingToken(ctx, owner, 0)
+	first, err := h.PairDaemon(ctx, connect.NewRequest(&providersv1.PairDaemonRequest{
+		PairingToken:    tok1,
+		DaemonPublicKey: persistentKey,
+		DisplayName:     "Hatices-Mac-mini",
+		HostInfo:        &providersv1.HostInfo{Platform: providersv1.Platform_PLATFORM_MACOS},
+	}))
+	if err != nil {
+		t.Fatalf("first pair: %v", err)
+	}
+	firstID := first.Msg.GetProvider().GetId().GetValue()
+	if firstID == "" {
+		t.Fatalf("expected first provider id")
+	}
+
+	// Bonjour neighbour collision: macOS rewrites the hostname to
+	// `-2`. Daemon re-pairs (e.g. after a launchctl kickstart) with the
+	// PERSISTED keypair but a DIFFERENT display_name.
+	tok2, _ := h.Store.IssuePairingToken(ctx, owner, 0)
+	second, err := h.PairDaemon(ctx, connect.NewRequest(&providersv1.PairDaemonRequest{
+		PairingToken:    tok2,
+		DaemonPublicKey: persistentKey,
+		DisplayName:     "Hatices-Mac-mini-2",
+		HostInfo:        &providersv1.HostInfo{Platform: providersv1.Platform_PLATFORM_MACOS},
+	}))
+	if err != nil {
+		t.Fatalf("re-pair after hostname drift: %v", err)
+	}
+	secondID := second.Msg.GetProvider().GetId().GetValue()
+	if secondID != firstID {
+		t.Fatalf("SPKI dedupe must preserve provider id across hostname drift: first=%q second=%q",
+			firstID, secondID)
+	}
+
+	rows, _, err := h.Store.ListProviders(ctx, store.ListOptions{OwnerUserID: owner})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if got := len(rows); got != 1 {
+		t.Fatalf("hostname drift with stable SPKI must NOT split into multiple rows; got %d: %+v",
+			got, rows)
+	}
+
+	// The row's display_name must reflect the CURRENT hostname so the
+	// admin UI is accurate.
+	got, err := h.Store.GetProvider(ctx, firstID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.DisplayName != "Hatices-Mac-mini-2" {
+		t.Fatalf("display_name must be refreshed to the current hostname; got %q", got.DisplayName)
+	}
+}
+
+// TestPairDaemon_SPKIDedupe_DifferentKeysAreSeparateMachines confirms
+// the SPKI-first dedupe does NOT collapse two genuinely distinct
+// daemons (different keypairs) for the same owner. Two physical Macs
+// for one user remain separate rows so the owner can promote either
+// to primary.
+func TestPairDaemon_SPKIDedupe_DifferentKeysAreSeparateMachines(t *testing.T) {
+	h := newTestHandler(t)
+	ctx := context.Background()
+	const owner = "owner-two-real-macs"
+
+	tok1, _ := h.Store.IssuePairingToken(ctx, owner, 0)
+	first, err := h.PairDaemon(ctx, connect.NewRequest(&providersv1.PairDaemonRequest{
+		PairingToken:    tok1,
+		DaemonPublicKey: newDaemonPubKey(t),
+		DisplayName:     "office-imac",
+	}))
+	if err != nil {
+		t.Fatalf("first pair: %v", err)
+	}
+	tok2, _ := h.Store.IssuePairingToken(ctx, owner, 0)
+	second, err := h.PairDaemon(ctx, connect.NewRequest(&providersv1.PairDaemonRequest{
+		PairingToken:    tok2,
+		DaemonPublicKey: newDaemonPubKey(t),
+		DisplayName:     "living-room-macmini",
+	}))
+	if err != nil {
+		t.Fatalf("second pair: %v", err)
+	}
+	if first.Msg.GetProvider().GetId().GetValue() == second.Msg.GetProvider().GetId().GetValue() {
+		t.Fatalf("distinct keys + distinct hostnames must produce distinct rows")
+	}
+	rows, _, err := h.Store.ListProviders(ctx, store.ListOptions{OwnerUserID: owner})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if got := len(rows); got != 2 {
+		t.Fatalf("expected 2 rows for owner with 2 real Macs, got %d", got)
+	}
+}
+
 // errorAs is a tiny helper around errors.As that returns the bool so we
 // can write `if !errorAs(err, &ce)` cleanly.
 func errorAs(err error, target interface{}) bool {
