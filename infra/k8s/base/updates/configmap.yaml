@@ -16,7 +16,7 @@ data:
     {
       "version": 1,
       "channel": "stable",
-      "issued_at": "2026-05-31T20:35:29Z",
+      "issued_at": "2026-05-31T20:44:52Z",
       "releases": [
         {
           "version": "0.1.0-cli",
