@@ -191,7 +191,10 @@ func TestIntegration_WGBindingFlow(t *testing.T) {
 
 	// 4. Daemon polls again — session no longer appears (already bound)
 	listResp2, listBody2 := func() (*http.Response, []byte) {
-		r, _ := http.Get(srv.URL + "/v1/vpn/providers/" + providerID.String() + "/assigned-sessions")
+		r, err := http.Get(srv.URL + "/v1/vpn/providers/" + providerID.String() + "/assigned-sessions")
+		if err != nil {
+			t.Fatalf("re-list GET: %v", err)
+		}
 		defer r.Body.Close()
 		b, _ := io.ReadAll(r.Body)
 		return r, b
