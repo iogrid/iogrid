@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-01T23:40Z` 🟢 Caught + fixed silent auth bypass on vpn-svc — cluster was pulling ghcr.io (403) so every `kubectl set image` workaround stripped BILLING_SVC_URL + NATS_URL env. POST /v1/vpn/sessions returned 201 with `iog_test` bogus key for HOURS. 950f913 flips deployment.yaml to harbor.openova.io; auth now enforced (401 on bad key) + earnings batcher started. Filed #561 for same flip across all 12 iogrid services. 15 PRs, 9 closures. |
+| Last refreshed | `2026-06-01T23:45Z` 🟢 ba503ef closes #561 — flipped both CI deploy-bots (coordinator + web) + all 13 base K8s Deployments from ghcr.io to harbor.openova.io. Also added missing iogrid-billing-db secret ref to billing-svc deployment.yaml. Every iogrid pod Running, vpn-svc auth enforced (401 on bogus key). 16 PRs this session, 10 closures (+#561). Open: #560 (smoke creds), #532 (gated on #529), #529 (worker). |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
 | Open PRs | **0** |
