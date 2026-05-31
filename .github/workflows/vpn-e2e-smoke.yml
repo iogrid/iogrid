@@ -98,13 +98,13 @@ jobs:
           echo "$OUT" | grep -q us-east-1 || {
             echo "::error::us-east-1 missing from regions output"; exit 1; }
 
-      - name: Skip if smoke credentials are missing
+      - name: Note when smoke credentials are missing
         if: env.IOGRID_API_KEY == '' || env.IOGRID_CUSTOMER_ID == ''
         run: |
           echo "::warning::VPN_SMOKE_API_KEY / VPN_SMOKE_CUSTOMER_ID not set; control-plane regions check passed but skipping connect+exit-IP. Mint a long-lived key at https://iogrid.org/customer/vpn and stash both values under repo Settings → Secrets and variables → Actions."
-          exit 0
 
       - name: iogrid login
+        if: env.IOGRID_API_KEY != '' && env.IOGRID_CUSTOMER_ID != ''
         run: |
           set -e
           iogrid login \
@@ -113,6 +113,7 @@ jobs:
             --coordinator="$COORDINATOR"
 
       - name: iogrid vpn connect (require CAP_NET_ADMIN)
+        if: env.IOGRID_API_KEY != '' && env.IOGRID_CUSTOMER_ID != ''
         run: |
           set -e
           # Userspace WireGuard via wireguard-go still needs
@@ -125,6 +126,7 @@ jobs:
           grep -q "VPN tunnel established successfully" /tmp/vpn-connect.log
 
       - name: Data-plane assertion — exit IP must change
+        if: env.IOGRID_API_KEY != '' && env.IOGRID_CUSTOMER_ID != ''
         env:
           BASELINE_IP: ${{ steps.baseline.outputs.baseline_ip }}
         run: |
