@@ -5,7 +5,8 @@
 # proxy-gateway — raw-TLS-passthrough data plane for proxy.iogrid.org.
 # Ingress: Gateway-system (TLS passthrough), customer TCP traffic.
 # Egress: providers-svc (route to daemon stream), antiabuse-svc (pre-flight), telemetry-svc (flow events),
-#         Redis (session stickiness), NATS, customer destinations (the whole internet — this IS the proxy).
+#         billing-svc (ValidateApiKey RPC — #484), Redis (session stickiness), NATS,
+#         customer destinations (the whole internet — this IS the proxy).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -52,6 +53,9 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: workloads-svc
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: billing-svc
       ports:
         - protocol: TCP
           port: 8080

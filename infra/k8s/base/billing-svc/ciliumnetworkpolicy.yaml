@@ -29,6 +29,9 @@ spec:
         - matchLabels:
             app.kubernetes.io/name: vpn-gateway
             io.kubernetes.pod.namespace: iogrid
+        - matchLabels:
+            app.kubernetes.io/name: proxy-gateway
+            io.kubernetes.pod.namespace: iogrid
       authentication:
         mode: required
       toPorts:

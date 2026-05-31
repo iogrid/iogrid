@@ -1,6 +1,7 @@
 ---
 # billing-svc — Stripe Connect (provider payouts) + Stripe Subscriptions (customer billing) + usage metering.
-# Ingress: gateway-bff (customer billing UI), workloads-svc (usage events), providers-svc (provider earnings).
+# Ingress: gateway-bff (customer billing UI), workloads-svc (usage events), providers-svc (provider earnings),
+#          proxy-gateway (ValidateApiKey RPC — #484).
 # Egress: Postgres, Redis, NATS, external HTTPS (api.stripe.com).
 #
 # Kept as L3/L4 defense-in-depth alongside ./ciliumnetworkpolicy.yaml
@@ -31,6 +32,9 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: providers-svc
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: proxy-gateway
       ports:
         - protocol: TCP
           port: 8080
