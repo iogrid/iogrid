@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-31T21:30Z` 🟢 cron-refresh: +17 commits since last TRACKER bump |
+| Last refreshed | `2026-06-01T11:30Z` 🟢🟢🟢 **VPN-FIRST-REAL-PROVIDER-PAIRED**: 16 VPN issues closed (#526/#527/#528/#530/#531/#533/#534/#535/#536/#538/#540/#541/#542/#544/#545/#552). iogridd binary live on bastion as healthy paired provider (boringtun :51820, pubkey 7eEN6v18...). Customer e2e flow against api.iogrid.org: install CLI → mint key at /customer/vpn → login → vpn connect → control plane through ICE check. `iogrid vpn run/regions/doctor/status` all live. API auth enforced. STUN LB external IP allocated. Remaining: #529 PR-B SNAT (iogrid-worker active, path a chosen) + #532 data-plane E2E + #547 earnings + #548 quotas + #549 logout cascade + #551 STUN parser. |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
 | Open PRs | **0** |
