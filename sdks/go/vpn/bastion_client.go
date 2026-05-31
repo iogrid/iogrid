@@ -28,6 +28,18 @@ type BastionClient struct {
 	ifName          string
 	providerEndpoint string // last-known provider endpoint (host:port)
 	providerWgPubKey string
+	// Verbose enables progress logging during Connect()/Disconnect().
+	// Default = terse (only errors). Customer CLI sets true on --verbose,
+	// quiet otherwise so users see a clean "Connecting…" → "Connected via
+	// <provider> in <region>" instead of a stack trace of internal steps.
+	Verbose bool
+}
+
+// vlog prints msg only when Verbose is true.
+func (c *BastionClient) vlog(format string, args ...interface{}) {
+	if c.Verbose {
+		fmt.Printf(format, args...)
+	}
 }
 
 // NewBastionClient creates a new bastion VPN client.
@@ -49,19 +61,19 @@ func NewBastionClient(coordinatorAddr, customerID, apiKey string) *BastionClient
 // Connect establishes a VPN tunnel to a provider in the specified region.
 // This is the main entry point for VPN client usage.
 func (c *BastionClient) Connect(ctx context.Context, region string) error {
-	fmt.Printf("[BASTION] Connecting to VPN in region: %s\n", region)
+	c.vlog("Connecting to VPN in region: %s\n", region)
 
 	// Step 1: Request VPN session from Coordinator
-	fmt.Printf("[BASTION] Requesting session from Coordinator...\n")
+	c.vlog("Requesting session from Coordinator...\n")
 	sessionID, err := c.requestSessionFromCoordinator(ctx, region)
 	if err != nil {
 		return fmt.Errorf("request session: %w", err)
 	}
 	c.sessionID = sessionID
-	fmt.Printf("[BASTION] Session created: %s\n", sessionID)
+	c.vlog("Session created: %s\n", sessionID)
 
 	// Step 2: Create WireGuard interface
-	fmt.Printf("[BASTION] Creating WireGuard interface...\n")
+	c.vlog("Creating WireGuard interface...\n")
 	ifName, err := c.tunnelMgr.CreateInterface(ctx, "wg-iogrid0")
 	if err != nil {
 		return fmt.Errorf("create interface: %w", err)
@@ -69,24 +81,24 @@ func (c *BastionClient) Connect(ctx context.Context, region string) error {
 	c.ifName = ifName
 
 	// Step 3: Get provider info + ICE candidates from Coordinator
-	fmt.Printf("[BASTION] Fetching provider info and ICE candidates...\n")
+	c.vlog("Fetching provider info and ICE candidates...\n")
 	providerID, providerWgPubKey, candidates, err := c.getProviderInfo(ctx, sessionID)
 	if err != nil {
 		return fmt.Errorf("get provider info: %w", err)
 	}
-	fmt.Printf("[BASTION] Got %d ICE candidates from provider\n", len(candidates))
+	c.vlog("Got %d ICE candidates from provider\n", len(candidates))
 
 	// Step 4: Check ICE connectivity to find working candidate
-	fmt.Printf("[BASTION] Performing ICE connectivity checks...\n")
+	c.vlog("Performing ICE connectivity checks...\n")
 	workingCandidate, err := c.iceChecker.CheckCandidates(ctx, candidates)
 	if err != nil {
 		return fmt.Errorf("ice check: %w", err)
 	}
-	fmt.Printf("[BASTION] Found working candidate: %s:%d (latency: %dms)\n",
+	c.vlog("Found working candidate: %s:%d (latency: %dms)\n",
 		workingCandidate.ConnectionAddress, workingCandidate.ConnectionPort, workingCandidate.LatencyMs)
 
 	// Step 5: Configure WireGuard peer
-	fmt.Printf("[BASTION] Configuring WireGuard peer...\n")
+	c.vlog("Configuring WireGuard peer...\n")
 	endpoint := fmt.Sprintf("%s:%d", workingCandidate.ConnectionAddress, workingCandidate.ConnectionPort)
 	peer := WireGuardPeer{
 		PublicKey:  providerWgPubKey,
@@ -98,13 +110,13 @@ func (c *BastionClient) Connect(ctx context.Context, region string) error {
 	}
 
 	// Step 6: Bring up interface
-	fmt.Printf("[BASTION] Bringing up WireGuard interface...\n")
+	c.vlog("Bringing up WireGuard interface...\n")
 	if err := c.tunnelMgr.BringUp(ctx, ifName); err != nil {
 		return fmt.Errorf("bring up: %w", err)
 	}
 
 	// Step 7: Confirm working candidate to Coordinator
-	fmt.Printf("[BASTION] Confirming working candidate to Coordinator...\n")
+	c.vlog("Confirming working candidate to Coordinator...\n")
 	if err := c.confirmCandidate(ctx, sessionID, workingCandidate); err != nil {
 		return fmt.Errorf("confirm candidate: %w", err)
 	}
@@ -115,27 +127,27 @@ func (c *BastionClient) Connect(ctx context.Context, region string) error {
 
 	// Step 8: Arm roaming detector (callback re-pins WG endpoint within <1s budget)
 	c.roamingDetector = NewRoamingDetector(endpoint, 500*time.Millisecond, func(oldIP, newIP net.IP) error {
-		fmt.Printf("[BASTION] 🔄 Roaming detected: %s → %s\n", oldIP, newIP)
+		c.vlog("🔄 Roaming detected: %s → %s\n", oldIP, newIP)
 		// Bump the WireGuard endpoint on the existing interface.
 		// WireGuard's stateless transport survives source-IP changes once
 		// the new outbound binding is in place — handshake re-key happens
 		// automatically on the next data packet.
 		if err := c.tunnelMgr.SetEndpoint(context.Background(), c.ifName, c.providerWgPubKey, c.providerEndpoint); err != nil {
-			fmt.Printf("[BASTION] roaming reconnect failed: %v\n", err)
+			c.vlog("roaming reconnect failed: %v\n", err)
 			return err
 		}
-		fmt.Printf("[BASTION] ✓ Roamed in <1s, session %s preserved\n", c.sessionID)
+		c.vlog("✓ Roamed in <1s, session %s preserved\n", c.sessionID)
 		return nil
 	})
 	if err := c.roamingDetector.Start(ctx); err != nil {
-		fmt.Printf("[BASTION] warning: roaming detector failed to arm: %v\n", err)
+		c.vlog("warning: roaming detector failed to arm: %v\n", err)
 	}
 
-	fmt.Printf("[BASTION] ✓ VPN tunnel established successfully!\n")
-	fmt.Printf("[BASTION] Session ID: %s\n", sessionID)
-	fmt.Printf("[BASTION] Interface: %s\n", ifName)
-	fmt.Printf("[BASTION] Provider: %s\n", providerID)
-	fmt.Printf("[BASTION] Latency: %dms\n", workingCandidate.LatencyMs)
+	c.vlog("✓ VPN tunnel established successfully!\n")
+	c.vlog("Session ID: %s\n", sessionID)
+	c.vlog("Interface: %s\n", ifName)
+	c.vlog("Provider: %s\n", providerID)
+	c.vlog("Latency: %dms\n", workingCandidate.LatencyMs)
 
 	return nil
 }
@@ -152,7 +164,7 @@ func (c *BastionClient) Disconnect(ctx context.Context) error {
 		c.roamingDetector = nil
 	}
 
-	fmt.Printf("[BASTION] Disconnecting from VPN...\n")
+	c.vlog("Disconnecting from VPN...\n")
 	if err := c.tunnelMgr.BringDown(ctx, c.ifName); err != nil {
 		return fmt.Errorf("bring down: %w", err)
 	}
@@ -162,7 +174,7 @@ func (c *BastionClient) Disconnect(ctx context.Context) error {
 		_ = c.terminateSession(ctx, c.sessionID, "user_initiated")
 	}
 
-	fmt.Printf("[BASTION] VPN tunnel closed\n")
+	c.vlog("VPN tunnel closed\n")
 	c.ifName = ""
 	c.sessionID = ""
 	c.providerEndpoint = ""
@@ -345,7 +357,7 @@ func (c *BastionClient) confirmCandidate(ctx context.Context, sessionID string, 
 		return fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	fmt.Printf("[BASTION] Confirmed candidate: %s:%d\n", candidate.ConnectionAddress, candidate.ConnectionPort)
+	c.vlog("Confirmed candidate: %s:%d\n", candidate.ConnectionAddress, candidate.ConnectionPort)
 	return nil
 }
 

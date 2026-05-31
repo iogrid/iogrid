@@ -164,6 +164,9 @@ func cmdVPNConnect(args []string) {
 	fmt.Printf("Connecting to iogrid VPN (region=%s, coordinator=%s)...\n", *region, coordinator)
 
 	client := vpn.NewBastionClient(coordinator, creds.CustomerID, creds.APIKey)
+	if os.Getenv("IOGRID_VERBOSE") != "" {
+		client.Verbose = true
+	}
 	ctx, cancel := signalContext()
 	defer cancel()
 
