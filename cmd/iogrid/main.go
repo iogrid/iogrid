@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
@@ -220,11 +221,74 @@ func cmdVPNStatus(args []string) {
 		fmt.Println("status: no active VPN session")
 		return
 	}
-	fmt.Printf("status: connected\n")
+	creds, err := readCredentials()
+	if err != nil {
+		die("not logged in")
+	}
+
+	// Hit the coordinator for the authoritative view (#538). Falls back to
+	// local-file view if the server returns 404 (session terminated) or any
+	// network error; that way the user can still see the local state when
+	// disconnected from the internet.
+	if state.SessionID == "" {
+		fmt.Println("status: local session has no session_id (stale state)")
+		_ = os.Remove(sessionStatePath())
+		return
+	}
+	c := &http.Client{Timeout: 5 * time.Second}
+	resp, err := c.Get(creds.Coordinator + "/v1/vpn/sessions/" + state.SessionID)
+	if err != nil {
+		fmt.Printf("status: local view only (coordinator unreachable: %v)\n", err)
+		printLocalStatus(state)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		fmt.Println("status: session no longer exists on coordinator — cleaning local state")
+		_ = os.Remove(sessionStatePath())
+		return
+	}
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		fmt.Printf("status: coordinator returned %d: %s\n", resp.StatusCode, body)
+		printLocalStatus(state)
+		return
+	}
+	var server map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&server); err != nil {
+		fmt.Printf("status: failed to decode coordinator response: %v\n", err)
+		printLocalStatus(state)
+		return
+	}
+	fmt.Println("status: connected")
+	fmt.Printf("  session_id:   %s\n", server["session_id"])
+	fmt.Printf("  state:        %s\n", server["state"])
+	fmt.Printf("  region:       %s\n", server["region"])
+	fmt.Printf("  provider_id:  %s\n", server["current_provider_id"])
+	if pubkey, _ := server["provider_wg_public_key"].(string); pubkey != "" {
+		fmt.Printf("  provider_wg:  %s…\n", truncate(pubkey, 12))
+	}
+	if bIn, ok := server["bytes_in"].(float64); ok {
+		fmt.Printf("  bytes_in:     %d\n", int64(bIn))
+	}
+	if bOut, ok := server["bytes_out"].(float64); ok {
+		fmt.Printf("  bytes_out:    %d\n", int64(bOut))
+	}
+	fmt.Printf("  connected:    %s ago (locally)\n", time.Since(state.ConnectedAt).Round(time.Second))
+}
+
+func printLocalStatus(state sessionState) {
 	fmt.Printf("  region:     %s\n", state.Region)
 	fmt.Printf("  session_id: %s\n", state.SessionID)
 	fmt.Printf("  connected:  %s (%s ago)\n", state.ConnectedAt.Format(time.RFC3339), time.Since(state.ConnectedAt).Round(time.Second))
 	fmt.Printf("  interface:  %s\n", state.InterfaceName)
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
 }
 
 // --- helpers ---------------------------------------------------------------
