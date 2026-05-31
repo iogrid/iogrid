@@ -196,6 +196,10 @@ impl Tunnel for BoringTun {
         Ok(())
     }
 
+    fn provider_public_key(&self) -> String {
+        self.static_public_b64.clone()
+    }
+
     async fn upsert_peer(&self, peer: WireGuardPeer) -> Result<(), RoutingError> {
         let public_key = decode_public_key(&peer.public_key)?;
         let tunn = Tunn::new(
