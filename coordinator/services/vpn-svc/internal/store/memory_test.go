@@ -220,3 +220,59 @@ func TestMemoryStore_GetProvidersInRegion_SkipsOffline(t *testing.T) {
 		}
 	}
 }
+
+func TestMemoryStore_TerminateAllForCustomer(t *testing.T) {
+	ctx := context.Background()
+	st := NewMemory()
+
+	customer := uuid.New()
+	other := uuid.New()
+	prov := uuid.New()
+	_ = st.RegisterProvider(ctx, &ProviderInfo{ID: prov, Region: "us-east-1", Status: "healthy", LastSeenAt: time.Now()})
+
+	// Two active sessions for our customer + one already-terminated + one for another customer.
+	mkActive := func(custID uuid.UUID) uuid.UUID {
+		id := uuid.New()
+		_ = st.CreateSession(ctx, &Session{
+			ID: id, CustomerID: custID, Region: "us-east-1",
+			PrimaryProvider: prov, CurrentProvider: prov,
+			CreatedAt: time.Now(), LastActivityAt: time.Now(),
+		})
+		return id
+	}
+	s1 := mkActive(customer)
+	s2 := mkActive(customer)
+	sTerm := mkActive(customer)
+	_ = st.TerminateSession(ctx, sTerm, "earlier")
+	sOther := mkActive(other)
+
+	n, err := st.TerminateAllForCustomer(ctx, customer, "user_logout")
+	if err != nil {
+		t.Fatalf("TerminateAllForCustomer: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("expected 2 sessions terminated, got %d", n)
+	}
+	for _, id := range []uuid.UUID{s1, s2} {
+		got, _ := st.GetSession(ctx, id)
+		if got.TerminatedAt == nil {
+			t.Errorf("session %s should be terminated", id)
+		}
+		if got.ExitReason != "user_logout" {
+			t.Errorf("session %s exit reason = %q, want user_logout", id, got.ExitReason)
+		}
+	}
+	// Other customer's session must be untouched.
+	got, _ := st.GetSession(ctx, sOther)
+	if got.TerminatedAt != nil {
+		t.Errorf("other customer's session should NOT be terminated")
+	}
+	// Second call must be a no-op (returns 0 since nothing active).
+	n, err = st.TerminateAllForCustomer(ctx, customer, "user_logout")
+	if err != nil {
+		t.Fatalf("second call: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("second call should yield 0 terminations, got %d", n)
+	}
+}

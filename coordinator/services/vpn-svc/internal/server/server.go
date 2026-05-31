@@ -55,6 +55,12 @@ func Mount(h chi.Router, st store.Store, logger *slog.Logger, validator APIKeyVa
 		// authenticated workspace before forwarding.
 		r.Get("/customers/{customerID}/sessions", NewListSessionsByCustomer(st, logger).Handle)
 
+		// Cascade-terminate every active session owned by the customer
+		// (#549). gateway-bff calls this from /logout AFTER the local
+		// API key is revoked so a compromised key can't outlive the
+		// logout. Returns {"terminated": <count>}.
+		r.Post("/customers/{customerID}/sessions/terminate-all", NewTerminateAllForCustomer(st, logger).Handle)
+
 		// WG peer binding (#536) — provider daemon side. Daemon polls
 		// /providers/{id}/assigned-sessions every 5s; for each new
 		// session it allocates a peer slot and POSTs back its WG

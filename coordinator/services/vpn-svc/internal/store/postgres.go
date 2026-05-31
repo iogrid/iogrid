@@ -474,6 +474,19 @@ func (p *Postgres) ListRegions(ctx context.Context) ([]*RegionSummary, error) {
 	return out, rows.Err()
 }
 
+// TerminateAllForCustomer implements Store.
+func (p *Postgres) TerminateAllForCustomer(ctx context.Context, customerID uuid.UUID, exitReason string) (int, error) {
+	res, err := p.pool.Exec(ctx,
+		`UPDATE vpn_sessions
+		    SET terminated_at = NOW(), exit_reason = $1, state = 'TERMINATING', last_activity_at = NOW()
+		  WHERE customer_id = $2 AND terminated_at IS NULL`,
+		exitReason, customerID)
+	if err != nil {
+		return 0, fmt.Errorf("terminate all for customer: %w", err)
+	}
+	return int(res.RowsAffected()), nil
+}
+
 // ListUnbilledTerminatedSessions implements Store.
 func (p *Postgres) ListUnbilledTerminatedSessions(ctx context.Context, limit int) ([]*Session, error) {
 	if limit <= 0 {

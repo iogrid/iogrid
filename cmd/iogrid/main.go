@@ -141,11 +141,49 @@ func cmdLogin(args []string) {
 }
 
 func cmdLogout(args []string) {
+	// Best-effort: tell coordinator to yank any active VPN sessions BEFORE
+	// we drop local creds. If the user's key was compromised this is the
+	// only window where we can authenticate the terminate call. A non-OK
+	// response (network, bad creds, no active session) is logged in
+	// verbose mode and otherwise silent — we don't block local logout on it.
+	if creds, err := readCredentials(); err == nil {
+		terminateRemoteSessions(creds)
+	}
 	path := credsPath()
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		die("logout: %v", err)
 	}
 	fmt.Println("✓ Logged out — credentials removed from", path)
+}
+
+func terminateRemoteSessions(creds credentials) {
+	url := strings.TrimRight(creds.Coordinator, "/") +
+		"/v1/vpn/customers/" + creds.CustomerID + "/sessions/terminate-all"
+	req, err := http.NewRequest("POST", url,
+		strings.NewReader(`{"reason":"user_logout"}`))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+creds.APIKey)
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		if os.Getenv("IOGRID_VERBOSE") != "" {
+			fmt.Fprintln(os.Stderr, "logout: terminate-all skipped:", err)
+		}
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusOK && os.Getenv("IOGRID_VERBOSE") != "" {
+		var body struct {
+			Terminated int `json:"terminated"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&body)
+		if body.Terminated > 0 {
+			fmt.Printf("  → %d active session(s) terminated server-side\n", body.Terminated)
+		}
+	}
 }
 
 // --- vpn connect / disconnect / status -------------------------------------

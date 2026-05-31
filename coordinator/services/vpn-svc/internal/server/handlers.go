@@ -269,6 +269,51 @@ func (h *TerminateSession) Handle(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "terminated"})
 }
 
+// TerminateAllForCustomer handles
+// POST /v1/vpn/customers/{customerID}/sessions/terminate-all
+//
+// Caller passes the body {"reason":"<exit_reason>"} (defaults to
+// "user_logout"). Returns {"terminated": <count>} so callers can log
+// how many sessions were yanked.
+type TerminateAllForCustomer struct {
+	st     store.Store
+	logger *slog.Logger
+}
+
+func NewTerminateAllForCustomer(st store.Store, logger *slog.Logger) *TerminateAllForCustomer {
+	return &TerminateAllForCustomer{st: st, logger: logger}
+}
+
+func (h *TerminateAllForCustomer) Handle(w http.ResponseWriter, r *http.Request) {
+	customerID, err := uuid.Parse(chi.URLParam(r, "customerID"))
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid customer id")
+		return
+	}
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	// Empty body is fine — default reason.
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	if req.Reason == "" {
+		req.Reason = "user_logout"
+	}
+	n, err := h.st.TerminateAllForCustomer(r.Context(), customerID, req.Reason)
+	if err != nil {
+		h.logger.Error("terminate all failed",
+			slog.String("customer_id", customerID.String()),
+			slog.String("error", err.Error()))
+		respondError(w, http.StatusInternalServerError, "failed to terminate sessions")
+		return
+	}
+	h.logger.Info("customer sessions terminated",
+		slog.String("customer_id", customerID.String()),
+		slog.String("reason", req.Reason),
+		slog.Int("terminated", n))
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]int{"terminated": n})
+}
+
 // RegisterCandidates handles POST /v1/vpn/providers/{providerID}/candidates
 type RegisterCandidates struct {
 	st     store.Store

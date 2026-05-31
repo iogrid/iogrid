@@ -27,6 +27,13 @@ type Store interface {
 	// TerminateSession marks a session as terminated.
 	TerminateSession(ctx context.Context, sessionID uuid.UUID, exitReason string) error
 
+	// TerminateAllForCustomer marks every active session owned by the
+	// customer as terminated. Used by /logout to cascade key-revoke (#549)
+	// — without this a compromised key keeps serving traffic until the
+	// stale-cleanup tick fires (5 min). Returns the count of sessions
+	// terminated by this call (0 if none were active).
+	TerminateAllForCustomer(ctx context.Context, customerID uuid.UUID, exitReason string) (int, error)
+
 	// ListActiveSessionsByRegion lists all active sessions in a region.
 	ListActiveSessionsByRegion(ctx context.Context, region string) ([]*Session, error)
 

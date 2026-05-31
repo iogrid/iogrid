@@ -318,6 +318,24 @@ func (m *Memory) BindCustomerWgKey(ctx context.Context, sessionID uuid.UUID, cus
 	return nil
 }
 
+// TerminateAllForCustomer implements Store.
+func (m *Memory) TerminateAllForCustomer(ctx context.Context, customerID uuid.UUID, exitReason string) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := time.Now()
+	n := 0
+	for _, s := range m.sessions {
+		if s.CustomerID == customerID && s.TerminatedAt == nil {
+			t := now
+			s.TerminatedAt = &t
+			s.ExitReason = exitReason
+			s.LastActivityAt = now
+			n++
+		}
+	}
+	return n, nil
+}
+
 // ListUnbilledTerminatedSessions implements Store.
 func (m *Memory) ListUnbilledTerminatedSessions(ctx context.Context, limit int) ([]*Session, error) {
 	m.mu.RLock()
