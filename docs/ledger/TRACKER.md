@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-31T07:50Z` — PR #492 fmt fix pushed (CI re-running); PR #493 vpn-gateway userspace WG open |
+| Last refreshed | `2026-05-31T06:45Z` 🟢 cron-refresh: +3 commits since last TRACKER bump |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **120+** since bootstrap |
 | Open PRs | **2** — [#492](https://github.com/iogrid/iogrid/pull/492) security(daemon/tunnel): SSRF+cap+timeout (**fmt fixed, CI re-running**); [#493](https://github.com/iogrid/iogrid/pull/493) fix(vpn-gateway): userspace WireGuard drop NET_ADMIN (CI running) |
