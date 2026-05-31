@@ -76,9 +76,14 @@ impl HealthStatus {
 pub struct HealthConfig {
     /// Provider UUID — appears in the URL.
     pub provider_id: String,
+    /// Region slug (e.g. `us-east-1`). vpn-svc's failover store keys
+    /// on this when picking alternate providers; it's the body of the
+    /// `/register` POST that this module fires at supervisor startup
+    /// before the first `/health` heartbeat.
+    pub region: String,
     /// vpn-svc base URL (e.g. `https://api.iogrid.org`). The reporter
-    /// appends `/v1/vpn/providers/{provider_id}/health` and
-    /// `.../offline`.
+    /// appends `/v1/vpn/providers/{provider_id}/register`,
+    /// `.../health`, and `.../offline`.
     pub vpn_svc_base_url: String,
     /// The VPN listener address — included in the heartbeat body for
     /// debugging (vpn-svc currently ignores it but logs are easier
@@ -100,6 +105,16 @@ pub struct HealthReport {
     /// VPN UDP listener — debug-only, vpn-svc may use it for staleness
     /// vs candidate-row reconciliation.
     pub vpn_listen_addr: String,
+}
+
+/// Wire body for `POST /v1/vpn/providers/{id}/register`. The handler
+/// upserts a `{status: healthy, last_seen_at: now}` row keyed on the
+/// route parameter, using `region` to bucket the provider for the
+/// failover store. Idempotent — re-registering preserves SessionCount.
+#[derive(Debug, Clone, Serialize)]
+pub struct RegisterReport {
+    /// Region slug the daemon advertises.
+    pub region: String,
 }
 
 /// Wire body for `POST /v1/vpn/providers/{id}/offline`.
@@ -141,6 +156,17 @@ async fn run_health_loop(
     http: reqwest::Client,
     mut shutdown_rx: tokio::sync::watch::Receiver<bool>,
 ) {
+    // Register before the heartbeat loop so vpn-svc's
+    // `UpdateProviderHealth` UPDATE has a row to hit — otherwise the
+    // first `/health` POST 404s on a freshly-paired daemon. The
+    // handler is idempotent (preserves SessionCount per Store
+    // contract) so a restart-after-pair stays clean. Best-effort:
+    // failure here logs WARN and the loop continues — the operator
+    // can restart the daemon once vpn-svc is reachable.
+    if let Err(e) = register_provider(&config, &http).await {
+        tracing::warn!(error = %e, "register provider failed; first /health POST may 404 until next daemon restart");
+    }
+
     let health_url = format!(
         "{}/v1/vpn/providers/{}/health",
         config.vpn_svc_base_url.trim_end_matches('/'),
@@ -200,6 +226,45 @@ async fn run_health_loop(
             }
         }
     }
+}
+
+/// Register (or idempotently re-register) the provider with vpn-svc's
+/// failover store. The corresponding handler upserts a row keyed on
+/// `config.provider_id` with `region`, `status=healthy`, and
+/// `last_seen_at=now`; existing rows preserve `session_count`.
+///
+/// Called once at the top of [`run_health_loop`] before the periodic
+/// `/health` heartbeat — without this seed the first health POST would
+/// 404 because `UpdateProviderHealth` only UPDATEs existing rows.
+/// Capped at [`TICK_TIMEOUT`] so a hung coordinator doesn't stall
+/// daemon boot.
+pub async fn register_provider(
+    config: &HealthConfig,
+    http: &reqwest::Client,
+) -> Result<(), HealthError> {
+    let url = format!(
+        "{}/v1/vpn/providers/{}/register",
+        config.vpn_svc_base_url.trim_end_matches('/'),
+        config.provider_id
+    );
+    let body = RegisterReport {
+        region: config.region.clone(),
+    };
+    let post = http.post(&url).json(&body).send();
+    let resp = match tokio::time::timeout(TICK_TIMEOUT, post).await {
+        Ok(Ok(r)) => r,
+        Ok(Err(e)) => return Err(HealthError::HttpPost(e)),
+        Err(_) => return Err(HealthError::Timeout),
+    };
+    if !resp.status().is_success() {
+        return Err(HealthError::BadStatus(resp.status().as_u16()));
+    }
+    tracing::info!(
+        provider_id = %config.provider_id,
+        region = %config.region,
+        "provider registered with vpn-svc"
+    );
+    Ok(())
 }
 
 /// Send one offline POST. Best-effort — caller should not block longer
@@ -282,6 +347,7 @@ mod tests {
     fn test_config(base: String) -> HealthConfig {
         HealthConfig {
             provider_id: "11111111-2222-3333-4444-555555555555".into(),
+            region: "us-east-1".into(),
             vpn_svc_base_url: base,
             vpn_listen_addr: "127.0.0.1:51820".parse().unwrap(),
         }
@@ -327,11 +393,15 @@ mod tests {
     // -- Integration-style tests against an in-process HTTP server --
 
     /// Tiny in-process HTTP server that counts hits and lets the test
-    /// assert which URL paths were exercised in which order.
+    /// assert which URL paths were exercised in which order. Records
+    /// the request order so a test can verify register fired before
+    /// the first health POST.
     struct CountingServer {
         addr: SocketAddr,
         health_hits: Arc<AtomicUsize>,
         offline_hits: Arc<AtomicUsize>,
+        register_hits: Arc<AtomicUsize>,
+        first_endpoint: Arc<std::sync::Mutex<Option<&'static str>>>,
     }
 
     impl CountingServer {
@@ -343,8 +413,13 @@ mod tests {
             let addr = listener.local_addr().unwrap();
             let health_hits = Arc::new(AtomicUsize::new(0));
             let offline_hits = Arc::new(AtomicUsize::new(0));
+            let register_hits = Arc::new(AtomicUsize::new(0));
+            let first_endpoint: Arc<std::sync::Mutex<Option<&'static str>>> =
+                Arc::new(std::sync::Mutex::new(None));
             let h = health_hits.clone();
             let o = offline_hits.clone();
+            let reg = register_hits.clone();
+            let first = first_endpoint.clone();
             tokio::spawn(async move {
                 loop {
                     let (mut sock, _) = match listener.accept().await {
@@ -353,15 +428,37 @@ mod tests {
                     };
                     let h = h.clone();
                     let o = o.clone();
+                    let reg = reg.clone();
+                    let first = first.clone();
                     tokio::spawn(async move {
                         let mut buf = vec![0u8; 4096];
                         let n = sock.read(&mut buf).await.unwrap_or(0);
                         let req = String::from_utf8_lossy(&buf[..n]).to_string();
                         if req.starts_with("POST ") {
-                            if req.contains("/offline") {
+                            // Order matters: /register and /offline
+                            // must be checked before /health because
+                            // the request line literally contains
+                            // "/health" as a substring of the
+                            // hostname's chi-route prefix is OK but
+                            // grep order here keeps the buckets
+                            // disjoint.
+                            let endpoint = if req.contains("/register") {
+                                reg.fetch_add(1, Ordering::Relaxed);
+                                Some("register")
+                            } else if req.contains("/offline") {
                                 o.fetch_add(1, Ordering::Relaxed);
+                                Some("offline")
                             } else if req.contains("/health") {
                                 h.fetch_add(1, Ordering::Relaxed);
+                                Some("health")
+                            } else {
+                                None
+                            };
+                            if let Some(ep) = endpoint {
+                                let mut g = first.lock().unwrap();
+                                if g.is_none() {
+                                    *g = Some(ep);
+                                }
                             }
                         }
                         // Drain any body the client wrote past the
@@ -377,6 +474,8 @@ mod tests {
                 addr,
                 health_hits,
                 offline_hits,
+                register_hits,
+                first_endpoint,
             }
         }
     }
@@ -419,6 +518,51 @@ mod tests {
             1,
             "exactly one offline POST on shutdown"
         );
+    }
+
+    #[tokio::test]
+    async fn register_provider_posts_region_body() {
+        let srv = CountingServer::spawn().await;
+        let cfg = test_config(format!("http://{}", srv.addr));
+        let http = reqwest::Client::new();
+        register_provider(&cfg, &http).await.unwrap();
+        assert_eq!(srv.register_hits.load(Ordering::Relaxed), 1);
+        assert_eq!(srv.health_hits.load(Ordering::Relaxed), 0);
+        assert_eq!(srv.offline_hits.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn reporter_calls_register_before_first_health_post() {
+        // Lifecycle: the reporter must hit /register before /health on
+        // startup so vpn-svc's UpdateProviderHealth UPDATE doesn't 404
+        // on a freshly-paired daemon.
+        let srv = CountingServer::spawn().await;
+        let cfg = test_config(format!("http://{}", srv.addr));
+        let http = reqwest::Client::new();
+        let (tx, rx) = watch::channel(false);
+        let handle = spawn_reporter(cfg, http, rx);
+
+        // Let register + first heartbeat both fire.
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        assert_eq!(
+            srv.register_hits.load(Ordering::Relaxed),
+            1,
+            "register must fire exactly once on startup"
+        );
+        assert!(
+            srv.health_hits.load(Ordering::Relaxed) >= 1,
+            "first health POST should follow register"
+        );
+        // Endpoint-order assertion: register was first.
+        assert_eq!(
+            *srv.first_endpoint.lock().unwrap(),
+            Some("register"),
+            "register must precede health on the wire"
+        );
+
+        // Clean shutdown.
+        tx.send(true).unwrap();
+        let _ = tokio::time::timeout(Duration::from_secs(4), handle).await;
     }
 
     #[tokio::test]

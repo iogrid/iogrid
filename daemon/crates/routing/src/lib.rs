@@ -34,8 +34,9 @@ pub use ice::{
 
 pub mod health;
 pub use health::{
-    notify_offline as notify_health_offline, HealthConfig, HealthError, HealthReport, HealthStatus,
-    OfflineReport, HEALTH_INTERVAL, SHUTDOWN_BUDGET,
+    notify_offline as notify_health_offline, register_provider as register_health_provider,
+    HealthConfig, HealthError, HealthReport, HealthStatus, OfflineReport, RegisterReport,
+    HEALTH_INTERVAL, SHUTDOWN_BUDGET,
 };
 
 use std::net::SocketAddr;
