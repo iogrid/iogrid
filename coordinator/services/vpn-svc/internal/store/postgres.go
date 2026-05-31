@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -57,6 +58,7 @@ func (p *Postgres) GetSession(ctx context.Context, sessionID uuid.UUID) (*Sessio
 	session := &Session{}
 	var stateStr string
 	var terminatedAt *time.Time
+	var exitReason sql.NullString
 	err := row.Scan(
 		&session.ID,
 		&session.CustomerID,
@@ -74,12 +76,13 @@ func (p *Postgres) GetSession(ctx context.Context, sessionID uuid.UUID) (*Sessio
 		&session.CreatedAt,
 		&terminatedAt,
 		&session.LastActivityAt,
-		&session.ExitReason,
+		&exitReason,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("query session: %w", err)
 	}
 	session.TerminatedAt = terminatedAt
+	session.ExitReason = exitReason.String
 	// Parse state from string
 	stateVal, ok := pb.VpnSessionState_value[stateStr]
 	if !ok {
@@ -468,6 +471,7 @@ func (p *Postgres) scanSession(row interface {
 	session := &Session{}
 	var stateStr string
 	var terminatedAt *time.Time
+	var exitReason sql.NullString
 	err := row.Scan(
 		&session.ID,
 		&session.CustomerID,
@@ -485,12 +489,13 @@ func (p *Postgres) scanSession(row interface {
 		&session.CreatedAt,
 		&terminatedAt,
 		&session.LastActivityAt,
-		&session.ExitReason,
+		&exitReason,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("scan session: %w", err)
 	}
 	session.TerminatedAt = terminatedAt
+	session.ExitReason = exitReason.String
 	stateVal, ok := pb.VpnSessionState_value[stateStr]
 	if !ok {
 		stateVal = int32(pb.VpnSessionState_VPN_SESSION_STATE_UNSPECIFIED)
