@@ -184,9 +184,18 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*proxy.
 		disp = dispatch.NewStaticPool(entries)
 	}
 
-	// Validator: Static seeded from DEV_API_KEYS env until billing-svc
-	// ValidateApiKey RPC lands.
-	validator := auth.NewStatic(parseDevAPIKeys(os.Getenv("DEV_API_KEYS")))
+	// Validator: Connect to billing-svc when BILLING_SVC_URL is set.
+	// Falls back to an in-memory Static seeded from DEV_API_KEYS for
+	// local dev and tests — BILLING_SVC_URL must be set in production.
+	var validator auth.Validator
+	if cfg.BillingSvcURL != "" {
+		validator = auth.NewConnect(cfg.BillingSvcURL, &http.Client{Timeout: 3 * time.Second})
+		logger.Info("billing-svc ValidateApiKey client wired",
+			slog.String("url", cfg.BillingSvcURL))
+	} else {
+		logger.Warn("BILLING_SVC_URL unset; using static API key store from DEV_API_KEYS (DEV ONLY)")
+		validator = auth.NewStatic(parseDevAPIKeys(os.Getenv("DEV_API_KEYS")))
+	}
 
 	// TLS (optional).
 	var tlsCfg *tls.Config
