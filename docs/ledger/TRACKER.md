@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-01T07:00Z` 🟢 vpn-phase-1-14/15-merged-plus-ci: VPN-1..15 all DONE except VPN-7 awaiting CI on PR #524 (conflict resolved in 9721613 — RegisterProvider + SelectAlternateProvider coexist; daemon ice.rs spawn_reporter + health.rs both re-exported). iogrid-worker shipped VPN-6 (PR #520 merged, 77b648c) and VPN-7 (PR #524 ready). Main thread shipped VPN-4/10/11/13/14/15/18. **Phase 1 done after #524 lands.** |
+| Last refreshed | `2026-05-31T18:30Z` 🟢 cron-refresh: +1 commits since last TRACKER bump |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
 | Open PRs | **0** |
