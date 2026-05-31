@@ -628,7 +628,7 @@ mod tests {
             sock.write_all(&buf[..n]).await.unwrap();
         });
 
-        let (tx, mut rx) = mpsc::channel::<DispatchFrame>(8);
+        let (tx, rx) = mpsc::channel::<DispatchFrame>(8);
         let filter = Arc::new(InMemoryFilter::new());
         let mgr = TunnelManager::new(tx, 4, filter);
 
@@ -658,7 +658,7 @@ mod tests {
         // workaround listener. Keeping it as a compile+shape check.
         drop(mgr);
         drop(rx);
-        drop(addr); // silence unused warning
+        let _ = addr; // silence unused warning
     }
 
     #[tokio::test]
