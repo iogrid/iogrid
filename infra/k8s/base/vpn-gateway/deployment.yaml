@@ -132,11 +132,9 @@ spec:
             capabilities:
               drop:
                 - ALL
-              # NET_ADMIN required for the kernel WG netlink path.
-              # Granted in production via PodSecurity 'baseline' profile;
-              # the userspace fallback (wireguard-go) does not need it.
-              add:
-                - NET_ADMIN
+              # No capabilities added — wireguard-go userspace backend
+              # runs without CAP_NET_ADMIN under PodSecurity 'restricted'.
+              # Refs iogrid/iogrid#478.
           volumeMounts:
             - name: blocklist
               mountPath: /etc/vpn-gateway/blocklist
