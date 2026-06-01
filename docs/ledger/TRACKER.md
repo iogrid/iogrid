@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-01T00:33Z` 🟢 e0d9fc9 — customer-side data plane: SDK now assigns 10.66.0.2/16 + default-route override (two /1 routes) on wg-iogrid0 after BringUp; smoke uses `vpn run` (persistent, holds TUN open) instead of `vpn connect` (one-shot, kernel GCs TUN). 21 PRs, 12 closures. Daemon-side TUN forwarding (#529 path c provider-side) still gates final green — worker idle, lead may take it. |
+| Last refreshed | `2026-06-01T05:45Z` 🟢 cron-refresh: +1 commits since last TRACKER bump |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
 | Open PRs | **0** |
