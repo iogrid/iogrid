@@ -776,3 +776,8 @@ Automation follow-up: [bin/refresh-tracker.sh](https://github.com/iogrid/iogrid/
 - Fixed the EXT_UUID extraction (PlistBuddy /dev/stdin → security cms + plutil) and re-pushed as 7ac294f.
 - Run 26785507380 in flight with COMPLETE fix set: CONNECTING-hold + auto-pin + pre-revoke + per-target profiles + concurrency + dual sigh + extension profile install via plutil-extracted UUID + dual profile name purge.
 - Monitor bz6beb8t0 watching step transitions.
+
+## 2026-06-02T06:35Z — Issue thread reconciliation
+- #575 DoD reconciled in comment 4596997488 — App Group deferral acknowledged (consumer is #576 WireGuardKit, blocked upstream), other 3 criteria met. Flips to status/uat post-upload.
+- #574 blocker chain documented in comment 4597004837 — emrahbaysal@gmail.com install requires either internal-beta promotion (founder web-UI) or external-beta path with App Review + metadata fill (~1-4h + author/screenshot/privacy URL/nutrition).
+- Memory feedback_p21_p22_status_text_violations captured supervisor enforcement pattern (status text ≠ tool call; Monitor + gh-poll race = duplication).
