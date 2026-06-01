@@ -35,13 +35,28 @@ APP_GROUP            = 'group.io.iogrid.app'
 DEPLOYMENT_TARGET    = '16.0'
 SWIFT_VERSION        = '5.0'
 
-# WireGuardKit SwiftPM dep. Tracks the `master` branch of
-# wireguard-apple — zx2c4 uses old-school branch naming (master not
-# main) AND ships unversioned, so neither a release tag nor `main`
-# resolves. Confirmed against git.zx2c4.com/wireguard-apple on the
-# CI's xcodebuild package-resolve step.
-WIREGUARD_REPO   = 'https://git.zx2c4.com/wireguard-apple'
-WIREGUARD_BRANCH = 'master'
+# WireGuardKit SwiftPM dep — DEFERRED.
+#
+# wireguard-apple's Package.swift uses Swift 5 manifest syntax that
+# fails to compile under Xcode 26 / Swift 6 toolchain ("Invalid
+# manifest" at the manifest compilation step). Upstream zx2c4 hasn't
+# updated for Swift 6 yet.
+#
+# Pragmatic pivot for the v1 TestFlight ship: PacketTunnelProvider.swift
+# already gates the WG-using code paths behind `#if canImport(WireGuardKit)`
+# so the extension target compiles cleanly without the dep linked.
+# The tunnel WILL FAIL to start (returns wireGuardKitNotLinked error)
+# until WireGuardKit is wired in — but the app reaches TestFlight,
+# the UI works, and the toggle / region picker / account ID flows
+# are testable.
+#
+# Wire-in options for the follow-up:
+#   1. Wait for upstream wireguard-apple to fix Swift 6 compat
+#   2. Vendor a known-good fork (github.com/mullvad/wireguardkit-rs or similar)
+#   3. Patch upstream's Package.swift via a custom branch
+#
+# Tracked in EPIC #566 as the "data plane wire" follow-up.
+WIREGUARDKIT_ENABLED = false
 
 # ── Pre-flight ──────────────────────────────────────────────────
 unless File.exist?(PROJECT_PATH)
@@ -87,37 +102,11 @@ ext_group = project.main_group.new_group(EXTENSION_NAME, EXTENSION_NAME)
 swift_ref = ext_group.new_file('PacketTunnelProvider.swift')
 ext_target.add_file_references([swift_ref])
 
-# ── 3. WireGuardKit SwiftPM dep ─────────────────────────────────
-puts "[+] Adding WireGuardKit SwiftPM dependency..."
-package_ref = project.root_object.package_references.find do |pr|
-  pr.respond_to?(:repositoryURL) && pr.repositoryURL == WIREGUARD_REPO
+# ── 3. WireGuardKit SwiftPM dep — DEFERRED until upstream Swift 6 compat
+if WIREGUARDKIT_ENABLED
+  raise 'WireGuardKit wiring is currently disabled — see comment above the flag in this file. Re-enable only when upstream wireguard-apple supports Swift 6.'
 end
-
-unless package_ref
-  package_ref = project.new(Xcodeproj::Project::Object::XCRemoteSwiftPackageReference)
-  package_ref.repositoryURL = WIREGUARD_REPO
-  package_ref.requirement = {
-    'kind'   => 'branch',
-    'branch' => WIREGUARD_BRANCH,
-  }
-  project.root_object.package_references << package_ref
-end
-
-# Add WireGuardKit product → extension target.
-product_dep = project.new(Xcodeproj::Project::Object::XCSwiftPackageProductDependency)
-product_dep.product_name = 'WireGuardKit'
-product_dep.package = package_ref
-
-ext_target.package_product_dependencies ||= []
-unless ext_target.package_product_dependencies.any? { |d| d.product_name == 'WireGuardKit' }
-  ext_target.package_product_dependencies << product_dep
-end
-
-# Also add to the Frameworks build phase so Xcode actually links it.
-frameworks_phase = ext_target.frameworks_build_phase
-build_file = project.new(Xcodeproj::Project::Object::PBXBuildFile)
-build_file.product_ref = product_dep
-frameworks_phase.files << build_file
+puts "[+] WireGuardKit SwiftPM dep DEFERRED (upstream Swift 6 compat). Tunnel data plane will surface 'wireGuardKitNotLinked' error until wired."
 
 # ── 4. Embed extension in the main app ─────────────────────────
 puts "[+] Embedding #{EXTENSION_NAME} into #{MAIN_APP_NAME}..."
