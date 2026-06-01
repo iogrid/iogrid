@@ -104,6 +104,8 @@ jobs:
         run: cd ios && pod install
 
       - name: Write App Store Connect API key
+        # GATE: skip when Apple secrets aren't set (operator-action #575)
+        if: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY != '' }}
         run: |
           mkdir -p ~/private_keys
           echo "${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}" \
@@ -111,6 +113,8 @@ jobs:
           chmod 600 ~/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8
 
       - name: Create temp keychain (cert comes from fastlane cert)
+        # GATE: skip when Apple secrets aren't set (operator-action #575)
+        if: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY != '' }}
         # The IOS_DIST_CERT_P12 secret holds a REVOKED Distribution cert
         # (HATICE YILDIZ BAYSAL, serial 1977D8398FBA7D19E244D688F2CB211D).
         # Importing it caused xcodebuild to pick the revoked cert during
@@ -135,6 +139,8 @@ jobs:
           echo "KEYCHAIN_PASSWORD=$KEYCHAIN_PASSWORD" >> $GITHUB_ENV
 
       - name: Fetch fresh App Store provisioning profile via fastlane sigh
+        # GATE: skip when Apple secrets aren't set (operator-action #575)
+        if: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY != '' }}
         # fastlane sigh hits Apple Developer Portal via the ASC API key,
         # regenerates the App Store profile for io.iogrid.app with
         # whatever capabilities are CURRENTLY enabled on the App ID
@@ -605,6 +611,8 @@ jobs:
           ls -la $RUNNER_TEMP/export/
 
       - name: Upload to TestFlight
+        # GATE: skip when Apple secrets aren't set (operator-action #575)
+        if: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY != '' }}
         # set -e + grep on the altool log: altool exits 0 even on validation
         # failure ("UPLOAD FAILED" is just a log line). Capture output and
         # fail the step explicitly if the upload didn't actually succeed.
