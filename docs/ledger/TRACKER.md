@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-01T05:45Z` 🟢 cron-refresh: +1 commits since last TRACKER bump |
+| Last refreshed | `2026-06-01T13:45Z` 🟢 f91ff5f — CRASH RECOVERY. Customer-side data plane FULLY wired: f91ff5f adds /32 exception routes (coordinator hostname + picked ICE candidate IP via pre-VPN gateway) so the SDK's own confirmCandidate + outer WG UDP datagrams don't loop into the half-built tunnel — verified locally, `iogrid vpn run` stays alive past first heartbeat with `wg-iogrid0` UP + `10.66.0.2/16` + both /1 routes installed. Fresh-session handoff written to `docs/sessions/2026-06-01-CRASH-RECOVERY-HANDOFF.md`. Provider-side TUN forwarding (#529 path c) still the one remaining piece — auto-closes #532 the moment it lands. |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
 | Open PRs | **0** |
