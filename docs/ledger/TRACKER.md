@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-02T02:25Z` 🟢🟢🟢 **MOBILE-iOS EPIC #566 ACTIVE — 3 child issues shipped tonight.** #567 Expo SDK 56 scaffold + EAS Build / TestFlight pipeline ported from vcard's `ios.yml` (working-directory `mobile/ios`, vcard-style `.maestro/` flows with screenshots, native-crash detection via sim-log grep). #568 PacketTunnelProvider Swift scaffold + entitlements (App Group `group.io.iogrid.app`, Keychain access group, `packet-tunnel-provider` entitlement) + Expo NE config plugin stub; Xcode target surgery + WireGuardKit SwiftPM wire queued. #569 Mullvad-style anonymous account ID closed — `mobile/ios/src/lib/account.ts` generates 16-digit number on first launch, derives stable UUIDv4 customer_id via SHA-256, persists in Keychain with iCloud sync disabled. Sub-agent in flight on #570 (coordinator endpoints `region=auto` + `GET /v1/vpn/regions/{r}/providers`). Operator-action #575 filed for Apple secrets (workflow gated `if env.HAS_APPLE_SECRETS == 'true'` until they land). Production downtime on user's Contabo VPS 144.91.121.182 at 17:13Z (manual `/1` route add without pinning the WG endpoint `/32` exception); recovered via VNC reboot. SDK fix queued locally in `sdks/go/vpn/tunnel_route_linux.go` adding read-back verification so CLI can no longer report "tunnel established" on broken state. |
+| Last refreshed | `2026-06-01T18:30Z` 🟢 cron-refresh: +3 commits since last TRACKER bump |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
 | Open PRs | **0** |
