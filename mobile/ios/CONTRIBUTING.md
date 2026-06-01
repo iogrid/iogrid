@@ -117,6 +117,39 @@ NOT `keychainAccessGroup` (which is what Swift uses for the
 underlying Apple API). Easy to confuse since the Keychain layer
 calls it `kSecAttrAccessGroup`.
 
+### 11. Network.NWPath vs NetworkExtension.NWPath
+
+Importing both `Network` and `NetworkExtension` frameworks in the
+same Swift file (which the PacketTunnelProvider extension must do)
+makes `NWPath` ambiguous. Use the fully qualified `Network.NWPath`
+for the modern Swift Network framework type. `NWPathMonitor` itself
+is unambiguous (only Network framework has it).
+
+### 12. NWPath.Status has no rawValue
+
+`os_log(..., type: .info, newPath.status.rawValue)` fails to
+compile under iOS 26 SDK — `Network.NWPath.Status` is a plain
+`@frozen public enum` without `rawValue`. Format as a string:
+`"\(newPath.status)"` with the `%{public}@` format specifier.
+
+### 13. TARGETED_DEVICE_FAMILY embedded quotes
+
+Setting `TARGETED_DEVICE_FAMILY` via xcodeproj as `'"1,2"'` (a
+string containing embedded quotes) causes Xcode 26 to parse it as
+two items `'"1'` and `'2"'` — the embedded quotes become part of
+the value. Use plain `'1,2'` without quotes.
+
+### 14. Expo SDK 56 .icon (Icon Composer) format breaks Xcode 26 actool
+
+`"ios": { "icon": "./assets/expo.icon" }` in app.json points at a
+`.icon` directory (the new Icon Composer format). Xcode 26's actool
+chokes on it during the asset catalog compile step — silently runs
+for ~7 minutes then errors with "unable to open dependencies file"
+on `assetcatalog_dependencies_thinned`. Workaround: drop the iOS
+icon override, let Expo fall back to the top-level
+`"icon": "./assets/images/icon.png"` which uses the legacy
+Images.xcassets format.
+
 ## Iterating CI locally
 
 You can't iterate Xcode 26 builds on the bastion (no macOS). The
