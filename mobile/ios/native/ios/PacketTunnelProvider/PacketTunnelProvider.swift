@@ -251,8 +251,10 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         // on this path).
         defer { self.lastPath = newPath }
         guard let previous = lastPath else {
-            os_log("initial path snapshot recorded: status=%{public}d",
-                   log: logger, type: .info, newPath.status.rawValue)
+            // NWPath.Status is a plain `@frozen public enum` — no
+            // rawValue. Use the description string instead.
+            os_log("initial path snapshot recorded: status=%{public}@",
+                   log: logger, type: .info, "\(newPath.status)")
             return
         }
         guard pathDifferenceTriggersReprobe(previous: previous, new: newPath) else {
