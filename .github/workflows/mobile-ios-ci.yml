@@ -176,7 +176,18 @@ jobs:
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" || true
-          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | sed s/\"//g)
+          # Replace the user keychain search list with ONLY our new
+          # keychain — do NOT append the existing ones. The macOS runner
+          # may have stale "Apple Distribution: HATICE YILDIZ BAYSAL"
+          # certs in the login keychain from prior CI jobs on other
+          # team projects (vcard/cinova/ping all share the Dynolabs team).
+          # If the search list includes them, xcodebuild picks the FIRST
+          # matching cert by generic name "Apple Distribution" — which
+          # may be a stale/revoked cert from a prior job rather than our
+          # freshly-imported one. iter 10 (run 26788950651) failed at
+          # archive with serial 1CE647F4992DFD0CEAA4528443705912 (NOT
+          # the cert fastlane just created) for exactly this reason.
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
           security default-keychain -s "$KEYCHAIN_PATH"
           # Persist for fastlane cert / sigh in the next step.
           echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> $GITHUB_ENV
