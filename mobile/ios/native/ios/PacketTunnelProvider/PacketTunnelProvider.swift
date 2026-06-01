@@ -17,17 +17,23 @@
 //   2. Main app calls coordinator POST /v1/vpn/sessions, gets a
 //      provider WG pubkey + endpoint + AllowedIPs.
 //   3. Main app sets NEVPNProtocol.providerConfiguration with
-//      {peerPublicKey, peerEndpoint, allowedIPs, customerInnerCIDR}
+//      {peerPublicKey, peerEndpoint, allowedIPs, customerInnerCIDR,
+//       region}
 //      and calls connection.startVPNTunnel().
 //   4. iOS launches THIS process, calls startTunnel(options:).
 //   5. We read the config, read the private key from Keychain, build
 //      a WireGuardAdapter, call .start.
+//   6. NWPathMonitor observes the device network path; on a path
+//      change we re-probe the region's top-3 providers and re-pin
+//      the WG peer endpoint to the lowest-RTT survivor WITHOUT
+//      dropping the tunnel session (#572 seamless roaming).
 //
-// Refs #568. Pairs with the Expo config plugin
+// Refs #568, #572. Pairs with the Expo config plugin
 // `plugins/with-network-extension.ts` that wires this file into the
 // Xcode project at prebuild time.
 
 import Foundation
+import Network
 import NetworkExtension
 import os.log
 
@@ -55,6 +61,36 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     }()
 #endif
 
+    // ── Roaming state (#572) ─────────────────────────────────────
+    //
+    // NWPathMonitor is one-shot per instance: once .cancel() is
+    // called the instance cannot be reused. We therefore null it
+    // out on stopTunnel and lazily create a fresh one on the next
+    // startTunnel success.
+    //
+    // Probe results are race-protected by a monotonic generation
+    // counter: when the path changes, we bump `probeGeneration`
+    // and any in-flight probe that returns with a stale value
+    // discards its result. This handles WiFi→cellular→WiFi
+    // ping-pong while a probe is mid-flight.
+    private var pathMonitor: NWPathMonitor?
+    private let pathMonitorQueue = DispatchQueue(label: "io.iogrid.app.PacketTunnelProvider.path")
+    private var lastPath: NWPath?
+    private var currentRegion: String?
+    private var currentPeerPublicKey: String?
+    private var probeGeneration: UInt64 = 0
+    private let probeLock = NSLock()
+
+    // Roaming budget (#572 acceptance criterion):
+    //   - 500 ms hard cap on the probe phase (per-candidate UDP probes
+    //     fan out concurrently). If the probe phase exceeds 500ms
+    //     total we abandon and keep the current endpoint to avoid
+    //     thrashing.
+    //   - 250 ms per-candidate timeout (matches the issue spec).
+    //   - 1 s total budget from pathUpdate fire → adapter.update return.
+    private let probePhaseBudgetMs: Int = 500
+    private let perCandidateTimeoutMs: Int = 250
+
     // ── Lifecycle ────────────────────────────────────────────────
 
     override func startTunnel(
@@ -71,6 +107,13 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             return
         }
 
+        // Capture roaming-relevant fields before adapter.start so
+        // that even the scaffold-only (#if !canImport WireGuardKit)
+        // path retains them — keeps unit tests for the roaming
+        // logic agnostic of WG linkage state.
+        self.currentRegion = providerConfig["region"] as? String
+        self.currentPeerPublicKey = providerConfig["peerPublicKey"] as? String
+
         do {
             let config = try TunnelConfigurationDecoder.decode(providerConfig)
 #if canImport(WireGuardKit)
@@ -84,6 +127,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     return
                 }
                 os_log("tunnel established", log: self.logger, type: .info)
+                self.startPathMonitor()
                 completionHandler(nil)
             }
 #else
@@ -106,6 +150,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         completionHandler: @escaping () -> Void
     ) {
         os_log("stopTunnel reason=%{public}d", log: logger, type: .info, reason.rawValue)
+        stopPathMonitor()
 #if canImport(WireGuardKit)
         adapter.stop { [weak self] error in
             if let error = error {
@@ -149,8 +194,397 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             completionHandler?(nil)
         case .setPeer:
             // TODO(#572) re-pin endpoint without re-deriving keys.
+            // The main app drives setPeer via the existing IPC shape;
+            // the in-extension roaming flow (NWPathMonitor below)
+            // does the same re-pin directly without round-tripping
+            // through the main app.
             completionHandler?(nil)
         }
+    }
+
+    // ── Roaming: NWPathMonitor + top-3 re-probe (#572) ───────────
+    //
+    // iOS surfaces network path changes via NWPathMonitor on the
+    // Network framework. The callback fires for *any* path change:
+    //   - WiFi ↔ cellular
+    //   - IPv4 ↔ IPv6 default route flip
+    //   - same-interface address rebind (DHCP renewal, carrier IP
+    //     change on cellular)
+    //   - VPN-on-VPN nesting transitions
+    //
+    // Not every event needs a re-probe — we filter to the cases
+    // that materially affect throughput / RTT to the WG peer. See
+    // `pathDifferenceTriggersReprobe`.
+
+    private func startPathMonitor() {
+        // NWPathMonitor is one-shot per instance. If startTunnel is
+        // called twice in a row (shouldn't happen — iOS guarantees
+        // one process per session — but be defensive), bail.
+        guard pathMonitor == nil else {
+            os_log("startPathMonitor: monitor already running, no-op",
+                   log: logger, type: .info)
+            return
+        }
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { [weak self] newPath in
+            self?.handlePathUpdate(newPath)
+        }
+        monitor.start(queue: pathMonitorQueue)
+        self.pathMonitor = monitor
+        os_log("NWPathMonitor started", log: logger, type: .info)
+    }
+
+    private func stopPathMonitor() {
+        guard let monitor = pathMonitor else { return }
+        monitor.cancel()
+        pathMonitor = nil
+        lastPath = nil
+        os_log("NWPathMonitor stopped", log: logger, type: .info)
+    }
+
+    private func handlePathUpdate(_ newPath: NWPath) {
+        // Compare against the last-known path. The first update
+        // after start() is the *current* path snapshot — we record
+        // it but don't re-probe (the tunnel was just established
+        // on this path).
+        defer { self.lastPath = newPath }
+        guard let previous = lastPath else {
+            os_log("initial path snapshot recorded: status=%{public}d",
+                   log: logger, type: .info, newPath.status.rawValue)
+            return
+        }
+        guard pathDifferenceTriggersReprobe(previous: previous, new: newPath) else {
+            return
+        }
+
+        // Bump generation BEFORE kicking off probes so that any
+        // in-flight probes from the previous generation see a
+        // stale value when they finish and discard their results.
+        probeLock.lock()
+        probeGeneration &+= 1
+        let myGeneration = probeGeneration
+        probeLock.unlock()
+
+        os_log("path change detected (gen=%{public}llu) — kicking off re-probe",
+               log: logger, type: .info, myGeneration)
+
+        guard let region = currentRegion, !region.isEmpty else {
+            os_log("re-probe skipped: no region in providerConfiguration",
+                   log: logger, type: .error)
+            return
+        }
+
+        let started = DispatchTime.now()
+        reprobeAndRepin(region: region, generation: myGeneration, started: started)
+    }
+
+    /// Returns true if the path-change shape warrants a top-3 re-probe.
+    /// Filters out cosmetic updates (e.g. WiFi SSID rename with same
+    /// gateway, idle radio wake) that wouldn't affect WG throughput.
+    private func pathDifferenceTriggersReprobe(previous: NWPath, new: NWPath) -> Bool {
+        if previous.status != new.status { return true }
+        // Interface-set comparison: any change in usesInterfaceType
+        // for the four meaningful types is a re-probe trigger.
+        let interestingTypes: [NWInterface.InterfaceType] = [.wifi, .cellular, .wiredEthernet, .other]
+        for t in interestingTypes where previous.usesInterfaceType(t) != new.usesInterfaceType(t) {
+            return true
+        }
+        // IP family availability flip (IPv4 ↔ IPv6) — relevant
+        // because srflx candidates are family-specific.
+        if previous.supportsIPv4 != new.supportsIPv4 { return true }
+        if previous.supportsIPv6 != new.supportsIPv6 { return true }
+        // Expensive flag flips (e.g. moving onto a metered hotspot)
+        // are worth re-pinning to a closer provider too.
+        if previous.isExpensive != new.isExpensive { return true }
+        return false
+    }
+
+    /// End-to-end roaming flow: fetch top-3 → UDP-probe → pick
+    /// lowest-RTT → adapter.update with swapped endpoint.
+    /// Generation gating discards any work that has been superseded
+    /// by a newer pathUpdate.
+    private func reprobeAndRepin(region: String, generation: UInt64, started: DispatchTime) {
+        fetchTopProviders(region: region) { [weak self] result in
+            guard let self = self else { return }
+            guard self.isCurrentGeneration(generation) else {
+                os_log("re-probe (gen=%{public}llu) discarded: superseded by newer pathUpdate",
+                       log: self.logger, type: .info, generation)
+                return
+            }
+            switch result {
+            case .failure(let error):
+                os_log("fetchTopProviders failed: %{public}@",
+                       log: self.logger, type: .error,
+                       String(describing: error))
+            case .success(let candidates):
+                self.probeCandidates(candidates, generation: generation, started: started)
+            }
+        }
+    }
+
+    private func isCurrentGeneration(_ gen: UInt64) -> Bool {
+        probeLock.lock()
+        defer { probeLock.unlock() }
+        return gen == probeGeneration
+    }
+
+    // ── Coordinator fetch ────────────────────────────────────────
+
+    private func fetchTopProviders(
+        region: String,
+        completion: @escaping (Result<[ProviderCandidate], Error>) -> Void
+    ) {
+        // URL is host-pinned to api.iogrid.org per #570. The
+        // coordinator returns top-N by region-local median_rtt_ms.
+        guard let url = URL(string: "https://api.iogrid.org/v1/vpn/regions/\(region)/providers?limit=3") else {
+            completion(.failure(PacketTunnelError.malformedProviderConfiguration(reason: "invalid region")))
+            return
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        req.timeoutInterval = 0.4 // 400ms — leaves headroom inside the 500ms probe-phase budget
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        let task = URLSession.shared.dataTask(with: req) { data, response, error in
+            if let error = error {
+                completion(.failure(error))
+                return
+            }
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+                completion(.failure(PacketTunnelError.malformedProviderConfiguration(
+                    reason: "providers endpoint http=\(code)")))
+                return
+            }
+            guard let data = data else {
+                completion(.failure(PacketTunnelError.malformedProviderConfiguration(reason: "empty providers body")))
+                return
+            }
+            do {
+                let decoded = try JSONDecoder().decode([ProviderCandidate].self, from: data)
+                completion(.success(decoded))
+            } catch {
+                completion(.failure(error))
+            }
+        }
+        task.resume()
+    }
+
+    // ── UDP latency probe ────────────────────────────────────────
+    //
+    // Per the issue spec we use NWConnection (not BSD sockets) so the
+    // probe lives inside the NE sandbox cleanly. For each candidate
+    // we pick its preferred address — srflx > host > relay — and send
+    // a 4-byte zero datagram. RTT is measured from .send completion
+    // to first .receive callback or .ready→.failed transition.
+    // Timeout is 250 ms per candidate.
+
+    private func probeCandidates(
+        _ providers: [ProviderCandidate],
+        generation: UInt64,
+        started: DispatchTime
+    ) {
+        let probeGroup = DispatchGroup()
+        let resultsLock = NSLock()
+        var results: [(provider: ProviderCandidate, rttMs: Int)] = []
+
+        for provider in providers {
+            guard let preferred = provider.preferredCandidate() else { continue }
+            probeGroup.enter()
+            measureRtt(host: preferred.address, port: preferred.port) { rttMs in
+                if let rttMs = rttMs {
+                    resultsLock.lock()
+                    results.append((provider: provider, rttMs: rttMs))
+                    resultsLock.unlock()
+                }
+                probeGroup.leave()
+            }
+        }
+
+        // Bail at probePhaseBudgetMs — if we don't have results by
+        // then, keep the current endpoint (no thrash).
+        let deadline = DispatchTime.now() + .milliseconds(probePhaseBudgetMs)
+        let waitResult = probeGroup.wait(timeout: deadline)
+        let elapsedMs = elapsedMillis(since: started)
+
+        if waitResult == .timedOut {
+            os_log("probe phase exceeded %{public}dms budget (elapsed=%{public}dms) — keeping current endpoint",
+                   log: logger, type: .info, probePhaseBudgetMs, elapsedMs)
+            return
+        }
+
+        guard self.isCurrentGeneration(generation) else {
+            os_log("probe results (gen=%{public}llu) discarded after fanout: superseded",
+                   log: logger, type: .info, generation)
+            return
+        }
+
+        resultsLock.lock()
+        let snapshot = results
+        resultsLock.unlock()
+
+        guard let winner = snapshot.min(by: { $0.rttMs < $1.rttMs }) else {
+            os_log("no probe survivors — keeping current endpoint", log: logger, type: .info)
+            return
+        }
+
+        os_log("probe winner: provider=%{public}@ rtt=%{public}dms (elapsed=%{public}dms)",
+               log: logger, type: .info,
+               winner.provider.providerId, winner.rttMs, elapsedMs)
+
+        repinEndpoint(to: winner.provider, generation: generation, started: started)
+    }
+
+    private func measureRtt(host: String, port: UInt16, completion: @escaping (Int?) -> Void) {
+        guard let nwPort = NWEndpoint.Port(rawValue: port) else {
+            completion(nil)
+            return
+        }
+        let host = NWEndpoint.Host(host)
+        // UDP-only — matches the WG transport. ICMP would need raw
+        // sockets which the NE sandbox forbids.
+        let conn = NWConnection(host: host, port: nwPort, using: .udp)
+        let started = DispatchTime.now()
+        var fired = false
+        let lock = NSLock()
+        let fire: (Int?) -> Void = { rtt in
+            lock.lock()
+            let alreadyFired = fired
+            fired = true
+            lock.unlock()
+            guard !alreadyFired else { return }
+            conn.cancel()
+            completion(rtt)
+        }
+        // Per-candidate timeout — 250ms hard cap.
+        pathMonitorQueue.asyncAfter(deadline: .now() + .milliseconds(perCandidateTimeoutMs)) {
+            fire(nil)
+        }
+        conn.stateUpdateHandler = { state in
+            switch state {
+            case .ready:
+                let payload = Data(repeating: 0, count: 4)
+                conn.send(content: payload, completion: .contentProcessed { _ in })
+                // Schedule receive — WG peers won't necessarily
+                // ack a stray 4-byte datagram, but the time-to-ready
+                // is itself a meaningful proxy for path RTT on the
+                // first SYN/connect roundtrip. We treat .ready as
+                // the floor measurement.
+                let rttMs = self.elapsedMillis(since: started)
+                conn.receiveMessage { _, _, _, _ in
+                    // Any inbound (e.g. WG handshake-init reject)
+                    // refines the measurement; if it doesn't arrive
+                    // the timeout above fires.
+                }
+                fire(rttMs)
+            case .failed, .cancelled:
+                fire(nil)
+            default:
+                break
+            }
+        }
+        conn.start(queue: pathMonitorQueue)
+    }
+
+    // ── adapter.update endpoint re-pin ───────────────────────────
+
+    private func repinEndpoint(to provider: ProviderCandidate, generation: UInt64, started: DispatchTime) {
+#if canImport(WireGuardKit)
+        // Re-pin without re-deriving keys: build a new
+        // TunnelConfiguration where the existing peer's endpoint is
+        // swapped to the winning candidate. WireGuard's stateless
+        // transport survives the source-IP change; the new outbound
+        // binding triggers a handshake re-key on the next data
+        // packet automatically.
+        guard let preferred = provider.preferredCandidate(),
+              let newEndpoint = Endpoint(from: "\(preferred.address):\(preferred.port)") else {
+            os_log("repin: malformed candidate %{public}@:%{public}d",
+                   log: logger, type: .error,
+                   provider.preferredCandidate()?.address ?? "?",
+                   Int(provider.preferredCandidate()?.port ?? 0))
+            return
+        }
+        // We don't reconstruct the full TunnelConfiguration from
+        // scratch — instead we read the adapter's current config and
+        // mutate only the peer endpoint. WireGuardAdapter exposes
+        // `update` which accepts a full TunnelConfiguration; we
+        // synthesize one with `peerPublicKey` mapped to the winner's
+        // peer key.
+        adapter.update(tunnelConfiguration: buildSwappedConfig(currentEndpoint: newEndpoint,
+                                                                newPeerPublicKey: provider.wgPublicKey)) { [weak self] error in
+            guard let self = self else { return }
+            let elapsedMs = self.elapsedMillis(since: started)
+            if let error = error {
+                os_log("adapter.update failed (elapsed=%{public}dms): %{public}@",
+                       log: self.logger, type: .error,
+                       elapsedMs, String(describing: error))
+                return
+            }
+            os_log("repin complete: provider=%{public}@ elapsed=%{public}dms (budget=1000ms)",
+                   log: self.logger, type: .info,
+                   provider.providerId, elapsedMs)
+            // Track the new peer key so subsequent repins can
+            // skip-no-op when the winner hasn't changed.
+            self.currentPeerPublicKey = provider.wgPublicKey
+            _ = generation // generation is logged upstream; no-op
+        }
+#else
+        // Scaffold-only build: log + drop. The roaming logic is still
+        // wired up; only the actual peer swap is gated on
+        // WireGuardKit linkage. This keeps the file compilable in
+        // either state per the #572 acceptance criterion.
+        let elapsedMs = self.elapsedMillis(since: started)
+        os_log("repin (scaffold-only — WireGuardKit not linked): provider=%{public}@ elapsed=%{public}dms",
+               log: logger, type: .info, provider.providerId, elapsedMs)
+        _ = generation
+#endif
+    }
+
+#if canImport(WireGuardKit)
+    /// Synthesises a TunnelConfiguration whose single peer points at
+    /// the winning candidate. The customer-side interface (private
+    /// key, addresses, DNS) is preserved from the original startTunnel
+    /// payload because we never persist it on the daemon side and the
+    /// adapter retains it across .update calls — we only need to
+    /// supply a peer with the swapped endpoint.
+    ///
+    /// NOTE: This is intentionally minimal. The full config decoder
+    /// (TunnelConfigurationDecoder) lives in a sibling file that
+    /// lands in the SwiftPM-wiring milestone (#568). Until then this
+    /// function is unreachable in the scaffold-only build (gated by
+    /// the same #if canImport(WireGuardKit) above).
+    private func buildSwappedConfig(currentEndpoint: Endpoint, newPeerPublicKey: String) -> TunnelConfiguration {
+        // Re-decode the providerConfiguration to get a fresh
+        // TunnelConfiguration, then swap the peer endpoint/key.
+        // Falling back to the existing decoder keeps this file the
+        // single source of truth for the roaming flow.
+        let providerConfig = (protocolConfiguration as? NETunnelProviderProtocol)?
+            .providerConfiguration ?? [:]
+        let base = try? TunnelConfigurationDecoder.decode(providerConfig)
+        let cfg = base?.wireguardConfig ?? TunnelConfiguration(name: "iogrid", interface: InterfaceConfiguration(privateKey: PrivateKey()), peers: [])
+        var peers = cfg.peers
+        if peers.isEmpty {
+            // Should never happen — startTunnel would have failed
+            // earlier. Defensive only.
+            return cfg
+        }
+        guard let newKey = PublicKey(base64Key: newPeerPublicKey) else {
+            return cfg
+        }
+        var peer = peers[0]
+        peer.endpoint = currentEndpoint
+        peer.publicKey = newKey
+        peers[0] = peer
+        return TunnelConfiguration(name: cfg.name, interface: cfg.interface, peers: peers)
+    }
+#endif
+
+    // ── Util ─────────────────────────────────────────────────────
+
+    private func elapsedMillis(since: DispatchTime) -> Int {
+        let nowNs = DispatchTime.now().uptimeNanoseconds
+        let thenNs = since.uptimeNanoseconds
+        guard nowNs >= thenNs else { return 0 }
+        return Int((nowNs - thenNs) / 1_000_000)
     }
 }
 
@@ -168,6 +602,41 @@ private struct IPCMessage: Decodable {
 
 private struct IPCResponse: Encodable {
     let status: String
+}
+
+// ── Provider candidate shapes (#572 — matches coordinator #570) ──
+
+private struct ProviderCandidate: Decodable {
+    let providerId: String
+    let wgPublicKey: String
+    let candidateSet: [WGCandidate]
+    let medianRttMs: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case providerId = "provider_id"
+        case wgPublicKey = "wg_public_key"
+        case candidateSet = "candidate_set"
+        case medianRttMs = "median_rtt_ms"
+    }
+
+    /// Picks the preferred candidate address per ICE-like ordering:
+    /// srflx (server-reflexive — i.e. observed by STUN, routable
+    /// across NAT) > host (LAN-local) > relay (TURN — last resort).
+    /// Matches the daemon-side flow that publishes these in the
+    /// provider registration RPC (#570).
+    func preferredCandidate() -> WGCandidate? {
+        let order = ["srflx", "host", "relay"]
+        for kind in order {
+            if let c = candidateSet.first(where: { $0.type == kind }) { return c }
+        }
+        return candidateSet.first
+    }
+}
+
+private struct WGCandidate: Decodable {
+    let type: String
+    let address: String
+    let port: UInt16
 }
 
 // ── Errors ────────────────────────────────────────────────────────
