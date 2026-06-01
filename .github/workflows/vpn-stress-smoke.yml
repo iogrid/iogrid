@@ -1,0 +1,149 @@
+name: vpn-stress-smoke
+
+# Concurrent-sessions stress smoke — VPN-17 (#522).
+#
+# Spawns N customer SDKs against one paired provider in parallel and
+# asserts every session reaches "tunnel established". Catches the
+# classes of bug a single-customer smoke misses:
+#
+#   * peer-table races inside the daemon's BoringTun
+#   * vpn-svc /candidates POST contention
+#   * STUN coalescing under burst load
+#   * iptables/conntrack table fill (the linux NAT table is finite —
+#     /proc/sys/net/netfilter/nf_conntrack_max defaults to 262144 but
+#     a misconfigured router can be far smaller)
+#
+# We deliberately keep N small (10 in CI) — the issue's stretch goal of
+# 100+ is a load-test target run from a dedicated tester, not from a
+# github-hosted runner with a 2-core 7GiB envelope. The 10-session
+# threshold catches the most common contention bugs while staying
+# cheap enough to run on every push to main.
+
+on:
+  workflow_dispatch:
+    inputs:
+      concurrency:
+        description: "Number of concurrent customer sessions"
+        type: string
+        default: "10"
+  schedule:
+    # Twice a day; offset 7 minutes from vpn-e2e-smoke so the two
+    # workflows don't race on the same provider's session table.
+    - cron: '37 0,12 * * *'
+  push:
+    branches: [main]
+    paths:
+      - 'sdks/go/vpn/**'
+      - 'coordinator/vpn-svc/**'
+      - 'daemon/crates/routing/**'
+      - '.github/workflows/vpn-stress-smoke.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  stress:
+    name: N concurrent customer sessions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    env:
+      IOGRID_API_KEY: ${{ secrets.VPN_SMOKE_API_KEY }}
+      IOGRID_CUSTOMER_ID: ${{ secrets.VPN_SMOKE_CUSTOMER_ID }}
+      COORDINATOR: https://api.iogrid.org
+      CONCURRENCY: ${{ inputs.concurrency || '10' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: 'sdks/go/vpn/go.sum'
+
+      - name: Skip if secrets missing
+        if: env.IOGRID_API_KEY == '' || env.IOGRID_CUSTOMER_ID == ''
+        run: |
+          echo "::warning::VPN_SMOKE_API_KEY / VPN_SMOKE_CUSTOMER_ID not set — stress smoke skipped"
+          exit 0
+
+      - name: Build CLI
+        if: env.IOGRID_API_KEY != ''
+        run: |
+          cd cmd/iogrid
+          go build -o /usr/local/bin/iogrid .
+          sudo setcap cap_net_admin+eip /usr/local/bin/iogrid
+
+      - name: Run N concurrent vpn-run sessions
+        if: env.IOGRID_API_KEY != ''
+        run: |
+          set -e
+          mkdir -p /tmp/stress
+          # The CLI shares ~/.iogrid/credentials.json across processes;
+          # the in-flight session state is held in process memory by
+          # `iogrid vpn run` so N processes can each hold their own
+          # tunnel as long as each writes to a unique state dir + uses
+          # a unique tun interface name.
+          iogrid login \
+            --api-key="$IOGRID_API_KEY" \
+            --customer-id="$IOGRID_CUSTOMER_ID" \
+            --coordinator="$COORDINATOR"
+
+          pids=()
+          for i in $(seq 1 $CONCURRENCY); do
+            # Each process logs to its own file; we grep them all at
+            # the end for the "tunnel established" line.
+            nohup iogrid vpn run --region us-east-1 \
+              > "/tmp/stress/run-$i.log" 2>&1 &
+            pids+=($!)
+          done
+          echo "spawned ${#pids[@]} customer sessions: ${pids[*]}"
+
+          # Wait up to 60s for ALL of them to reach "established".
+          # A single failure here is a regression — the daemon must
+          # serve all N or none (binary, not best-effort).
+          deadline=$(( $(date +%s) + 60 ))
+          while [ "$(date +%s)" -lt "$deadline" ]; do
+            ok=$(grep -l "VPN tunnel established successfully" /tmp/stress/run-*.log 2>/dev/null | wc -l)
+            if [ "$ok" -eq "$CONCURRENCY" ]; then
+              echo "✓ all $CONCURRENCY sessions established"
+              break
+            fi
+            sleep 2
+          done
+
+          # Hard-fail summary if not all up.
+          ok=$(grep -l "VPN tunnel established successfully" /tmp/stress/run-*.log 2>/dev/null | wc -l)
+          if [ "$ok" -ne "$CONCURRENCY" ]; then
+            echo "::error::only $ok of $CONCURRENCY sessions reached 'established' in 60s"
+            for f in /tmp/stress/run-*.log; do
+              echo "=== $f ==="
+              tail -10 "$f"
+            done
+            # Cleanup before exit so the runner doesn't leak procs.
+            kill "${pids[@]}" 2>/dev/null || true
+            exit 1
+          fi
+
+          # Hold the tunnels for 10s so we observe stable steady-state
+          # (some bugs only show under sustained concurrency, not just
+          # the handshake burst).
+          sleep 10
+
+          # All N still alive?
+          live=0
+          for pid in "${pids[@]}"; do
+            if kill -0 "$pid" 2>/dev/null; then
+              live=$((live + 1))
+            fi
+          done
+          if [ "$live" -ne "$CONCURRENCY" ]; then
+            echo "::error::$((CONCURRENCY - live)) of $CONCURRENCY processes died during 10s steady-state hold"
+            kill "${pids[@]}" 2>/dev/null || true
+            exit 1
+          fi
+          echo "✓ all $CONCURRENCY sessions alive after 10s steady-state"
+
+          # Graceful teardown.
+          kill -INT "${pids[@]}" 2>/dev/null || true
+          sleep 3
+          kill -KILL "${pids[@]}" 2>/dev/null || true
+          iogrid logout 2>/dev/null || true
