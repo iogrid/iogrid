@@ -55,6 +55,17 @@ jobs:
       - name: Generate native iOS project
         run: npx expo prebuild --platform ios --no-install --clean
 
+      - name: Add PacketTunnelProvider NE target (#568)
+        # The Expo config plugin already copied the Swift source +
+        # entitlements + extension Info.plist into ios/. This Ruby
+        # script (using the canonical xcodeproj gem) creates the
+        # actual Xcode target, wires WireGuardKit SwiftPM dep, and
+        # embeds the .appex into the main app. Idempotent — bails
+        # cleanly if the target already exists.
+        run: |
+          gem install xcodeproj --no-document --silent
+          ruby scripts/add-network-extension-target.rb
+
       - name: Bump CFBundleVersion to GitHub run number
         # Each TestFlight upload needs a unique CFBundleVersion. Without
         # this, altool silently dedupes against the prior build with the
