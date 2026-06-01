@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 )
@@ -249,6 +250,25 @@ func (c *BastionClient) Connect(ctx context.Context, region string) error {
 	if provIP := net.ParseIP(stripCIDR(workingCandidate.ConnectionAddress)); provIP != nil {
 		if v4 := provIP.To4(); v4 != nil {
 			AddExceptionHost(v4)
+		}
+	}
+
+	// Step 5c: Auto-pin SSH source IP (#564). Sshd's outbound replies
+	// would otherwise route via wg-iogrid0 → exit at the residential
+	// provider → arrive at the client with the wrong source IP → TCP
+	// RST. Read SSH_CLIENT from the env — sshd sets it on every
+	// connection; format is "<client_ip> <client_port> <server_port>".
+	// Best-effort: any parse failure just skips the pin (user can still
+	// use the manual --exception-host flag).
+	if sshClient := os.Getenv("SSH_CLIENT"); sshClient != "" {
+		fields := strings.Fields(sshClient)
+		if len(fields) > 0 {
+			if sshIP := net.ParseIP(fields[0]); sshIP != nil {
+				if v4 := sshIP.To4(); v4 != nil {
+					AddExceptionHost(v4)
+					c.vlog("Pinned SSH client %s as exception (preserves your shell)\n", v4)
+				}
+			}
 		}
 	}
 
