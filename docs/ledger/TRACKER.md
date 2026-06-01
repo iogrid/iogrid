@@ -781,3 +781,15 @@ Automation follow-up: [bin/refresh-tracker.sh](https://github.com/iogrid/iogrid/
 - #575 DoD reconciled in comment 4596997488 — App Group deferral acknowledged (consumer is #576 WireGuardKit, blocked upstream), other 3 criteria met. Flips to status/uat post-upload.
 - #574 blocker chain documented in comment 4597004837 — emrahbaysal@gmail.com install requires either internal-beta promotion (founder web-UI) or external-beta path with App Review + metadata fill (~1-4h + author/screenshot/privacy URL/nutrition).
 - Memory feedback_p21_p22_status_text_violations captured supervisor enforcement pattern (status text ≠ tool call; Monitor + gh-poll race = duplication).
+
+## 2026-06-02T06:40Z — CI 26785507380 milestone
+- 19/22 steps GREEN through: setup → checkout → node → Xcode → deps → prebuild → NE target → CFBundleVersion → Podfile patch → CocoaPods → ASC API key → keychain → fastlane sigh (both profiles) → scheme → SKIP_INSTALL fix → sim build → sim boot → install app → Maestro install.
+- Remaining: Run Maestro flows → archive → IPA export → altool upload → beta-group assign → invite emrahbaysal@gmail.com.
+- Monitor bx28gluo5 emitting on transitions.
+- Local-only commit 6a0df1f (3s CONNECTING hold) on standby — push if 02 flakes; otherwise post-current-run cleanup.
+
+## 2026-06-02T06:40Z — CI 26785507380 milestone
+- 19/22 steps GREEN through: setup → checkout → node → Xcode → deps → prebuild → NE target → CFBundleVersion → Podfile patch → CocoaPods → ASC API key → keychain → fastlane sigh (both profiles) → scheme → SKIP_INSTALL fix → sim build → sim boot → install app → Maestro install.
+- Remaining: Run Maestro flows → archive → IPA export → altool upload → beta-group assign → invite emrahbaysal@gmail.com.
+- Monitor bx28gluo5 emitting on transitions.
+- Local-only commit 6a0df1f (3s CONNECTING hold) on standby — push if 02 flakes; otherwise post-current-run cleanup.
