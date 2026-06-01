@@ -770,3 +770,9 @@ Automation follow-up: [bin/refresh-tracker.sh](https://github.com/iogrid/iogrid/
 - Local-only commit 7286651 holds extension-profile-install + dual-profile delete on standby for next iteration if needed (push gated to avoid concurrency-cancelling current run).
 - Monitor blj3ndo04 armed for step transitions.
 - Open issues: #575 status/in-progress (will flip to status/uat after first TestFlight upload completes).
+
+## 2026-06-02T06:30Z — Mobile iOS CI iteration 6 — run 26785507380
+- Inadvertent leaked-commit push triggered the concurrency-cancel cycle: 7286651 (extension profile install) got bundled with the TRACKER push and cancelled 26785186282 mid-run.
+- Fixed the EXT_UUID extraction (PlistBuddy /dev/stdin → security cms + plutil) and re-pushed as 7ac294f.
+- Run 26785507380 in flight with COMPLETE fix set: CONNECTING-hold + auto-pin + pre-revoke + per-target profiles + concurrency + dual sigh + extension profile install via plutil-extracted UUID + dual profile name purge.
+- Monitor bz6beb8t0 watching step transitions.
