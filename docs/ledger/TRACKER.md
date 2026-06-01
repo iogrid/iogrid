@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-01T18:45Z` 🟢 cron-refresh: +17 commits since last TRACKER bump |
+| Last refreshed | `2026-06-02T02:55Z` 🟢🟢🟢🟢 **MOBILE iOS EPIC #566 — 7 of 8 children code-complete tonight.** Closed: #567 Expo SDK 56 bootstrap + EAS Build pipeline (vcard-ported), #569 Mullvad anon ID via Keychain, #570 region=auto + top-3 providers endpoint (sub-agent), #571 region picker UI, #572 seamless roaming NWPathMonitor (sub-agent), #573 quota_state enum + JS banner (sub-agent + main thread), #568 PacketTunnelProvider native target (Swift + Expo config plugin + Ruby xcodeproj script + WireGuardKit SwiftPM + TunnelControl Expo native module). One blocker remains: #574 App Store + TestFlight beta crew, gated on #575 **operator-action Apple secrets** (`.p8` API key + Key ID + Issuer ID + Team ID). Runbook with copy-pasteable commands at `docs/runbooks/mobile-ios-testflight-bootstrap.md`; TestFlight invite script at `mobile/ios/scripts/invite-testflight-tester.sh`. Code side ready to ship to TestFlight + invite emrahbaysal@gmail.com the moment those 4 secrets land — ~40 min real-time from operator action to tester install. Sub-agents on #570/#572/#573 ran cleanly in worktree isolation, zero file overlap with main thread. |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
 | Open PRs | **0** |
