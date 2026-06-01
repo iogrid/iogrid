@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-02T05:30Z` 🟢🟢🟢 **iOS TestFlight pipeline GREEN through fastlane sigh.** EPIC #566 closed + #565 closed + #568 closed. Apple Developer setup fully automated via cross-repo workflow on cinova: bundle IDs (io.iogrid.app, io.iogrid.app.PacketTunnelProvider) + capabilities + ASC app record (App ID 6775617937) + 4 secrets pushed + vpn-beta external group created (public link https://testflight.apple.com/join/jHPTNj9P) + emrahbaysal@gmail.com pre-invited. Cert chain: 2-cert Apple limit hit → pre-revoked oldest → fastlane cert created fresh dist cert → sigh minted 'iogrid App Store' profile. CI iterating on Build + archive + altool upload. Founder zero web-UI touches required for entire pipeline after the initial App Store Connect "New App" creation. App Group entitlement dropped from v1 (Apple's API doesn't expose CREATE — only blocker that would need a human click, deferred until #576 WireGuardKit wires the data plane). |
+| Last refreshed | `2026-06-01T22:00Z` 🟢 cron-refresh: +1 commits since last TRACKER bump |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
 | Open PRs | **0** |
