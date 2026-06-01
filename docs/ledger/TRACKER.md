@@ -763,3 +763,10 @@ Automation follow-up: [bin/refresh-tracker.sh](https://github.com/iogrid/iogrid/
 - Iter 5 (commit ed3abeb): concurrency group + cancel-in-progress. Rapid pushes were racing on Apple's 2-cert distribution cap (every run revokes+re-creates). Serialised the workflow so only the latest ref's run survives.
 - Cancelled stale runs 26784655669 (pre-revoke commit, superseded) and 26785156028 (per-target fix, superseded by concurrency commit) to free cert slot.
 - Latest run 26785186282 includes ALL fixes: CONNECTING-hold + auto-row-pin + pre-revoke + per-target profiles + concurrency. Monitor blj3ndo04.
+
+## 2026-06-02T06:25Z — Mobile iOS run 26785186282 in flight
+- Run 26785186282 (commit ed3abeb concurrency + per-target profiles + pre-revoke + regions-pin + CONNECTING-hold) past sigh, on build/sim/maestro.
+- BOTH fastlane sigh calls succeeded — "iogrid App Store" + "iogrid PacketTunnelProvider App Store" profiles minted against same fresh cert.
+- Local-only commit 7286651 holds extension-profile-install + dual-profile delete on standby for next iteration if needed (push gated to avoid concurrency-cancelling current run).
+- Monitor blj3ndo04 armed for step transitions.
+- Open issues: #575 status/in-progress (will flip to status/uat after first TestFlight upload completes).
