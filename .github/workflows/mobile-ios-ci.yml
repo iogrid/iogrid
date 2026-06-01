@@ -1,0 +1,473 @@
+name: mobile-ios-ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mobile/ios/**'
+      - 'mobile/ios/app.json'
+      - 'mobile/ios/package.json'
+      - 'mobile/ios/package-lock.json'
+      - 'mobile/ios/src/**'
+      - 'mobile/ios/src/components/**'
+      - 'mobile/ios/src/hooks/**'
+      - 'mobile/ios/src/constants/**'
+      - 'mobile/ios/assets/**'
+      - '.github/workflows/mobile-ios-ci.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: mobile/ios
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      # Apple requires iOS 26 SDK (Xcode 26+) for App Store uploads as of
+      # 2026-04. Default macos-latest may still have an older Xcode pinned;
+      # explicitly select latest-stable.
+      - name: Select latest-stable Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Generate native iOS project
+        run: npx expo prebuild --platform ios --no-install --clean
+
+      - name: Bump CFBundleVersion to GitHub run number
+        # Each TestFlight upload needs a unique CFBundleVersion. Without
+        # this, altool silently dedupes against the prior build with the
+        # same version. github.run_number monotonically increases per
+        # workflow run on this repo — perfect fit. Glob the Info.plist
+        # since the directory name varies with app slug.
+        run: |
+          for plist in ios/*/Info.plist; do
+            /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ github.run_number }}" "$plist"
+            echo "  $plist → CFBundleVersion=${{ github.run_number }}"
+          done
+
+      - name: Patch Podfile — disable signing for Pod static libs + force SKIP_INSTALL=NO on app
+        # Pod targets are static libraries / resource bundles — must NOT be
+        # signed (else "empty code signing identity" error). Additionally
+        # Xcode 26 archives end up with empty Products/Applications because
+        # the auto-generated Podfile sets SKIP_INSTALL=YES on every target;
+        # we force SKIP_INSTALL=NO on the user_project's app target so the
+        # archive copies the .app into Products/Applications.
+        run: |
+          python3 << 'PY'
+          import re
+          p = open('ios/Podfile').read()
+          snippet = """
+            installer.pods_project.targets.each do |target|
+              target.build_configurations.each do |config|
+                config.build_settings['CODE_SIGNING_ALLOWED']  = 'NO'
+                config.build_settings['CODE_SIGNING_REQUIRED'] = 'NO'
+                config.build_settings['CODE_SIGN_IDENTITY']    = ''
+                config.build_settings['EXPANDED_CODE_SIGN_IDENTITY'] = ''
+              end
+            end
+            # Ensure the user project's app target is INSTALLABLE in archives
+            # (Xcode 26 default of SKIP_INSTALL=YES leaves Products/Applications empty)
+            installer.aggregate_targets.each do |agg|
+              agg.user_project.targets.each do |target|
+                target.build_configurations.each do |config|
+                  if config.name == 'Release'
+                    config.build_settings['SKIP_INSTALL'] = 'NO'
+                    config.build_settings['INSTALL_PATH'] = '$(LOCAL_APPS_DIR)'
+                    config.build_settings['DEPLOYMENT_LOCATION'] = 'YES'
+                  end
+                end
+              end
+              agg.user_project.save
+            end
+          """
+          new, n = re.subn(r'(post_install do \|installer\|\s*\n)', r'\1' + snippet, p, count=1)
+          if n == 0:
+              new = p + "\npost_install do |installer|\n" + snippet + "end\n"
+          open('ios/Podfile', 'w').write(new)
+          print('Podfile patched')
+          PY
+
+      - name: Install CocoaPods
+        run: cd ios && pod install
+
+      - name: Write App Store Connect API key
+        run: |
+          mkdir -p ~/private_keys
+          echo "${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}" \
+            | base64 -d > ~/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8
+          chmod 600 ~/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8
+
+      - name: Install distribution cert + provisioning profile
+        # Manual signing: import the App Store Distribution .p12 into a
+        # temporary keychain, drop the .mobileprovision into the standard
+        # location Xcode reads. xcodebuild then uses CODE_SIGN_STYLE=Manual.
+        run: |
+          set -euo pipefail
+          # 1. Decode artifacts
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "${{ secrets.IOS_DIST_CERT_P12 }}" | base64 -d > $RUNNER_TEMP/dist.p12
+          echo "${{ secrets.IOS_DIST_PROVISION }}" | base64 -d > $RUNNER_TEMP/dist.mobileprovision
+          # 2. Read the profile UUID — Xcode looks the profile up by UUID-named file
+          UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<<"$(security cms -D -i $RUNNER_TEMP/dist.mobileprovision)")
+          echo "Profile UUID: $UUID"
+          cp $RUNNER_TEMP/dist.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/$UUID.mobileprovision
+          # 3. Create temporary keychain (avoids prompting on default login keychain)
+          KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -hex 16)
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          # 4. Import .p12 with the password it was packaged with
+          security import $RUNNER_TEMP/dist.p12 -P "${{ secrets.IOS_DIST_P12_PASSWORD }}" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          # 5. Allow codesign to use the keychain without prompting
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          # 6. Add the new keychain to the search list (front)
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | sed s/\"//g)
+          security default-keychain -s "$KEYCHAIN_PATH"
+          # 7. Confirm
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+      - name: Discover scheme
+        id: scheme
+        # Workspace schemes include Pod schemes. The app scheme matches
+        # the .xcworkspace basename. Picking schemes[0] alphabetically
+        # would pick 'AsyncStorage' (a Pod) and build a static lib
+        # instead of the app — empty Products/Applications.
+        run: |
+          cd ios
+          WORKSPACE=$(ls -d *.xcworkspace | head -1)
+          APP_SCHEME=$(basename "$WORKSPACE" .xcworkspace)
+          export APP_SCHEME
+          xcodebuild -workspace "$WORKSPACE" -list -json \
+            | APP_SCHEME="$APP_SCHEME" python3 -c '
+          import json, sys, os
+          d = json.load(sys.stdin)
+          schemes = d["workspace"]["schemes"]
+          want = os.environ["APP_SCHEME"]
+          assert want in schemes, f"{want} not in {schemes}"
+          print(f"app scheme: {want}  (out of {len(schemes)} total)")
+          '
+          echo "scheme=$APP_SCHEME" >> $GITHUB_OUTPUT
+          echo "Discovered scheme: $APP_SCHEME"
+
+      - name: Force SKIP_INSTALL=NO on the app target (early, surgical)
+        # The naive regex from earlier matched EVERY /* Release */ XCBuildConfiguration
+        # block — including the project-level one — and that broke the Release sim
+        # build entirely (only dSYM emitted, no .app). Surgical fix: parse the
+        # pbxproj, find the PBXNativeTarget whose productType == application,
+        # walk its buildConfigurationList, and only patch THAT target's Release.
+        run: |
+          python3 << 'PY'
+          import re, glob
+          for pbx in glob.glob('ios/*.xcodeproj/project.pbxproj'):
+              if 'Pods' in pbx:
+                  continue
+              data = open(pbx).read()
+              # 1. Find all PBXNativeTarget entries with productType com.apple.product-type.application
+              target_re = re.compile(r'([0-9A-F]{24})\s*/\*\s*[^*]+\s*\*/\s*=\s*\{\s*isa = PBXNativeTarget;[^}]*?productType = "com\.apple\.product-type\.application";', re.S)
+              app_targets = target_re.findall(data)
+              print(f'  app targets: {app_targets}')
+              # 2. For each, find its buildConfigurationList
+              for tid in app_targets:
+                  m = re.search(rf'{tid}\s*/\*[^*]+\*/\s*=\s*\{{[^}}]*?buildConfigurationList = ([0-9A-F]{{24}})', data, re.S)
+                  if not m:
+                      continue
+                  list_id = m.group(1)
+                  # 3. Find the build configuration list, get the Release config id
+                  m2 = re.search(rf'{list_id}\s*/\*[^*]+\*/\s*=\s*\{{[^}}]*?buildConfigurations = \(([^)]+)\)', data, re.S)
+                  if not m2:
+                      continue
+                  cfg_block = m2.group(1)
+                  # match lines like "  ABCDEF... /* Release */,"
+                  release_id_match = re.search(r'([0-9A-F]{24})\s*/\*\s*Release\s*\*/', cfg_block)
+                  if not release_id_match:
+                      continue
+                  rel_id = release_id_match.group(1)
+                  # 4. Patch ONLY that XCBuildConfiguration's buildSettings
+                  pattern = re.compile(rf'({rel_id}\s*/\*[^*]+\*/\s*=\s*\{{\s*isa = XCBuildConfiguration;\s*buildSettings = \{{)', re.S)
+                  new = pattern.sub(r'\1\n\t\t\t\tSKIP_INSTALL = NO;\n\t\t\t\tINSTALL_PATH = "$(LOCAL_APPS_DIR)";', data, count=1)
+                  if new != data:
+                      data = new
+                      print(f'  patched target {tid} release config {rel_id}')
+              open(pbx, 'w').write(data)
+          PY
+
+      # ───────────────────────────────────────────────────────────
+      # SIMULATOR E2E GATE — runs BEFORE archive/upload.
+      # If any Maestro flow fails, this job exits non-zero, the
+      # archive + TestFlight upload steps are skipped, and the
+      # broken build never reaches Apple.
+      # ───────────────────────────────────────────────────────────
+      - name: Build app for iOS Simulator (no signing)
+        # Use a concrete simulator destination (not "generic") so xcodebuild
+        # emits a single-slice .app to the Products dir as expected. Bundle
+        # the JS upfront via expo export so the Release-config .app boots
+        # without needing a Metro packager on localhost.
+        run: |
+          set -euo pipefail
+          # Ensure JS bundle is generated and copied into the app — the
+          # React Native build phase script already does this for Release
+          # config, but we also drop a manual copy as belt-and-braces.
+          cd ios
+          xcodebuild -version
+          # Pick a concrete device + iOS runtime that's installed
+          DEST=$(xcrun simctl list devices available --json | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          for runtime, devs in d['devices'].items():
+              if 'iOS' not in runtime:
+                  continue
+              for x in devs:
+                  if 'iPhone' in x.get('name','') and x.get('isAvailable'):
+                      print(f\"platform=iOS Simulator,id={x['udid']}\")
+                      sys.exit(0)
+          ")
+          echo "destination: $DEST"
+          xcodebuild build \
+            -workspace *.xcworkspace \
+            -scheme "${{ steps.scheme.outputs.scheme }}" \
+            -configuration Release \
+            -destination "$DEST" \
+            -derivedDataPath $RUNNER_TEMP/sim-build \
+            -sdk iphonesimulator \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            ONLY_ACTIVE_ARCH=YES \
+            ARCHS=arm64
+
+      - name: Boot iOS Simulator
+        run: |
+          set -euo pipefail
+          DEVICE_TYPE=$(xcrun simctl list devicetypes -j | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          for t in d['devicetypes']:
+              if 'iPhone-16' in t['identifier'] or 'iPhone-15' in t['identifier']:
+                  print(t['identifier'])
+                  break
+          ")
+          RUNTIME=$(xcrun simctl list runtimes -j | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          ios = [r for r in d['runtimes'] if r.get('isAvailable') and 'iOS' in r.get('name', '')]
+          ios.sort(key=lambda r: r['version'], reverse=True)
+          print(ios[0]['identifier'] if ios else '')
+          ")
+          echo "device-type=$DEVICE_TYPE"
+          echo "runtime=$RUNTIME"
+          UDID=$(xcrun simctl create "maestro-test-$RANDOM" "$DEVICE_TYPE" "$RUNTIME")
+          echo "udid=$UDID"
+          echo "SIM_UDID=$UDID" >> $GITHUB_ENV
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+
+      - name: Install app + grant permissions on simulator
+        run: |
+          set -euo pipefail
+          # Direct path — Xcode 26 puts the app here for sim builds.
+          APP="$RUNNER_TEMP/sim-build/Build/Products/Release-iphonesimulator/DynolabsvCard.app"
+          if [ ! -d "$APP" ]; then
+            echo "::error::Expected app not at $APP"
+            find $RUNNER_TEMP/sim-build/Build/Products -maxdepth 3 -type d -name "*.app" 2>/dev/null
+            exit 1
+          fi
+          echo "Installing $APP onto $SIM_UDID"
+          xcrun simctl install "$SIM_UDID" "$APP"
+          # Pre-grant permissions so iOS doesn't show the system prompt mid-test
+          xcrun simctl privacy "$SIM_UDID" grant photos    io.dynolabs.vcard || true
+          xcrun simctl privacy "$SIM_UDID" grant camera    io.dynolabs.vcard || true
+          xcrun simctl privacy "$SIM_UDID" grant contacts  io.dynolabs.vcard || true
+          # Pre-grant permissions so iOS doesn't show the system prompt mid-test
+          xcrun simctl privacy "$SIM_UDID" grant photos    io.dynolabs.vcard || true
+          xcrun simctl privacy "$SIM_UDID" grant camera    io.dynolabs.vcard || true
+          xcrun simctl privacy "$SIM_UDID" grant contacts  io.dynolabs.vcard || true
+
+      - name: Install Maestro
+        run: |
+          curl -Ls "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> $GITHUB_PATH
+
+      - name: Run Maestro flows
+        env:
+          # Maestro's iOS driver (XCUITest installer) takes ~2-5 min to
+          # spin up on cold-boot CI runners. Default timeout is too short.
+          MAESTRO_DRIVER_STARTUP_TIMEOUT: '600000'   # 10 min in ms
+        run: |
+          export PATH="$HOME/.maestro/bin:$PATH"
+          maestro --version
+          # Stream simulator log to a file in parallel so we capture
+          # any crash trace alongside the maestro report.
+          xcrun simctl spawn "$SIM_UDID" log stream --predicate 'process == "DynolabsvCard"' \
+            > $RUNNER_TEMP/sim.log 2>&1 &
+          LOG_PID=$!
+          set +e
+          maestro --device "$SIM_UDID" test --format=junit --output=$RUNNER_TEMP/maestro-junit.xml .maestro/
+          MAESTRO_EXIT=$?
+          set -e
+          kill $LOG_PID 2>/dev/null || true
+          # Save Maestro's own debug output dir
+          if [ -d ~/.maestro/tests ]; then
+            mkdir -p $RUNNER_TEMP/maestro-debug
+            cp -R ~/.maestro/tests $RUNNER_TEMP/maestro-debug/
+          fi
+          exit $MAESTRO_EXIT
+
+      - name: Upload Maestro artifacts (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: maestro-results
+          path: |
+            ${{ runner.temp }}/maestro-junit.xml
+            ${{ runner.temp }}/maestro-debug/**
+            ${{ runner.temp }}/sim.log
+          if-no-files-found: warn
+      # ───────────────────────────────────────────────────────────
+      # END E2E GATE — anything below only runs on Maestro success.
+      # ───────────────────────────────────────────────────────────
+
+      - name: Build and archive
+        # Manual signing with the imported Apple Distribution cert + the
+        # IOS_APP_STORE provisioning profile (named "Dynolabs vCard App Store").
+        run: |
+          cd ios
+          xcodebuild archive \
+            -workspace *.xcworkspace \
+            -scheme "${{ steps.scheme.outputs.scheme }}" \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath $RUNNER_TEMP/app.xcarchive \
+            DEVELOPMENT_TEAM=${{ secrets.APPLE_TEAM_ID }} \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            PROVISIONING_PROFILE_SPECIFIER="Dynolabs vCard App Store"
+
+      - name: Export IPA (manual zip from archive)
+        # Xcode 26 on macos-latest broke `xcodebuild -exportArchive`.
+        # The .xcarchive already contains a fully-signed app bundle — wrap
+        # it in an .ipa (just a Payload/<App>.app ZIP) directly.
+        run: |
+          set -euo pipefail
+          echo "=== Locate the archive ==="
+          find $RUNNER_TEMP -maxdepth 4 -name "*.xcarchive" -o -name "*.app" 2>/dev/null | head -20 || true
+          echo "=== Archive contents ==="
+          if [ -d "$RUNNER_TEMP/app.xcarchive" ]; then
+            ls -la "$RUNNER_TEMP/app.xcarchive/" || true
+            ls -la "$RUNNER_TEMP/app.xcarchive/Products/" 2>/dev/null || true
+            ls -la "$RUNNER_TEMP/app.xcarchive/Products/Applications/" 2>/dev/null || true
+          fi
+          # Find any .app under the archive
+          APP=$(find "$RUNNER_TEMP/app.xcarchive" -name "*.app" -type d | head -1 || true)
+          if [ -z "$APP" ]; then
+            echo "::error::No .app found inside $RUNNER_TEMP/app.xcarchive"
+            exit 1
+          fi
+          echo "=== Found app: $APP ==="
+          mkdir -p $RUNNER_TEMP/export/Payload
+          cp -R "$APP" $RUNNER_TEMP/export/Payload/
+          IPA_NAME=$(basename "$APP" .app).ipa
+          cd $RUNNER_TEMP/export
+          zip -qr "$IPA_NAME" Payload
+          rm -rf Payload
+          ls -la $RUNNER_TEMP/export/
+
+      - name: Upload to TestFlight
+        # set -e + grep on the altool log: altool exits 0 even on validation
+        # failure ("UPLOAD FAILED" is just a log line). Capture output and
+        # fail the step explicitly if the upload didn't actually succeed.
+        run: |
+          set -o pipefail
+          xcrun altool --upload-app \
+            -f $RUNNER_TEMP/export/*.ipa \
+            --type ios \
+            --apiKey ${{ secrets.APP_STORE_CONNECT_KEY_ID }} \
+            --apiIssuer ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }} 2>&1 | tee /tmp/altool.log
+          if grep -qiE "UPLOAD FAILED|Validation failed|ERROR:" /tmp/altool.log; then
+            echo "::error::altool reported failure — see log above"
+            exit 1
+          fi
+          echo "::notice::Upload succeeded"
+
+      - name: Assign uploaded build to internal beta group
+        # CRITICAL — without this step, builds upload fine and reach
+        # processingState=VALID + internalBuildState=IN_BETA_TESTING
+        # but stay invisible in TestFlight (Apple's internal beta groups
+        # default to hasAccessToAllBuilds=False; PATCHing it to True is
+        # rejected with 409 ENTITY_ERROR.ATTRIBUTE.NOT_ALLOWED).
+        #
+        # 204 from the POST = done. DO NOT verify with a GET — the
+        # /v1/builds/{id}/betaGroups endpoint is eventually consistent
+        # and returns data:[] for several minutes after a successful
+        # assignment.
+        #
+        # Replace BUNDLE_ID and BETA_GROUP_NAME for each new app.
+        run: |
+          pip install --quiet pyjwt cryptography requests
+          python3 - <<'PY'
+          import os, base64, time, jwt, requests, json, sys
+          key = base64.b64decode(os.environ['APP_STORE_CONNECT_PRIVATE_KEY'])
+          token = jwt.encode(
+              { 'iss': os.environ['APP_STORE_CONNECT_ISSUER_ID'],
+                'iat': int(time.time()),
+                'exp': int(time.time()) + 1200,
+                'aud': 'appstoreconnect-v1' },
+              key, algorithm='ES256',
+              headers={ 'kid': os.environ['APP_STORE_CONNECT_KEY_ID'] })
+          h = { 'Authorization': f'Bearer {token}' }
+          base = 'https://api.appstoreconnect.apple.com'
+          bundle_id = os.environ['BUNDLE_ID']
+          run_number = os.environ['RUN_NUMBER']
+          group_name = os.environ['BETA_GROUP_NAME']
+
+          apps = requests.get(f'{base}/v1/apps?filter[bundleId]={bundle_id}', headers=h, timeout=20).json()
+          if not apps.get('data'):
+              print(f'::warning::App {bundle_id} not in ASC yet — skip'); sys.exit(0)
+          app_id = apps['data'][0]['id']
+
+          groups = requests.get(f'{base}/v1/betaGroups?filter[app]={app_id}', headers=h, timeout=20).json()
+          group = next((g for g in groups['data'] if g['attributes']['name'] == group_name), None)
+          if not group:
+              print(f'::warning::Beta group "{group_name}" not found — create it once in ASC'); sys.exit(0)
+          group_id = group['id']
+
+          # altool returns before the build resource exists in ASC; poll.
+          build_id = None
+          for _ in range(30):
+              builds = requests.get(f'{base}/v1/builds?filter[app]={app_id}&filter[version]={run_number}&limit=1', headers=h, timeout=20).json()
+              if builds.get('data'):
+                  build_id = builds['data'][0]['id']; break
+              time.sleep(20)
+          if not build_id:
+              print(f'::warning::Build {run_number} not in ASC after 10 min — skip'); sys.exit(0)
+
+          rel = { 'data': [ { 'type': 'builds', 'id': build_id } ] }
+          r = requests.post(f'{base}/v1/betaGroups/{group_id}/relationships/builds',
+              headers={**h, 'Content-Type': 'application/json'},
+              data=json.dumps(rel), timeout=20)
+          if r.status_code == 204:
+              print(f'::notice::Build {run_number} assigned to "{group_name}" — TestFlight refresh will show it')
+          else:
+              print(f'::error::Assignment failed: HTTP {r.status_code} {r.text}')
+              sys.exit(1)
+          PY
+        env:
+          APP_STORE_CONNECT_KEY_ID:    ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+          BUNDLE_ID: io.example.appname              # ← change per app
+          RUN_NUMBER: ${{ github.run_number }}
+          BETA_GROUP_NAME: Founders                  # ← change per app
