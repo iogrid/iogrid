@@ -816,3 +816,10 @@ Automation follow-up: [bin/refresh-tracker.sh](https://github.com/iogrid/iogrid/
 - Bundled push included b2ed696 (promote-to-internal-tester.py) since git push sends all local commits ahead of origin.
 - New run 26787298704 in flight. Monitor br56rt5ug.
 - Disk: cleaned 9G+ from go-build + playwright caches to unblock git writes; /home down from 100% to 95%.
+
+## 2026-06-02T07:18Z — Iteration 9: drop text assertion entirely
+- Run 26787298704 failed at Maestro flow 03 again: 'Assertion is false: "Best" is visible' — even after I'd reduced from "Best (auto)" → "Best".
+- Real cause (from junit XML + commands.json): iOS a11y collapses Pressable+child-Text into one a11y element, so Maestro's textRegex query can't see the child Text's content even when the Pressable's testID IS queryable. The testID assertion above the failing line passes; the text query below fails because Maestro looks at rendered text nodes, not computed Pressable a11y labels.
+- Fix 143037c: drop the text assertion. The testID already proves the row IS rendered. Snapshot tests are the right tool for text correctness.
+- Bundled push included 86da22c (CONTRIBUTING.md gotchas 21+22) so the lesson sticks.
+- New run 26787882507 in flight. Monitor bg7rjb1tf.
