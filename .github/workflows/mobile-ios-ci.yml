@@ -62,6 +62,13 @@ jobs:
         # actual Xcode target, wires WireGuardKit SwiftPM dep, and
         # embeds the .appex into the main app. Idempotent — bails
         # cleanly if the target already exists.
+        #
+        # APPLE_TEAM_ID is read by the Ruby script to set per-target
+        # DEVELOPMENT_TEAM build settings, so the archive step doesn't
+        # need a global xcodebuild flag that would clobber the
+        # extension's separate provisioning profile.
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           gem install xcodeproj --no-document --silent
           ruby scripts/add-network-extension-target.rb
@@ -326,6 +333,14 @@ jobs:
           echo "=== identities in keychain ==="
           security find-identity -v -p codesigning "$KEYCHAIN_PATH"
 
+          fastlane sigh renew \
+            --api_key_path "$API_JSON" \
+            --app_identifier io.iogrid.app.PacketTunnelProvider \
+            --team_id ${{ secrets.APPLE_TEAM_ID }} \
+            --provisioning_name "iogrid PacketTunnelProvider App Store" \
+            --output_path $RUNNER_TEMP \
+            --filename ext.mobileprovision \
+            --cert_id "$NEW_CERT_ID"
           fastlane sigh renew \
             --api_key_path "$API_JSON" \
             --app_identifier io.iogrid.app \
@@ -602,13 +617,24 @@ jobs:
       # ───────────────────────────────────────────────────────────
 
       - name: Build and archive (manual signing, fresh profile)
-        # MANUAL signing using the just-refreshed App Store profile that
-        # fastlane sigh installed. We avoid CODE_SIGN_STYLE=Automatic
-        # because it requires Apple to ALSO issue an Apple Development
-        # certificate for the build phase, and our dev account is already
-        # at the cert limit. Manual + fresh-profile-via-sigh gives us the
-        # best of both: no static secret to maintain, no automatic-signing
-        # certificate inflation.
+        # MANUAL signing using the App Store profiles fastlane sigh
+        # installed for BOTH bundle IDs (main + PacketTunnelProvider
+        # extension). We avoid CODE_SIGN_STYLE=Automatic because it
+        # requires Apple to ALSO issue an Apple Development certificate
+        # for the build phase, and our dev account is already at the
+        # cert limit. Manual + fresh-profile-via-sigh gives us no
+        # static secrets and no automatic-signing certificate inflation.
+        #
+        # Per-target signing settings (PROVISIONING_PROFILE_SPECIFIER,
+        # CODE_SIGN_IDENTITY, CODE_SIGN_STYLE, DEVELOPMENT_TEAM) are now
+        # written into the project file by add-network-extension-target.rb
+        # — one for the main target (iogrid App Store profile) and one
+        # for the extension (iogrid PacketTunnelProvider App Store).
+        #
+        # We DELIBERATELY don't pass these as global xcodebuild flags
+        # because a global PROVISIONING_PROFILE_SPECIFIER would apply
+        # to ALL targets and pick the WRONG profile for the extension
+        # (bundle-id mismatch → code-sign failure).
         run: |
           cd ios
           xcodebuild archive \
@@ -616,11 +642,7 @@ jobs:
             -scheme "${{ steps.scheme.outputs.scheme }}" \
             -configuration Release \
             -destination "generic/platform=iOS" \
-            -archivePath $RUNNER_TEMP/app.xcarchive \
-            DEVELOPMENT_TEAM=${{ secrets.APPLE_TEAM_ID }} \
-            CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY="Apple Distribution" \
-            PROVISIONING_PROFILE_SPECIFIER="iogrid App Store"
+            -archivePath $RUNNER_TEMP/app.xcarchive
 
       - name: Export IPA (manual zip from archive)
         # Xcode 26 on macos-latest broke `xcodebuild -exportArchive`.

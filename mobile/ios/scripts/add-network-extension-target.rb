@@ -146,6 +146,18 @@ ext_target.build_configurations.each do |bc|
     'SKIP_INSTALL'                 => 'YES',
     'LD_RUNPATH_SEARCH_PATHS'      => '"$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"',
     'CODE_SIGN_STYLE'              => 'Manual',  # CI uses fastlane-fetched profile
+    # Per-target provisioning profile — the extension has its own bundle ID
+    # (io.iogrid.app.PacketTunnelProvider) so it needs its own profile.
+    # Using a global xcodebuild PROVISIONING_PROFILE_SPECIFIER flag would
+    # incorrectly apply the main app's profile to the extension; setting
+    # it here in the project file lets xcodebuild pick the right one
+    # per target without a command-line override.
+    'PROVISIONING_PROFILE_SPECIFIER' => 'iogrid PacketTunnelProvider App Store',
+    'CODE_SIGN_IDENTITY'             => 'Apple Distribution',
+    # DEVELOPMENT_TEAM must be set per-target for manual signing to work
+    # without the global xcodebuild flag (Xcode 26 ignores team inheritance
+    # from the project-level settings for new app-extension targets).
+    'DEVELOPMENT_TEAM'               => ENV.fetch('APPLE_TEAM_ID', ''),
   )
 end
 
@@ -222,6 +234,15 @@ end
 # pointer + APP_GROUPS for the App Store review process.
 main_target.build_configurations.each do |bc|
   bc.build_settings['CODE_SIGN_ENTITLEMENTS'] ||= "#{MAIN_APP_NAME}/#{MAIN_APP_NAME}.entitlements"
+  # Set per-target signing settings here so the archive step can drop
+  # its global xcodebuild PROVISIONING_PROFILE_SPECIFIER flag. The
+  # global flag would incorrectly apply the main app's profile to
+  # the extension target; setting per-target in the project file is
+  # the only way Xcode lets each target pick its correct profile.
+  bc.build_settings['CODE_SIGN_STYLE'] = 'Manual'
+  bc.build_settings['CODE_SIGN_IDENTITY'] = 'Apple Distribution'
+  bc.build_settings['PROVISIONING_PROFILE_SPECIFIER'] = 'iogrid App Store'
+  bc.build_settings['DEVELOPMENT_TEAM'] = ENV.fetch('APPLE_TEAM_ID', '')
 end
 
 # ── 6. Save ─────────────────────────────────────────────────────
