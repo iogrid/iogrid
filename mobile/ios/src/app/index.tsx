@@ -68,12 +68,17 @@ export default function VPNToggleScreen() {
         );
         setQuotaState(session.quotaState);
 
-        // Now actually start the tunnel via NETunnelProviderManager.
-        // The native module triggers iOS's "Allow VPN configuration"
-        // sheet on first run; subsequent runs reuse the saved
-        // configuration. The PTP extension (#568/#572) takes over
-        // from here, receives the providerConfiguration, runs the
-        // WG handshake + NWPathMonitor for roaming.
+        // Start the tunnel via NETunnelProviderManager. First run
+        // triggers iOS's "Allow VPN configuration" sheet; subsequent
+        // runs reuse the saved configuration. The PTP extension
+        // (#568/#572) takes over from here.
+        //
+        // KNOWN GAP v1: until #576 lands WireGuardKit, the PTP
+        // extension returns `wireGuardKitNotLinked` and the tunnel
+        // doesn't actually carry traffic. The toggle reflects the
+        // OS-reported status via the NEVPNStatusDidChange subscriber
+        // below — so the UI surfaces CONNECTING → OFF when WG is
+        // missing, without pretending success. See #576.
         if (session.sessionId) {
           await TunnelControl.startTunnel({
             peerPublicKey: '',  // coordinator returns this on the followup peer-info call (#570)
