@@ -12,7 +12,6 @@ appId: io.iogrid.app
 
 - assertVisible:
     id: "vpn-toggle"
-    timeout: 3000
 - assertVisible: "OFF"
 
 - tapOn:
@@ -20,7 +19,6 @@ appId: io.iogrid.app
 
 - assertVisible:
     text: "CONNECTING"
-    timeout: 3000
 
 - takeScreenshot: 02-toggle-connecting
 
@@ -29,4 +27,3 @@ appId: io.iogrid.app
     id: "vpn-toggle"
 - assertVisible:
     text: "OFF"
-    timeout: 2000

@@ -17,7 +17,6 @@ appId: io.iogrid.app
 
 - assertVisible:
     id: "vpn-toggle"
-    timeout: 5000
 
 # No banner visible on first launch (server hasn't responded yet, quota
 # defaults to UNSPECIFIED which renders null per QuotaBanner.tsx).

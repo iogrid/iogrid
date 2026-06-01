@@ -10,13 +10,11 @@ appId: io.iogrid.app
 # App title visible within 5s
 - assertVisible:
     text: "iogrid"
-    timeout: 5000
 
 # Toggle present + in OFF state (renders the testID injected in
 # mobile/ios/src/app/index.tsx)
 - assertVisible:
     id: "vpn-toggle"
-    timeout: 3000
 - assertVisible: "OFF"
 
 # No login screen ambushed us — neither "Sign in", "Email", "Password"

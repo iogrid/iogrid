@@ -13,7 +13,6 @@ appId: io.iogrid.app
 
 - assertVisible:
     id: "region-row-auto"
-    timeout: 3000
 - assertVisible: "Best (auto)"
 
 # Search input narrows the list. Until coordinator returns rows the
