@@ -4,25 +4,27 @@
 <dict>
 	<!-- packet-tunnel-provider: the entitlement type for full L3 VPN
 	     tunneling via wireguard/openvpn/IPsec userspace impls.
-	     Already granted on the iogrid Apple Developer account per
-	     the EPIC's pinned operator answer. -->
+	     Granted on the Dynolabs Apple Developer team. -->
 	<key>com.apple.developer.networking.networkextension</key>
 	<array>
 		<string>packet-tunnel-provider</string>
 	</array>
-	<!-- App Group: the only IPC primitive iOS gives the host app +
-	     extension that survives the process sandbox. We use it for
-	     Keychain access group + shared NSUserDefaults so the customer
-	     WG private key (#569) can be read from the extension process. -->
+	<!--
+	    App Group + Keychain access group dropped for v1.
+	    Apple's REST API doesn't expose POST /v1/appGroups, and
+	    Spaceship::Portal needs Apple-ID-password auth (blocked by
+	    2FA). Re-add when the founder click-creates the App Group
+	    OR when #576 WireGuardKit lands and we need shared Keychain
+	    for the customer's WG private key.
+
 	<key>com.apple.security.application-groups</key>
 	<array>
 		<string>group.io.iogrid.app</string>
 	</array>
-	<!-- Keychain access group: must match the App Group identifier so
-	     extension reads the keys the main app wrote. -->
 	<key>keychain-access-groups</key>
 	<array>
 		<string>$(AppIdentifierPrefix)group.io.iogrid.app</string>
 	</array>
+	-->
 </dict>
 </plist>

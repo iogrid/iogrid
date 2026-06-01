@@ -11,6 +11,7 @@
       "bundleIdentifier": "io.iogrid.app",
       "buildNumber": "1",
       "supportsTablet": false,
+      "icon": "./assets/images/icon.png",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSAppTransportSecurity": {
@@ -20,9 +21,6 @@
       "entitlements": {
         "com.apple.developer.networking.networkextension": [
           "packet-tunnel-provider"
-        ],
-        "com.apple.security.application-groups": [
-          "group.io.iogrid.app"
         ]
       }
     },

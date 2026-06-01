@@ -51,15 +51,20 @@ export const withNetworkExtension: ConfigPlugin = (config) => {
     return cfg;
   });
 
-  // ── 2. Main-app entitlements: NE + App Group + Keychain group ──
+  // ── 2. Main-app entitlements: NE only for v1.
+  // App Group + Keychain access group dropped because Apple's API
+  // doesn't expose CREATE on App Groups (404 on POST /v1/appGroups,
+  // Spaceship requires Apple ID+password blocked by 2FA). When the
+  // founder click-creates the App Group OR WireGuardKit lands and
+  // we need shared Keychain, re-add the two lines below.
   config = withEntitlementsPlist(config, (cfg) => {
     cfg.modResults['com.apple.developer.networking.networkextension'] = [
       'packet-tunnel-provider',
     ];
-    cfg.modResults['com.apple.security.application-groups'] = [APP_GROUP];
-    cfg.modResults['keychain-access-groups'] = [
-      `$(AppIdentifierPrefix)${APP_GROUP}`,
-    ];
+    // cfg.modResults['com.apple.security.application-groups'] = [APP_GROUP];
+    // cfg.modResults['keychain-access-groups'] = [
+    //   `$(AppIdentifierPrefix)${APP_GROUP}`,
+    // ];
     return cfg;
   });
 
