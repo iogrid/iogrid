@@ -20,7 +20,12 @@
 //! customer side actually emits. RFC 1928 §5 reply codes are returned
 //! verbatim (0x05 host-unreachable, 0x02 not-allowed-by-rule).
 
-#![forbid(unsafe_code)]
+// The crate is unsafe-free by default. The TUN forward sink
+// (#529 path c) needs raw syscalls (open + ioctl + read + write on
+// /dev/net/tun) so we relax to `deny` and let that module
+// `#![allow(unsafe_code)]` explicitly. Every other file in this crate
+// still gets the deny lint.
+#![deny(unsafe_code)]
 #![deny(missing_docs)]
 
 mod vpn_listener;
@@ -36,6 +41,15 @@ pub use inner_sink::{
 pub mod boringtun_impl;
 #[cfg(feature = "routing-real")]
 pub use boringtun_impl::{BoringTun, BoringTunConfig};
+
+// TUN-forward sink lives behind its own feature flag because it pulls
+// in `libc` + uses /dev/net/tun + shells out to `ip` / `iptables`.
+// The default `routing-real` path still uses `LoggingSink` so existing
+// integration tests + non-Linux dev environments aren't perturbed.
+#[cfg(feature = "routing-tun-forward")]
+pub mod tun_forward;
+#[cfg(feature = "routing-tun-forward")]
+pub use tun_forward::{TunForwardSink, TunSetupError, DEFAULT_TUN_IFNAME, PROVIDER_INNER_CIDR};
 
 pub mod peer_binder;
 pub use peer_binder::{

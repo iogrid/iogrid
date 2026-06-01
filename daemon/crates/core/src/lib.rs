@@ -158,6 +158,18 @@ pub struct VpnConfig {
     /// srflx path is unavailable. Empty = disabled.
     #[serde(default)]
     pub public_ip: String,
+    /// #529 path c: Linux WAN interface the TunForwardSink installs
+    /// iptables MASQUERADE on. Empty = `eth0` (matches stock GH runner
+    /// + most Hetzner provider images). Set this when the provider
+    /// host has a different uplink (e.g. `wlan0` on a residential box,
+    /// `enp4s0` on a workstation).
+    #[serde(default)]
+    pub wan_iface: String,
+    /// #529 path c: name of the TUN device the daemon creates for
+    /// inner-packet forwarding. Empty = `iogrid-tun0`. Override only
+    /// if the host already has an interface with that name.
+    #[serde(default)]
+    pub tun_ifname: String,
 }
 
 fn default_vpn_listen_addr() -> String {
@@ -175,6 +187,8 @@ impl Default for VpnConfig {
             stun_server: default_stun_server(),
             region: String::new(),
             public_ip: String::new(),
+            wan_iface: String::new(),
+            tun_ifname: String::new(),
         }
     }
 }

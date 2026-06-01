@@ -20,6 +20,13 @@ default = []
 # See iogrid#529 for what's gated behind this feature and what the
 # follow-up SNAT/forwarding PR will plug in on top.
 routing-real = ["dep:boringtun", "dep:x25519-dalek", "dep:base64", "dep:rand", "dep:parking_lot"]
+# `routing-tun-forward` plugs a Linux TUN device + iptables MASQUERADE
+# rule under the BoringTun decap path, so decapsulated customer packets
+# get NAT'd out the daemon's WAN interface and replies routed back
+# through the tunnel. The end-state demo (`curl ifconfig.me` returns the
+# provider's residential IP) hinges on this feature being on. Linux-only;
+# the sink module is `#[cfg(target_os = "linux")]`-gated. See #529 path c.
+routing-tun-forward = ["routing-real", "dep:libc"]
 
 [dependencies]
 tokio = { workspace = true }
@@ -63,6 +70,11 @@ rand = { version = "0.8", optional = true }
 # each Tunn::decapsulate call holds the write lock briefly + a panic
 # inside boringtun would otherwise poison the whole peer table.
 parking_lot = { version = "0.12", optional = true }
+
+# Linux TUN setup syscalls (open, ioctl TUNSETIFF, read/write on the fd).
+# Optional + Linux-only via `#[cfg(target_os = "linux")]` gates inside the
+# sink module — non-Linux builds compile cleanly without libc.
+libc = { version = "0.2", optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }

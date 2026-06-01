@@ -29,9 +29,16 @@ use std::sync::Arc;
 
 use base64::Engine;
 use iogrid_routing::{
-    health, ice, peer_binder, BoringTun, BoringTunConfig, HealthConfig, IceConfig, LoggingSink,
-    Meter, PeerBinderConfig, Tunnel,
+    health, ice, peer_binder, BoringTun, BoringTunConfig, HealthConfig, IceConfig, InnerPacketSink,
+    LoggingSink, Meter, PeerBinderConfig, Tunnel,
 };
+// TUN forward sink is Linux-only — the supervisor falls back to
+// LoggingSink on macOS / Windows dev boxes so the daemon still boots.
+// Feature is unconditionally on in core/Cargo.toml so the wiring
+// compiles everywhere; the actual /dev/net/tun setup is gated inside
+// the module by `#[cfg(target_os = "linux")]`. See #529 path c.
+#[cfg(target_os = "linux")]
+use iogrid_routing::TunForwardSink;
 
 use crate::DaemonConfig;
 #[cfg(test)]
@@ -211,9 +218,65 @@ pub async fn spawn_vpn_modules(config: &DaemonConfig) -> Option<VpnHandles> {
         }
     };
 
-    // ---- BoringTun ----
+    // ---- Inner-packet sink ----
+    // On Linux, prefer the TUN-forward sink: it opens /dev/net/tun,
+    // configures the inner-tunnel IP, installs an iptables MASQUERADE
+    // rule on the WAN interface, and ships decapsulated customer
+    // packets to the kernel for real NAT'd egress (the data plane
+    // that closes #529 path c and lets the customer `curl ifconfig.me`
+    // see the provider's residential IP). If setup fails (no
+    // CAP_NET_ADMIN, no iptables on PATH, etc.) or we're not on Linux,
+    // fall back to LoggingSink so the daemon still boots — operators
+    // see the warning + can fix the host config.
     let meter = Arc::new(Meter::default());
-    let sink = Arc::new(LoggingSink);
+    // Hold the concrete TunForwardSink Arc separately from the
+    // dyn-trait Arc passed to BoringTun, so we can call the
+    // attach_encapsulator method after start(). Both point at the
+    // same allocation — `tun_concrete.clone()` is just a refcount bump.
+    #[cfg(target_os = "linux")]
+    let mut tun_concrete: Option<Arc<TunForwardSink>> = None;
+    let sink: Arc<dyn InnerPacketSink> = {
+        #[cfg(target_os = "linux")]
+        {
+            let wan_iface = if vpn.wan_iface.trim().is_empty() {
+                "eth0".to_string()
+            } else {
+                vpn.wan_iface.trim().to_string()
+            };
+            let ifname = if vpn.tun_ifname.trim().is_empty() {
+                iogrid_routing::DEFAULT_TUN_IFNAME.to_string()
+            } else {
+                vpn.tun_ifname.trim().to_string()
+            };
+            match TunForwardSink::new(&ifname, iogrid_routing::PROVIDER_INNER_CIDR, &wan_iface) {
+                Ok(tun) => {
+                    tracing::info!(
+                        ifname = %ifname,
+                        wan_iface = %wan_iface,
+                        inner = iogrid_routing::PROVIDER_INNER_CIDR,
+                        "TunForwardSink ready — decap path will MASQUERADE through kernel"
+                    );
+                    tun_concrete = Some(tun.clone());
+                    tun as Arc<dyn InnerPacketSink>
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        "TunForwardSink setup failed; falling back to LoggingSink — \
+                         end-to-end VPN egress will NOT work until host config is fixed"
+                    );
+                    Arc::new(LoggingSink) as Arc<dyn InnerPacketSink>
+                }
+            }
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            tracing::info!("non-Linux build: VPN data plane uses LoggingSink (no kernel egress)");
+            Arc::new(LoggingSink) as Arc<dyn InnerPacketSink>
+        }
+    };
+
+    // ---- BoringTun ----
     let boringtun = Arc::new(BoringTun::new(
         BoringTunConfig {
             static_private,
@@ -226,6 +289,27 @@ pub async fn spawn_vpn_modules(config: &DaemonConfig) -> Option<VpnHandles> {
         tracing::error!(error = %e, "boringtun start failed; VPN disabled");
         return None;
     }
+
+    // ---- Attach encapsulator to TunForwardSink ----
+    // Two-phase setup: BoringTun owns the encapsulator and the sink
+    // needs the encapsulator to ship reply packets through the tunnel.
+    // After start() binds the UDP socket, hand the sink an Arc so its
+    // background read loop can call encapsulate_for_peer.
+    #[cfg(target_os = "linux")]
+    if let Some(tun) = tun_concrete.as_ref() {
+        match boringtun.outbound_encapsulator() {
+            Some(enc) => {
+                tun.attach_encapsulator(enc);
+                tracing::info!("TunForwardSink read loop attached to BoringTun encapsulator");
+            }
+            None => {
+                tracing::warn!(
+                    "BoringTun encapsulator not yet ready; TUN read loop not started"
+                );
+            }
+        }
+    }
+
     tracing::info!(
         listen = %vpn_listen_addr,
         our_pubkey = %boringtun.provider_public_key(),

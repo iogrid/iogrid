@@ -156,6 +156,24 @@ impl BoringTun {
         OsRng.fill_bytes(&mut bytes);
         StaticSecret::from(bytes)
     }
+
+    /// Hand out an [`OutboundEncapsulator`] tied to this BoringTun's
+    /// live peer table + UDP socket + meter. Used by sinks (notably
+    /// [`crate::tun_forward::TunForwardSink`]) that need to ship
+    /// packets back through the tunnel from a background task, not
+    /// just inside a single `deliver` call.
+    ///
+    /// Returns `None` until [`Tunnel::start`] has bound the socket —
+    /// callers should construct the BoringTun, `start().await?` it,
+    /// then ask for the encapsulator + wire it into the sink.
+    pub fn outbound_encapsulator(&self) -> Option<Arc<dyn OutboundEncapsulator>> {
+        let socket = self.socket.read().as_ref().cloned()?;
+        Some(Arc::new(PumpEncap {
+            peers: self.peers.clone(),
+            socket,
+            meter: self.meter.clone(),
+        }))
+    }
 }
 
 #[async_trait]

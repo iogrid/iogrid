@@ -61,7 +61,7 @@ iogrid-transport = { workspace = true }
 # WG userspace stack. Default-on so `cargo build --release` produces
 # a binary that actually serves the VPN data plane (per the issue
 # DoD); CI scaffold builds opt out with `--no-default-features`.
-iogrid-routing = { workspace = true, features = ["routing-real"] }
+iogrid-routing = { workspace = true, features = ["routing-real", "routing-tun-forward"] }
 
 # VPN-542: the supervisor wiring constructs a shared `reqwest::Client`
 # + reads the boringtun `x25519::StaticSecret` type for WG-key

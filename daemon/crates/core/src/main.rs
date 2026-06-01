@@ -67,6 +67,19 @@ struct Cli {
     #[arg(long = "public-ip", env = "IOGRID_PUBLIC_IP")]
     public_ip: Option<String>,
 
+    /// #529 path c: Linux WAN interface the TunForwardSink installs
+    /// iptables MASQUERADE on. Defaults to `eth0` if unset. Set this
+    /// when the provider host's uplink is named differently (e.g.
+    /// `wlan0` on a laptop, `enp4s0` on a workstation).
+    #[arg(long = "wan-iface", env = "IOGRID_WAN_IFACE")]
+    wan_iface: Option<String>,
+
+    /// #529 path c: name of the TUN device the daemon creates for
+    /// inner-packet forwarding. Defaults to `iogrid-tun0`. Override
+    /// only if the host already has an interface with that name.
+    #[arg(long = "tun-ifname", env = "IOGRID_TUN_IFNAME")]
+    tun_ifname: Option<String>,
+
     #[command(subcommand)]
     command: Option<Cmd>,
 }
@@ -188,6 +201,12 @@ fn apply_cli_vpn_overrides(config: &mut DaemonConfig, cli: &Cli) {
     }
     if let Some(pid) = cli.provider_id.as_deref() {
         config.provider_id = pid.to_string();
+    }
+    if let Some(iface) = cli.wan_iface.as_deref() {
+        config.vpn.wan_iface = iface.to_string();
+    }
+    if let Some(name) = cli.tun_ifname.as_deref() {
+        config.vpn.tun_ifname = name.to_string();
     }
     if let Some(ip) = cli.public_ip.as_deref() {
         config.vpn.public_ip = ip.to_string();
