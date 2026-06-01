@@ -35,9 +35,12 @@ APP_GROUP            = 'group.io.iogrid.app'
 DEPLOYMENT_TARGET    = '16.0'
 SWIFT_VERSION        = '5.0'
 
-# WireGuardKit SwiftPM dep.
-WIREGUARD_REPO    = 'https://git.zx2c4.com/wireguard-apple'
-WIREGUARD_VERSION = '1.0.16-26'
+# WireGuardKit SwiftPM dep. Tracks the `main` branch of
+# wireguard-apple — Zx2c4 ships unversioned, so pinning a release
+# tag is brittle (the previous attempt with `1.0.16-26` was a
+# guess that doesn't exist in the repo).
+WIREGUARD_REPO   = 'https://git.zx2c4.com/wireguard-apple'
+WIREGUARD_BRANCH = 'main'
 
 # ── Pre-flight ──────────────────────────────────────────────────
 unless File.exist?(PROJECT_PATH)
@@ -93,8 +96,8 @@ unless package_ref
   package_ref = project.new(Xcodeproj::Project::Object::XCRemoteSwiftPackageReference)
   package_ref.repositoryURL = WIREGUARD_REPO
   package_ref.requirement = {
-    'kind'    => 'exactVersion',
-    'version' => WIREGUARD_VERSION,
+    'kind'   => 'branch',
+    'branch' => WIREGUARD_BRANCH,
   }
   project.root_object.package_references << package_ref
 end

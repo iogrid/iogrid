@@ -22,6 +22,7 @@ import { Spacing } from '@/constants/theme';
 import { AUTO_REGION_SENTINEL } from '@/app/regions';
 import { loadOrCreateIdentity } from '@/lib/account';
 import { requestSession } from '@/lib/coordinator';
+import { TunnelControl } from '../../modules/TunnelControl/src';
 
 type TunnelState = 'OFF' | 'CONNECTING' | 'CONNECTED' | 'DISCONNECTING';
 
@@ -59,27 +60,71 @@ export default function VPNToggleScreen() {
         const persistedRegion = (await AsyncStorage.getItem(SELECTED_REGION_KEY)) ?? AUTO_REGION_SENTINEL;
         // Mullvad-style: the account number IS the API key. vpn-svc
         // accepts unknown customer_ids + tier-defaults to FREE on
-        // first sight (#569 contract). When the user upgrades to
-        // paid we'll swap this for the IAP-issued key.
+        // first sight (#569 contract).
         const session = await requestSession(
           identity.accountNumberRaw,
           identity.customerId,
           persistedRegion,
         );
         setQuotaState(session.quotaState);
-        // TODO(#568): pass session details into the PacketTunnelProvider
-        // via NETunnelProviderManager.providerConfiguration + start
-        // the tunnel. For now this is JS-only — the toggle SHOWS
-        // CONNECTING until the native handoff lands.
+
+        // Now actually start the tunnel via NETunnelProviderManager.
+        // The native module triggers iOS's "Allow VPN configuration"
+        // sheet on first run; subsequent runs reuse the saved
+        // configuration. The PTP extension (#568/#572) takes over
+        // from here, receives the providerConfiguration, runs the
+        // WG handshake + NWPathMonitor for roaming.
+        if (session.sessionId) {
+          await TunnelControl.startTunnel({
+            peerPublicKey: '',  // coordinator returns this on the followup peer-info call (#570)
+            peerEndpoint: 'discover',
+            customerInnerCIDR: '10.66.0.2/16',
+            allowedIPs: '0.0.0.0/0',
+            region: session.region,
+            sessionId: session.sessionId,
+          });
+        }
       } catch (e) {
-        console.warn('requestSession failed', e);
+        console.warn('vpn start failed', e);
         setState('OFF');
       }
     } else {
       setState('DISCONNECTING');
-      setTimeout(() => setState('OFF'), 250);
+      try {
+        await TunnelControl.stopTunnel();
+      } catch (e) {
+        console.warn('vpn stop failed', e);
+      }
+      setState('OFF');
     }
   };
+
+  // Subscribe to native VPN status updates so the toggle reflects
+  // the real OS state. Without this the JS-side state diverges from
+  // what iOS thinks (e.g. user disconnects via Settings → VPN
+  // toggle, our UI would still show ON).
+  useEffect(() => {
+    const sub = TunnelControl.onStatusChange(({ status }) => {
+      switch (status) {
+        case 'connected':
+          setState('CONNECTED');
+          break;
+        case 'connecting':
+        case 'reasserting':
+          setState('CONNECTING');
+          break;
+        case 'disconnecting':
+          setState('DISCONNECTING');
+          break;
+        case 'disconnected':
+        case 'invalid':
+        case 'unknown':
+          setState('OFF');
+          break;
+      }
+    });
+    return () => sub.remove();
+  }, []);
 
   const isOn = state === 'CONNECTING' || state === 'CONNECTED';
 
