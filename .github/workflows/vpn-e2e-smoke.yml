@@ -112,18 +112,35 @@ jobs:
             --customer-id="$IOGRID_CUSTOMER_ID" \
             --coordinator="$COORDINATOR"
 
-      - name: iogrid vpn connect (require CAP_NET_ADMIN)
+      - name: iogrid vpn run (require CAP_NET_ADMIN, background)
         if: env.IOGRID_API_KEY != '' && env.IOGRID_CUSTOMER_ID != ''
         run: |
           set -e
           # Userspace WireGuard via wireguard-go still needs
           # CAP_NET_ADMIN to create the TUN. The runner has sudo.
           sudo setcap cap_net_admin+eip "$(command -v iogrid)"
-          # Verbose so any partial-progress failure shows where in the
-          # control-plane chain it stalled.
-          IOGRID_VERBOSE=1 iogrid vpn connect --region us-east-1 \
-            2>&1 | tee /tmp/vpn-connect.log
-          grep -q "VPN tunnel established successfully" /tmp/vpn-connect.log
+          # Use `vpn run` (persistent) not `vpn connect` (one-shot that
+          # exits after handshake and lets the kernel GC the TUN). The
+          # `run` form holds the file descriptor open + heartbeats every
+          # 30s. We background it and tail the log to spot the
+          # "tunnel established" line before the data-plane assertion.
+          IOGRID_VERBOSE=1 nohup iogrid vpn run --region us-east-1 \
+            > /tmp/vpn-run.log 2>&1 &
+          echo $! > /tmp/iogrid.pid
+          # Wait up to 30s for "tunnel established" — control plane
+          # typically completes in ~5s; padding for slow runners.
+          for i in $(seq 1 30); do
+            if grep -q "VPN tunnel established successfully" /tmp/vpn-run.log 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          if ! grep -q "VPN tunnel established successfully" /tmp/vpn-run.log; then
+            echo "::error::tunnel did not establish in 30s"
+            cat /tmp/vpn-run.log
+            exit 1
+          fi
+          echo "Tunnel up, holding interface open via PID $(cat /tmp/iogrid.pid)"
 
       - name: Data-plane assertion — exit IP must change
         if: env.IOGRID_API_KEY != '' && env.IOGRID_CUSTOMER_ID != ''
@@ -158,5 +175,9 @@ jobs:
         if: always()
         run: |
           set +e
-          iogrid vpn disconnect 2>/dev/null || true
+          if [ -f /tmp/iogrid.pid ]; then
+            kill -INT "$(cat /tmp/iogrid.pid)" 2>/dev/null
+            sleep 2
+            kill -KILL "$(cat /tmp/iogrid.pid)" 2>/dev/null
+          fi
           iogrid logout 2>/dev/null || true

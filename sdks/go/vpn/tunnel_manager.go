@@ -135,7 +135,11 @@ func (m *RealTunnelManager) SetEndpoint(ctx context.Context, ifName, publicKey, 
 	return nil
 }
 
-// BringUp moves the device to the up state — equivalent to `ip link set wg up`.
+// BringUp moves the device to the up state — equivalent to `ip link set wg up`
+// — then assigns the customer's inner-tunnel IP + default route override
+// so traffic actually flows through the tunnel (#529 path c, Linux only;
+// non-Linux platforms get a no-op configure step until macOS / Windows
+// wiring lands).
 func (m *RealTunnelManager) BringUp(ctx context.Context, ifName string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -146,10 +150,19 @@ func (m *RealTunnelManager) BringUp(ctx context.Context, ifName string) error {
 	if err := rd.dev.Up(); err != nil {
 		return fmt.Errorf("device up: %w", err)
 	}
+	if err := configureTunnelInterface(ctx, ifName); err != nil {
+		// Configure failure is fatal — the tunnel is up but unaddressed,
+		// so the caller's traffic would silently go via the original
+		// default route. Better to fail loud and let the SDK Disconnect
+		// pull everything down cleanly.
+		return fmt.Errorf("configure tunnel interface: %w", err)
+	}
 	return nil
 }
 
-// BringDown stops the device and releases the TUN handle.
+// BringDown stops the device and releases the TUN handle. Tears down the
+// inner-tunnel IP + default-route override before closing the device so
+// the customer's normal default route is restored cleanly.
 func (m *RealTunnelManager) BringDown(ctx context.Context, ifName string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -157,6 +170,8 @@ func (m *RealTunnelManager) BringDown(ctx context.Context, ifName string) error 
 	if !exists {
 		return fmt.Errorf("interface %s not found", ifName)
 	}
+	// Best-effort teardown — log inside the helper, don't fail close.
+	_ = teardownTunnelInterface(ctx, ifName)
 	rd.dev.Close()
 	delete(m.devices, ifName)
 	return nil
