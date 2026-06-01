@@ -212,6 +212,32 @@ Workarounds (pick one):
 - Prefer testID assertions when the label has metachars:
   `- assertVisible:\n    id: "region-row-auto"`
 
+### 21b. text assertions FAIL even with substring when iOS a11y collapses parent+children
+
+Companion to 21. Maestro's `textRegex` query reads rendered text
+nodes. If you have a Pressable wrapping a child Text:
+
+```jsx
+<Pressable testID="row" onPress={...}>
+  <Text>Label here</Text>
+</Pressable>
+```
+
+iOS collapses this into a single accessibility element (the
+Pressable) with a computed accessibilityLabel from the joined
+children's text. But Maestro's `textRegex` doesn't see that
+computed label — it queries rendered text nodes, and the child
+Text is hidden behind the Pressable's collapsed a11y wrapper.
+
+`assertVisible: id: "row"` works (testID is queryable).
+`assertVisible: "Label"` FAILS even though the text visibly renders.
+
+Resolution: PREFER testID assertions for any Pressable-wrapped
+content. Text assertions for nav header titles, screen titles, or
+standalone Text without a Pressable parent.
+
+### 22. CONNECTING state visibility for the smoke gate
+
 ### 22. CONNECTING state visibility for the smoke gate
 
 The PacketTunnelProvider start() rejects fast on simulator (no NE
