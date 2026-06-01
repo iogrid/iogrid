@@ -823,3 +823,8 @@ Automation follow-up: [bin/refresh-tracker.sh](https://github.com/iogrid/iogrid/
 - Fix 143037c: drop the text assertion. The testID already proves the row IS rendered. Snapshot tests are the right tool for text correctness.
 - Bundled push included 86da22c (CONTRIBUTING.md gotchas 21+22) so the lesson sticks.
 - New run 26787882507 in flight. Monitor bg7rjb1tf.
+
+## 2026-06-02T07:25Z — Iteration 10: drop Maestro back + cold-restart flow 04
+- Iter 9 (143037c) passed the text-assertion fix but hit new failure: 'Assertion is false: id: vpn-toggle is visible' at end of flow 03. Commands.json showed backPressCommand completed but vpn-toggle invisible — Maestro's `back` on iOS unreliable for Expo Router stacks.
+- Fix 4d375aa: drop `- back` + post-back assertion from flows 03 + 04 (housekeeping, not gates). Flow 04 uses `launchApp: stopApp: true` to cold-restart so it always starts at /index regardless of flow 03's ending screen.
+- Run 26788950651 in flight. Monitor bnwbv5dpv.
