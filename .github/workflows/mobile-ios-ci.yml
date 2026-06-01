@@ -354,10 +354,14 @@ jobs:
             --force
           # Install the extension profile in the same dir Xcode reads
           # from. (The next step installs the main profile but only one
-          # of them — we need both available.)
+          # of them — we need both available.) Decode the CMS-signed
+          # .mobileprovision to extract its UUID, then copy keyed on
+          # that UUID — Xcode finds profiles by UUID, not filename.
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          EXT_UUID=$(/usr/libexec/PlistBuddy -c "Print :UUID" \
-            /dev/stdin <<< "$(security cms -D -i $RUNNER_TEMP/ext.mobileprovision 2>/dev/null)")
+          security cms -D -i $RUNNER_TEMP/ext.mobileprovision \
+            > $RUNNER_TEMP/ext.plist 2>/dev/null
+          EXT_UUID=$(plutil -extract UUID raw -o - $RUNNER_TEMP/ext.plist)
+          echo "Extension profile UUID: $EXT_UUID"
           cp $RUNNER_TEMP/ext.mobileprovision \
             ~/Library/MobileDevice/Provisioning\ Profiles/$EXT_UUID.mobileprovision
           fastlane sigh renew \
