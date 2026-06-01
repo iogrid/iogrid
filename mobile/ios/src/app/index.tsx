@@ -60,14 +60,17 @@ export default function VPNToggleScreen() {
       // not linked) doesn't make the UI flash OFF before the user
       // notices the attempt. Mullvad's app does the same: even when
       // the tunnel is going to fail, the "Connecting…" state stays
-      // visible for ~1.5s so the user can read it.
+      // visible for a beat so the user can read it.
+      //
       // Doubles as a non-flaky anchor for the Maestro smoke gate —
       // the 02-toggle-on flow polls for "CONNECTING" and otherwise
-      // misses the ~10ms flash on simulator.
+      // misses the ~10ms flash on simulator. 3s margin covers slow
+      // takeScreenshot (~500-1500ms) + tap-2 latency without the
+      // hold expiring early on busy macos-latest runners.
       const minVisibleStart = Date.now();
       const holdConnectingVisible = async () => {
         const elapsed = Date.now() - minVisibleStart;
-        const remaining = 1500 - elapsed;
+        const remaining = 3000 - elapsed;
         if (remaining > 0) {
           await new Promise((resolve) => setTimeout(resolve, remaining));
         }
