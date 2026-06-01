@@ -87,3 +87,26 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
+    # billing-svc.ValidateApiKey (#531) — every POST /v1/vpn/sessions
+    # round-trips here unless dev-mode is active. Without this rule,
+    # auth fails 401 with "dial tcp <billing-cluster-ip>:8080: connect:
+    # connection refused" because egress is blocked by default-deny
+    # (#562). Same shape used by proxy-gateway.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: billing-svc
+      ports:
+        - protocol: TCP
+          port: 8080
+    # NATS JetStream for the earnings batcher (#547) — vpn-svc
+    # publishes per-session VPN bytes on BILLING.metering.vpn_bytes
+    # every 5 min. Without this rule the publisher silently retries
+    # forever and providers never earn.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: nats
+      ports:
+        - protocol: TCP
+          port: 4222
