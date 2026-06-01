@@ -12,6 +12,37 @@
 - #576 (WireGuardKit SwiftPM dep) parked on upstream Swift 6 compat
 - #577 (post-review polish) parked
 
+### Apple Developer Portal — bundle IDs registered ✅
+
+Programmatically registered via cinova's existing Apple credentials
+(same Dynolabs team) on 2026-06-02 04:18Z:
+
+| Bundle ID | Apple resource ID | Capabilities |
+|---|---|---|
+| `io.iogrid.app` | `CZVDX99A2L` | NETWORK_EXTENSIONS · APP_GROUPS · PERSONAL_VPN |
+| `io.iogrid.app.PacketTunnelProvider` | `D48F7P2J6L` | NETWORK_EXTENSIONS · APP_GROUPS |
+
+Workflow that registered them lives in [dynolabs-io/cinova](https://github.com/dynolabs-io/cinova/blob/main/.github/workflows/register-iogrid-bundles.yml) — re-runnable via `gh workflow run register-iogrid-bundles.yml --repo dynolabs-io/cinova` if Apple ever drops them.
+
+### Operator's residual web-UI work (~3 min)
+
+Apple's API doesn't expose these two CREATE endpoints; founder must
+click through:
+
+1. **App Group** (30 sec) — https://developer.apple.com/account → Identifiers → "+" → App Groups → `group.io.iogrid.app`. Then link to both bundle IDs via the Configure button.
+2. **App Store Connect record** (2 min) — https://appstoreconnect.apple.com → My Apps → "+" → New App → Bundle: `io.iogrid.app`, Name: `iogrid`. Copy the numeric App ID from the URL.
+
+Then run:
+
+```bash
+cd mobile/ios
+./scripts/bootstrap-testflight.sh \
+    ~/Downloads/AuthKey_<KEY_ID>.p8 \
+    <KEY_ID> <ISSUER_ID> <APPLE_TEAM_ID> <APP_ID>
+```
+
+Script automates everything from there to emrahbaysal@gmail.com receiving the TestFlight invite.
+
 ## Quickstart for operators
 
 The complete TestFlight bootstrap runbook is at
