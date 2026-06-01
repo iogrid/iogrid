@@ -245,36 +245,35 @@ jobs:
               tok = tok.decode()
           hdrs = {'Authorization': f'Bearer {tok}', 'Accept': 'application/json'}
 
-          # Purge existing provisioning profiles named
-          # "iogrid App Store" — they're bound to certs we may have
-          # just revoked or that aren't in the runner's keychain.
-          # If we don't, sigh sees a name collision and creates a
-          # suffixed profile, but the archive step references the
-          # canonical name.
-          PROFILE_NAME = "iogrid App Store"
-          preq = urllib.request.Request(
-              f'https://api.appstoreconnect.apple.com/v1/profiles?filter[name]={urllib.parse.quote(PROFILE_NAME)}&limit=200',
-              headers=hdrs,
-          )
-          try:
-              with urllib.request.urlopen(preq) as r:
-                  pdata = json.load(r)
-          except urllib.error.HTTPError as e:
-              print(f'profiles list HTTP {e.code}: {e.read().decode()[:200]}')
-              pdata = {'data': []}
-          for p in pdata.get('data', []):
-              pid = p['id']
-              pname = p.get('attributes', {}).get('name', '')
-              print(f'deleting profile {pid} ({pname})')
-              dreq = urllib.request.Request(
-                  f'https://api.appstoreconnect.apple.com/v1/profiles/{pid}',
-                  headers=hdrs, method='DELETE',
+          # Purge existing provisioning profiles for both the main app
+          # and the PacketTunnelProvider extension — they're bound to
+          # certs we just revoked. If we don't, sigh sees a name
+          # collision and (without --force) downloads the stale profile
+          # bound to a non-existent cert, breaking the archive step.
+          for PROFILE_NAME in ("iogrid App Store", "iogrid PacketTunnelProvider App Store"):
+              preq = urllib.request.Request(
+                  f'https://api.appstoreconnect.apple.com/v1/profiles?filter[name]={urllib.parse.quote(PROFILE_NAME)}&limit=200',
+                  headers=hdrs,
               )
               try:
-                  urllib.request.urlopen(dreq).read()
-                  print('  deleted OK')
+                  with urllib.request.urlopen(preq) as r:
+                      pdata = json.load(r)
               except urllib.error.HTTPError as e:
-                  print(f'  delete HTTP {e.code}: {e.read().decode()[:200]}')
+                  print(f'profiles list HTTP {e.code}: {e.read().decode()[:200]}')
+                  pdata = {'data': []}
+              for p in pdata.get('data', []):
+                  pid = p['id']
+                  pname = p.get('attributes', {}).get('name', '')
+                  print(f'deleting profile {pid} ({pname})')
+                  dreq = urllib.request.Request(
+                      f'https://api.appstoreconnect.apple.com/v1/profiles/{pid}',
+                      headers=hdrs, method='DELETE',
+                  )
+                  try:
+                      urllib.request.urlopen(dreq).read()
+                      print('  deleted OK')
+                  except urllib.error.HTTPError as e:
+                      print(f'  delete HTTP {e.code}: {e.read().decode()[:200]}')
 
           # PRE-REVOKE: each CI run creates a fresh Distribution cert
           # (the previous run's cert lives in Apple's portal but the
@@ -351,7 +350,16 @@ jobs:
             --provisioning_name "iogrid PacketTunnelProvider App Store" \
             --output_path $RUNNER_TEMP \
             --filename ext.mobileprovision \
-            --cert_id "$NEW_CERT_ID"
+            --cert_id "$NEW_CERT_ID" \
+            --force
+          # Install the extension profile in the same dir Xcode reads
+          # from. (The next step installs the main profile but only one
+          # of them — we need both available.)
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          EXT_UUID=$(/usr/libexec/PlistBuddy -c "Print :UUID" \
+            /dev/stdin <<< "$(security cms -D -i $RUNNER_TEMP/ext.mobileprovision 2>/dev/null)")
+          cp $RUNNER_TEMP/ext.mobileprovision \
+            ~/Library/MobileDevice/Provisioning\ Profiles/$EXT_UUID.mobileprovision
           fastlane sigh renew \
             --api_key_path "$API_JSON" \
             --app_identifier io.iogrid.app \
