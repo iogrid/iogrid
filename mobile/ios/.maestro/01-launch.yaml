@@ -5,10 +5,7 @@ appId: io.iogrid.app
 # if this fails, none of the others matter.
 - clearState
 - clearKeychain
-- launchApp:
-    arguments:
-      - -ResetUserDefaults
-      - "1"
+- launchApp
 
 # App title visible within 5s
 - assertVisible:
