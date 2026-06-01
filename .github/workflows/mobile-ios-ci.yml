@@ -17,6 +17,17 @@ on:
       - '.github/workflows/mobile-ios-ci.yml'
   workflow_dispatch:
 
+# Concurrency group: ALL mobile-ios-ci runs serialize on a single
+# group. Apple's Distribution cert cap is 2 per team AND each run
+# now revokes existing certs in its pre-flight (otherwise fastlane
+# cert hits the limit). If two runs race, run B revokes run A's
+# cert mid-archive → run A's xcodebuild fails to sign. The
+# `cancel-in-progress: true` policy ensures only the latest commit's
+# run survives — exactly what we want during rapid-fix iteration.
+concurrency:
+  group: mobile-ios-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: macos-latest
