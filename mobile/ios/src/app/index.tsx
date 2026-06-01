@@ -88,6 +88,15 @@ export default function VPNToggleScreen() {
             region: session.region,
             sessionId: session.sessionId,
           });
+        } else {
+          // EPIC #566 reviewer MAJOR 5: empty sessionId means the
+          // server returned 429 (quota exhausted). Without this
+          // explicit revert the toggle stays visually CONNECTING
+          // forever — NEVPNStatusDidChange can't fire because we
+          // never invoked the OS-level start. The QuotaBanner
+          // already explains the situation; just unwind the
+          // toggle state.
+          setState('OFF');
         }
       } catch (e) {
         console.warn('vpn start failed', e);

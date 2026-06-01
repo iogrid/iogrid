@@ -157,10 +157,18 @@ export async function requestSession(
   };
 }
 
-/** GET /v1/vpn/sessions/{id} — fetch session state for heartbeat / banner refresh. */
+/** GET /v1/vpn/sessions/{id} — fetch session state for heartbeat / banner refresh.
+ *
+ * EPIC #566 reviewer MAJOR 3: the account number IS the credential under
+ * the Mullvad model (#569). Sending it as a URL query param leaks it to
+ * Traefik access logs, on-device URL caches, NSURLSession diagnostics, OS
+ * Console under VPN diagnostic captures. Sending via X-API-Key header
+ * instead keeps it out of all URL-shaped logs while still letting the
+ * server (when it adds validation) read it via standard header parsing.
+ */
 export async function getSession(sessionId: string, apiKey: string): Promise<SessionState> {
-  const res = await fetch(`${baseURL()}/v1/vpn/sessions/${encodeURIComponent(sessionId)}?api_key=${encodeURIComponent(apiKey)}`, {
-    headers: { Accept: 'application/json' },
+  const res = await fetch(`${baseURL()}/v1/vpn/sessions/${encodeURIComponent(sessionId)}`, {
+    headers: { Accept: 'application/json', 'X-API-Key': apiKey },
   });
   if (!res.ok) {
     throw new CoordinatorError(`getSession: HTTP ${res.status}`);

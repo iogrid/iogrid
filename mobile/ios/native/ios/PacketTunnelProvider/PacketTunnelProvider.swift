@@ -364,8 +364,14 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 return
             }
             do {
-                let decoded = try JSONDecoder().decode([ProviderCandidate].self, from: data)
-                completion(.success(decoded))
+                // EPIC #566 reviewer BLOCKER 2: server returns
+                // {"region": ..., "providers": [...], "count": ...} —
+                // an envelope, NOT a bare array. Decode the envelope
+                // then unwrap. Before this fix, every roaming
+                // re-probe failed JSON decode silently and defeated
+                // #572's entire purpose.
+                let envelope = try JSONDecoder().decode(ProvidersEnvelope.self, from: data)
+                completion(.success(envelope.providers))
             } catch {
                 completion(.failure(error))
             }
@@ -623,6 +629,14 @@ private struct IPCResponse: Encodable {
 }
 
 // ── Provider candidate shapes (#572 — matches coordinator #570) ──
+
+/// Envelope returned by GET /v1/vpn/regions/{r}/providers?limit=N.
+/// Coordinator returns `{"region": ..., "providers": [...], "count": ...}`.
+/// EPIC #566 reviewer BLOCKER 2 — decoder was unwrapping `[ProviderCandidate]`
+/// directly which silently failed every roaming re-probe.
+private struct ProvidersEnvelope: Decodable {
+    let providers: [ProviderCandidate]
+}
 
 private struct ProviderCandidate: Decodable {
     let providerId: String

@@ -235,9 +235,12 @@ func (h *RequestSession) Handle(w http.ResponseWriter, r *http.Request) {
 	// quota_state lets the mobile app (#573) render banner / paywall
 	// purely from server state. For dev-mode (no validator) we report
 	// OK — there's no tier or usage to gate on.
+	// EPIC #566 reviewer BLOCKER 1: key is "state" (NOT "status") so the
+	// JS coordinator wrapper (mobile/ios/src/lib/coordinator.ts) sees a
+	// consistent shape with the GET handler at line 302+.
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"session_id":  sessionID.String(),
-		"status":      "CREATING",
+		"state":       "CREATING",
 		"provider_id": providerID.String(),
 		"region":      chosenRegion,
 		"quota_state": computeQuotaState(resolvedTier, usedBytes).String(),
