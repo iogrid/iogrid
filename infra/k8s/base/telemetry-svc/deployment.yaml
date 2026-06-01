@@ -34,7 +34,7 @@ spec:
         # cache-identical. Treated as an opaque ISO-8601 string by the
         # deploy-bot — do not hand-edit unless you intend to roll the
         # pods. Refs #335.
-        kubectl.kubernetes.io/restartedAt: "2026-06-01T18:39:21Z"
+        kubectl.kubernetes.io/restartedAt: "2026-06-01T20:08:19Z"
         prometheus.io/port: "8080"
         prometheus.io/path: "/metrics"
     spec:
@@ -50,7 +50,7 @@ spec:
       containers:
         # ---------- telemetry-svc control surface ----------
         - name: telemetry-svc
-          image: harbor.openova.io/iogrid/telemetry-svc@sha256:06918b687ba1141773c9c44924770cc6961a56f2ee8b3903047854c3012a2195
+          image: harbor.openova.io/iogrid/telemetry-svc@sha256:d52d4b9c1a704394912da7e9e21a2f8636df3866ac14de61134113ccf0ad577e
           imagePullPolicy: Always
           ports:
             - name: http
