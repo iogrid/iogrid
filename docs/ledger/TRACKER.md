@@ -828,3 +828,8 @@ Automation follow-up: [bin/refresh-tracker.sh](https://github.com/iogrid/iogrid/
 - Iter 9 (143037c) passed the text-assertion fix but hit new failure: 'Assertion is false: id: vpn-toggle is visible' at end of flow 03. Commands.json showed backPressCommand completed but vpn-toggle invisible — Maestro's `back` on iOS unreliable for Expo Router stacks.
 - Fix 4d375aa: drop `- back` + post-back assertion from flows 03 + 04 (housekeeping, not gates). Flow 04 uses `launchApp: stopApp: true` to cold-restart so it always starts at /index regardless of flow 03's ending screen.
 - Run 26788950651 in flight. Monitor bnwbv5dpv.
+
+## 2026-06-02T07:55Z — Disk cleanup: podman system prune
+- Disk was at 3G free / 97% used (would've blocked next push). Supervisor pointed to `docker system prune` as 2-min fix.
+- Docker socket access denied on bastion (different runtime), but `podman system prune -af` reclaimed 172.8GB of unreferenced container layers.
+- /home now 84% used (16G free). Comfortable for remaining iteration cycles.
