@@ -80,6 +80,19 @@ ext_target = project.new_target(
   DEPLOYMENT_TARGET,
 )
 
+# Explicitly name the product reference. Without this, xcodeproj's
+# default sometimes emits a product with an empty `name` AND an
+# empty `path`, which xcodebuild surfaces as
+# "Multiple commands produce '/tmp/iogrid.dst/Applications/.appex'"
+# during the Copy Files / Embed App Extensions phase.
+if ext_target.product_reference
+  ext_target.product_reference.name = "#{EXTENSION_NAME}.appex"
+  ext_target.product_reference.path = "#{EXTENSION_NAME}.appex"
+  ext_target.product_reference.include_in_index = '0'
+  ext_target.product_reference.source_tree = 'BUILT_PRODUCTS_DIR'
+  ext_target.product_reference.explicit_file_type = 'wrapper.app-extension'
+end
+
 # Bundle identifier + entitlements + Info.plist + Swift version on
 # both Debug + Release configurations.
 ext_target.build_configurations.each do |bc|
@@ -116,9 +129,13 @@ abort "Main target #{MAIN_APP_NAME} not found — is the Expo prebuild output co
 # Target dependency so building the main app forces the extension build.
 main_target.add_dependency(ext_target)
 
-# Embed App Extensions build phase.
+# Embed App Extensions build phase. Match either:
+#   - by name "Embed App Extensions" (what Xcode UI creates)
+#   - by dst_subfolder_spec == '13' (Plug-ins, raw value in pbxproj)
+# Whichever Expo prebuild + earlier runs created.
 embed_phase = main_target.build_phases.find do |phase|
-  phase.respond_to?(:dst_subfolder_spec) && phase.dst_subfolder_spec == '13'
+  next false unless phase.is_a?(Xcodeproj::Project::Object::PBXCopyFilesBuildPhase)
+  phase.name == 'Embed App Extensions' || phase.dst_subfolder_spec == '13'
 end
 
 unless embed_phase
@@ -131,10 +148,21 @@ end
 # Link the extension product into the embed phase. The .appex
 # product reference is on ext_target.product_reference once the
 # target exists.
-embed_file = project.new(Xcodeproj::Project::Object::PBXBuildFile)
-embed_file.file_ref = ext_target.product_reference
-embed_file.settings = { 'ATTRIBUTES' => ['RemoveHeadersOnCopy'] }
-embed_phase.files << embed_file
+#
+# IDEMPOTENCY GUARD: if a prior `expo prebuild --clean` left an embed
+# file entry referencing this target's product, don't add a second
+# one — xcodebuild rejects with "Multiple commands produce" otherwise.
+# We match on product_reference identity (Xcodeproj objects use UUID
+# comparison via ==).
+existing_embed = embed_phase.files.find do |f|
+  f.file_ref == ext_target.product_reference
+end
+unless existing_embed
+  embed_file = project.new(Xcodeproj::Project::Object::PBXBuildFile)
+  embed_file.file_ref = ext_target.product_reference
+  embed_file.settings = { 'ATTRIBUTES' => ['RemoveHeadersOnCopy'] }
+  embed_phase.files << embed_file
+end
 
 # ── 5. Main-app entitlements & build settings ──────────────────
 # The Expo config plugin already wrote the entitlements file, but
