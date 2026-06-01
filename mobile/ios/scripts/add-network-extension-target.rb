@@ -103,7 +103,12 @@ ext_target.build_configurations.each do |bc|
     'SWIFT_VERSION'                => SWIFT_VERSION,
     'IPHONEOS_DEPLOYMENT_TARGET'   => DEPLOYMENT_TARGET,
     'TARGETED_DEVICE_FAMILY'       => '"1,2"',
-    'SKIP_INSTALL'                 => 'NO',
+    # NE extension MUST be SKIP_INSTALL=YES — Xcode embeds it into the
+    # main app's PlugIns folder via the Embed App Extensions phase, not
+    # as a separate installable. SKIP_INSTALL=NO double-installs and
+    # triggers "Multiple commands produce '/Applications/.appex'" on
+    # xcodebuild — exactly the failure mode CI surfaced on commit 77b442a.
+    'SKIP_INSTALL'                 => 'YES',
     'LD_RUNPATH_SEARCH_PATHS'      => '"$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"',
     'CODE_SIGN_STYLE'              => 'Manual',  # CI uses fastlane-fetched profile
   )
