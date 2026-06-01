@@ -2,7 +2,7 @@
   "name": "iogrid-tunnel-control",
   "version": "1.0.0",
   "description": "NETunnelProviderManager bridge for iogrid iOS VPN client",
-  "main": "src/index.ts",
+  "main": "src/index",
   "types": "src/index.ts",
   "private": true,
   "expo": {
