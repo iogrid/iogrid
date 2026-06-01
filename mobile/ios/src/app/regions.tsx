@@ -90,27 +90,36 @@ export default function RegionsScreen() {
   };
 
   const display: DisplayRow[] = useMemo(() => {
-    const list: DisplayRow[] = [
-      {
-        value: AUTO_REGION_SENTINEL,
-        label: 'Best (auto)',
-        subtitle: 'Coordinator picks the closest fastest provider',
-      },
-    ];
+    // "Best (auto)" is pinned at top ALWAYS — even when a search
+    // filter is active. Two reasons: (1) UX — the auto option is the
+    // recommended choice and should never disappear behind a typo;
+    // (2) it's the only row the offline-graceful path can render,
+    // so removing it on filter would make the picker functionally
+    // empty when the coordinator is unreachable + the user starts
+    // typing.
+    const autoRow: DisplayRow = {
+      value: AUTO_REGION_SENTINEL,
+      label: 'Best (auto)',
+      subtitle: 'Coordinator picks the closest fastest provider',
+    };
+    const regionRows: DisplayRow[] = [];
     for (const r of rows ?? []) {
-      list.push({
+      regionRows.push({
         value: r.region,
         label: humanizeRegion(r.region),
         flag: flagForRegion(r.region),
         subtitle: `${r.healthyProviders} of ${r.totalProviders} online`,
       });
     }
-    if (!search) return list;
+    if (!search) return [autoRow, ...regionRows];
     const needle = search.toLowerCase();
-    return list.filter(
-      (r) =>
-        r.label.toLowerCase().includes(needle) || r.value.toLowerCase().includes(needle),
-    );
+    return [
+      autoRow,
+      ...regionRows.filter(
+        (r) =>
+          r.label.toLowerCase().includes(needle) || r.value.toLowerCase().includes(needle),
+      ),
+    ];
   }, [rows, search]);
 
   return (
