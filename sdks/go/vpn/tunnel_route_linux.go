@@ -140,6 +140,80 @@ func configureTunnelInterface(_ context.Context, ifName string) error {
 			return fmt.Errorf("route add %s: %w", cidr, err)
 		}
 	}
+
+	// ── 3. Read-back verification (#565)
+	// ────────────────────────────────────────────────────────────
+	// The netlink ops above can return nil and STILL silently no-op if
+	// the process lacks CAP_NET_ADMIN — the kernel rejects the message
+	// but the Go binding swallows it under some configurations. Read
+	// the state back and fail loud if anything is missing. Without
+	// this, the CLI prints "tunnel established" with a DOWN interface
+	// and no addr, which is what caused the production downtime on
+	// 2026-06-02 when an operator ran the manual repro.
+	if err := verifyTunnelConfigured(ifName); err != nil {
+		return fmt.Errorf("post-configure verification: %w", err)
+	}
+	return nil
+}
+
+// verifyTunnelConfigured reads back the interface state + addr + routes
+// after configureTunnelInterface has issued the netlink ops. Returns
+// a specific error naming the missing piece so the CLI surfaces the
+// real root cause instead of "tunnel established" on a broken stack.
+func verifyTunnelConfigured(ifName string) error {
+	link, err := netlink.LinkByName(ifName)
+	if err != nil {
+		return fmt.Errorf("link %s vanished: %w", ifName, err)
+	}
+	// Link must be UP — LinkSetUp can silently no-op without CAP_NET_ADMIN.
+	if link.Attrs().Flags&net.FlagUp == 0 {
+		return fmt.Errorf(
+			"interface %s is not UP after configure — likely missing CAP_NET_ADMIN; "+
+				"try: sudo setcap cap_net_admin+eip $(command -v iogrid)",
+			ifName,
+		)
+	}
+	// Customer inner IP must be assigned.
+	addrs, err := netlink.AddrList(link, netlink.FAMILY_V4)
+	if err != nil {
+		return fmt.Errorf("addr list on %s: %w", ifName, err)
+	}
+	want := stripCIDR(CustomerInnerCIDR)
+	found := false
+	for _, a := range addrs {
+		if a.IP.String() == want {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf(
+			"customer inner IP %s not present on %s after configure — "+
+				"likely missing CAP_NET_ADMIN; setcap or run via sudo",
+			CustomerInnerCIDR, ifName,
+		)
+	}
+	// Both /1 default-route override entries must exist on the link.
+	routes, err := netlink.RouteList(link, netlink.FAMILY_V4)
+	if err != nil {
+		return fmt.Errorf("route list on %s: %w", ifName, err)
+	}
+	seen := map[string]bool{}
+	for _, r := range routes {
+		if r.Dst == nil {
+			continue
+		}
+		seen[r.Dst.String()] = true
+	}
+	for _, expected := range []string{"0.0.0.0/1", "128.0.0.0/1"} {
+		if !seen[expected] {
+			return fmt.Errorf(
+				"default-route override %s missing on %s — partial config; "+
+					"tunnel WG handshake may succeed but no traffic will flow",
+				expected, ifName,
+			)
+		}
+	}
 	return nil
 }
 
