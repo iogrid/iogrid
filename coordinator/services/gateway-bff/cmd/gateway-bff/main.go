@@ -16,6 +16,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/billing/v1/billingv1connect"
 	"github.com/iogrid/iogrid/coordinator/services/gateway-bff/internal/auth"
 	"github.com/iogrid/iogrid/coordinator/services/gateway-bff/internal/clients"
 	"github.com/iogrid/iogrid/coordinator/services/gateway-bff/internal/config"
@@ -83,9 +84,19 @@ func main() {
 	anonLim := ratelimit.New(cfg.AnonymousRatePerSec, cfg.AnonymousBurst, 5*time.Minute)
 	go reaperLoop(ctx, authedLim, anonLim, logger)
 
-	// In-memory API key store. Will be swapped for a Postgres-backed
-	// store once the corresponding proto + identity-svc table land.
-	apiKeyStore := handlers.NewMemoryAPIKeyStore()
+	// API key store — routes Create/List/Revoke through billing-svc so
+	// the keys land in the same Postgres `api_key` table that
+	// vpn-svc/proxy-gateway/build-gateway validate against (#563).
+	// Falls back to the legacy in-memory store only when BillingSvcURL
+	// is unset (dev / unit-test scaffold).
+	var apiKeyStore handlers.APIKeyStore = handlers.NewMemoryAPIKeyStore()
+	if cfg.BillingSvcURL != "" {
+		apiKeyClient := billingv1connect.NewApiKeyServiceClient(httpClient, cfg.BillingSvcURL)
+		apiKeyStore = handlers.NewBillingAPIKeyStore(apiKeyClient)
+		logger.Info("apiKeyStore: billing-svc backed", slog.String("url", cfg.BillingSvcURL))
+	} else {
+		logger.Warn("apiKeyStore: in-memory fallback (BILLING_SVC_URL unset) — keys won't validate against vpn-svc/proxy-gateway")
+	}
 
 	hr := health.New()
 	hr.MarkReady()
