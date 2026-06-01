@@ -303,9 +303,7 @@ pub async fn spawn_vpn_modules(config: &DaemonConfig) -> Option<VpnHandles> {
                 tracing::info!("TunForwardSink read loop attached to BoringTun encapsulator");
             }
             None => {
-                tracing::warn!(
-                    "BoringTun encapsulator not yet ready; TUN read loop not started"
-                );
+                tracing::warn!("BoringTun encapsulator not yet ready; TUN read loop not started");
             }
         }
     }

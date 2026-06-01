@@ -154,7 +154,11 @@ mod imp {
     }
 
     impl TunForwardSinkImpl {
-        pub fn new(ifname: &str, inner_cidr: &str, wan_iface: &str) -> Result<Arc<Self>, TunSetupError> {
+        pub fn new(
+            ifname: &str,
+            inner_cidr: &str,
+            wan_iface: &str,
+        ) -> Result<Arc<Self>, TunSetupError> {
             let fd = open_tun_fd(ifname)?;
             configure_interface(ifname, inner_cidr)?;
             enable_ip_forward()?;
@@ -188,10 +192,7 @@ mod imp {
             }))
         }
 
-        pub fn attach_encapsulator(
-            self: &Arc<Self>,
-            enc: Arc<dyn OutboundEncapsulator>,
-        ) {
+        pub fn attach_encapsulator(self: &Arc<Self>, enc: Arc<dyn OutboundEncapsulator>) {
             let me = Arc::clone(self);
             tokio::spawn(async move {
                 me.read_loop(enc).await;
@@ -211,9 +212,8 @@ mod imp {
                 let mut buf = [0u8; 2048];
                 let fd = self.tun.raw_fd();
                 let res = guard.try_io(|_| {
-                    let n = unsafe {
-                        libc::read(fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len())
-                    };
+                    let n =
+                        unsafe { libc::read(fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
                     if n < 0 {
                         Err(io::Error::last_os_error())
                     } else {
@@ -336,7 +336,9 @@ mod imp {
                 if s.code() != Some(2) {
                     return Err(TunSetupError::IpConfigure(format!(
                         "ip addr add {} dev {} → exit {:?}",
-                        inner_cidr, ifname, s.code()
+                        inner_cidr,
+                        ifname,
+                        s.code()
                     )));
                 }
             }
@@ -363,8 +365,7 @@ mod imp {
     }
 
     fn enable_ip_forward() -> Result<(), TunSetupError> {
-        std::fs::write("/proc/sys/net/ipv4/ip_forward", "1\n")
-            .map_err(TunSetupError::IpForward)
+        std::fs::write("/proc/sys/net/ipv4/ip_forward", "1\n").map_err(TunSetupError::IpForward)
     }
 
     fn install_masquerade(wan_iface: &str) -> Result<(), TunSetupError> {
@@ -373,7 +374,14 @@ mod imp {
         // restart path doesn't pile up duplicate rules.
         let check = Command::new("iptables")
             .args([
-                "-t", "nat", "-C", "POSTROUTING", "-o", wan_iface, "-j", "MASQUERADE",
+                "-t",
+                "nat",
+                "-C",
+                "POSTROUTING",
+                "-o",
+                wan_iface,
+                "-j",
+                "MASQUERADE",
             ])
             .status();
         match check {
@@ -390,12 +398,22 @@ mod imp {
         }
         let add = Command::new("iptables")
             .args([
-                "-t", "nat", "-A", "POSTROUTING", "-o", wan_iface, "-j", "MASQUERADE",
+                "-t",
+                "nat",
+                "-A",
+                "POSTROUTING",
+                "-o",
+                wan_iface,
+                "-j",
+                "MASQUERADE",
             ])
             .status();
         match add {
             Ok(s) if s.success() => {
-                tracing::info!(wan_iface, "installed iptables MASQUERADE rule on POSTROUTING");
+                tracing::info!(
+                    wan_iface,
+                    "installed iptables MASQUERADE rule on POSTROUTING"
+                );
                 Ok(())
             }
             Ok(s) => Err(TunSetupError::Masquerade(format!(

@@ -535,22 +535,25 @@ pub async fn discover_all(
         let already_present = out.iter().any(|c| c.connection_address == ip_string);
         if !already_present {
             let now_ms = now_unix_ms();
-            out.insert(0, IceCandidate {
-                foundation: foundation_host(&ip_string),
-                component: 1,
-                transport: "udp".into(),
-                // Highest local pref so picker prefers the public IP
-                // over LAN candidates.
-                priority: priority(TYPE_PREF_HOST, 65535, 1),
-                connection_address: ip_string,
-                connection_port: vpn_listen_addr.port() as u32,
-                candidate_type: "host".into(),
-                related_address: String::new(),
-                related_port: 0,
-                discovered_at_unix_ms: now_ms,
-                latency_ms: 0,
-                is_preferred: false,
-            });
+            out.insert(
+                0,
+                IceCandidate {
+                    foundation: foundation_host(&ip_string),
+                    component: 1,
+                    transport: "udp".into(),
+                    // Highest local pref so picker prefers the public IP
+                    // over LAN candidates.
+                    priority: priority(TYPE_PREF_HOST, 65535, 1),
+                    connection_address: ip_string,
+                    connection_port: vpn_listen_addr.port() as u32,
+                    candidate_type: "host".into(),
+                    related_address: String::new(),
+                    related_port: 0,
+                    discovered_at_unix_ms: now_ms,
+                    latency_ms: 0,
+                    is_preferred: false,
+                },
+            );
         }
     }
     match discover_srflx_candidate(stun_server, vpn_listen_addr).await {
@@ -586,7 +589,8 @@ async fn run_reporter_loop(config: IceConfig, http: reqwest::Client) {
 
     loop {
         ticker.tick().await;
-        let candidates = discover_all(config.stun_server, config.vpn_listen_addr, config.public_ip).await;
+        let candidates =
+            discover_all(config.stun_server, config.vpn_listen_addr, config.public_ip).await;
         if candidates.is_empty() {
             tracing::warn!("no candidates discovered this tick");
             continue;
