@@ -38,14 +38,48 @@ import (
 	"github.com/vishvananda/netlink"
 )
 
+// ExceptionHosts are IP/32 destinations that MUST keep their original
+// route (via the host's pre-VPN default gateway) even after the
+// default-route override goes in. Without these, the SDK's own
+// coordinator round-trips (confirmCandidate + heartbeat) AND the
+// outer WG UDP packets to the provider's endpoint would loop back
+// into the unfinished tunnel and stall.
+//
+// Populated by the caller via AddExceptionHost before
+// configureTunnelInterface runs. Resets between connects so a
+// roaming-to-new-provider scenario doesn't leak stale exceptions.
+var exceptionHosts []net.IP
+
+// AddExceptionHost adds an IP/32 exception. Call before BringUp for
+// every coordinator + provider IP the SDK needs to keep reachable
+// outside the tunnel. Idempotent — duplicates are filtered at insert.
+func AddExceptionHost(ip net.IP) {
+	if ip == nil {
+		return
+	}
+	for _, x := range exceptionHosts {
+		if x.Equal(ip) {
+			return
+		}
+	}
+	exceptionHosts = append(exceptionHosts, ip)
+}
+
+// ResetExceptionHosts clears the list. Called by teardown so the next
+// connect starts with a clean slate.
+func ResetExceptionHosts() {
+	exceptionHosts = nil
+}
+
 // CustomerInnerCIDR is the inner-tunnel address assigned to the customer's
 // wg interface. /16 because the provider daemon TUN sits in the same subnet.
 const CustomerInnerCIDR = "10.66.0.2/16"
 
 // configureTunnelInterface assigns the customer inner IP + bring-up flag +
-// default-route override on the named WG interface. Idempotent — calling
-// twice is a no-op (netlink errors on duplicates are swallowed in tests
-// and surfaced in real runs only on first failure).
+// default-route override on the named WG interface. Pins exception /32
+// routes for every host in exceptionHosts via the pre-VPN default route
+// FIRST so the SDK's own coordinator round-trips + the outer WG UDP
+// packets don't loop back into the unfinished tunnel.
 func configureTunnelInterface(_ context.Context, ifName string) error {
 	link, err := netlink.LinkByName(ifName)
 	if err != nil {
@@ -57,7 +91,6 @@ func configureTunnelInterface(_ context.Context, ifName string) error {
 		return fmt.Errorf("parse %s: %w", CustomerInnerCIDR, err)
 	}
 	if err := netlink.AddrAdd(link, addr); err != nil {
-		// EEXIST is the only ignorable error — we already configured.
 		if !isEEXIST(err) {
 			return fmt.Errorf("addr add: %w", err)
 		}
@@ -66,10 +99,33 @@ func configureTunnelInterface(_ context.Context, ifName string) error {
 		return fmt.Errorf("link up: %w", err)
 	}
 
-	// Default-route split: two /1 routes that together cover all of
-	// IPv4 unicast space but rank more-specific than any existing
-	// 0.0.0.0/0 default. This is the standard pattern WireGuard's own
-	// AllowedIPs = 0.0.0.0/0 expands to; we replicate it directly.
+	// ── 1. Pin exception /32 routes via the original default gateway
+	// ────────────────────────────────────────────────────────────
+	// These MUST land before the /1 override or the next route lookup
+	// for the coordinator/provider host picks the broken tunnel.
+	origGw, origLink, err := defaultRouteOriginal()
+	if err == nil && origGw != nil {
+		for _, host := range exceptionHosts {
+			h32 := host.To4()
+			if h32 == nil {
+				continue
+			}
+			route := &netlink.Route{
+				LinkIndex: origLink,
+				Dst:       &net.IPNet{IP: h32, Mask: net.CIDRMask(32, 32)},
+				Gw:        origGw,
+			}
+			if err := netlink.RouteAdd(route); err != nil && !isEEXIST(err) {
+				return fmt.Errorf("route add exception %s: %w", host, err)
+			}
+		}
+	}
+
+	// ── 2. Default-route override via the tunnel
+	// ────────────────────────────────────────────────────────────
+	// Two /1 routes that together cover all of IPv4 unicast space but
+	// rank more-specific than any existing 0.0.0.0/0 default. Standard
+	// pattern WireGuard's AllowedIPs=0.0.0.0/0 expands to.
 	for _, cidr := range []string{"0.0.0.0/1", "128.0.0.0/1"} {
 		_, dst, err := net.ParseCIDR(cidr)
 		if err != nil {
@@ -85,6 +141,23 @@ func configureTunnelInterface(_ context.Context, ifName string) error {
 		}
 	}
 	return nil
+}
+
+// defaultRouteOriginal returns the gateway + link index of the kernel's
+// pre-VPN default route. Used to pin /32 exception routes through the
+// real ISP gateway instead of the tunnel.
+func defaultRouteOriginal() (net.IP, int, error) {
+	routes, err := netlink.RouteList(nil, netlink.FAMILY_V4)
+	if err != nil {
+		return nil, 0, err
+	}
+	for _, r := range routes {
+		// Default route has Dst == nil OR Dst.IP == 0.0.0.0/0.
+		if r.Dst == nil || r.Dst.IP.Equal(net.IPv4(0, 0, 0, 0)) {
+			return r.Gw, r.LinkIndex, nil
+		}
+	}
+	return nil, 0, fmt.Errorf("no default route found")
 }
 
 // teardownTunnelInterface reverses configureTunnelInterface. Called on

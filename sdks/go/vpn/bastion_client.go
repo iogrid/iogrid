@@ -11,9 +11,20 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
+
+// stripCIDR removes any trailing "/N" mask from an address string so
+// it's a bare IP suitable for net.ParseIP. Candidates often arrive as
+// "10.0.0.1/32" from the provider's ICE enumeration.
+func stripCIDR(s string) string {
+	if i := strings.Index(s, "/"); i > 0 {
+		return s[:i]
+	}
+	return s
+}
 
 // BastionClient is a ready-to-use VPN client for the bastion machine.
 // It combines ICE checking + WireGuard tunnel management with proper error handling.
@@ -219,7 +230,29 @@ func (c *BastionClient) Connect(ctx context.Context, region string) error {
 		return fmt.Errorf("add peer: %w", err)
 	}
 
-	// Step 6: Bring up interface
+	// Step 5b: Pin exception /32 routes for coordinator + provider WG
+	// endpoint via the pre-VPN default gateway. Required BEFORE BringUp
+	// because the BringUp configure step installs the /1 default-route
+	// override that would otherwise loop these IPs back into the
+	// half-built tunnel. Coordinator hostname is resolved here once;
+	// the provider endpoint IP is whatever candidate the picker chose.
+	if coordURL, err := url.Parse(c.coordinatorAddr); err == nil {
+		host := coordURL.Hostname()
+		if ips, err := net.LookupIP(host); err == nil {
+			for _, ip := range ips {
+				if v4 := ip.To4(); v4 != nil {
+					AddExceptionHost(v4)
+				}
+			}
+		}
+	}
+	if provIP := net.ParseIP(stripCIDR(workingCandidate.ConnectionAddress)); provIP != nil {
+		if v4 := provIP.To4(); v4 != nil {
+			AddExceptionHost(v4)
+		}
+	}
+
+	// Step 6: Bring up interface (now safe — exceptions pinned)
 	c.vlog("Bringing up WireGuard interface...\n")
 	if err := c.tunnelMgr.BringUp(ctx, ifName); err != nil {
 		return fmt.Errorf("bring up: %w", err)
