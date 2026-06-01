@@ -751,3 +751,9 @@ Automation follow-up: [bin/refresh-tracker.sh](https://github.com/iogrid/iogrid/
 - Fix landed as c535b3d: hold CONNECTING visible ≥1500ms on the failure path. Real UX improvement (Mullvad does the same).
 - Live App Store Connect record + secrets + public beta link documented in mobile/ios/README.md production-state appendix.
 - Watcher `bt48wnyxn` on the new run.
+
+## 2026-06-02T05:50Z — Mobile iOS CI iteration 3
+- Run 26783866484 (c535b3d, CONNECTING-hold fix): GREEN through cert+sigh; Maestro flow 02 PASSED; failed at flow 03 region picker (auto row filtered out by 'us' search). Fix landed.
+- Run 26784540487 (8e54cb3, regions auto-pin): Failed at fastlane sigh — Apple's 2-cert distribution limit. Previous run's cert occupied one slot.
+- Fix c898fd9 (pre-revoke): API DELETE all IOS_DISTRIBUTION certs before fastlane cert creates a fresh one. Each CI run is now self-contained.
+- Watcher b3y46vvds on latest run.
