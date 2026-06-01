@@ -150,6 +150,51 @@ icon override, let Expo fall back to the top-level
 `"icon": "./assets/images/icon.png"` which uses the legacy
 Images.xcassets format.
 
+### 15. Root `.gitignore` blanket `*.png` excludes asset images
+
+The root iogrid `.gitignore` has `*.png` (for docker / tart image
+bloat). Mobile asset PNGs (icon, splash, adaptive icons, favicon)
+must be force-added via `git add -f` or the `.gitignore` updated
+to exempt `mobile/ios/assets/`. Otherwise prebuild fails with
+`ENOENT: open ./assets/images/icon.png`.
+
+### 16. Local Expo native module — `expo-module.config.json` uses `apple` not `ios`
+
+SDK 56's `expo-modules-autolinking` rejects `platforms: ["ios"]` and
+silently doesn't discover the package. Correct shape:
+```json
+{ "platforms": ["apple"], "apple": { "modules": ["MyModule"] } }
+```
+
+### 17. Local Expo native module — podspec MUST live at `<module>/ios/`
+
+`expo-modules-autolinking resolve` looks for the podspec at
+`<package-root>/ios/<podName>.podspec`. If you put it at the package
+root, autolinking finds the module via `search` but `resolve` returns
+empty pods → no Pod gets generated → "Cannot find native module" at
+runtime. Always: `<module>/ios/<podName>.podspec`.
+
+### 18. Podspec `source_files` is relative to the podspec's directory
+
+If the podspec lives at `<module>/ios/<podName>.podspec`, then
+`s.source_files = "ios/**/*.{h,m,swift}"` resolves to `<module>/ios/ios/...`
+which doesn't exist → empty Pod target → `error: no such module
+'MyModule'` at ExpoModulesProvider.swift:N. Use `s.source_files =
+"*.{h,m,swift}"` to pick up files in the same dir as the podspec.
+
+### 19. Maestro `assertVisible` doesn't accept `timeout:`
+
+Yields `Unknown Property: timeout at .maestro/01-launch.yaml:-1:-1`.
+Maestro's default polling interval (~30s) is adequate. Drop all
+`timeout: <ms>` lines from `assertVisible` / `assertNotVisible`
+directives.
+
+### 20. Maestro `launchApp` doesn't accept `arguments:`
+
+That's an Espresso / XCTest convention, not Maestro. `clearState`
++ `clearKeychain` already produce a fresh-state launch. Just use
+plain `- launchApp`.
+
 ## Iterating CI locally
 
 You can't iterate Xcode 26 builds on the bastion (no macOS). The
