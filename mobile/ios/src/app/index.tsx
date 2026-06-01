@@ -55,6 +55,23 @@ export default function VPNToggleScreen() {
   const onToggle = async (value: boolean) => {
     if (value) {
       setState('CONNECTING');
+      // Hold CONNECTING visible for a minimum window so a fast failure
+      // (e.g. simulator with no NE host, coordinator unreachable, WG
+      // not linked) doesn't make the UI flash OFF before the user
+      // notices the attempt. Mullvad's app does the same: even when
+      // the tunnel is going to fail, the "Connecting…" state stays
+      // visible for ~1.5s so the user can read it.
+      // Doubles as a non-flaky anchor for the Maestro smoke gate —
+      // the 02-toggle-on flow polls for "CONNECTING" and otherwise
+      // misses the ~10ms flash on simulator.
+      const minVisibleStart = Date.now();
+      const holdConnectingVisible = async () => {
+        const elapsed = Date.now() - minVisibleStart;
+        const remaining = 1500 - elapsed;
+        if (remaining > 0) {
+          await new Promise((resolve) => setTimeout(resolve, remaining));
+        }
+      };
       try {
         const identity = await loadOrCreateIdentity();
         const persistedRegion = (await AsyncStorage.getItem(SELECTED_REGION_KEY)) ?? AUTO_REGION_SENTINEL;
@@ -96,10 +113,12 @@ export default function VPNToggleScreen() {
           // never invoked the OS-level start. The QuotaBanner
           // already explains the situation; just unwind the
           // toggle state.
+          await holdConnectingVisible();
           setState('OFF');
         }
       } catch (e) {
         console.warn('vpn start failed', e);
+        await holdConnectingVisible();
         setState('OFF');
       }
     } else {

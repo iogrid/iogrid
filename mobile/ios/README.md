@@ -43,6 +43,33 @@ cd mobile/ios
 
 Script automates everything from there to emrahbaysal@gmail.com receiving the TestFlight invite.
 
+## Production state (live as of 2026-06-02)
+
+Live values on the Dynolabs Apple Developer team:
+
+| Resource | Value |
+|---|---|
+| **App Store Connect App ID** | `6775617937` |
+| Main bundle ID | `io.iogrid.app` (resource: `CZVDX99A2L`) — capabilities: NETWORK_EXTENSIONS, APP_GROUPS, PERSONAL_VPN |
+| Extension bundle ID | `io.iogrid.app.PacketTunnelProvider` (resource: `D48F7P2J6L`) — capabilities: NETWORK_EXTENSIONS, APP_GROUPS |
+| App Group `group.io.iogrid.app` | **NOT created (v1 entitlements stripped per #576 deferral)** — re-add when WireGuardKit lands |
+| External beta group | `vpn-beta` (id: `474ed0b2-429e-47f5-8382-f776e43a3423`) |
+| **Public TestFlight invite link** | **https://testflight.apple.com/join/jHPTNj9P** |
+| Distribution cert | Fresh cert created via fastlane cert in CI (2/2 slot — coexists with vcard's cert) |
+| Provisioning profile | `iogrid App Store` (regenerated each CI run via fastlane sigh) |
+
+iogrid repo secrets (set 2026-06-02):
+
+- `APP_STORE_CONNECT_KEY_ID`
+- `APP_STORE_CONNECT_ISSUER_ID`
+- `APP_STORE_CONNECT_PRIVATE_KEY` (base64-encoded .p8)
+- `APPLE_TEAM_ID`
+- `IOS_DIST_CERT_P12` (base64-encoded — currently for a revoked cert, regenerated each CI run via fastlane cert)
+- `IOS_DIST_P12_PASSWORD`
+- `IOS_DIST_PROVISION`
+
+All exfilled from sibling repos (cinova for the 4 ASC API secrets, vcard for the .p12) via one-shot workflows that were deleted after use. **Founder zero web-UI touches after the one-time App Store Connect "New App" creation.**
+
 ## Quickstart for operators
 
 The complete TestFlight bootstrap runbook is at
