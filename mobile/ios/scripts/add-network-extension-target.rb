@@ -133,7 +133,11 @@ ext_target.build_configurations.each do |bc|
     'CODE_SIGN_ENTITLEMENTS'       => "#{EXTENSION_NAME}/PacketTunnelProvider.entitlements",
     'SWIFT_VERSION'                => SWIFT_VERSION,
     'IPHONEOS_DEPLOYMENT_TARGET'   => DEPLOYMENT_TARGET,
-    'TARGETED_DEVICE_FAMILY'       => '"1,2"',
+    # Plain '1,2' (NO embedded quotes — those caused Xcode 26 to parse
+    # the string as two items '"1' and '2"' and warn "value does not
+    # contain any device family values compatible with the iOS
+    # platform" on the PacketTunnelProvider target).
+    'TARGETED_DEVICE_FAMILY'       => '1,2',
     # NE extension MUST be SKIP_INSTALL=YES — Xcode embeds it into the
     # main app's PlugIns folder via the Embed App Extensions phase, not
     # as a separate installable. SKIP_INSTALL=NO double-installs and

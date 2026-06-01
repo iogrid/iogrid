@@ -11,7 +11,6 @@
       "bundleIdentifier": "io.iogrid.app",
       "buildNumber": "1",
       "supportsTablet": false,
-      "icon": "./assets/expo.icon",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSAppTransportSecurity": {
