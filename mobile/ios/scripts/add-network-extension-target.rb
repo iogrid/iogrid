@@ -35,12 +35,13 @@ APP_GROUP            = 'group.io.iogrid.app'
 DEPLOYMENT_TARGET    = '16.0'
 SWIFT_VERSION        = '5.0'
 
-# WireGuardKit SwiftPM dep. Tracks the `main` branch of
-# wireguard-apple — Zx2c4 ships unversioned, so pinning a release
-# tag is brittle (the previous attempt with `1.0.16-26` was a
-# guess that doesn't exist in the repo).
+# WireGuardKit SwiftPM dep. Tracks the `master` branch of
+# wireguard-apple — zx2c4 uses old-school branch naming (master not
+# main) AND ships unversioned, so neither a release tag nor `main`
+# resolves. Confirmed against git.zx2c4.com/wireguard-apple on the
+# CI's xcodebuild package-resolve step.
 WIREGUARD_REPO   = 'https://git.zx2c4.com/wireguard-apple'
-WIREGUARD_BRANCH = 'main'
+WIREGUARD_BRANCH = 'master'
 
 # ── Pre-flight ──────────────────────────────────────────────────
 unless File.exist?(PROJECT_PATH)
