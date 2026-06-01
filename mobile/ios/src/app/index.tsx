@@ -8,20 +8,44 @@
 // the JS side only, so the smoke flow asserts state changes without
 // a live provider.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Switch, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
+import { AUTO_REGION_SENTINEL } from '@/app/regions';
 
 type TunnelState = 'OFF' | 'CONNECTING' | 'CONNECTED' | 'DISCONNECTING';
 
+const SELECTED_REGION_KEY = 'iogrid.region.selected';
+
 export default function VPNToggleScreen() {
   const [state, setState] = useState<TunnelState>('OFF');
-  const [region] = useState<string>('Best (auto)');
+  const [region, setRegion] = useState<string>('Best (auto)');
+
+  // Re-read the persisted region whenever the toggle screen comes
+  // back into focus (typically: user just tapped a row on the
+  // regions screen + the router popped back). useFocusEffect runs
+  // on every focus, not just mount, so the change reflects without
+  // a manual prop drill or pub/sub.
+  useFocusEffect(
+    useCallback(() => {
+      AsyncStorage.getItem(SELECTED_REGION_KEY)
+        .then((v) => {
+          if (!v || v === AUTO_REGION_SENTINEL) {
+            setRegion('Best (auto)');
+          } else {
+            setRegion(v);
+          }
+        })
+        .catch(() => undefined);
+    }, []),
+  );
 
   const onToggle = (value: boolean) => {
     if (value) {

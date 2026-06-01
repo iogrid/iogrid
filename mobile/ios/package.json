@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "dependencies": {
     "@expo/ui": "~56.0.15",
+    "@react-native-async-storage/async-storage": "^3.1.1",
     "expo": "~56.0.8",
     "expo-clipboard": "^56.0.3",
     "expo-constants": "~56.0.16",
