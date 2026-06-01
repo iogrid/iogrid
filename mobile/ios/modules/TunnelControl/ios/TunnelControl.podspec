@@ -23,5 +23,8 @@ Pod::Spec.new do |s|
     'SWIFT_COMPILATION_MODE' => 'wholemodule'
   }
 
-  s.source_files = "ios/**/*.{h,m,swift}"
+  # source_files paths are RELATIVE to the podspec's directory.
+  # podspec lives at ios/TunnelControl.podspec, so this glob points at
+  # ios/*.{h,m,swift} from the module root.
+  s.source_files = "*.{h,m,swift}"
 end
