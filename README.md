@@ -63,6 +63,11 @@ if anything fails. The control plane is at `https://api.iogrid.org/v1/vpn/*`; th
 data plane is direct peer-to-peer between your machine and an opted-in residential
 provider — iogrid never sees your decrypted traffic.
 
+If a step fails, [docs/runbooks/vpn/customer-onboarding.md](./docs/runbooks/vpn/customer-onboarding.md)
+documents what each command does, the expected output, and the operator-side fix for
+every failure mode. Operators standing up provider daemons should see
+[docs/runbooks/vpn/operator-paired-daemon.md](./docs/runbooks/vpn/operator-paired-daemon.md).
+
 ---
 
 ## Why iogrid exists
