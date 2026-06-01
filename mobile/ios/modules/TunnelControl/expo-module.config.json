@@ -1,6 +1,6 @@
 {
-  "platforms": ["ios"],
-  "ios": {
+  "platforms": ["apple"],
+  "apple": {
     "modules": ["TunnelControlModule"]
   }
 }

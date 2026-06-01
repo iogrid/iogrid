@@ -4,8 +4,5 @@
   "description": "NETunnelProviderManager bridge for iogrid iOS VPN client",
   "main": "src/index",
   "types": "src/index.ts",
-  "private": true,
-  "expo": {
-    "modulePath": "expo-module.config.json"
-  }
+  "keywords": ["expo", "react-native", "vpn", "network-extension"]
 }
