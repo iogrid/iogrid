@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
+
+# Installer manifest points WinGet at the GitHub-Release-hosted .msi.
+# SHA256 is filled in by the `wingetcreate update` flow that runs in
+# `release.yml` against the freshly-built artifact — the placeholder
+# below is intentional and gets rewritten by the release pipeline
+# before the microsoft/winget-pkgs PR is opened.
+
+PackageIdentifier: iogrid.iogrid
+PackageVersion: 0.1.3
+InstallerLocale: en-US
+InstallerType: wix
+Scope: machine
+InstallModes:
+  - interactive
+  - silent
+  - silentWithProgress
+UpgradeBehavior: install
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/iogrid/iogrid/releases/download/v0.1.3/iogrid-windows-x64.msi
+    InstallerSha256: '0000000000000000000000000000000000000000000000000000000000000000'
+    ProductCode: '{B7C9E2D4-1A3F-4E6D-9F2E-5C8A0B1D4F3A}'
+ManifestType: installer
+ManifestVersion: 1.6.0

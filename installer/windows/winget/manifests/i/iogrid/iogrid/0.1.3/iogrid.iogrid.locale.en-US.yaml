@@ -1,0 +1,34 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+
+PackageIdentifier: iogrid.iogrid
+PackageVersion: 0.1.3
+PackageLocale: en-US
+Publisher: iogrid
+PublisherUrl: https://iogrid.org
+PublisherSupportUrl: https://github.com/iogrid/iogrid/issues
+PrivacyUrl: https://iogrid.org/privacy
+Author: iogrid
+PackageName: iogrid
+PackageUrl: https://iogrid.org
+License: Apache-2.0
+LicenseUrl: https://github.com/iogrid/iogrid/blob/main/LICENSE
+Copyright: Copyright (c) 2026 iogrid
+ShortDescription: Peer-to-peer compute + bandwidth mesh — VPN, residential proxy, distributed compute
+Description: |-
+  iogrid is a peer-to-peer network where home PC/Mac owners share idle
+  compute and bandwidth with enterprise customers in exchange for cash,
+  free unlimited VPN, or charity contributions. The Windows installer
+  bundles the provider daemon (iogridd) and the customer-side CLI
+  (iogrid). After install, run `iogrid login` then
+  `iogrid vpn run --region us-east-1` to bring up a VPN tunnel routed
+  through a paired residential provider.
+Moniker: iogrid
+Tags:
+  - vpn
+  - wireguard
+  - proxy
+  - p2p
+  - residential
+ReleaseNotesUrl: https://github.com/iogrid/iogrid/releases/tag/v0.1.3
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

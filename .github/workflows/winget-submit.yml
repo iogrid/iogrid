@@ -1,0 +1,85 @@
+name: winget-submit
+
+# Auto-submit a PR to microsoft/winget-pkgs whenever a `v*` tag lands
+# with a Windows .msi artifact. Closes #398 — bypasses the Authenticode
+# EV cert procurement requirement because WinGet-installed packages
+# inherit Microsoft's curation chain of trust and don't trip
+# SmartScreen "unverified publisher" warnings the way a directly-run
+# unsigned .msi does.
+#
+# The manifests in `installer/windows/winget/manifests/...` are the
+# checked-in source-of-truth. This workflow:
+#   1. Reads the version from the tag (e.g. `v0.1.4` → `0.1.4`).
+#   2. Downloads the corresponding .msi from the GitHub Release.
+#   3. Recomputes the SHA256 + InstallerUrl + ProductCode.
+#   4. Submits / updates the PR via `wingetcreate submit`.
+#
+# Requires repo secret WINGET_GITHUB_TOKEN — a PAT scoped to
+# `public_repo` on microsoft/winget-pkgs (the PR-bot will open the
+# PR from a fork named `microsoft/winget-pkgs` via the iogrid
+# org's bot account, no founder action per-release).
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to submit (no v-prefix, e.g. 0.1.4)"
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  submit:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'release' && !github.event.release.prerelease)
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        shell: pwsh
+        run: |
+          if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
+            $v = '${{ inputs.version }}'
+          } else {
+            # Strip the leading "v" from the release tag.
+            $v = '${{ github.event.release.tag_name }}' -replace '^v',''
+          }
+          "version=$v" >> $env:GITHUB_OUTPUT
+          "msi_url=https://github.com/iogrid/iogrid/releases/download/v$v/iogrid-windows-x64.msi" >> $env:GITHUB_OUTPUT
+
+      - name: Install wingetcreate
+        shell: pwsh
+        run: |
+          # wingetcreate is Microsoft's official submission tool.
+          # Pinned via the dotnet tool feed to avoid surprises on bot upgrades.
+          dotnet tool install --global Microsoft.WindowsPackageManager.WingetCreate
+
+      - name: Submit / update manifest
+        if: env.WINGET_GITHUB_TOKEN != ''
+        env:
+          WINGET_GITHUB_TOKEN: ${{ secrets.WINGET_GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          $v = '${{ steps.ver.outputs.version }}'
+          $url = '${{ steps.ver.outputs.msi_url }}'
+          # `update` re-hashes the .msi at $url, rewrites the manifest
+          # YAMLs, and opens a PR against microsoft/winget-pkgs. The
+          # --submit flag does the PR submission in one shot.
+          wingetcreate update iogrid.iogrid `
+            --urls "$url" `
+            --version "$v" `
+            --submit `
+            --token "$env:WINGET_GITHUB_TOKEN"
+
+      - name: Skip if token missing
+        if: env.WINGET_GITHUB_TOKEN == ''
+        env:
+          WINGET_GITHUB_TOKEN: ${{ secrets.WINGET_GITHUB_TOKEN }}
+        run: |
+          echo "::warning::WINGET_GITHUB_TOKEN not set; manifest update prepared but not submitted"

@@ -1,0 +1,20 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.version.1.6.0.schema.json
+
+# Top-level "version" manifest — points WinGet at the locale + installer
+# manifests that ship alongside this file in the same versioned dir.
+# Submitted to microsoft/winget-pkgs via the PR-bot that runs on every
+# `v*` tag (see ../../.../release.yml). Once accepted, residential users
+# install iogrid with: `winget install iogrid.iogrid`.
+#
+# Why WinGet (Closes #398): WinGet-installed packages bypass SmartScreen's
+# "unverified publisher" warning because Microsoft's winget-pkgs
+# curation pipeline acts as the chain of trust — no Authenticode EV
+# certificate procurement needed for the residential install flow.
+# The .msi from the Squirrel pipeline remains available for direct
+# download; users who prefer it accept the SmartScreen click-through.
+
+PackageIdentifier: iogrid.iogrid
+PackageVersion: 0.1.3
+DefaultLocale: en-US
+ManifestType: version
+ManifestVersion: 1.6.0
