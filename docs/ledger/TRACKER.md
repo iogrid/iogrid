@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-01T20:15Z` 🟢 cron-refresh: +14 commits since last TRACKER bump |
+| Last refreshed | `2026-06-02T04:22Z` 🟢🟢🟢🟢🟢 **iOS BUNDLE IDs REGISTERED programmatically via cinova's Apple credentials**: `io.iogrid.app` (CZVDX99A2L) + `io.iogrid.app.PacketTunnelProvider` (D48F7P2J6L) live in Apple Developer Portal with NETWORK_EXTENSIONS + APP_GROUPS + PERSONAL_VPN caps. EPIC #566 mobile iOS: 7/8 children code-complete + status/uat, 2 BLOCKERs + 3 MAJORs from holistic reviewer addressed (e2adcf7), 15 Xcode 26 gotchas in CONTRIBUTING.md, mobile-ios-ci through iOS Simulator build GREEN. Founder residual: 3-minute web-UI for App Group + ASC New App (Apple's API doesn't expose CREATE). Then `bootstrap-testflight.sh` automates the rest end-to-end including emrahbaysal@gmail.com invite. |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
 | Open PRs | **0** |
