@@ -793,3 +793,9 @@ Automation follow-up: [bin/refresh-tracker.sh](https://github.com/iogrid/iogrid/
 - Remaining: Run Maestro flows → archive → IPA export → altool upload → beta-group assign → invite emrahbaysal@gmail.com.
 - Monitor bx28gluo5 emitting on transitions.
 - Local-only commit 6a0df1f (3s CONNECTING hold) on standby — push if 02 flakes; otherwise post-current-run cleanup.
+
+## 2026-06-02T06:43Z — Iteration 7: run 26786115022 with 3s hold included
+- My earlier "local-only" commit 6a0df1f (3s CONNECTING hold) bundled with the TRACKER push since git push sends all local commits ahead of origin. The mobile/ios/src/app/index.tsx change matched the workflow's path filter, triggering a new run on commit 6154916.
+- Concurrency-cancelled run 26785507380 at Maestro flows step (was about to run them with only 1.5s hold).
+- New run 26786115022 has the FULL fix set: CONNECTING-hold (now 3s) + auto-pin + pre-revoke + per-target profiles + concurrency + dual sigh + plutil UUID + 3s race-margin.
+- Monitor b5fz571mi armed.
