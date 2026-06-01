@@ -1,0 +1,29 @@
+appId: io.iogrid.app
+---
+# Quota banner is server-driven (#573). The smoke flow can't deterministically
+# induce a 'throttled' or 'exhausted' state without minting bandwidth on the
+# backend, but it CAN assert that:
+#   1. By default (no usage) the banner is NOT visible
+#   2. The component renders fine when the JS layer puts it in a "test" state
+#      via a dev shortcut (not implemented in v1 — would require a debug
+#      menu that #574 may add)
+#
+# v1 smoke: just assert the banner ISN'T showing on first launch. That's the
+# regression we'd catch — a code change that defaulted to showing the
+# "exhausted" banner before the server responded.
+- clearState
+- clearKeychain
+- launchApp
+
+- assertVisible:
+    id: "vpn-toggle"
+    timeout: 5000
+
+# No banner visible on first launch (server hasn't responded yet, quota
+# defaults to UNSPECIFIED which renders null per QuotaBanner.tsx).
+- assertNotVisible:
+    id: "quota-banner-throttled"
+- assertNotVisible:
+    id: "quota-banner-exhausted"
+
+- takeScreenshot: 05-no-banner-on-first-launch

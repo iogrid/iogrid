@@ -86,6 +86,103 @@ export async function topProvidersInRegion(
   }));
 }
 
+// ── Sessions (#573 quota_state) ─────────────────────────────────
+
+export type QuotaState =
+  | 'QUOTA_STATE_OK'
+  | 'QUOTA_STATE_THROTTLED'
+  | 'QUOTA_STATE_EXHAUSTED'
+  | 'QUOTA_STATE_UNSPECIFIED';
+
+export interface SessionState {
+  sessionId: string;
+  state: string;
+  region: string;
+  quotaState: QuotaState;
+  bytesIn: number;
+  bytesOut: number;
+}
+
+/**
+ * POST /v1/vpn/sessions — request a new VPN session. The mobile app
+ * uses region="auto" by default; the coordinator picks the best
+ * provider across all regions (per #570). API key is the customer's
+ * Mullvad-style anon ID derived UUID (per #569) — vpn-svc creates
+ * the customer row on first sight with tier=FREE.
+ */
+export async function requestSession(
+  apiKey: string,
+  customerId: string,
+  region: string,
+): Promise<SessionState> {
+  const res = await fetch(`${baseURL()}/v1/vpn/sessions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({
+      api_key: apiKey,
+      customer_id: customerId,
+      region,
+    }),
+  });
+  if (res.status === 429) {
+    // Quota exhausted — body still has quota_state for the banner to read.
+    const body = (await res.json()) as { quota_state?: string };
+    return {
+      sessionId: '',
+      state: 'EXHAUSTED',
+      region,
+      quotaState: (body.quota_state as QuotaState) ?? 'QUOTA_STATE_EXHAUSTED',
+      bytesIn: 0,
+      bytesOut: 0,
+    };
+  }
+  if (!res.ok) {
+    throw new CoordinatorError(`requestSession: HTTP ${res.status}`);
+  }
+  const body = (await res.json()) as {
+    session_id: string;
+    state: string;
+    region: string;
+    quota_state?: string;
+    bytes_in?: number;
+    bytes_out?: number;
+  };
+  return {
+    sessionId: body.session_id,
+    state: body.state,
+    region: body.region,
+    quotaState: (body.quota_state as QuotaState) ?? 'QUOTA_STATE_UNSPECIFIED',
+    bytesIn: body.bytes_in ?? 0,
+    bytesOut: body.bytes_out ?? 0,
+  };
+}
+
+/** GET /v1/vpn/sessions/{id} — fetch session state for heartbeat / banner refresh. */
+export async function getSession(sessionId: string, apiKey: string): Promise<SessionState> {
+  const res = await fetch(`${baseURL()}/v1/vpn/sessions/${encodeURIComponent(sessionId)}?api_key=${encodeURIComponent(apiKey)}`, {
+    headers: { Accept: 'application/json' },
+  });
+  if (!res.ok) {
+    throw new CoordinatorError(`getSession: HTTP ${res.status}`);
+  }
+  const body = (await res.json()) as {
+    session_id: string;
+    state: string;
+    region: string;
+    quota_state?: string;
+    bytes_in?: number;
+    bytes_out?: number;
+  };
+  return {
+    sessionId: body.session_id,
+    state: body.state,
+    region: body.region,
+    quotaState: (body.quota_state as QuotaState) ?? 'QUOTA_STATE_UNSPECIFIED',
+    bytesIn: body.bytes_in ?? 0,
+    bytesOut: body.bytes_out ?? 0,
+  };
+}
+
 // ── Errors ───────────────────────────────────────────────────────
 
 export class CoordinatorError extends Error {

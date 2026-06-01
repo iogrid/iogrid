@@ -24,3 +24,4 @@ appId: io.iogrid.app
 - runFlow: 02-toggle-on.yaml
 - runFlow: 03-region-picker.yaml
 - runFlow: 04-settings-account-id.yaml
+- runFlow: 05-quota-banner.yaml
