@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-01T00:27Z` 🟢🟢🟢 **vpn-e2e-smoke runs the FULL README quickstart against live api.iogrid.org**. Run 26728829669: install + login + regions + connect = ALL GREEN ("VPN tunnel established successfully!"). Only data-plane (curl ifconfig.me) shows expected `Exit IP unchanged` — gated on worker's #529 path c TUN+MASQUERADE. Workflow message literally cites the issue # so the moment worker ships, CI flips green and #532 closes. 20 PRs this session, 12 closures. Customer end-to-end onboarding now under continuous CI verification. |
+| Last refreshed | `2026-06-01T00:33Z` 🟢 e0d9fc9 — customer-side data plane: SDK now assigns 10.66.0.2/16 + default-route override (two /1 routes) on wg-iogrid0 after BringUp; smoke uses `vpn run` (persistent, holds TUN open) instead of `vpn connect` (one-shot, kernel GCs TUN). 21 PRs, 12 closures. Daemon-side TUN forwarding (#529 path c provider-side) still gates final green — worker idle, lead may take it. |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
 | Open PRs | **0** |
