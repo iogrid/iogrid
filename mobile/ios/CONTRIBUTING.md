@@ -195,6 +195,34 @@ That's an Espresso / XCTest convention, not Maestro. `clearState`
 + `clearKeychain` already produce a fresh-state launch. Just use
 plain `- launchApp`.
 
+### 21. Maestro `assertVisible: "string"` is REGEX, not literal
+
+The short form treats the string as a regex pattern. Parens become
+capture groups, dots match any char, `*` and `+` are quantifiers.
+A label like `"Best (auto)"` becomes the regex `Best (auto)` which
+matches "Best auto" but NOT "Best (auto)" with literal parens —
+the gate then fails on rendered text that visibly IS there.
+
+Workarounds (pick one):
+- Match a regex-safe substring: `- assertVisible: "Best"`
+- Escape the metachars: `- assertVisible: "Best \\(auto\\)"` (YAML
+  double-escape — the on-wire regex is `Best \(auto\)`)
+- Use the long form which (per current Maestro 2.6) is still regex
+  too: `- assertVisible:\n    text: "Best"`
+- Prefer testID assertions when the label has metachars:
+  `- assertVisible:\n    id: "region-row-auto"`
+
+### 22. CONNECTING state visibility for the smoke gate
+
+The PacketTunnelProvider start() rejects fast on simulator (no NE
+host). The JS try/catch reverts state OFF→CONNECTING→OFF in <50ms
+— faster than Maestro's polling. Hold CONNECTING visible 3000ms
+in the catch path (src/app/index.tsx `holdConnectingVisible`).
+Real UX improvement (Mullvad does the same) and the smoke gate's
+`assertVisible: "CONNECTING"` becomes deterministic. The 3000ms
+margin also covers `takeScreenshot` latency + the second tap that
+toggles back through DISCONNECTING.
+
 ## Iterating CI locally
 
 You can't iterate Xcode 26 builds on the bastion (no macOS). The
