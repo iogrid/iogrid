@@ -748,4 +748,4 @@ jobs:
           APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
           BUNDLE_ID: io.iogrid.app
           RUN_NUMBER: ${{ github.run_number }}
-          BETA_GROUP_NAME: Founders
+          BETA_GROUP_NAME: vpn-beta
