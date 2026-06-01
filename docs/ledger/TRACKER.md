@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-01T19:00Z` 🟢 cron-refresh: +6 commits since last TRACKER bump |
+| Last refreshed | `2026-06-02T03:08Z` 🟢🟢🟢🟢🟢 **MOBILE EPIC #566 — 7 of 8 children GREEN, #568 status/completed via Playwright UAT walk.** 4 surfaces walked + screenshotted: toggle screen (no login ambush), region picker ('Best (auto)' default + offline-graceful), settings (account-number label), toggle ON state transition. Evidence under `docs/evidence/566-mobile-uat-walk-2026-06-02/`. Independent code-review sub-agent dispatched on the NE Swift + Expo config plugin + Ruby xcodeproj script. Remaining EPIC children: #574 (App Store / TestFlight beta crew, gated on #575 Apple secrets), #576 (WireGuardKit SwiftPM wire, deferred — upstream Swift 6 compat). The mobile-ios-ci pipeline is iterating through scheme discovery + xcodebuild simulator build; SKIP_INSTALL=NO → YES fix on the NE target shipped in 616c9c8 should unblock the double-install error. Sub-agent #573 + #572 + #570 all landed clean in worktree isolation tonight. |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
 | Open PRs | **0** |

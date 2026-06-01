@@ -147,6 +147,10 @@ unless embed_phase
   embed_phase = project.new(Xcodeproj::Project::Object::PBXCopyFilesBuildPhase)
   embed_phase.name = 'Embed App Extensions'
   embed_phase.symbol_dst_subfolder_spec = :plug_ins
+  # dst_path must be empty for the PlugIns destination — Xcode appends
+  # to <wrapper>/PlugIns/ automatically. Any non-empty value here
+  # double-nests the appex.
+  embed_phase.dst_path = ''
   main_target.build_phases << embed_phase
 end
 
@@ -154,18 +158,26 @@ end
 # product reference is on ext_target.product_reference once the
 # target exists.
 #
-# IDEMPOTENCY GUARD: if a prior `expo prebuild --clean` left an embed
-# file entry referencing this target's product, don't add a second
-# one — xcodebuild rejects with "Multiple commands produce" otherwise.
-# We match on product_reference identity (Xcodeproj objects use UUID
-# comparison via ==).
+# IDEMPOTENCY GUARD: match on EITHER product_reference identity OR
+# file_ref.path matching "<name>.appex". The path check catches the
+# case where a prior partial run created an embed entry referencing
+# a now-different product_reference UUID (e.g. early exit removed,
+# then re-run).
 existing_embed = embed_phase.files.find do |f|
-  f.file_ref == ext_target.product_reference
+  next false unless f.file_ref
+  f.file_ref == ext_target.product_reference ||
+    (f.file_ref.respond_to?(:path) && f.file_ref.path == "#{EXTENSION_NAME}.appex")
 end
 unless existing_embed
   embed_file = project.new(Xcodeproj::Project::Object::PBXBuildFile)
   embed_file.file_ref = ext_target.product_reference
-  embed_file.settings = { 'ATTRIBUTES' => ['RemoveHeadersOnCopy'] }
+  # CodeSignOnCopy is REQUIRED for App Store ingestion. Without it,
+  # altool rejects with 'Invalid bundle. The bundle ... is invalid'
+  # because the embedded .appex isn't re-signed under the main app's
+  # provisioning profile during the copy step. RemoveHeadersOnCopy
+  # is belt-and-braces for the .h files Pod targets occasionally
+  # leave behind. (Reviewer #568 finding 1, MAJOR.)
+  embed_file.settings = { 'ATTRIBUTES' => ['CodeSignOnCopy', 'RemoveHeadersOnCopy'] }
   embed_phase.files << embed_file
 end
 

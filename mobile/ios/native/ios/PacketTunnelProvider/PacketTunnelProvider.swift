@@ -511,8 +511,16 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         // `update` which accepts a full TunnelConfiguration; we
         // synthesize one with `peerPublicKey` mapped to the winner's
         // peer key.
-        adapter.update(tunnelConfiguration: buildSwappedConfig(currentEndpoint: newEndpoint,
-                                                                newPeerPublicKey: provider.wgPublicKey)) { [weak self] error in
+        guard let newConfig = buildSwappedConfig(currentEndpoint: newEndpoint,
+                                                  newPeerPublicKey: provider.wgPublicKey) else {
+            // buildSwappedConfig returned nil — keep existing tunnel.
+            // Re-pin aborts safely (no adapter.update call). Reviewer
+            // #568 finding 2: phantom random-key configs would
+            // silently kill the tunnel.
+            os_log("repin aborted (config build failed)", log: logger, type: .error)
+            return
+        }
+        adapter.update(tunnelConfiguration: newConfig) { [weak self] error in
             guard let self = self else { return }
             let elapsedMs = self.elapsedMillis(since: started)
             if let error = error {
@@ -554,23 +562,29 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     /// lands in the SwiftPM-wiring milestone (#568). Until then this
     /// function is unreachable in the scaffold-only build (gated by
     /// the same #if canImport(WireGuardKit) above).
-    private func buildSwappedConfig(currentEndpoint: Endpoint, newPeerPublicKey: String) -> TunnelConfiguration {
+    private func buildSwappedConfig(currentEndpoint: Endpoint, newPeerPublicKey: String) -> TunnelConfiguration? {
         // Re-decode the providerConfiguration to get a fresh
         // TunnelConfiguration, then swap the peer endpoint/key.
-        // Falling back to the existing decoder keeps this file the
-        // single source of truth for the roaming flow.
+        // Returns nil on decode failure so the caller bails the
+        // re-pin rather than substituting a phantom random-key
+        // config — reviewer #568 finding 2, MAJOR. Phantom-key
+        // would silently kill the tunnel since the peer doesn't
+        // know our re-generated identity.
         let providerConfig = (protocolConfiguration as? NETunnelProviderProtocol)?
             .providerConfiguration ?? [:]
-        let base = try? TunnelConfigurationDecoder.decode(providerConfig)
-        let cfg = base?.wireguardConfig ?? TunnelConfiguration(name: "iogrid", interface: InterfaceConfiguration(privateKey: PrivateKey()), peers: [])
+        guard let base = try? TunnelConfigurationDecoder.decode(providerConfig) else {
+            os_log("buildSwappedConfig: decode failed — aborting re-pin", log: logger, type: .error)
+            return nil
+        }
+        let cfg = base.wireguardConfig
         var peers = cfg.peers
-        if peers.isEmpty {
-            // Should never happen — startTunnel would have failed
-            // earlier. Defensive only.
-            return cfg
+        guard !peers.isEmpty else {
+            os_log("buildSwappedConfig: no peers in decoded config — aborting", log: logger, type: .error)
+            return nil
         }
         guard let newKey = PublicKey(base64Key: newPeerPublicKey) else {
-            return cfg
+            os_log("buildSwappedConfig: invalid newPeerPublicKey — aborting", log: logger, type: .error)
+            return nil
         }
         var peer = peers[0]
         peer.endpoint = currentEndpoint
