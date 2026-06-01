@@ -121,6 +121,13 @@ func cmdLogin(args []string) {
 	coordinator := fs.String("coordinator", defaultCoordinator, "Coordinator base URL")
 	_ = fs.Parse(args)
 
+	// Trim whitespace — a common footgun is feeding the values from
+	// `echo "$IOGRID_API_KEY" | gh secret set …` which appends a newline,
+	// then the trailing \n in customer_id makes uuid.Parse 400 on the
+	// next vpn connect call. Trim eagerly so the CLI does the right thing
+	// whether the operator pasted, used heredoc, or piped.
+	*apiKey = strings.TrimSpace(*apiKey)
+	*customerID = strings.TrimSpace(*customerID)
 	if *apiKey == "" || *customerID == "" {
 		fmt.Fprintln(os.Stderr, "ERROR: --api-key and --customer-id are required.")
 		fmt.Fprintln(os.Stderr, "       Mint both at https://iogrid.org/customer/vpn")
