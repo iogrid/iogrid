@@ -1,0 +1,35 @@
+appId: io.iogrid.app
+---
+# First-launch contract: app boots without crash, toggle screen renders,
+# no login screen ambushes the user. This is the MOST important flow —
+# if this fails, none of the others matter.
+- clearState
+- clearKeychain
+- launchApp:
+    arguments:
+      - -ResetUserDefaults
+      - "1"
+
+# App title visible within 5s
+- assertVisible:
+    text: "iogrid"
+    timeout: 5000
+
+# Toggle present + in OFF state (renders the testID injected in
+# mobile/ios/src/app/index.tsx)
+- assertVisible:
+    id: "vpn-toggle"
+    timeout: 3000
+- assertVisible: "OFF"
+
+# No login screen ambushed us — neither "Sign in", "Email", "Password"
+# nor any auth-pattern text is visible. This is the Mullvad-model
+# guarantee from EPIC #566.
+- assertNotVisible: "Sign in"
+- assertNotVisible: "Email"
+- assertNotVisible: "Password"
+- assertNotVisible: "Create account"
+
+# Snapshot for the issue evidence trail. Lands in
+# $RUNNER_TEMP/maestro-screenshots/ in CI (per the vcard pattern).
+- takeScreenshot: 01-launch-empty-state

@@ -1,0 +1,26 @@
+appId: io.iogrid.app
+---
+# Master flow — orchestrates the iogrid iOS smoke gate in dependency
+# order. `maestro test .maestro/` parallelizes flows which breaks
+# chained scenarios (later flows reuse state from earlier ones — e.g.
+# 02-toggle-on assumes the toggle screen rendered by 01-launch).
+#
+# CI invokes this single file, NOT the directory, per the vcard
+# pattern that learned this the hard way (~10 broken builds before
+# converging on serial execution).
+#
+# Scope of v1 (bootstrap):
+#   01 — first-launch contract (no login screen, toggle visible)
+#   02 — toggle ON → CONNECTING state (no real WG connect — that's #572)
+#   03 — region picker reachable + 'Best (auto)' default
+#   04 — settings reachable + account-number row present
+#
+# Out of scope for the smoke (covered by separate e2e-with-provider
+# job once #568 + #569 + #570 + #572 land):
+#   - Real WG handshake via PacketTunnelProvider
+#   - Real exit-IP change observable from in-app webview
+#   - Roaming WiFi ↔ cellular tunnel survival
+- runFlow: 01-launch.yaml
+- runFlow: 02-toggle-on.yaml
+- runFlow: 03-region-picker.yaml
+- runFlow: 04-settings-account-id.yaml

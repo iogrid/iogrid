@@ -1,4 +1,4 @@
-name: mobile-ios-ci
+name: mobile-ios-ci TestFlight
 
 on:
   push:
@@ -13,13 +13,14 @@ on:
       - 'mobile/ios/src/hooks/**'
       - 'mobile/ios/src/constants/**'
       - 'mobile/ios/assets/**'
+      - 'mobile/ios/.maestro/**'
       - '.github/workflows/mobile-ios-ci.yml'
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: macos-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: mobile/ios
@@ -109,36 +110,209 @@ jobs:
             | base64 -d > ~/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8
           chmod 600 ~/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8
 
-      - name: Install distribution cert + provisioning profile
-        # Manual signing: import the App Store Distribution .p12 into a
-        # temporary keychain, drop the .mobileprovision into the standard
-        # location Xcode reads. xcodebuild then uses CODE_SIGN_STYLE=Manual.
+      - name: Create temp keychain (cert comes from fastlane cert)
+        # The IOS_DIST_CERT_P12 secret holds a REVOKED Distribution cert
+        # (HATICE YILDIZ BAYSAL, serial 1977D8398FBA7D19E244D688F2CB211D).
+        # Importing it caused xcodebuild to pick the revoked cert during
+        # archive even when fastlane cert had created a fresh one — the
+        # revoked one was listed first in the keychain.
+        #
+        # Don't import the secret. Create an empty keychain; fastlane
+        # cert in the next step creates a fresh cert in Apple's portal
+        # and imports it here.
         run: |
           set -euo pipefail
-          # 1. Decode artifacts
-          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          echo "${{ secrets.IOS_DIST_CERT_P12 }}" | base64 -d > $RUNNER_TEMP/dist.p12
-          echo "${{ secrets.IOS_DIST_PROVISION }}" | base64 -d > $RUNNER_TEMP/dist.mobileprovision
-          # 2. Read the profile UUID — Xcode looks the profile up by UUID-named file
-          UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<<"$(security cms -D -i $RUNNER_TEMP/dist.mobileprovision)")
-          echo "Profile UUID: $UUID"
-          cp $RUNNER_TEMP/dist.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/$UUID.mobileprovision
-          # 3. Create temporary keychain (avoids prompting on default login keychain)
           KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain-db
           KEYCHAIN_PASSWORD=$(openssl rand -hex 16)
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          # 4. Import .p12 with the password it was packaged with
-          security import $RUNNER_TEMP/dist.p12 -P "${{ secrets.IOS_DIST_P12_PASSWORD }}" \
-            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
-          # 5. Allow codesign to use the keychain without prompting
-          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          # 6. Add the new keychain to the search list (front)
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" || true
           security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | sed s/\"//g)
           security default-keychain -s "$KEYCHAIN_PATH"
-          # 7. Confirm
+          # Persist for fastlane cert / sigh in the next step.
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> $GITHUB_ENV
+          echo "KEYCHAIN_PASSWORD=$KEYCHAIN_PASSWORD" >> $GITHUB_ENV
+
+      - name: Fetch fresh App Store provisioning profile via fastlane sigh
+        # fastlane sigh hits Apple Developer Portal via the ASC API key,
+        # regenerates the App Store profile for io.iogrid.app with
+        # whatever capabilities are CURRENTLY enabled on the App ID
+        # (SIWA / push / associated-domains / anything added later just
+        # works), downloads the fresh .mobileprovision, and installs it
+        # where Xcode reads it. Manual signing in the archive step picks
+        # it up by PROVISIONING_PROFILE_SPECIFIER name.
+        #
+        # sigh CLI doesn't read APP_STORE_CONNECT_API_KEY_* env vars
+        # (those only work inside a Fastfile), so we materialise the
+        # API key as a JSON file and pass --api_key_path.
+        env:
+          FASTLANE_HIDE_CHANGELOG:    "1"
+          FASTLANE_SKIP_UPDATE_CHECK: "1"
+        run: |
+          set -euo pipefail
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          # Build the fastlane api-key JSON. `key` carries the P8 PEM
+          # body inline (raw multi-line PEM, not base64) — fastlane
+          # parses this format directly.
+          export KEY_FILE=$HOME/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8
+          export API_JSON=$RUNNER_TEMP/asc_api_key.json
+          export ASC_KEY_ID="${{ secrets.APP_STORE_CONNECT_KEY_ID }}"
+          export ASC_ISSUER_ID="${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}"
+          python3 - <<'PY'
+          import json, os
+          pem = open(os.environ['KEY_FILE']).read()
+          obj = {
+            "key_id":   os.environ['ASC_KEY_ID'],
+            "issuer_id":os.environ['ASC_ISSUER_ID'],
+            "key":      pem,
+            "duration": 1200,
+            "in_house": False,
+          }
+          with open(os.environ['API_JSON'], 'w') as f:
+            json.dump(obj, f)
+          PY
+          # Apple's cert limit (2 per account) is full. fastlane cert
+          # --force doesn't actually auto-revoke (just retries, hits the
+          # same limit, errors). Pre-revoke ONE cert via the ASC API
+          # directly using a freshly-minted JWT so fastlane cert has
+          # room to create a new one with a private key here.
+          # macOS-runner system Python rejects pip install without
+          # --break-system-packages (PEP 668). Install pyjwt + cryptography
+          # to user site so the inline script can import.
+          pip3 install --quiet --break-system-packages --user pyjwt cryptography 2>&1 | tail -2 || true
+          python3 - <<'PY'
+          import json, os, sys, time, base64, urllib.request, urllib.error, urllib.parse
+          # Look in user site-packages.
+          import site
+          for p in site.getusersitepackages() if isinstance(site.getusersitepackages(), list) else [site.getusersitepackages()]:
+              if p not in sys.path:
+                  sys.path.insert(0, p)
+          import jwt as pyjwt
+          key_id    = os.environ['ASC_KEY_ID']
+          issuer_id = os.environ['ASC_ISSUER_ID']
+          pem       = open(os.environ['KEY_FILE']).read()
+          tok = pyjwt.encode(
+              {'iss': issuer_id, 'iat': int(time.time()), 'exp': int(time.time())+1200, 'aud': 'appstoreconnect-v1'},
+              pem, algorithm='ES256', headers={'kid': key_id, 'typ': 'JWT'}
+          )
+          if isinstance(tok, bytes):
+              tok = tok.decode()
+          hdrs = {'Authorization': f'Bearer {tok}', 'Accept': 'application/json'}
+          # Apple's certificate types relevant for iOS distribution:
+          #   DISTRIBUTION         — unified Apple Distribution (iOS+tvOS+watchOS+macOS)
+          #   IOS_DISTRIBUTION     — legacy iOS-only
+          #   MAC_APP_DISTRIBUTION — mac-only
+          # Filter for both flavors that count against the iOS dist limit.
+          req = urllib.request.Request(
+              'https://api.appstoreconnect.apple.com/v1/certificates?limit=200',
+              headers=hdrs,
+          )
+          with urllib.request.urlopen(req) as r:
+              data = json.load(r)
+          all_certs = data.get('data', [])
+          dist_types = {'DISTRIBUTION', 'IOS_DISTRIBUTION'}
+          certs = [c for c in all_certs if c['attributes'].get('certificateType') in dist_types]
+          print(f"existing distribution certs: {len(certs)} (of {len(all_certs)} total)")
+          for c in certs:
+              a = c.get('attributes', {})
+              print(f"  - id={c['id']} type={a.get('certificateType')} name={a.get('name')} expires={a.get('expirationDate')}")
+          if len(certs) >= 2:
+              # Revoke the oldest one (lowest expirationDate) — frees a slot.
+              certs.sort(key=lambda c: c['attributes'].get('expirationDate') or '')
+              victim = certs[0]
+              print(f"revoking oldest: {victim['id']} ({victim['attributes'].get('name')})")
+              dreq = urllib.request.Request(
+                  f"https://api.appstoreconnect.apple.com/v1/certificates/{victim['id']}",
+                  headers=hdrs, method='DELETE',
+              )
+              try:
+                  urllib.request.urlopen(dreq).read()
+                  print('revoked OK')
+              except urllib.error.HTTPError as e:
+                  print(f'revoke HTTP {e.code}: {e.read().decode()[:200]}')
+
+          # ALSO purge ALL existing provisioning profiles named
+          # "Dynolabs vCard App Store" — they're bound to certs we may
+          # have just revoked or that aren't in the runner's keychain.
+          # If we don't, sigh sees a name collision and creates a
+          # suffixed profile ("Dynolabs vCard App Store 1779030247"),
+          # but the archive step references the canonical name.
+          PROFILE_NAME = "Dynolabs vCard App Store"
+          preq = urllib.request.Request(
+              f'https://api.appstoreconnect.apple.com/v1/profiles?filter[name]={urllib.parse.quote(PROFILE_NAME)}&limit=200',
+              headers=hdrs,
+          )
+          try:
+              with urllib.request.urlopen(preq) as r:
+                  pdata = json.load(r)
+          except urllib.error.HTTPError as e:
+              print(f'profiles list HTTP {e.code}: {e.read().decode()[:200]}')
+              pdata = {'data': []}
+          for p in pdata.get('data', []):
+              pid = p['id']
+              pname = p.get('attributes', {}).get('name', '')
+              print(f'deleting profile {pid} ({pname})')
+              dreq = urllib.request.Request(
+                  f'https://api.appstoreconnect.apple.com/v1/profiles/{pid}',
+                  headers=hdrs, method='DELETE',
+              )
+              try:
+                  urllib.request.urlopen(dreq).read()
+                  print('  deleted OK')
+              except urllib.error.HTTPError as e:
+                  print(f'  delete HTTP {e.code}: {e.read().decode()[:200]}')
+          PY
+          # fastlane cert creates a fresh DISTRIBUTION cert AND captures
+          # the cert ID to a file. We MUST pin sigh to this exact cert
+          # ID — if there are multiple dist certs on the account (likely,
+          # given Apple's 2-cert limit per type), sigh otherwise picks
+          # the first one alphabetically and binds the profile to it,
+          # but the keychain only has the cert we just generated. Result:
+          # provisioning profile cert mismatch at archive time.
+          fastlane cert \
+            --api_key_path "$API_JSON" \
+            --team_id ${{ secrets.APPLE_TEAM_ID }} \
+            --output_path $RUNNER_TEMP \
+            --keychain_path "$KEYCHAIN_PATH" \
+            --keychain_password "$KEYCHAIN_PASSWORD" \
+            2>&1 | tee "$RUNNER_TEMP/cert.log"
+          # Parse the cert ID fastlane just generated/found. Two cases:
+          #   "Successfully generated <ID> which was imported..."  (new)
+          #   "Found the certificate <ID> ..."                     (reuse)
+          NEW_CERT_ID=$(grep -oE 'Successfully generated [A-Z0-9]{10}|Found the certificate [A-Z0-9]{10}' "$RUNNER_TEMP/cert.log" \
+            | head -1 | awk '{print $NF}')
+          if [ -z "$NEW_CERT_ID" ]; then
+            echo "::error::Could not parse cert ID from fastlane cert output"
+            cat "$RUNNER_TEMP/cert.log"
+            exit 1
+          fi
+          echo "Pinning sigh to cert ID: $NEW_CERT_ID"
+          # Import any .p12 fastlane cert wrote (idempotent — if it found
+          # an existing cert, it skipped writing a new .p12).
+          for p12 in "$RUNNER_TEMP"/*.p12; do
+            [ -f "$p12" ] || continue
+            echo "Importing fastlane-generated .p12: $p12"
+            security import "$p12" -P "" \
+              -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH" || true
+          done
+          security set-key-partition-list -S apple-tool:,apple: \
+            -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" >/dev/null 2>&1 || true
+          echo "=== identities in keychain ==="
           security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+          fastlane sigh renew \
+            --api_key_path "$API_JSON" \
+            --app_identifier io.iogrid.app \
+            --team_id ${{ secrets.APPLE_TEAM_ID }} \
+            --provisioning_name "Dynolabs vCard App Store" \
+            --output_path $RUNNER_TEMP \
+            --filename dist.mobileprovision \
+            --cert_id "$NEW_CERT_ID" \
+            --force
+          # Install the just-downloaded profile where Xcode reads it
+          UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<<"$(security cms -D -i $RUNNER_TEMP/dist.mobileprovision)")
+          echo "Fresh profile UUID: $UUID"
+          cp $RUNNER_TEMP/dist.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/$UUID.mobileprovision
 
       - name: Discover scheme
         id: scheme
@@ -279,7 +453,7 @@ jobs:
         run: |
           set -euo pipefail
           # Direct path — Xcode 26 puts the app here for sim builds.
-          APP="$RUNNER_TEMP/sim-build/Build/Products/Release-iphonesimulator/DynolabsvCard.app"
+          APP="$RUNNER_TEMP/sim-build/Build/Products/Release-iphonesimulator/iogrid.app"
           if [ ! -d "$APP" ]; then
             echo "::error::Expected app not at $APP"
             find $RUNNER_TEMP/sim-build/Build/Products -maxdepth 3 -type d -name "*.app" 2>/dev/null
@@ -288,13 +462,19 @@ jobs:
           echo "Installing $APP onto $SIM_UDID"
           xcrun simctl install "$SIM_UDID" "$APP"
           # Pre-grant permissions so iOS doesn't show the system prompt mid-test
-          xcrun simctl privacy "$SIM_UDID" grant photos    io.dynolabs.vcard || true
-          xcrun simctl privacy "$SIM_UDID" grant camera    io.dynolabs.vcard || true
-          xcrun simctl privacy "$SIM_UDID" grant contacts  io.dynolabs.vcard || true
-          # Pre-grant permissions so iOS doesn't show the system prompt mid-test
-          xcrun simctl privacy "$SIM_UDID" grant photos    io.dynolabs.vcard || true
-          xcrun simctl privacy "$SIM_UDID" grant camera    io.dynolabs.vcard || true
-          xcrun simctl privacy "$SIM_UDID" grant contacts  io.dynolabs.vcard || true
+          xcrun simctl privacy "$SIM_UDID" grant photos    io.iogrid.app || true
+          xcrun simctl privacy "$SIM_UDID" grant camera    io.iogrid.app || true
+          xcrun simctl privacy "$SIM_UDID" grant contacts  io.iogrid.app || true
+          # Seed the simulator's Photos library with one image so PHPicker
+          # has content when the photo flow tests "Choose from library".
+          # Use any PNG from the repo assets — the icon is fine.
+          curl -fsSL -o /tmp/seed.jpg "https://picsum.photos/seed/picsum/512/512" 2>/dev/null || \
+            convert -size 512x512 xc:blue /tmp/seed.jpg 2>/dev/null || \
+            cp ./assets/images/icon.png /tmp/seed.jpg 2>/dev/null || true
+          if [ -f /tmp/seed.jpg ]; then
+            xcrun simctl addmedia "$SIM_UDID" /tmp/seed.jpg || true
+            echo "Seeded sim Photos with /tmp/seed.jpg"
+          fi
 
       - name: Install Maestro
         run: |
@@ -311,11 +491,29 @@ jobs:
           maestro --version
           # Stream simulator log to a file in parallel so we capture
           # any crash trace alongside the maestro report.
-          xcrun simctl spawn "$SIM_UDID" log stream --predicate 'process == "DynolabsvCard"' \
+          xcrun simctl spawn "$SIM_UDID" log stream --predicate 'process == "iogrid"' \
             > $RUNNER_TEMP/sim.log 2>&1 &
           LOG_PID=$!
           set +e
-          maestro --device "$SIM_UDID" test --format=junit --output=$RUNNER_TEMP/maestro-junit.xml .maestro/
+          # Maestro's `- takeScreenshot:` directives drop PNGs into the
+          # CURRENT WORKING DIRECTORY by default (NOT into ~/.maestro/
+          # tests/<run>/), so any artifact-upload that only mirrors
+          # ~/.maestro/tests misses them. Fix: cd into a dedicated dir
+          # we control AND know gets uploaded.
+          MAESTRO_SCREEN_DIR=$RUNNER_TEMP/maestro-screenshots
+          mkdir -p "$MAESTRO_SCREEN_DIR"
+          # Run via the master flow (00-all.yaml) so flows execute in the
+          # documented order. `maestro test .maestro/` parallelizes flows
+          # which breaks chained scenarios (edit/share/delete depend on
+          # the card created by 02-create-card). Pass absolute paths so
+          # the cd into MAESTRO_SCREEN_DIR doesn't break flow discovery.
+          (
+            cd "$MAESTRO_SCREEN_DIR" && \
+            maestro --device "$SIM_UDID" test \
+              --format=junit \
+              --output="$RUNNER_TEMP/maestro-junit.xml" \
+              "$GITHUB_WORKSPACE/mobile/ios/.maestro/00-all.yaml"
+          )
           MAESTRO_EXIT=$?
           set -e
           kill $LOG_PID 2>/dev/null || true
@@ -323,6 +521,21 @@ jobs:
           if [ -d ~/.maestro/tests ]; then
             mkdir -p $RUNNER_TEMP/maestro-debug
             cp -R ~/.maestro/tests $RUNNER_TEMP/maestro-debug/
+          fi
+          # Log what landed in the screenshots dir (helps debug missing
+          # PNGs the next time we wonder where they went).
+          echo "=== Maestro screenshots captured ==="
+          ls -la "$MAESTRO_SCREEN_DIR" || true
+          # NATIVE-CRASH DETECTION — Maestro will report flows as passed
+          # if it didn't actively detect a failed assertion. But the JS
+          # ErrorBoundary doesn't catch native bridge crashes (e.g. a
+          # missing autolinked module, a Sharing.shareAsync exception
+          # on iOS 26 new arch). Grep the simulator log for known fatal
+          # patterns and fail the gate independently.
+          if grep -qE "Terminating app due to uncaught exception|signal SIGABRT|EXC_BAD_ACCESS|libsystem_kernel\.dylib.*__pthread_kill" $RUNNER_TEMP/sim.log; then
+            echo "::error::Native crash detected in sim.log — see uploaded artifacts"
+            grep -nE "Terminating|SIGABRT|EXC_BAD_ACCESS|Fatal Exception" $RUNNER_TEMP/sim.log | head -40
+            exit 1
           fi
           exit $MAESTRO_EXIT
 
@@ -334,15 +547,21 @@ jobs:
           path: |
             ${{ runner.temp }}/maestro-junit.xml
             ${{ runner.temp }}/maestro-debug/**
+            ${{ runner.temp }}/maestro-screenshots/**
             ${{ runner.temp }}/sim.log
           if-no-files-found: warn
       # ───────────────────────────────────────────────────────────
       # END E2E GATE — anything below only runs on Maestro success.
       # ───────────────────────────────────────────────────────────
 
-      - name: Build and archive
-        # Manual signing with the imported Apple Distribution cert + the
-        # IOS_APP_STORE provisioning profile (named "Dynolabs vCard App Store").
+      - name: Build and archive (manual signing, fresh profile)
+        # MANUAL signing using the just-refreshed App Store profile that
+        # fastlane sigh installed. We avoid CODE_SIGN_STYLE=Automatic
+        # because it requires Apple to ALSO issue an Apple Development
+        # certificate for the build phase, and our dev account is already
+        # at the cert limit. Manual + fresh-profile-via-sigh gives us the
+        # best of both: no static secret to maintain, no automatic-signing
+        # certificate inflation.
         run: |
           cd ios
           xcodebuild archive \
@@ -402,24 +621,22 @@ jobs:
           fi
           echo "::notice::Upload succeeded"
 
-      - name: Assign uploaded build to internal beta group
-        # CRITICAL — without this step, builds upload fine and reach
-        # processingState=VALID + internalBuildState=IN_BETA_TESTING
-        # but stay invisible in TestFlight (Apple's internal beta groups
-        # default to hasAccessToAllBuilds=False; PATCHing it to True is
-        # rejected with 409 ENTITY_ERROR.ATTRIBUTE.NOT_ALLOWED).
+      - name: Assign uploaded build to "Founders" beta group
+        # Apple's internal beta groups default to hasAccessToAllBuilds=False
+        # and the API rejects PATCHing that to True. Without an explicit per-build
+        # POST to /betaGroups/{id}/relationships/builds, new builds upload fine
+        # and reach IN_BETA_TESTING but stay invisible to testers — TestFlight
+        # keeps showing the previous build.
         #
-        # 204 from the POST = done. DO NOT verify with a GET — the
-        # /v1/builds/{id}/betaGroups endpoint is eventually consistent
-        # and returns data:[] for several minutes after a successful
-        # assignment.
-        #
-        # Replace BUNDLE_ID and BETA_GROUP_NAME for each new app.
+        # 204 from this POST = success; do NOT re-poll the GET to confirm —
+        # it's eventually consistent and lies for several minutes.
         run: |
-          pip install --quiet pyjwt cryptography requests
+          python3 -m pip install --quiet --break-system-packages pyjwt cryptography requests
           python3 - <<'PY'
           import os, base64, time, jwt, requests, json, sys
-          key = base64.b64decode(os.environ['APP_STORE_CONNECT_PRIVATE_KEY'])
+          # Build a JWT for ASC API (ES256 with the .p8 we already decoded earlier)
+          key_b64 = os.environ['APP_STORE_CONNECT_PRIVATE_KEY']
+          key = base64.b64decode(key_b64)
           token = jwt.encode(
               { 'iss': os.environ['APP_STORE_CONNECT_ISSUER_ID'],
                 'iat': int(time.time()),
@@ -433,27 +650,33 @@ jobs:
           run_number = os.environ['RUN_NUMBER']
           group_name = os.environ['BETA_GROUP_NAME']
 
+          # Find the app
           apps = requests.get(f'{base}/v1/apps?filter[bundleId]={bundle_id}', headers=h, timeout=20).json()
           if not apps.get('data'):
-              print(f'::warning::App {bundle_id} not in ASC yet — skip'); sys.exit(0)
+              print(f'::warning::App {bundle_id} not in ASC yet — skipping assignment'); sys.exit(0)
           app_id = apps['data'][0]['id']
 
+          # Find the beta group
           groups = requests.get(f'{base}/v1/betaGroups?filter[app]={app_id}', headers=h, timeout=20).json()
           group = next((g for g in groups['data'] if g['attributes']['name'] == group_name), None)
           if not group:
-              print(f'::warning::Beta group "{group_name}" not found — create it once in ASC'); sys.exit(0)
+              print(f'::warning::Beta group "{group_name}" not found — create it once in ASC, future runs will pick it up'); sys.exit(0)
           group_id = group['id']
 
-          # altool returns before the build resource exists in ASC; poll.
+          # Wait for the just-uploaded build to appear in ASC (altool returns
+          # before processing finishes; we need the build resource to exist).
           build_id = None
-          for _ in range(30):
+          for attempt in range(30):    # ~10 min
               builds = requests.get(f'{base}/v1/builds?filter[app]={app_id}&filter[version]={run_number}&limit=1', headers=h, timeout=20).json()
               if builds.get('data'):
-                  build_id = builds['data'][0]['id']; break
+                  build_id = builds['data'][0]['id']
+                  break
               time.sleep(20)
           if not build_id:
-              print(f'::warning::Build {run_number} not in ASC after 10 min — skip'); sys.exit(0)
+              print(f'::warning::Build {run_number} not in ASC after 10 min — assignment skipped'); sys.exit(0)
 
+          # POST the assignment. 204 = done. We do NOT verify with a GET —
+          # eventual consistency makes the verification GET lie for minutes.
           rel = { 'data': [ { 'type': 'builds', 'id': build_id } ] }
           r = requests.post(f'{base}/v1/betaGroups/{group_id}/relationships/builds',
               headers={**h, 'Content-Type': 'application/json'},
@@ -468,6 +691,6 @@ jobs:
           APP_STORE_CONNECT_KEY_ID:    ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
-          BUNDLE_ID: io.example.appname              # ← change per app
+          BUNDLE_ID: io.iogrid.app
           RUN_NUMBER: ${{ github.run_number }}
-          BETA_GROUP_NAME: Founders                  # ← change per app
+          BETA_GROUP_NAME: Founders

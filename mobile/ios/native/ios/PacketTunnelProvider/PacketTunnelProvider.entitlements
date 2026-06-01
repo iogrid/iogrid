@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- packet-tunnel-provider: the entitlement type for full L3 VPN
+	     tunneling via wireguard/openvpn/IPsec userspace impls.
+	     Already granted on the iogrid Apple Developer account per
+	     the EPIC's pinned operator answer. -->
+	<key>com.apple.developer.networking.networkextension</key>
+	<array>
+		<string>packet-tunnel-provider</string>
+	</array>
+	<!-- App Group: the only IPC primitive iOS gives the host app +
+	     extension that survives the process sandbox. We use it for
+	     Keychain access group + shared NSUserDefaults so the customer
+	     WG private key (#569) can be read from the extension process. -->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.io.iogrid.app</string>
+	</array>
+	<!-- Keychain access group: must match the App Group identifier so
+	     extension reads the keys the main app wrote. -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)group.io.iogrid.app</string>
+	</array>
+</dict>
+</plist>

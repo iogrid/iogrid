@@ -1,0 +1,21 @@
+appId: io.iogrid.app
+---
+# Region picker is reachable + 'Best (auto)' is the default.
+- launchApp
+
+- tapOn:
+    id: "region-picker-row"
+
+- assertVisible:
+    text: "Region"
+    timeout: 3000
+- assertVisible: "Best (auto)"
+
+- takeScreenshot: 03-region-picker-default
+
+# Back to the toggle screen — system-back gesture via Maestro's
+# `back` command (works on both iOS swipe-from-edge + the navigation
+# header back button).
+- back
+- assertVisible:
+    id: "vpn-toggle"

@@ -1,0 +1,32 @@
+appId: io.iogrid.app
+---
+# Toggle ON → state transitions to CONNECTING.
+#
+# Scope: we DO NOT verify the tunnel actually connects end-to-end here
+# — that needs a live provider and runs in the separate
+# e2e-with-provider job (#572 / #565 path-c). This flow only asserts
+# that the JS state machine + the test ID wiring works, so a
+# REGRESSION that breaks the toggle (typo on testID, broken
+# Switch import, etc.) trips this gate before TestFlight.
+- launchApp
+
+- assertVisible:
+    id: "vpn-toggle"
+    timeout: 3000
+- assertVisible: "OFF"
+
+- tapOn:
+    id: "vpn-toggle"
+
+- assertVisible:
+    text: "CONNECTING"
+    timeout: 3000
+
+- takeScreenshot: 02-toggle-connecting
+
+# Toggle back OFF so the next flow starts from the empty state.
+- tapOn:
+    id: "vpn-toggle"
+- assertVisible:
+    text: "OFF"
+    timeout: 2000

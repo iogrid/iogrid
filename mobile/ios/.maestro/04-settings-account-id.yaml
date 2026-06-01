@@ -1,0 +1,21 @@
+appId: io.iogrid.app
+---
+# Settings screen renders + the account-number row is present. Full
+# Keychain-backed generator lands in #569 — for v1 we just check the
+# label so the smoke catches regressions in the settings navigation
+# / IPC bridge wiring.
+- launchApp
+
+- tapOn:
+    id: "settings-button"
+
+- assertVisible:
+    text: "Settings"
+    timeout: 3000
+- assertVisible: "Account number"
+
+- takeScreenshot: 04-settings-account-id
+
+- back
+- assertVisible:
+    id: "vpn-toggle"
