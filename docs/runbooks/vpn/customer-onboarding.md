@@ -65,7 +65,7 @@ click "Mint VPN key", copy `iog_…` plus the displayed customer UUID.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `count: 0` for `us-east-1` | No paired daemon registered + healthy in region | Pair a daemon on a public IP (see `docs/runbooks/vpn/operator-paired-daemon.md` — to be written) |
+| `count: 0` for `us-east-1` | No paired daemon registered + healthy in region | Pair a daemon on a public IP — see [operator-paired-daemon.md](./operator-paired-daemon.md) |
 | HTTP error connecting | api.iogrid.org down or Traefik IngressRoute lost | Check `kubectl -n iogrid get pods -l app.kubernetes.io/name=vpn-svc` + `kubectl -n traefik get ingressroute` |
 
 ---
