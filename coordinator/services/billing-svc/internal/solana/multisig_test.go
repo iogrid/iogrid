@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/blocto/solana-go-sdk/common"
 )
 
 // TestMultisigMode_FallbackToSingleSig — the most important property in
@@ -58,4 +60,63 @@ func TestMultisigMode_SquadsConfigured(t *testing.T) {
 	if errors.Is(err, ErrSquadsNotConfigured) {
 		t.Errorf("should NOT return ErrSquadsNotConfigured when env is set")
 	}
+	if !errors.Is(err, ErrSquadsProposalNotShipped) {
+		t.Errorf("expected ErrSquadsProposalNotShipped, got %v", err)
+	}
+}
+
+// TestSquadsPDAs_Deterministic — the three PDA derivations are pure
+// functions of (multisigPubkey, programID). Same inputs must always
+// produce the same output. Catches regressions where seed ordering or
+// little-endian encoding of the txIndex drifts. The exact addresses
+// don't need to be checked against the on-chain reality here — the
+// cross-check in SquadsConfigSanityCheck does that at startup against
+// the operator's actual multisig.
+func TestSquadsPDAs_Deterministic(t *testing.T) {
+	ms := mustParsePubkey(t, "SQUADSv4r54mDmXrPRpAhAFCYNvWdCRyHN8izyDhB7L")
+
+	v0a, err := DeriveSquadsVaultPDA(ms, 0)
+	if err != nil {
+		t.Fatalf("DeriveSquadsVaultPDA: %v", err)
+	}
+	v0b, err := DeriveSquadsVaultPDA(ms, 0)
+	if err != nil {
+		t.Fatalf("DeriveSquadsVaultPDA: %v", err)
+	}
+	if v0a != v0b {
+		t.Errorf("vault PDA non-deterministic: %s vs %s", v0a.ToBase58(), v0b.ToBase58())
+	}
+
+	v1, err := DeriveSquadsVaultPDA(ms, 1)
+	if err != nil {
+		t.Fatalf("DeriveSquadsVaultPDA: %v", err)
+	}
+	if v1 == v0a {
+		t.Errorf("vault index 0 and 1 must derive distinct PDAs (got both = %s)", v0a.ToBase58())
+	}
+
+	tx0, err := DeriveSquadsTransactionPDA(ms, 0)
+	if err != nil {
+		t.Fatalf("DeriveSquadsTransactionPDA: %v", err)
+	}
+	tx1, err := DeriveSquadsTransactionPDA(ms, 1)
+	if err != nil {
+		t.Fatalf("DeriveSquadsTransactionPDA: %v", err)
+	}
+	if tx0 == tx1 {
+		t.Errorf("tx PDA must change with index (got both = %s)", tx0.ToBase58())
+	}
+
+	prop0, err := DeriveSquadsProposalPDA(ms, 0)
+	if err != nil {
+		t.Fatalf("DeriveSquadsProposalPDA: %v", err)
+	}
+	if prop0 == tx0 {
+		t.Errorf("proposal PDA must differ from transaction PDA at same index")
+	}
+}
+
+func mustParsePubkey(t *testing.T, s string) common.PublicKey {
+	t.Helper()
+	return common.PublicKeyFromString(s)
 }

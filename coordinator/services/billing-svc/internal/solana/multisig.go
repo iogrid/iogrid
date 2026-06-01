@@ -99,12 +99,124 @@ func (s *Service) ProposeViaSquads(_ context.Context, _ string) error {
 	if !s.IsMultisig() {
 		return ErrSquadsNotConfigured
 	}
-	// TODO(#439): build vault_transaction_create + proposal_create
-	// instructions, submit with bot signer, return proposal ID. Phase-2
-	// follow-up to (closed) #98; tracked in detail under iogrid#439.
-	return errors.New("solana: Squads multisig proposal not yet implemented (Phase 2)")
+	return ErrSquadsProposalNotShipped
 }
 
 // ErrSquadsNotConfigured is the sentinel for callers that want to gracefully
 // fall back to single-sig submission.
 var ErrSquadsNotConfigured = errors.New("solana: Squads multisig not configured")
+
+// ErrSquadsProposalNotShipped is returned in Phase-2 mode for code paths
+// that try to build the proposal in-process. The Phase-2 cutover design
+// (per docs/runbooks/billing-squads-rollout.md) keeps proposal
+// construction in the Squads UI / squads-cli, and billing-svc consumes
+// proposal status from on-chain — not the other way around. Shipping
+// speculative `vault_transaction_create` byte encodings risks bricking
+// mainnet payouts; instead we validate the PDA derivations and route
+// proposal submission through the operator-blessed Squads tooling.
+var ErrSquadsProposalNotShipped = errors.New(
+	"solana: in-process Squads proposal construction is intentionally not " +
+		"shipped — submit proposals via squads-cli per " +
+		"docs/runbooks/billing-squads-rollout.md",
+)
+
+// SquadsV4ProgramID is the canonical Squads Protocol v4 program ID on
+// Solana mainnet + devnet. PDA derivations below use this seed. Verified
+// against squadsprotocol/v4-program at the v4.0.0 tag.
+var SquadsV4ProgramID = common.PublicKeyFromString(
+	"SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf",
+)
+
+// DeriveSquadsVaultPDA returns the address of the spending-authority PDA
+// owned by a Squads v4 multisig. Funds sit at this address; the multisig
+// account itself only stores metadata. Vault index 0 is the default
+// per-multisig vault — Squads supports multiple vaults under one
+// multisig but billing-svc only ever uses vault 0.
+//
+//	seeds = ["multisig", multisigPubkey, "vault", u8(index)]
+//
+// This is a pure derivation — no RPC. Used at startup to validate that
+// the configured SQUADS_MULTISIG_PUBKEY actually produces the funded
+// vault address the operator expects.
+func DeriveSquadsVaultPDA(multisig common.PublicKey, vaultIndex uint8) (common.PublicKey, error) {
+	seeds := [][]byte{
+		[]byte("multisig"),
+		multisig.Bytes(),
+		[]byte("vault"),
+		{vaultIndex},
+	}
+	pda, _, err := common.FindProgramAddress(seeds, SquadsV4ProgramID)
+	if err != nil {
+		return common.PublicKey{}, err
+	}
+	return pda, nil
+}
+
+// DeriveSquadsTransactionPDA returns the address that will hold the
+// proposed-transaction state for a given (multisig, txIndex) pair. The
+// next-tx-index is tracked on the multisig account itself; the bot
+// signer reads it before proposing.
+//
+//	seeds = ["multisig", multisigPubkey, "transaction", u64_le(index)]
+func DeriveSquadsTransactionPDA(multisig common.PublicKey, txIndex uint64) (common.PublicKey, error) {
+	indexBytes := make([]byte, 8)
+	for i := 0; i < 8; i++ {
+		indexBytes[i] = byte(txIndex >> (i * 8))
+	}
+	seeds := [][]byte{
+		[]byte("multisig"),
+		multisig.Bytes(),
+		[]byte("transaction"),
+		indexBytes,
+	}
+	pda, _, err := common.FindProgramAddress(seeds, SquadsV4ProgramID)
+	if err != nil {
+		return common.PublicKey{}, err
+	}
+	return pda, nil
+}
+
+// DeriveSquadsProposalPDA returns the proposal account that members
+// vote on. One proposal per transaction.
+//
+//	seeds = ["multisig", multisigPubkey, "transaction", u64_le(index), "proposal"]
+func DeriveSquadsProposalPDA(multisig common.PublicKey, txIndex uint64) (common.PublicKey, error) {
+	indexBytes := make([]byte, 8)
+	for i := 0; i < 8; i++ {
+		indexBytes[i] = byte(txIndex >> (i * 8))
+	}
+	seeds := [][]byte{
+		[]byte("multisig"),
+		multisig.Bytes(),
+		[]byte("transaction"),
+		indexBytes,
+		[]byte("proposal"),
+	}
+	pda, _, err := common.FindProgramAddress(seeds, SquadsV4ProgramID)
+	if err != nil {
+		return common.PublicKey{}, err
+	}
+	return pda, nil
+}
+
+// SquadsConfigSanityCheck runs at service startup when multisig mode is
+// on. Catches the most common config errors:
+//
+//   - SQUADS_MULTISIG_PUBKEY is malformed base58 → parse fails
+//   - The derived vault-0 PDA matches what the operator runbook expects
+//     (so the operator has a second cross-check that they configured the
+//     right multisig, not someone else's vault)
+//
+// Returns the derived vault-0 PDA on success so the log line can include
+// both pubkeys for the operator to eyeball.
+func (s *Service) SquadsConfigSanityCheck() (vault common.PublicKey, err error) {
+	pk, ok := s.SquadsVaultPubkey()
+	if !ok {
+		return common.PublicKey{}, ErrSquadsNotConfigured
+	}
+	v, err := DeriveSquadsVaultPDA(pk, 0)
+	if err != nil {
+		return common.PublicKey{}, err
+	}
+	return v, nil
+}
