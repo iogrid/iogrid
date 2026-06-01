@@ -342,24 +342,45 @@ jobs:
 
       - name: Discover scheme
         id: scheme
-        # Workspace schemes include Pod schemes. The app scheme matches
-        # the .xcworkspace basename. Picking schemes[0] alphabetically
-        # would pick 'AsyncStorage' (a Pod) and build a static lib
-        # instead of the app — empty Products/Applications.
+        # Workspace schemes include Pod schemes (AsyncStorage, etc.) +
+        # the PacketTunnelProvider extension target (#568). Picking
+        # alphabetically would land on a Pod. Strategy: enumerate
+        # schemes, drop "Pods-*" and known extension target names,
+        # take whatever's left. Falls back to workspace basename if
+        # the heuristic produces an empty set.
         run: |
           cd ios
           WORKSPACE=$(ls -d *.xcworkspace | head -1)
-          APP_SCHEME=$(basename "$WORKSPACE" .xcworkspace)
-          export APP_SCHEME
-          xcodebuild -workspace "$WORKSPACE" -list -json \
-            | APP_SCHEME="$APP_SCHEME" python3 -c '
+          DEFAULT_SCHEME=$(basename "$WORKSPACE" .xcworkspace)
+          export DEFAULT_SCHEME
+          APP_SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list -json \
+            | python3 -c '
           import json, sys, os
           d = json.load(sys.stdin)
           schemes = d["workspace"]["schemes"]
-          want = os.environ["APP_SCHEME"]
-          assert want in schemes, f"{want} not in {schemes}"
-          print(f"app scheme: {want}  (out of {len(schemes)} total)")
-          '
+          default = os.environ["DEFAULT_SCHEME"]
+          # Drop Pod-internal + known extension schemes
+          drop_prefixes = ("Pods-",)
+          drop_exact = {"PacketTunnelProvider"}
+          app_schemes = [s for s in schemes
+                         if not any(s.startswith(p) for p in drop_prefixes)
+                         and s not in drop_exact]
+          if default in app_schemes:
+              print(default)
+          elif app_schemes:
+              print(app_schemes[0])
+          else:
+              print(default)  # fallback — fails later with clearer msg
+          ')
+          export APP_SCHEME
+          echo "Discovered app scheme: $APP_SCHEME (default basename was $DEFAULT_SCHEME)"
+          echo "All schemes:"
+          xcodebuild -workspace "$WORKSPACE" -list -json | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          for s in d['workspace']['schemes']:
+              print(f'  - {s}')
+          "
           echo "scheme=$APP_SCHEME" >> $GITHUB_OUTPUT
           echo "Discovered scheme: $APP_SCHEME"
 
