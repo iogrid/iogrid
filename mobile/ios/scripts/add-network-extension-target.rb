@@ -80,18 +80,35 @@ ext_target = project.new_target(
   DEPLOYMENT_TARGET,
 )
 
-# Explicitly name the product reference. Without this, xcodeproj's
-# default sometimes emits a product with an empty `name` AND an
-# empty `path`, which xcodebuild surfaces as
-# "Multiple commands produce '/tmp/iogrid.dst/Applications/.appex'"
-# during the Copy Files / Embed App Extensions phase.
-if ext_target.product_reference
+# CRITICAL: in xcodeproj 1.x against Xcode 26 pbxproj, `new_target`
+# may NOT auto-create the PBXFileReference (product_reference) in
+# the Products group — leaving the build with an .appex whose name
+# is literally empty. Explicit creation via Products group is the
+# only reliable path.
+#
+# Symptom that prompted this fix: CI commit 7ef04c0 failed with
+# 'Multiple commands produce .../Release-iphonesimulator/.appex'
+# (note empty basename before .appex).
+products_group = project.products_group
+if ext_target.product_reference.nil?
+  puts "[+] product_reference was nil — creating explicitly under Products group"
+  product_ref = products_group.new_reference("#{EXTENSION_NAME}.appex")
+  product_ref.name = "#{EXTENSION_NAME}.appex"
+  product_ref.path = "#{EXTENSION_NAME}.appex"
+  product_ref.include_in_index = '0'
+  product_ref.source_tree = 'BUILT_PRODUCTS_DIR'
+  product_ref.explicit_file_type = 'wrapper.app-extension'
+  ext_target.product_reference = product_ref
+else
+  # Existing reference — set the canonical attributes anyway, in case
+  # xcodeproj left some empty.
   ext_target.product_reference.name = "#{EXTENSION_NAME}.appex"
   ext_target.product_reference.path = "#{EXTENSION_NAME}.appex"
   ext_target.product_reference.include_in_index = '0'
   ext_target.product_reference.source_tree = 'BUILT_PRODUCTS_DIR'
   ext_target.product_reference.explicit_file_type = 'wrapper.app-extension'
 end
+puts "[+] product_reference: path=#{ext_target.product_reference.path.inspect} name=#{ext_target.product_reference.name.inspect}"
 
 # Bundle identifier + entitlements + Info.plist + Swift version on
 # both Debug + Release configurations.
