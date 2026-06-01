@@ -75,7 +75,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     // ping-pong while a probe is mid-flight.
     private var pathMonitor: NWPathMonitor?
     private let pathMonitorQueue = DispatchQueue(label: "io.iogrid.app.PacketTunnelProvider.path")
-    private var lastPath: NWPath?
+    private var lastPath: Network.NWPath?
     private var currentRegion: String?
     private var currentPeerPublicKey: String?
     private var probeGeneration: UInt64 = 0
@@ -244,7 +244,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         os_log("NWPathMonitor stopped", log: logger, type: .info)
     }
 
-    private func handlePathUpdate(_ newPath: NWPath) {
+    private func handlePathUpdate(_ newPath: Network.NWPath) {
         // Compare against the last-known path. The first update
         // after start() is the *current* path snapshot — we record
         // it but don't re-probe (the tunnel was just established
@@ -283,7 +283,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     /// Returns true if the path-change shape warrants a top-3 re-probe.
     /// Filters out cosmetic updates (e.g. WiFi SSID rename with same
     /// gateway, idle radio wake) that wouldn't affect WG throughput.
-    private func pathDifferenceTriggersReprobe(previous: NWPath, new: NWPath) -> Bool {
+    private func pathDifferenceTriggersReprobe(previous: Network.NWPath, new: Network.NWPath) -> Bool {
         if previous.status != new.status { return true }
         // Interface-set comparison: any change in usesInterfaceType
         // for the four meaningful types is a re-probe trigger.
