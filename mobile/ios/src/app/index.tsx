@@ -22,7 +22,7 @@ import { Spacing } from '@/constants/theme';
 import { AUTO_REGION_SENTINEL } from '@/app/regions';
 import { loadOrCreateIdentity } from '@/lib/account';
 import { requestSession } from '@/lib/coordinator';
-import { TunnelControl } from '../../modules/TunnelControl/src';
+import { TunnelControl } from 'iogrid-tunnel-control';
 
 type TunnelState = 'OFF' | 'CONNECTING' | 'CONNECTED' | 'DISCONNECTING';
 
