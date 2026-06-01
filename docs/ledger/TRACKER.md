@@ -744,3 +744,10 @@ Automation follow-up: [bin/refresh-tracker.sh](https://github.com/iogrid/iogrid/
 ---
 
 *Generated `2026-05-19T07:30:00Z`. Refresh manually or via TBD `bin/refresh-tracker.sh`.*
+
+## 2026-06-02T05:35Z — Mobile iOS Maestro CONNECTING-hold fix
+- CI run 26783042333 (commit 2a30726) succeeded through build/install/Maestro-install/cert/sigh but failed at the `02-toggle-on` flow's `assertVisible: "CONNECTING"` step.
+- Root cause: simulator has no NetworkExtension host, so `TunnelControl.startTunnel` errors immediately → state flashes OFF→CONNECTING→OFF in <50ms, faster than Maestro's ~250ms polling.
+- Fix landed as c535b3d: hold CONNECTING visible ≥1500ms on the failure path. Real UX improvement (Mullvad does the same).
+- Live App Store Connect record + secrets + public beta link documented in mobile/ios/README.md production-state appendix.
+- Watcher `bt48wnyxn` on the new run.
