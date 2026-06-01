@@ -257,11 +257,48 @@ jobs:
                   print('  deleted OK')
               except urllib.error.HTTPError as e:
                   print(f'  delete HTTP {e.code}: {e.read().decode()[:200]}')
+
+          # PRE-REVOKE: each CI run creates a fresh Distribution cert
+          # (the previous run's cert lives in Apple's portal but the
+          # private key only lived in that runner's keychain — useless
+          # to us now). Apple caps Distribution certs at 2 per team, so
+          # the second run hits "maximum number of available
+          # Distribution certificates" and fails. Revoke ALL IOS_DISTRIBUTION
+          # certs before fastlane cert creates a fresh one.
+          #
+          # Safe because: nothing in our pipeline depends on cert
+          # continuity — every run creates + uses its own cert. The
+          # previously-uploaded TestFlight builds remain valid because
+          # signing happens at upload time, not at install time.
+          print('=== revoking existing Distribution certs ===')
+          creq = urllib.request.Request(
+              'https://api.appstoreconnect.apple.com/v1/certificates?filter[certificateType]=IOS_DISTRIBUTION,DISTRIBUTION&limit=200',
+              headers=hdrs,
+          )
+          try:
+              with urllib.request.urlopen(creq) as r:
+                  cdata = json.load(r)
+          except urllib.error.HTTPError as e:
+              print(f'  certs list HTTP {e.code}: {e.read().decode()[:200]}')
+              cdata = {'data': []}
+          for c in cdata.get('data', []):
+              cid = c['id']
+              cname = c.get('attributes', {}).get('name', '')
+              ctype = c.get('attributes', {}).get('certificateType', '')
+              print(f'  revoking cert {cid} ({ctype} {cname})')
+              dreq = urllib.request.Request(
+                  f'https://api.appstoreconnect.apple.com/v1/certificates/{cid}',
+                  headers=hdrs, method='DELETE',
+              )
+              try:
+                  urllib.request.urlopen(dreq).read()
+                  print('    revoked OK')
+              except urllib.error.HTTPError as e:
+                  print(f'    revoke HTTP {e.code}: {e.read().decode()[:200]}')
           PY
           # fastlane cert creates a fresh DISTRIBUTION cert + writes a
-          # .p12 the keychain can import. We just freed a slot earlier
-          # (was 2/2, now 1/2 after the pre-revoke iteration), so cert
-          # has room.
+          # .p12 the keychain can import. The pre-revoke block above
+          # freed all slots, so cert has room.
           fastlane cert \
             --api_key_path "$API_JSON" \
             --team_id ${{ secrets.APPLE_TEAM_ID }} \
