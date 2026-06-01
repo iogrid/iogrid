@@ -112,8 +112,22 @@ puts "[+] product_reference: path=#{ext_target.product_reference.path.inspect} n
 
 # Bundle identifier + entitlements + Info.plist + Swift version on
 # both Debug + Release configurations.
+#
+# CRITICAL: PRODUCT_NAME + EXECUTABLE_NAME must be LITERAL strings
+# ("PacketTunnelProvider") — NOT "$(TARGET_NAME)" variable expansion.
+# xcodeproj 1.x against Xcode 26 pbxproj sometimes creates the target
+# with the `name` field set on the PBXNativeTarget JSON node but the
+# build setting expansion of $(TARGET_NAME) still resolves to empty
+# at link/install time. Confirmed via CI diagnostic on commit ece853a:
+# product_reference.path = "PacketTunnelProvider.appex" (good) but
+# xcodebuild's link command produced "<empty>.appex" because
+# EXECUTABLE_NAME defaulted to $(PRODUCT_NAME) which expanded to
+# empty. Setting both literally side-steps the variable evaluation
+# entirely.
 ext_target.build_configurations.each do |bc|
   bc.build_settings.merge!(
+    'PRODUCT_NAME'                 => EXTENSION_NAME,
+    'EXECUTABLE_NAME'              => EXTENSION_NAME,
     'PRODUCT_BUNDLE_IDENTIFIER'    => EXTENSION_BUNDLE_ID,
     'INFOPLIST_FILE'               => "#{EXTENSION_NAME}/Info.plist",
     'CODE_SIGN_ENTITLEMENTS'       => "#{EXTENSION_NAME}/PacketTunnelProvider.entitlements",
