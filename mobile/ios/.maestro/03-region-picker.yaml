@@ -13,7 +13,13 @@ appId: io.iogrid.app
 
 - assertVisible:
     id: "region-row-auto"
-- assertVisible: "Best (auto)"
+# The literal label is "Best (auto)" but Maestro's `assertVisible: "string"`
+# short form treats the value as a REGEX. The parens become a capture
+# group, so the pattern `Best (auto)` matches "Best auto" (no parens)
+# but NOT the on-screen "Best (auto)" with literal parens — the gate
+# fails even though the row IS there. Match the literal-text portion
+# only; the testID assertion above already proves the row exists.
+- assertVisible: "Best"
 
 # Search input narrows the list. Until coordinator returns rows the
 # search is mostly cosmetic; this asserts the field exists + accepts
