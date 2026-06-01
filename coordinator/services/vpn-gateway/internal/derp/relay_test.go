@@ -71,11 +71,19 @@ func TestRelay_BidirectionalForward(t *testing.T) {
 		t.Errorf("payload = %q, want %q", gotPayload, "hi alice")
 	}
 
-	// Stats sanity.
-	_, fwd, dropped, bytes := r.StatsSnapshot()
-	if fwd != 2 {
-		t.Errorf("FramesForwarded = %d, want 2", fwd)
+	// Stats sanity. There's a brief window between the destination
+	// pipe-read completing and the server-side atomic.Add on the
+	// stats counter firing (the forward() returns after the write,
+	// THEN Add runs). Poll instead of asserting once — race-free
+	// without slowing the test on the happy path.
+	if err := waitFor(time.Second, func() bool {
+		_, fwd, _, _ := r.StatsSnapshot()
+		return fwd == 2
+	}); err != nil {
+		_, fwd, _, _ := r.StatsSnapshot()
+		t.Errorf("FramesForwarded never reached 2 (last=%d): %v", fwd, err)
 	}
+	_, _, dropped, bytes := r.StatsSnapshot()
 	if dropped != 0 {
 		t.Errorf("FramesDropped = %d, want 0", dropped)
 	}
