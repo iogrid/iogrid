@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-01T14:00Z` 🟢🟢🟢 be47231 — **#529 PATH C SHIPPED**: TunForwardSink lands the provider-side data plane. `/dev/net/tun` open + TUNSETIFF + AsyncFd, `ip addr add 10.66.0.1/16` + `ip link set up`, `net.ipv4.ip_forward=1`, idempotent `iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE`. Bidirectional: `deliver` writes decapsulated bytes to TUN fd; tokio read-loop reads from TUN + calls `OutboundEncapsulator::encapsulate_for_peer` to ship replies back through the tunnel. Supervisor falls back to LoggingSink on macOS/Windows or if setup fails (no CAP_NET_ADMIN). 46/46 routing tests green + clean release build. Demo path now end-to-end on paper — gated only on rolling the new daemon image onto the paired residential provider. #532 auto-closes the moment that lands. |
+| Last refreshed | `2026-06-01T07:15Z` 🟢 cron-refresh: +3 commits since last TRACKER bump |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
 | Open PRs | **0** |
