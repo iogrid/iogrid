@@ -102,6 +102,12 @@ jobs:
             # (Xcode 26 default of SKIP_INSTALL=YES leaves Products/Applications empty)
             installer.aggregate_targets.each do |agg|
               agg.user_project.targets.each do |target|
+                # Only force-install the main app target. App extensions
+                # (e.g. PacketTunnelProvider for the iOS VPN data plane,
+                # #568) must keep SKIP_INSTALL=YES so they're embedded
+                # via the main app's PlugIns folder, NOT separately
+                # installed at /Applications/<empty>.appex.
+                next if target.product_type == 'com.apple.product-type.app-extension'
                 target.build_configurations.each do |config|
                   if config.name == 'Release'
                     config.build_settings['SKIP_INSTALL'] = 'NO'
