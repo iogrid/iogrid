@@ -11,7 +11,10 @@
 
 package vpn
 
-import "context"
+import (
+	"context"
+	"net"
+)
 
 // configureTunnelInterface is a no-op on non-Linux platforms.
 func configureTunnelInterface(_ context.Context, _ string) error {
@@ -22,3 +25,14 @@ func configureTunnelInterface(_ context.Context, _ string) error {
 func teardownTunnelInterface(_ context.Context, _ string) error {
 	return nil
 }
+
+// AddExceptionHost is a no-op on non-Linux platforms. The Linux build
+// pins /32 exception routes via the pre-VPN default gateway; non-Linux
+// platforms haven't implemented the route override yet so there's
+// nothing to except. Stub here so bastion_client.go compiles for
+// darwin / windows.
+func AddExceptionHost(_ net.IP) {}
+
+// ResetExceptionHosts is a no-op on non-Linux platforms. Pairs with
+// AddExceptionHost.
+func ResetExceptionHosts() {}
