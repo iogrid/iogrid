@@ -204,14 +204,9 @@ jobs:
           with open(os.environ['API_JSON'], 'w') as f:
             json.dump(obj, f)
           PY
-          # Apple's cert limit (2 per account) is full. fastlane cert
-          # --force doesn't actually auto-revoke (just retries, hits the
-          # same limit, errors). Pre-revoke ONE cert via the ASC API
-          # directly using a freshly-minted JWT so fastlane cert has
-          # room to create a new one with a private key here.
-          # macOS-runner system Python rejects pip install without
-          # --break-system-packages (PEP 668). Install pyjwt + cryptography
-          # to user site so the inline script can import.
+          # SKIP pre-revoke — we're NOT creating a new cert. We import
+          # the team's existing dist .p12 (exfil'd from vcard). The
+          # pre-revoke logic would kill the cert we're about to import.
           pip3 install --quiet --break-system-packages --user pyjwt cryptography 2>&1 | tail -2 || true
           python3 - <<'PY'
           import json, os, sys, time, base64, urllib.request, urllib.error, urllib.parse
@@ -231,40 +226,8 @@ jobs:
           if isinstance(tok, bytes):
               tok = tok.decode()
           hdrs = {'Authorization': f'Bearer {tok}', 'Accept': 'application/json'}
-          # Apple's certificate types relevant for iOS distribution:
-          #   DISTRIBUTION         — unified Apple Distribution (iOS+tvOS+watchOS+macOS)
-          #   IOS_DISTRIBUTION     — legacy iOS-only
-          #   MAC_APP_DISTRIBUTION — mac-only
-          # Filter for both flavors that count against the iOS dist limit.
-          req = urllib.request.Request(
-              'https://api.appstoreconnect.apple.com/v1/certificates?limit=200',
-              headers=hdrs,
-          )
-          with urllib.request.urlopen(req) as r:
-              data = json.load(r)
-          all_certs = data.get('data', [])
-          dist_types = {'DISTRIBUTION', 'IOS_DISTRIBUTION'}
-          certs = [c for c in all_certs if c['attributes'].get('certificateType') in dist_types]
-          print(f"existing distribution certs: {len(certs)} (of {len(all_certs)} total)")
-          for c in certs:
-              a = c.get('attributes', {})
-              print(f"  - id={c['id']} type={a.get('certificateType')} name={a.get('name')} expires={a.get('expirationDate')}")
-          if len(certs) >= 2:
-              # Revoke the oldest one (lowest expirationDate) — frees a slot.
-              certs.sort(key=lambda c: c['attributes'].get('expirationDate') or '')
-              victim = certs[0]
-              print(f"revoking oldest: {victim['id']} ({victim['attributes'].get('name')})")
-              dreq = urllib.request.Request(
-                  f"https://api.appstoreconnect.apple.com/v1/certificates/{victim['id']}",
-                  headers=hdrs, method='DELETE',
-              )
-              try:
-                  urllib.request.urlopen(dreq).read()
-                  print('revoked OK')
-              except urllib.error.HTTPError as e:
-                  print(f'revoke HTTP {e.code}: {e.read().decode()[:200]}')
 
-          # ALSO purge ALL existing provisioning profiles named
+          # Purge existing provisioning profiles named
           # "iogrid App Store" — they're bound to certs we may have
           # just revoked or that aren't in the runner's keychain.
           # If we don't, sigh sees a name collision and creates a
