@@ -41,6 +41,34 @@ func isFreeTier(tier string) bool {
 	return true
 }
 
+// freeTierThrottleBytes is the soft-throttle threshold: once a free-tier
+// customer has burned through this many bytes this month, vpn-svc reports
+// QUOTA_STATE_THROTTLED so the mobile app (#573) can render a "you're at
+// 80%" banner BEFORE the hard 429 kicks in. Set to 80% of FreeTierQuotaBytes.
+const freeTierThrottleBytes = (FreeTierQuotaBytes / 10) * 8
+
+// computeQuotaState derives the QuotaState enum from a customer's tier
+// string + their month-to-date bytes total. Pure function — kept separate
+// from RequestSession.Handle so it's unit-testable in isolation (#573).
+//
+// Contract:
+//   - Paid tiers (STARTER/GROWTH/ENTERPRISE)         -> QUOTA_STATE_OK
+//   - Free + used < 80% of FreeTierQuotaBytes        -> QUOTA_STATE_OK
+//   - Free + 80% <= used < 100% of FreeTierQuotaBytes -> QUOTA_STATE_THROTTLED
+//   - Free + used >= FreeTierQuotaBytes              -> QUOTA_STATE_EXHAUSTED
+func computeQuotaState(tier string, used uint64) pb.QuotaState {
+	if !isFreeTier(tier) {
+		return pb.QuotaState_QUOTA_STATE_OK
+	}
+	if used >= FreeTierQuotaBytes {
+		return pb.QuotaState_QUOTA_STATE_EXHAUSTED
+	}
+	if used >= freeTierThrottleBytes {
+		return pb.QuotaState_QUOTA_STATE_THROTTLED
+	}
+	return pb.QuotaState_QUOTA_STATE_OK
+}
+
 // RequestSession handles POST /v1/vpn/sessions
 type RequestSession struct {
 	st        store.Store
@@ -87,6 +115,12 @@ func (h *RequestSession) Handle(w http.ResponseWriter, r *http.Request) {
 
 	// API key validation (#531). When validator wired, reject unauthenticated
 	// requests; otherwise (dev mode) skip and log a WARN.
+	//
+	// We track the resolved tier + month-to-date usage across this block so
+	// the success-path response can attach a quota_state hint (#573) without
+	// re-querying the store.
+	resolvedTier := ""
+	usedBytes := uint64(0)
 	if h.validator != nil {
 		if req.APIKey == "" {
 			respondError(w, http.StatusUnauthorized, "api_key required")
@@ -106,6 +140,7 @@ func (h *RequestSession) Handle(w http.ResponseWriter, r *http.Request) {
 			customerUUID = uuid.MustParse(custID)
 		}
 		_ = wsID
+		resolvedTier = tier
 
 		// Free-tier quota gate (#548). Paid tiers are unlimited; free
 		// tiers get FreeTierQuotaBytes (2 GiB/mo). We sum bytes_in +
@@ -117,20 +152,24 @@ func (h *RequestSession) Handle(w http.ResponseWriter, r *http.Request) {
 				h.logger.Warn("free-tier quota query failed (allowing through)",
 					slog.String("customer_id", customerUUID.String()),
 					slog.String("error", err.Error()))
-			} else if used >= FreeTierQuotaBytes {
-				h.logger.Info("free-tier quota exhausted",
-					slog.String("customer_id", customerUUID.String()),
-					slog.Uint64("used_bytes", used),
-					slog.Uint64("quota_bytes", FreeTierQuotaBytes))
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusTooManyRequests)
-				_ = json.NewEncoder(w).Encode(map[string]interface{}{
-					"error":       "quota_exceeded",
-					"detail":      "free-tier 2 GiB/month bandwidth quota exhausted — upgrade to plus or pro at https://iogrid.org/customer/vpn",
-					"quota_bytes": FreeTierQuotaBytes,
-					"used_bytes":  used,
-				})
-				return
+			} else {
+				usedBytes = used
+				if used >= FreeTierQuotaBytes {
+					h.logger.Info("free-tier quota exhausted",
+						slog.String("customer_id", customerUUID.String()),
+						slog.Uint64("used_bytes", used),
+						slog.Uint64("quota_bytes", FreeTierQuotaBytes))
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusTooManyRequests)
+					_ = json.NewEncoder(w).Encode(map[string]interface{}{
+						"error":       "quota_exceeded",
+						"detail":      "free-tier 2 GiB/month bandwidth quota exhausted — upgrade to plus or pro at https://iogrid.org/customer/vpn",
+						"quota_bytes": FreeTierQuotaBytes,
+						"used_bytes":  used,
+						"quota_state": pb.QuotaState_QUOTA_STATE_EXHAUSTED.String(),
+					})
+					return
+				}
 			}
 		}
 	} else {
@@ -193,11 +232,15 @@ func (h *RequestSession) Handle(w http.ResponseWriter, r *http.Request) {
 	SessionsCreated.Inc()
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{
+	// quota_state lets the mobile app (#573) render banner / paywall
+	// purely from server state. For dev-mode (no validator) we report
+	// OK — there's no tier or usage to gate on.
+	json.NewEncoder(w).Encode(map[string]interface{}{
 		"session_id":  sessionID.String(),
 		"status":      "CREATING",
 		"provider_id": providerID.String(),
 		"region":      chosenRegion,
+		"quota_state": computeQuotaState(resolvedTier, usedBytes).String(),
 	})
 }
 
@@ -241,6 +284,14 @@ func (h *GetSession) Handle(w http.ResponseWriter, r *http.Request) {
 	// WG public key (populated when the daemon BindProvider call lands
 	// — until then it's empty and the customer SDK should poll).
 	candidates, _ := h.st.GetProviderCandidates(r.Context(), session.CurrentProvider)
+	// quota_state (#573): compute against the customer's month-to-date
+	// bytes total. GET has no API key, so we can't ask billing-svc for
+	// the tier — we default to free-tier semantics, which is the
+	// conservative path for the mobile-app banner (a paid customer
+	// will never accrue enough usage to flip the state, since they
+	// don't pay the gate).
+	used, _ := h.st.SumCustomerBytesThisMonth(r.Context(), session.CustomerID)
+	qs := computeQuotaState("", used)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"session_id":              session.ID.String(),
@@ -257,6 +308,7 @@ func (h *GetSession) Handle(w http.ResponseWriter, r *http.Request) {
 		"provider_wg_public_key":  session.ProviderWgPublicKey,
 		"customer_wg_public_key":  session.CustomerWgPublicKey,
 		"ice_candidates":          candidates,
+		"quota_state":             qs.String(),
 	})
 }
 
@@ -317,10 +369,28 @@ func (h *RefreshSession) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// quota_state (#573): mobile app polls /refresh as its heartbeat;
+	// surface the current quota signal so the banner / paywall reflects
+	// live usage without a second round-trip. We look up the session
+	// for its CustomerID, then compute MTD bytes — the metrics write
+	// above has already been applied, so this reflects post-refresh
+	// state. Failures fall back to UNSPECIFIED rather than failing the
+	// heartbeat (this is a hint, not a gate).
+	qs := pb.QuotaState_QUOTA_STATE_UNSPECIFIED
+	if sess, err := h.st.GetSession(r.Context(), sessionID); err == nil {
+		used, sumErr := h.st.SumCustomerBytesThisMonth(r.Context(), sess.CustomerID)
+		if sumErr == nil {
+			qs = computeQuotaState("", used)
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	SessionRefreshes.Inc()
-	json.NewEncoder(w).Encode(map[string]string{"status": "refreshed"})
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":      "refreshed",
+		"quota_state": qs.String(),
+	})
 }
 
 // TerminateSession handles POST /v1/vpn/sessions/{sessionID}/terminate

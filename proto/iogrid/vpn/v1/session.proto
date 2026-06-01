@@ -6,6 +6,19 @@ option go_package = "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/vpn
 
 import "iogrid/vpn/v1/ice.proto";
 
+// QuotaState lets vpn-svc tell the customer SDK / mobile app whether the
+// session is healthy under the free-tier quota, throttled (>= 80% used),
+// or exhausted (>= 100%). Surfaced on POST /v1/vpn/sessions, GET
+// /v1/vpn/sessions/{id} and the heartbeat RefreshAck so the mobile app
+// (#573) can render banner / paywall purely from server state — no
+// client-side quota math. Paid tiers always report QUOTA_STATE_OK.
+enum QuotaState {
+  QUOTA_STATE_UNSPECIFIED = 0;
+  QUOTA_STATE_OK = 1;
+  QUOTA_STATE_THROTTLED = 2;
+  QUOTA_STATE_EXHAUSTED = 3;
+}
+
 // Regional grouping of providers
 message RegionalProviders {
   string region = 1;                  // "us-east", "eu-west", etc.
@@ -86,6 +99,7 @@ message RefreshAck {
   int64 acked_at_unix_ms = 2;
   bool sticky_expired = 3;            // If true, customer may re-request for different provider
   int32 extended_ttl_seconds = 4;     // New TTL after refresh
+  QuotaState quota_state = 5;         // Free-tier quota signal for mobile banner / paywall (#573)
 }
 
 // Terminate session (customer → coordinator, graceful shutdown)

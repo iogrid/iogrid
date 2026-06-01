@@ -8,6 +8,45 @@ import { Message, proto3, protoInt64 } from "@bufbuild/protobuf";
 import { IceCandidate } from "./ice_pbjs";
 
 /**
+ * QuotaState lets vpn-svc tell the customer SDK / mobile app whether the
+ * session is healthy under the free-tier quota, throttled (>= 80% used),
+ * or exhausted (>= 100%). Surfaced on POST /v1/vpn/sessions, GET
+ * /v1/vpn/sessions/{id} and the heartbeat RefreshAck so the mobile app
+ * (#573) can render banner / paywall purely from server state — no
+ * client-side quota math. Paid tiers always report QUOTA_STATE_OK.
+ *
+ * @generated from enum iogrid.vpn.v1.QuotaState
+ */
+export enum QuotaState {
+  /**
+   * @generated from enum value: QUOTA_STATE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: QUOTA_STATE_OK = 1;
+   */
+  OK = 1,
+
+  /**
+   * @generated from enum value: QUOTA_STATE_THROTTLED = 2;
+   */
+  THROTTLED = 2,
+
+  /**
+   * @generated from enum value: QUOTA_STATE_EXHAUSTED = 3;
+   */
+  EXHAUSTED = 3,
+}
+// Retrieve enum metadata with: proto3.getEnumType(QuotaState)
+proto3.util.setEnumType(QuotaState, "iogrid.vpn.v1.QuotaState", [
+  { no: 0, name: "QUOTA_STATE_UNSPECIFIED" },
+  { no: 1, name: "QUOTA_STATE_OK" },
+  { no: 2, name: "QUOTA_STATE_THROTTLED" },
+  { no: 3, name: "QUOTA_STATE_EXHAUSTED" },
+]);
+
+/**
  * Regional grouping of providers
  *
  * @generated from message iogrid.vpn.v1.RegionalProviders
@@ -600,6 +639,13 @@ export class RefreshAck extends Message<RefreshAck> {
    */
   extendedTtlSeconds = 0;
 
+  /**
+   * Free-tier quota signal for mobile banner / paywall (#573)
+   *
+   * @generated from field: iogrid.vpn.v1.QuotaState quota_state = 5;
+   */
+  quotaState = QuotaState.UNSPECIFIED;
+
   constructor(data?: PartialMessage<RefreshAck>) {
     super();
     proto3.util.initPartial(data, this);
@@ -612,6 +658,7 @@ export class RefreshAck extends Message<RefreshAck> {
     { no: 2, name: "acked_at_unix_ms", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
     { no: 3, name: "sticky_expired", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
     { no: 4, name: "extended_ttl_seconds", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
+    { no: 5, name: "quota_state", kind: "enum", T: proto3.getEnumType(QuotaState) },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RefreshAck {
