@@ -844,3 +844,10 @@ Automation follow-up: [bin/refresh-tracker.sh](https://github.com/iogrid/iogrid/
   - flow 04 cold-restart via `launchApp: stopApp: true`
 - Remaining CI steps: archive (manual signing, per-target profiles) → IPA export → altool upload → assign build to vpn-beta → invite emrahbaysal@gmail.com.
 - Holding pushes (CONTRIBUTING gotcha 23 + TRACKER disk-cleanup) until run completes to avoid concurrency cancel of post-Maestro steps.
+
+## 2026-06-02T08:00Z — Iteration 11: keychain isolation for archive cert pickup
+- Iter 10 (commit 4d375aa) was the first to pass Maestro flows. Archive then failed: 'Signing certificate Apple Distribution: HATICE YILDIZ BAYSAL serial 1CE647F4992DFD0CEAA4528443705912 is not valid'.
+- Root cause: Create temp keychain step appended new keychain to existing user search list. macos-latest runner had stale 'Apple Distribution' cert (different serial from fastlane's freshly-created 9NK3S33W6K) in the login keychain — leftover from prior CI jobs on sibling Dynolabs team projects (vcard/cinova/ping). xcodebuild's manual signing picked the FIRST matching cert by generic name, hitting the stale one.
+- Fix e912ac7: replace user keychain search list with ONLY our new keychain (no append).
+- Bundled pushes included 696438a (CONTRIBUTING gotcha 23), ee71b96 (TRACKER disk cleanup), 3775e59 (Maestro GREEN narrative).
+- Run 26789507723 in flight. Monitor bcv0g98ws.
