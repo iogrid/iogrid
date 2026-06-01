@@ -258,48 +258,36 @@ jobs:
               except urllib.error.HTTPError as e:
                   print(f'  delete HTTP {e.code}: {e.read().decode()[:200]}')
           PY
-          # Dynolabs Apple Developer team's 2-cert limit is full
-          # (vcard + cinova use them). Don't try `fastlane cert` —
-          # it would request a 3rd cert + error. Instead, import the
-          # team's existing distribution .p12 (exfil'd from vcard's
-          # secrets to ours per #574 bootstrap) directly into the
-          # keychain. fastlane sigh sees the cert + uses it.
-          echo "${{ secrets.IOS_DIST_CERT_P12 }}" | base64 -d > "$RUNNER_TEMP/dist.p12"
-          security import "$RUNNER_TEMP/dist.p12" \
-            -P "${{ secrets.IOS_DIST_P12_PASSWORD }}" \
-            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          # fastlane cert creates a fresh DISTRIBUTION cert + writes a
+          # .p12 the keychain can import. We just freed a slot earlier
+          # (was 2/2, now 1/2 after the pre-revoke iteration), so cert
+          # has room.
+          fastlane cert \
+            --api_key_path "$API_JSON" \
+            --team_id ${{ secrets.APPLE_TEAM_ID }} \
+            --output_path $RUNNER_TEMP \
+            --keychain_path "$KEYCHAIN_PATH" \
+            --keychain_password "$KEYCHAIN_PASSWORD" \
+            --force \
+            2>&1 | tee "$RUNNER_TEMP/cert.log"
+          NEW_CERT_ID=$(grep -oE 'Successfully generated [A-Z0-9]{10}|Found the certificate [A-Z0-9]{10}' "$RUNNER_TEMP/cert.log" \
+            | head -1 | awk '{print $NF}')
+          if [ -z "$NEW_CERT_ID" ]; then
+            echo "::error::Could not parse cert ID from fastlane cert output"
+            cat "$RUNNER_TEMP/cert.log"
+            exit 1
+          fi
+          echo "Pinning sigh to cert ID: $NEW_CERT_ID"
+          # Import any .p12 fastlane cert wrote.
+          for p12 in "$RUNNER_TEMP"/*.p12; do
+            [ -f "$p12" ] || continue
+            security import "$p12" -P "" \
+              -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH" || true
+          done
           security set-key-partition-list -S apple-tool:,apple: \
             -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" >/dev/null 2>&1 || true
           echo "=== identities in keychain ==="
           security find-identity -v -p codesigning "$KEYCHAIN_PATH"
-
-          # Extract the cert ID from the keychain identity for pinning.
-          # find-identity prints lines like:
-          #   1) ABC123... "Apple Distribution: Dynolabs (TEAM)"
-          # The hash is the Common Name fingerprint, NOT the ASC cert
-          # ID. We need the ASC cert ID — look it up via the API.
-          export ASC_KEY_ID="${{ secrets.APP_STORE_CONNECT_KEY_ID }}"
-          export ASC_ISSUER_ID="${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}"
-          NEW_CERT_ID=$(python3 - <<'PY'
-          import os, time, requests, jwt, sys
-          tok = jwt.encode(
-              {'iss': os.environ['ASC_ISSUER_ID'], 'iat': int(time.time()),
-               'exp': int(time.time())+1200, 'aud': 'appstoreconnect-v1'},
-              open(os.environ['KEY_FILE']).read(), algorithm='ES256',
-              headers={'kid': os.environ['ASC_KEY_ID']})
-          h = {'Authorization': f'Bearer {tok}'}
-          r = requests.get('https://api.appstoreconnect.apple.com/v1/certificates?limit=200', headers=h, timeout=15)
-          dist = [c for c in r.json().get('data', []) if c['attributes'].get('certificateType') in ('DISTRIBUTION', 'IOS_DISTRIBUTION')]
-          # Pin to the NEWEST dist cert (the one we just imported the .p12 of)
-          dist.sort(key=lambda c: c['attributes'].get('expirationDate') or '', reverse=True)
-          print(dist[0]['id'] if dist else '', end='')
-          PY
-          )
-          if [ -z "$NEW_CERT_ID" ]; then
-            echo "::error::No distribution cert found via ASC API"
-            exit 1
-          fi
-          echo "Pinning sigh to cert ID: $NEW_CERT_ID"
 
           fastlane sigh renew \
             --api_key_path "$API_JSON" \
