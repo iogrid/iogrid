@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-01T15:30Z` 🟢🟢🟢🟢🟢 **OPEN-ISSUE COUNT = 0**. Full backlog resolved this session: #529 (TunForwardSink), #532 (E2E smoke), #522 (concurrent-session stress smoke), #398 (WinGet bypass for Authenticode EV cert), #79 (macOS Sequoia runbook + Hetzner-default), #439 (Squads PDA derivations + Phase-2 rollout runbook), #521 (DERP relay + listener + 4 tests + deployment runbook). 6 commits / ~1500 LOC across daemon (Rust TUN syscalls), coordinator (Go DERP relay), web (WinGet manifests), docs (4 new operator runbooks). Demo end-to-end + Phase-4 hardening + Phase-2 cutover all in place. |
+| Last refreshed | `2026-06-01T07:30Z` 🟢 cron-refresh: +13 commits since last TRACKER bump |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
 | Open PRs | **0** |
