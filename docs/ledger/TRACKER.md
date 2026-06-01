@@ -799,3 +799,20 @@ Automation follow-up: [bin/refresh-tracker.sh](https://github.com/iogrid/iogrid/
 - Concurrency-cancelled run 26785507380 at Maestro flows step (was about to run them with only 1.5s hold).
 - New run 26786115022 has the FULL fix set: CONNECTING-hold (now 3s) + auto-pin + pre-revoke + per-target profiles + concurrency + dual sigh + plutil UUID + 3s race-margin.
 - Monitor b5fz571mi armed.
+
+## 2026-06-02T06:50Z — Inline cadence (CI in flight)
+- daemon transport: 38/38 unit tests passing
+- vpn-svc all packages: ok (server, earnings, ice, store)
+- billing-svc all packages: ok (server, stripeapi, solana, tax, offramp)
+- gateway-bff: builds; integration_test.go behind `integration` build tag — no API key endpoint coverage yet (gap from #563 BillingAPIKeyStore swap; non-blocking)
+- daemon ↔ mobile decoupling verified: no shared bundle IDs or NetworkExtension refs
+- mobile/ios TS: tsc --noEmit exit 0
+- Local-only commit b2ed696 (promote-to-internal-tester.py) held — push triggers concurrency cancel of CI 26786115022
+
+## 2026-06-02T06:50Z — Iteration 8: Maestro regex bug
+- Run 26786115022 failed at Maestro flow 03: `Assertion is false: "Best (auto)" is visible`. Root cause: Maestro's short-form `assertVisible: "string"` treats value as REGEX; parens in 'Best (auto)' are a capture group, so pattern matches 'Best auto' (no parens) but NOT the on-screen 'Best (auto)' with literal parens.
+- All 6 prior fixes correctly landed (sigh + cert + sim build + maestro install all GREEN). Only Maestro text matching tripped.
+- Fix 4ed7699: match literal-text portion 'Best' only; testID assertion already proves row existence.
+- Bundled push included b2ed696 (promote-to-internal-tester.py) since git push sends all local commits ahead of origin.
+- New run 26787298704 in flight. Monitor br56rt5ug.
+- Disk: cleaned 9G+ from go-build + playwright caches to unblock git writes; /home down from 100% to 95%.
