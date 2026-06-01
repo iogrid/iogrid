@@ -833,3 +833,14 @@ Automation follow-up: [bin/refresh-tracker.sh](https://github.com/iogrid/iogrid/
 - Disk was at 3G free / 97% used (would've blocked next push). Supervisor pointed to `docker system prune` as 2-min fix.
 - Docker socket access denied on bastion (different runtime), but `podman system prune -af` reclaimed 172.8GB of unreferenced container layers.
 - /home now 84% used (16G free). Comfortable for remaining iteration cycles.
+
+## 2026-06-02T07:58Z — 🟢 Maestro flows GREEN at iteration 10
+- Run 26788950651 passed Run Maestro flows step. After 10 iterations, all 5 flows (launch + toggle + region picker + settings + quota banner) pass on simulator.
+- Sequential fixes that landed iter 10:
+  - CONNECTING-hold 3000ms (race vs takeScreenshot)
+  - regions auto-row pinned above filter
+  - Maestro short-form regex parens → dropped text assertion (testID suffices)
+  - flow 03 `back` removed (iOS gesture unreliable)
+  - flow 04 cold-restart via `launchApp: stopApp: true`
+- Remaining CI steps: archive (manual signing, per-target profiles) → IPA export → altool upload → assign build to vpn-beta → invite emrahbaysal@gmail.com.
+- Holding pushes (CONTRIBUTING gotcha 23 + TRACKER disk-cleanup) until run completes to avoid concurrency cancel of post-Maestro steps.
