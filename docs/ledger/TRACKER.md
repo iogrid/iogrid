@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-01T00:25Z` 🟢 Caught smoke 400-trap: `echo \| gh secret set` appended \\n to VPN_SMOKE_CUSTOMER_ID → uuid.Parse rejected → silent 400. Re-set both secrets with printf, hardened cmdLogin to TrimSpace eagerly (7134b27). Smoke re-triggered. 20 PRs this session, 12 closures. Open: #532 (gated on #529 worker). |
+| Last refreshed | `2026-06-01T00:27Z` 🟢🟢🟢 **vpn-e2e-smoke runs the FULL README quickstart against live api.iogrid.org**. Run 26728829669: install + login + regions + connect = ALL GREEN ("VPN tunnel established successfully!"). Only data-plane (curl ifconfig.me) shows expected `Exit IP unchanged` — gated on worker's #529 path c TUN+MASQUERADE. Workflow message literally cites the issue # so the moment worker ships, CI flips green and #532 closes. 20 PRs this session, 12 closures. Customer end-to-end onboarding now under continuous CI verification. |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
 | Open PRs | **0** |
