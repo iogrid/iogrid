@@ -303,7 +303,7 @@ mod imp {
                 io::Error::new(io::ErrorKind::InvalidInput, "ifname too long"),
             ));
         }
-        let fd = unsafe { libc::open(b"/dev/net/tun\0".as_ptr() as *const _, libc::O_RDWR) };
+        let fd = unsafe { libc::open(c"/dev/net/tun".as_ptr(), libc::O_RDWR) };
         if fd < 0 {
             return Err(TunSetupError::OpenDev(io::Error::last_os_error()));
         }

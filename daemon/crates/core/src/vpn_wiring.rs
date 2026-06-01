@@ -498,6 +498,9 @@ mod tests {
             vpn_listen_addr: "127.0.0.1:0".into(),
             stun_server: "stun.iogrid.org:3478".into(),
             region: "us-east-1".into(),
+            public_ip: String::new(),
+            wan_iface: String::new(),
+            tun_ifname: String::new(),
         };
         let handles = spawn_vpn_modules(&cfg).await;
         assert!(handles.is_none(), "empty provider_id → no VPN spawn");

@@ -131,11 +131,13 @@ pub struct IceConfig {
     /// Optional manually-configured public IP for #557. When set the
     /// daemon publishes an EXTRA host candidate at this address +
     /// vpn_listen_addr.port. Use when:
+    ///
     ///   * STUN srflx discovery is broken or the STUN server is
     ///     unreachable
     ///   * The daemon sits behind a UDP load balancer / static port
     ///     forward whose external address can't be derived from a
     ///     local interface enumeration
+    ///
     /// Empty / None disables the override (no extra candidate appended).
     pub public_ip: Option<IpAddr>,
 }

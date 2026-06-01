@@ -160,9 +160,10 @@ pub struct VpnConfig {
     pub public_ip: String,
     /// #529 path c: Linux WAN interface the TunForwardSink installs
     /// iptables MASQUERADE on. Empty = `eth0` (matches stock GH runner
-    /// + most Hetzner provider images). Set this when the provider
-    /// host has a different uplink (e.g. `wlan0` on a residential box,
-    /// `enp4s0` on a workstation).
+    /// + most Hetzner provider images).
+    ///
+    /// Set this when the provider host has a different uplink (e.g.
+    /// `wlan0` on a residential box, `enp4s0` on a workstation).
     #[serde(default)]
     pub wan_iface: String,
     /// #529 path c: name of the TUN device the daemon creates for
