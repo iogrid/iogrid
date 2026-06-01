@@ -238,8 +238,6 @@ standalone Text without a Pressable parent.
 
 ### 22. CONNECTING state visibility for the smoke gate
 
-### 22. CONNECTING state visibility for the smoke gate
-
 The PacketTunnelProvider start() rejects fast on simulator (no NE
 host). The JS try/catch reverts state OFF→CONNECTING→OFF in <50ms
 — faster than Maestro's polling. Hold CONNECTING visible 3000ms
@@ -248,6 +246,32 @@ Real UX improvement (Mullvad does the same) and the smoke gate's
 `assertVisible: "CONNECTING"` becomes deterministic. The 3000ms
 margin also covers `takeScreenshot` latency + the second tap that
 toggles back through DISCONNECTING.
+
+### 23. Maestro `- back` is unreliable on iOS for Expo Router stacks
+
+Maestro's `backPressCommand` "completes" but doesn't actually pop
+the Expo Router stack — the on-screen state stays whatever the
+previous navigation put there. Confirmed via commands.json trace
+on CI iter 9: backPressCommand status=COMPLETED followed by
+assertVisible vpn-toggle status=FAILED (vpn-toggle is on /index,
+which we should have popped back to).
+
+Likely cause: Maestro's iOS back action triggers a swipe-from-left-
+edge gesture, which only works if the screen has the standard nav
+gesture enabled. Expo Router's default Stack may have a small back
+button instead, and the swipe doesn't catch.
+
+Workarounds:
+- Cold-restart the app between dependent flows:
+  `- launchApp:\n    stopApp: true`  ← brings app down + up,
+   reaches the root route
+- Use explicit `- tapOn:\n    text: "<previous-screen-title>"` if
+  the nav-bar back button text is queryable
+- Restructure flows so each is self-contained with `clearState`
+  + `clearKeychain` + `launchApp` (slowest but most deterministic)
+
+For iogrid: flows 03 + 04 had `- back` housekeeping at the end —
+dropped both, flow 04 cold-restarts. Flow 05 already self-contained.
 
 ## Iterating CI locally
 
