@@ -114,9 +114,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         self.currentRegion = providerConfig["region"] as? String
         self.currentPeerPublicKey = providerConfig["peerPublicKey"] as? String
 
+#if canImport(WireGuardKit)
         do {
             let config = try TunnelConfigurationDecoder.decode(providerConfig)
-#if canImport(WireGuardKit)
             adapter.start(tunnelConfiguration: config.wireguardConfig) { [weak self] error in
                 guard let self = self else { return }
                 if let error = error {
@@ -130,19 +130,21 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 self.startPathMonitor()
                 completionHandler(nil)
             }
-#else
-            // Compile path for the scaffold-only build before
-            // WireGuardKit is wired in. Fail explicitly rather than
-            // silently succeeding — keeps us honest about #565's
-            // "tunnel established" lie.
-            completionHandler(PacketTunnelError.wireGuardKitNotLinked)
-#endif
         } catch {
             os_log("decode providerConfiguration failed: %{public}@",
                    log: logger, type: .error,
                    String(describing: error))
             completionHandler(error)
         }
+#else
+        // Scaffold-only build (WG SwiftPM dep deferred to #576).
+        // Fail explicitly so the JS layer reflects CONNECTING → OFF
+        // via the NEVPNStatusDidChange subscriber. Keeps us honest
+        // about #565's "tunnel established" lie — the toggle WILL NOT
+        // claim CONNECTED state when there's no data plane.
+        os_log("WireGuardKit not linked — see #576", log: logger, type: .error)
+        completionHandler(PacketTunnelError.wireGuardKitNotLinked)
+#endif
     }
 
     override func stopTunnel(
