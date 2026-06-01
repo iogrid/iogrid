@@ -757,3 +757,9 @@ Automation follow-up: [bin/refresh-tracker.sh](https://github.com/iogrid/iogrid/
 - Run 26784540487 (8e54cb3, regions auto-pin): Failed at fastlane sigh — Apple's 2-cert distribution limit. Previous run's cert occupied one slot.
 - Fix c898fd9 (pre-revoke): API DELETE all IOS_DISTRIBUTION certs before fastlane cert creates a fresh one. Each CI run is now self-contained.
 - Watcher b3y46vvds on latest run.
+
+## 2026-06-02T06:15Z — Mobile iOS CI iterations 4+5
+- Iter 4 (commit fb944fa): per-target provisioning profile fix. Extension `io.iogrid.app.PacketTunnelProvider` has its own bundle ID; was about to fail signing with single global profile. Now `fastlane sigh` creates two profiles per run; Ruby script writes per-target signing settings into the project file; archive step drops its global xcodebuild signing flags.
+- Iter 5 (commit ed3abeb): concurrency group + cancel-in-progress. Rapid pushes were racing on Apple's 2-cert distribution cap (every run revokes+re-creates). Serialised the workflow so only the latest ref's run survives.
+- Cancelled stale runs 26784655669 (pre-revoke commit, superseded) and 26785156028 (per-target fix, superseded by concurrency commit) to free cert slot.
+- Latest run 26785186282 includes ALL fixes: CONNECTING-hold + auto-row-pin + pre-revoke + per-target profiles + concurrency. Monitor blj3ndo04.
