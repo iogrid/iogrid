@@ -39,6 +39,7 @@ jobs:
         with:
           node-version: 22
           cache: 'npm'
+          cache-dependency-path: mobile/ios/package-lock.json
 
       # Apple requires iOS 26 SDK (Xcode 26+) for App Store uploads as of
       # 2026-04. Default macos-latest may still have an older Xcode pinned;
