@@ -272,7 +272,7 @@ func (p *Postgres) CleanupExpiredCandidates(ctx context.Context) error {
 // GetProvidersInRegion implements Store.
 func (p *Postgres) GetProvidersInRegion(ctx context.Context, region string) ([]*ProviderInfo, error) {
 	query := `
-		SELECT id, region, status, last_seen_at, session_count
+		SELECT id, region, status, last_seen_at, session_count, COALESCE(wg_public_key, '')
 		FROM vpn_providers
 		WHERE region = $1 AND status != 'offline'
 		ORDER BY session_count ASC
@@ -286,7 +286,7 @@ func (p *Postgres) GetProvidersInRegion(ctx context.Context, region string) ([]*
 	var providers []*ProviderInfo
 	for rows.Next() {
 		provider := &ProviderInfo{}
-		if err := rows.Scan(&provider.ID, &provider.Region, &provider.Status, &provider.LastSeenAt, &provider.SessionCount); err != nil {
+		if err := rows.Scan(&provider.ID, &provider.Region, &provider.Status, &provider.LastSeenAt, &provider.SessionCount, &provider.WgPublicKey); err != nil {
 			return nil, fmt.Errorf("scan provider: %w", err)
 		}
 		providers = append(providers, provider)
@@ -320,17 +320,134 @@ func (p *Postgres) SelectProviderForSession(ctx context.Context, region string) 
 // RegisterProvider implements Store. Idempotent UPSERT — on conflict
 // the existing row's region / status / last_seen_at are overwritten,
 // session_count is left untouched so we don't yank sessions away.
+// wg_public_key is COALESCEd on update: a daemon that re-registers
+// without a key (e.g. legacy build) won't blank out a previously
+// captured key.
 func (p *Postgres) RegisterProvider(ctx context.Context, info *ProviderInfo) error {
 	query := `
-		INSERT INTO vpn_providers (id, region, status, last_seen_at, session_count)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO vpn_providers (id, region, status, last_seen_at, session_count, wg_public_key)
+		VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''))
 		ON CONFLICT (id) DO UPDATE
 		SET region = EXCLUDED.region,
 		    status = EXCLUDED.status,
-		    last_seen_at = EXCLUDED.last_seen_at
+		    last_seen_at = EXCLUDED.last_seen_at,
+		    wg_public_key = COALESCE(EXCLUDED.wg_public_key, vpn_providers.wg_public_key)
 	`
-	_, err := p.pool.Exec(ctx, query, info.ID, info.Region, info.Status, info.LastSeenAt, info.SessionCount)
+	_, err := p.pool.Exec(ctx, query, info.ID, info.Region, info.Status, info.LastSeenAt, info.SessionCount, info.WgPublicKey)
 	return err
+}
+
+// SelectTopProvidersInRegion implements Store.
+//
+// One round-trip: a CTE selects the top-N least-loaded healthy providers
+// + their wg_public_key + the median latency from ice_candidates rows
+// discovered within the last hour. The candidate set is then fetched in
+// a second query (one per provider) — for N=3 that's at most 4 queries
+// total, which is fine for the rare mobile-app probe call.
+func (p *Postgres) SelectTopProvidersInRegion(ctx context.Context, region string, limit int) ([]*ProviderProbe, error) {
+	if limit <= 0 {
+		limit = 3
+	}
+	// percentile_cont(0.5) is Postgres' median (continuous). NULL-safe:
+	// providers with zero fresh latency samples return NULL → 0 via COALESCE.
+	query := `
+		SELECT vp.id,
+		       COALESCE(vp.wg_public_key, ''),
+		       COALESCE(
+		         (SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY ic.latency_ms)::int
+		            FROM ice_candidates ic
+		           WHERE ic.provider_id = vp.id
+		             AND ic.latency_ms IS NOT NULL
+		             AND ic.latency_ms > 0
+		             AND ic.discovered_at > NOW() - INTERVAL '1 hour'),
+		         0
+		       ) AS median_rtt_ms
+		FROM vpn_providers vp
+		WHERE vp.region = $1
+		  AND vp.status = 'healthy'
+		  AND vp.last_seen_at > NOW() - INTERVAL '5 minutes'
+		ORDER BY vp.session_count ASC
+		LIMIT $2
+	`
+	rows, err := p.pool.Query(ctx, query, region, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query top providers: %w", err)
+	}
+	type row struct {
+		id          uuid.UUID
+		wgKey       string
+		medianRttMs int32
+	}
+	var rs []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.id, &r.wgKey, &r.medianRttMs); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("scan top provider: %w", err)
+		}
+		rs = append(rs, r)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	out := make([]*ProviderProbe, 0, len(rs))
+	for _, r := range rs {
+		cands, err := p.GetProviderCandidates(ctx, r.id)
+		if err != nil {
+			// Skip providers whose candidate fetch fails; logging is
+			// the handler's job (we don't have a logger here).
+			cands = nil
+		}
+		var rtt uint32
+		if r.medianRttMs > 0 {
+			rtt = uint32(r.medianRttMs)
+		}
+		out = append(out, &ProviderProbe{
+			ProviderID:  r.id,
+			WgPublicKey: r.wgKey,
+			Candidates:  cands,
+			MedianRttMs: rtt,
+		})
+	}
+	return out, nil
+}
+
+// SelectProviderAcrossRegions implements Store.
+//
+// Picks the best healthy provider across ALL regions for region=auto
+// session requests (#570). Today the scoring is purely
+// least-loaded-first (ORDER BY session_count ASC, last_seen_at DESC) —
+// geo-affinity from clientIPHint is a hint logged for future tuning but
+// not yet used at SQL level (the country-from-IP table lives in
+// providers-svc, not vpn-svc, so adding it would mean a cross-svc RPC on
+// the session-create hot path — explicit deferral). Once #573 lands a
+// geo helper into a shared lib the ORDER BY can be extended.
+func (p *Postgres) SelectProviderAcrossRegions(ctx context.Context, clientIPHint string) (uuid.UUID, string, error) {
+	query := `
+		SELECT id, region FROM vpn_providers
+		WHERE status = 'healthy'
+		  AND last_seen_at > NOW() - INTERVAL '5 minutes'
+		ORDER BY session_count ASC, last_seen_at DESC
+		LIMIT 1
+	`
+	var providerID uuid.UUID
+	var region string
+	err := p.pool.QueryRow(ctx, query).Scan(&providerID, &region)
+	if err != nil {
+		return uuid.Nil, "", fmt.Errorf("select provider across regions: %w", err)
+	}
+	// Increment session count + bump last_seen_at (same bookkeeping as
+	// SelectProviderForSession).
+	updateQuery := `
+		UPDATE vpn_providers
+		SET session_count = session_count + 1, last_seen_at = NOW()
+		WHERE id = $1
+	`
+	_, _ = p.pool.Exec(ctx, updateQuery, providerID)
+	_ = clientIPHint // reserved for future geo-affinity scoring (#573)
+	return providerID, region, nil
 }
 
 // CleanupStaleSessions implements Store.

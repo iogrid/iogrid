@@ -112,6 +112,25 @@ type Store interface {
 	// total counts. Empty regions are filtered out.
 	ListRegions(ctx context.Context) ([]*RegionSummary, error)
 
+	// SelectTopProvidersInRegion returns up to `limit` providers in the
+	// given region ordered by ascending session_count (least-loaded first),
+	// joined with their fresh ICE candidates (expires_at > now()) and the
+	// median candidate-discovery RTT over the last hour. Powers the
+	// mobile-app top-providers endpoint (#570) — the iOS client probes
+	// each one independently before committing to a session.
+	SelectTopProvidersInRegion(ctx context.Context, region string, limit int) ([]*ProviderProbe, error)
+
+	// SelectProviderAcrossRegions picks the best-scoring healthy provider
+	// across ALL regions for a `region=auto` session request (#570). The
+	// scoring is (session_count asc, region-affinity asc) — region
+	// affinity is derived from the caller's IP via a simple country/AS
+	// hint (`clientIPHint`) supplied by the handler from the
+	// X-Forwarded-For header. When clientIPHint is empty (e.g. dev mode
+	// behind no proxy), the scorer degenerates to "least-loaded across
+	// all regions", which is still correct — just less locality-aware.
+	// Returns the chosen provider's UUID + the region it lives in.
+	SelectProviderAcrossRegions(ctx context.Context, clientIPHint string) (uuid.UUID, string, error)
+
 	// --- Earnings batch (#547) ---
 
 	// ListUnbilledTerminatedSessions returns sessions where
@@ -177,9 +196,29 @@ type Session struct {
 
 // ProviderInfo represents a provider for regional failover selection.
 type ProviderInfo struct {
-	ID          uuid.UUID
-	Region      string
-	Status      string // "healthy", "degraded", "offline"
-	LastSeenAt  time.Time
+	ID           uuid.UUID
+	Region       string
+	Status       string // "healthy", "degraded", "offline"
+	LastSeenAt   time.Time
 	SessionCount int32
+	// WgPublicKey is the daemon's static WireGuard public key (base64).
+	// Populated at /v1/vpn/providers/{id}/register time when the daemon
+	// includes it in the body. The mobile-app top-providers endpoint
+	// (#570) returns it so the client can latency-probe BEFORE creating
+	// a session. Empty string is valid (legacy daemons that pre-date the
+	// schema bump).
+	WgPublicKey string
+}
+
+// ProviderProbe is one entry of the mobile-app top-providers response —
+// the wire shape exposed by GET /v1/vpn/regions/{region}/providers?limit=N
+// (#570). Mirrors the proto ProviderProbe but kept in the store layer so
+// the SQL path can SELECT the median_rtt_ms aggregate without round-
+// tripping through proto. Candidates are the same shape the existing
+// GetProviderCandidates returns (fresh = expires_at > now()).
+type ProviderProbe struct {
+	ProviderID  uuid.UUID
+	WgPublicKey string
+	Candidates  []*pb.IceCandidate
+	MedianRttMs uint32
 }

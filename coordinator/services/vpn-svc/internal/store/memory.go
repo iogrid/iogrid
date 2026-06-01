@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -236,6 +237,8 @@ func (m *Memory) SelectProviderForSession(ctx context.Context, region string) (u
 
 // RegisterProvider implements Store. Idempotent — re-registering an
 // existing provider preserves its SessionCount and replaces the rest.
+// WgPublicKey is only overwritten when the new value is non-empty so a
+// legacy daemon doesn't blank out a previously-registered key.
 func (m *Memory) RegisterProvider(ctx context.Context, p *ProviderInfo) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -243,12 +246,110 @@ func (m *Memory) RegisterProvider(ctx context.Context, p *ProviderInfo) error {
 		existing.Region = p.Region
 		existing.Status = p.Status
 		existing.LastSeenAt = p.LastSeenAt
+		if p.WgPublicKey != "" {
+			existing.WgPublicKey = p.WgPublicKey
+		}
 		return nil
 	}
 	// Copy so the caller mutating their input doesn't poke the store.
 	clone := *p
 	m.providers[p.ID] = &clone
 	return nil
+}
+
+// SelectTopProvidersInRegion implements Store.
+func (m *Memory) SelectTopProvidersInRegion(ctx context.Context, region string, limit int) ([]*ProviderProbe, error) {
+	if limit <= 0 {
+		limit = 3
+	}
+	m.mu.RLock()
+	// Snapshot healthy providers in region.
+	candidates := make([]*ProviderInfo, 0)
+	for _, p := range m.providers {
+		if p.Region == region && p.Status == "healthy" {
+			candidates = append(candidates, p)
+		}
+	}
+	// Snapshot candidate sets so we can release the read lock before
+	// returning (callers may iterate at their own pace).
+	candSnap := make(map[uuid.UUID][]*pb.IceCandidate, len(candidates))
+	for _, p := range candidates {
+		if cs, ok := m.candidates[p.ID]; ok {
+			candSnap[p.ID] = cs
+		}
+	}
+	m.mu.RUnlock()
+
+	// Sort by ascending session_count (least-loaded first) — same
+	// heuristic as SelectProviderForSession.
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].SessionCount < candidates[j].SessionCount
+	})
+	if len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+
+	out := make([]*ProviderProbe, 0, len(candidates))
+	hourAgoMs := time.Now().Add(-1 * time.Hour).UnixMilli()
+	for _, p := range candidates {
+		probe := &ProviderProbe{
+			ProviderID:  p.ID,
+			WgPublicKey: p.WgPublicKey,
+			Candidates:  candSnap[p.ID],
+		}
+		// Median RTT over the last hour of candidate-discovery samples.
+		latencies := make([]uint32, 0, len(probe.Candidates))
+		for _, c := range probe.Candidates {
+			if c.LatencyMs > 0 && c.DiscoveredAtUnixMs >= hourAgoMs {
+				latencies = append(latencies, c.LatencyMs)
+			}
+		}
+		probe.MedianRttMs = medianUint32(latencies)
+		out = append(out, probe)
+	}
+	return out, nil
+}
+
+// SelectProviderAcrossRegions implements Store.
+//
+// Memory store ignores clientIPHint (geo lookup is a postgres-side
+// concern); least-loaded across regions is sufficient for tests +
+// dev mode.
+func (m *Memory) SelectProviderAcrossRegions(ctx context.Context, clientIPHint string) (uuid.UUID, string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var selected *ProviderInfo
+	for _, p := range m.providers {
+		if p.Status != "healthy" {
+			continue
+		}
+		if selected == nil || p.SessionCount < selected.SessionCount {
+			selected = p
+		}
+	}
+	if selected == nil {
+		return uuid.Nil, "", fmt.Errorf("no healthy providers across regions")
+	}
+	selected.SessionCount++
+	selected.LastSeenAt = time.Now()
+	return selected.ID, selected.Region, nil
+}
+
+// medianUint32 returns the median of the slice (0 if empty). For an
+// even-length slice it averages the two middle values, matching the
+// SQL definition used in the Postgres path.
+func medianUint32(xs []uint32) uint32 {
+	n := len(xs)
+	if n == 0 {
+		return 0
+	}
+	sorted := make([]uint32, n)
+	copy(sorted, xs)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+	if n%2 == 1 {
+		return sorted[n/2]
+	}
+	return (sorted[n/2-1] + sorted[n/2]) / 2
 }
 
 // SelectAlternateProvider implements Store.

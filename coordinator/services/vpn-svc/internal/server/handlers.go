@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -135,18 +137,39 @@ func (h *RequestSession) Handle(w http.ResponseWriter, r *http.Request) {
 		h.logger.Warn("api key validation skipped (dev mode — set VPN_SVC_BILLING_URL to enable)")
 	}
 
-	// Assign a provider in the requested region. The Postgres schema
-	// constraints fk_primary_provider + fk_current_provider require
-	// non-zero provider UUIDs at INSERT time, so we MUST pick one here.
-	// If no healthy provider in region, 503.
-	providerID, err := h.st.SelectProviderForSession(r.Context(), req.Region)
-	if err != nil {
-		h.logger.Warn("no healthy provider in region",
-			slog.String("region", req.Region),
-			slog.String("error", err.Error()))
-		respondError(w, http.StatusServiceUnavailable,
-			"no healthy provider in region "+req.Region)
-		return
+	// Assign a provider. region=="auto" (#570) → cross-region best-
+	// scoring pick (mobile-app flow); else region-specific pick. The
+	// Postgres schema constraints fk_primary_provider + fk_current_provider
+	// require non-zero provider UUIDs at INSERT time, so we MUST pick
+	// one here. If no healthy provider, 503.
+	var providerID uuid.UUID
+	chosenRegion := req.Region
+	if req.Region == "auto" {
+		// Geo-affinity hint from X-Forwarded-For — the first IP in the
+		// list is the client per RFC 7239 §5.2. Empty when called
+		// directly (e.g. integration tests with no proxy).
+		ipHint := firstForwardedFor(r.Header.Get("X-Forwarded-For"))
+		var err error
+		providerID, chosenRegion, err = h.st.SelectProviderAcrossRegions(r.Context(), ipHint)
+		if err != nil {
+			h.logger.Warn("no healthy provider across regions",
+				slog.String("client_ip_hint", ipHint),
+				slog.String("error", err.Error()))
+			respondError(w, http.StatusServiceUnavailable,
+				"no healthy provider available")
+			return
+		}
+	} else {
+		var err error
+		providerID, err = h.st.SelectProviderForSession(r.Context(), req.Region)
+		if err != nil {
+			h.logger.Warn("no healthy provider in region",
+				slog.String("region", req.Region),
+				slog.String("error", err.Error()))
+			respondError(w, http.StatusServiceUnavailable,
+				"no healthy provider in region "+req.Region)
+			return
+		}
 	}
 
 	// Create session in store
@@ -154,7 +177,7 @@ func (h *RequestSession) Handle(w http.ResponseWriter, r *http.Request) {
 	session := &store.Session{
 		ID:              sessionID,
 		CustomerID:      customerUUID,
-		Region:          req.Region,
+		Region:          chosenRegion,
 		PrimaryProvider: providerID,
 		CurrentProvider: providerID,
 		State:           pb.VpnSessionState_CREATING,
@@ -174,8 +197,23 @@ func (h *RequestSession) Handle(w http.ResponseWriter, r *http.Request) {
 		"session_id":  sessionID.String(),
 		"status":      "CREATING",
 		"provider_id": providerID.String(),
-		"region":      req.Region,
+		"region":      chosenRegion,
 	})
+}
+
+// firstForwardedFor returns the first IP in a comma-separated
+// X-Forwarded-For header value (the originating client per RFC 7239 §5.2).
+// Returns "" when the header is empty or malformed — the caller treats
+// "" as "no geo hint available" and falls back to least-loaded picks.
+func firstForwardedFor(xff string) string {
+	xff = strings.TrimSpace(xff)
+	if xff == "" {
+		return ""
+	}
+	if i := strings.IndexByte(xff, ','); i >= 0 {
+		return strings.TrimSpace(xff[:i])
+	}
+	return xff
 }
 
 // GetSession handles GET /v1/vpn/sessions/{sessionID}
@@ -647,6 +685,51 @@ func (h *ListProvidersInRegion) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// `?limit=N` switches to the mobile-app probe shape (#570) —
+	// top-N least-loaded providers WITH their fresh ICE candidate set,
+	// wg_public_key, and median RTT over the last hour. Without limit
+	// we keep the legacy shape (flat list of ProviderInfo) so existing
+	// smoke-test callers don't break.
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		limit, err := strconv.Atoi(limitStr)
+		if err != nil || limit <= 0 {
+			respondError(w, http.StatusBadRequest, "limit must be a positive integer")
+			return
+		}
+		// Cap at 50 — anything more is almost certainly a misuse, and we
+		// don't want a single mobile client fanning out to every provider
+		// in a region.
+		if limit > 50 {
+			limit = 50
+		}
+		probes, err := h.st.SelectTopProvidersInRegion(r.Context(), region, limit)
+		if err != nil {
+			h.logger.Error("select top providers failed",
+				slog.String("region", region),
+				slog.Int("limit", limit),
+				slog.String("error", err.Error()))
+			respondError(w, http.StatusInternalServerError, "failed to list providers")
+			return
+		}
+		out := make([]map[string]interface{}, 0, len(probes))
+		for _, p := range probes {
+			out = append(out, map[string]interface{}{
+				"provider_id":    p.ProviderID.String(),
+				"wg_public_key":  p.WgPublicKey,
+				"candidate_set":  p.Candidates,
+				"median_rtt_ms":  p.MedianRttMs,
+			})
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"region":    region,
+			"providers": out,
+			"count":     len(out),
+		})
+		return
+	}
+
 	providers, err := h.st.GetProvidersInRegion(r.Context(), region)
 	if err != nil {
 		h.logger.Error("list providers failed",
@@ -678,6 +761,11 @@ func NewRegisterProvider(st store.Store, logger *slog.Logger) *RegisterProvider 
 
 type registerProviderReq struct {
 	Region string `json:"region"`
+	// WgPublicKey is the daemon's static WireGuard public key (#570).
+	// Optional — legacy daemons that pre-date the schema bump send "";
+	// the store layer preserves any previously registered key in that
+	// case rather than blanking it.
+	WgPublicKey string `json:"wg_public_key"`
 }
 
 // Handle implements http.Handler for RegisterProvider.
@@ -699,10 +787,11 @@ func (h *RegisterProvider) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	info := &store.ProviderInfo{
-		ID:         providerID,
-		Region:     req.Region,
-		Status:     "healthy",
-		LastSeenAt: time.Now(),
+		ID:          providerID,
+		Region:      req.Region,
+		Status:      "healthy",
+		LastSeenAt:  time.Now(),
+		WgPublicKey: req.WgPublicKey,
 	}
 	if err := h.st.RegisterProvider(r.Context(), info); err != nil {
 		h.logger.Error("register provider failed",

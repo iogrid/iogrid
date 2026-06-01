@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	pb "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/vpn/v1"
 	"github.com/iogrid/iogrid/coordinator/services/vpn-svc/internal/store"
 )
 
@@ -518,4 +519,153 @@ func TestIntegration_PaidTierIgnoresQuota(t *testing.T) {
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("paid tier must bypass quota; got status %d", resp.StatusCode)
 	}
+}
+
+// TestIntegration_RegionAutoPicksAcrossRegions verifies #570: when the
+// session-create body sets region="auto" the coordinator picks the
+// least-loaded healthy provider across ALL regions and stores the
+// chosen region on the session row.
+func TestIntegration_RegionAutoPicksAcrossRegions(t *testing.T) {
+	srv, st := boot(t)
+	mem := st.(*store.Memory)
+	// us-east-1 has a heavily loaded provider; eu-west-1 has a fresh one.
+	pUS := uuid.New()
+	pEU := uuid.New()
+	mem.SeedProvider(pUS, "us-east-1", "healthy")
+	mem.SeedProvider(pEU, "eu-west-1", "healthy")
+	// Bump us-east-1 load so eu-west-1 wins.
+	_, _ = mem.SelectProviderForSession(context.Background(), "us-east-1")
+	_, _ = mem.SelectProviderForSession(context.Background(), "us-east-1")
+	_, _ = mem.SelectProviderForSession(context.Background(), "us-east-1")
+
+	body := map[string]string{
+		"customer_id": uuid.New().String(),
+		"region":      "auto",
+	}
+	buf := &bytes.Buffer{}
+	_ = json.NewEncoder(buf).Encode(body)
+	req, _ := http.NewRequest("POST", srv.URL+"/v1/vpn/sessions", buf)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Forwarded-For", "85.214.10.1, 10.0.0.1")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST /sessions auto: %v", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("region=auto: status=%d body=%s", resp.StatusCode, respBody)
+	}
+	var got map[string]string
+	_ = json.Unmarshal(respBody, &got)
+	if got["region"] != "eu-west-1" {
+		t.Errorf("auto-picked region = %q, want eu-west-1 (least loaded)", got["region"])
+	}
+	if got["provider_id"] != pEU.String() {
+		t.Errorf("auto-picked provider = %s, want %s", got["provider_id"], pEU)
+	}
+
+	// Verify the session row's region is the AUTO-resolved one, not "auto".
+	sessID, _ := uuid.Parse(got["session_id"])
+	sess, err := st.GetSession(context.Background(), sessID)
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+	if sess.Region != "eu-west-1" {
+		t.Errorf("stored session.Region = %q, want eu-west-1", sess.Region)
+	}
+}
+
+// TestIntegration_RegionAutoNoProviders verifies #570 503 path.
+func TestIntegration_RegionAutoNoProviders(t *testing.T) {
+	srv, _ := boot(t)
+	body := map[string]string{
+		"customer_id": uuid.New().String(),
+		"region":      "auto",
+	}
+	resp, _ := postJSON(t, srv.URL+"/v1/vpn/sessions", body)
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("region=auto with empty store should 503, got %d", resp.StatusCode)
+	}
+}
+
+// TestIntegration_TopProvidersInRegion verifies #570 GET endpoint.
+func TestIntegration_TopProvidersInRegion(t *testing.T) {
+	srv, st := boot(t)
+	mem := st.(*store.Memory)
+	pA, pB, pC := uuid.New(), uuid.New(), uuid.New()
+	mem.SeedProvider(pA, "us-east-1", "healthy")
+	mem.SeedProvider(pB, "us-east-1", "healthy")
+	mem.SeedProvider(pC, "us-east-1", "healthy")
+	// Re-register with wg keys (SeedProvider doesn't take a key).
+	ctx := context.Background()
+	_ = st.RegisterProvider(ctx, &store.ProviderInfo{ID: pA, Region: "us-east-1", Status: "healthy", LastSeenAt: time.Now(), WgPublicKey: "wgA"})
+	_ = st.RegisterProvider(ctx, &store.ProviderInfo{ID: pB, Region: "us-east-1", Status: "healthy", LastSeenAt: time.Now(), WgPublicKey: "wgB"})
+	_ = st.RegisterProvider(ctx, &store.ProviderInfo{ID: pC, Region: "us-east-1", Status: "healthy", LastSeenAt: time.Now(), WgPublicKey: "wgC"})
+
+	// Seed candidates on pA.
+	pbCands := []*pb.IceCandidate{
+		{Foundation: "1", Transport: "udp", CandidateType: "host", ConnectionAddress: "10.0.0.1", ConnectionPort: 51820, LatencyMs: 30, DiscoveredAtUnixMs: time.Now().UnixMilli()},
+		{Foundation: "2", Transport: "udp", CandidateType: "srflx", ConnectionAddress: "1.2.3.4", ConnectionPort: 51820, LatencyMs: 70, DiscoveredAtUnixMs: time.Now().UnixMilli()},
+	}
+	_ = st.RegisterCandidates(ctx, pA, pbCands)
+
+	// GET with ?limit=3 → top-3 probe shape.
+	resp, err := http.Get(srv.URL + "/v1/vpn/regions/us-east-1/providers?limit=3")
+	if err != nil {
+		t.Fatalf("GET top-3: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("GET top-3: status=%d body=%s", resp.StatusCode, body)
+	}
+	var got map[string]interface{}
+	_ = json.NewDecoder(resp.Body).Decode(&got)
+	if got["region"] != "us-east-1" {
+		t.Errorf("region in response = %v, want us-east-1", got["region"])
+	}
+	providers, ok := got["providers"].([]interface{})
+	if !ok {
+		t.Fatalf("providers field missing or wrong type: %v", got["providers"])
+	}
+	if len(providers) != 3 {
+		t.Fatalf("expected 3 providers, got %d", len(providers))
+	}
+	first, _ := providers[0].(map[string]interface{})
+	if _, hasID := first["provider_id"]; !hasID {
+		t.Error("first provider missing provider_id field")
+	}
+	if _, hasKey := first["wg_public_key"]; !hasKey {
+		t.Error("first provider missing wg_public_key field")
+	}
+	if _, hasCands := first["candidate_set"]; !hasCands {
+		t.Error("first provider missing candidate_set field")
+	}
+	if _, hasRtt := first["median_rtt_ms"]; !hasRtt {
+		t.Error("first provider missing median_rtt_ms field")
+	}
+
+	// Without ?limit, falls back to legacy shape (no wg_public_key).
+	resp2, err := http.Get(srv.URL + "/v1/vpn/regions/us-east-1/providers")
+	if err != nil {
+		t.Fatalf("GET legacy: %v", err)
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("legacy GET: status=%d", resp2.StatusCode)
+	}
+	var legacy map[string]interface{}
+	_ = json.NewDecoder(resp2.Body).Decode(&legacy)
+	legacyProviders, _ := legacy["providers"].([]interface{})
+	if len(legacyProviders) != 3 {
+		t.Errorf("legacy shape: expected 3 providers, got %d", len(legacyProviders))
+	}
+
+	// Invalid limit → 400.
+	respBad, _ := http.Get(srv.URL + "/v1/vpn/regions/us-east-1/providers?limit=notanumber")
+	if respBad.StatusCode != http.StatusBadRequest {
+		t.Errorf("?limit=notanumber: got %d, want 400", respBad.StatusCode)
+	}
+	respBad.Body.Close()
 }
