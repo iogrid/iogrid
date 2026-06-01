@@ -273,6 +273,32 @@ Workarounds:
 For iogrid: flows 03 + 04 had `- back` housekeeping at the end —
 dropped both, flow 04 cold-restarts. Flow 05 already self-contained.
 
+### 24. Keychain search list must NOT append login keychain
+
+macos-latest runners are sometimes reused across jobs. The login
+keychain can carry stale "Apple Distribution: HATICE YILDIZ BAYSAL"
+certs from prior CI runs on sibling team projects (vcard / cinova /
+ping all share the Dynolabs Apple Developer team). When xcodebuild
+manual signing looks up `CODE_SIGN_IDENTITY="Apple Distribution"`
+it matches by GENERIC NAME — and picks the FIRST one in the search
+list.
+
+If the workflow appends our fresh keychain to the existing user
+search list (`security list-keychains -d user -s "$KEYCHAIN_PATH"
+$(security list-keychains -d user)`), xcodebuild may pick a stale
+cert from the login keychain instead of the freshly fastlane-cert
+one. Archive then fails: `Signing certificate ... serial XXX is
+not valid for code signing. It may have been revoked or expired.`
+
+Fix: REPLACE the search list with only our new keychain:
+```bash
+security list-keychains -d user -s "$KEYCHAIN_PATH"
+```
+
+iter 11 (run 26789507723) carries the fix. Confirmed by iter 10
+failure: fastlane created cert 9NK3S33W6K but xcodebuild signed
+with a DIFFERENT serial 1CE647F4992DFD0CEAA4528443705912.
+
 ## Iterating CI locally
 
 You can't iterate Xcode 26 builds on the bastion (no macOS). The
