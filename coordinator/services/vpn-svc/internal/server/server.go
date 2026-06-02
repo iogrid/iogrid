@@ -31,6 +31,14 @@ func Mount(h chi.Router, st store.Store, logger *slog.Logger, validator APIKeyVa
 		r.Post("/sessions/{sessionID}/heartbeat", NewHeartbeat(escrow).Handle)
 		r.Post("/sessions/{sessionID}/settle", NewSettleSession(escrow).Handle)
 
+		// Track 3 (#588 / #605): mobile PacketTunnelProvider session
+		// bring-up. Distinct from the legacy POST /sessions handler
+		// (ICE-candidate daemon flow) — kept separate while we
+		// migrate. The mobile handler returns the complete WG peer
+		// config in one round-trip so PacketTunnelProvider can call
+		// WireGuardAdapter.start without follow-up calls.
+		r.Post("/sessions/mobile", NewRequestMobileSession(st, logger).WithValidator(validator).Handle)
+
 		// Provider lifecycle:
 		// - POST /providers/{id}/register — daemon's first call on startup,
 		//   inserts the row that later health/candidate calls will UPDATE.
