@@ -39,7 +39,7 @@ interface CardProps extends ViewProps {
 interface PressableCardProps extends Omit<PressableProps, 'style'> {
   tone?: CardTone;
   noPadding?: boolean;
-  style?: ViewProps['style'];
+  style?: PressableProps['style'];
   onPress: (e: GestureResponderEvent) => void;
 }
 
