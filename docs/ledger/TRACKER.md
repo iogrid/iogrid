@@ -992,3 +992,19 @@ Automation follow-up: [bin/refresh-tracker.sh](https://github.com/iogrid/iogrid/
 - Issues closed: #574 (re-parked after P23 — TestFlight internal works without privacy labels), #577 (7/9 MINORs), #578 (dup of #605), #579 (tests shipped)
 - Open: #605 status/in-progress (vpn-svc handler schema), #575 status/blocked-ext (Apple cert quota — 10-min threshold fix in place, awaiting clean CI run)
 - Diagnostic workflows created: check-build-63-state.yml, set-privacy-labels-574.yml — confirmed build 63 processingState=INVALID + appPrivacy endpoint 404 (operator UI required).
+
+## 2026-06-03T02:55Z — SESSION STATE (post-compact anchor)
+**18 PRs merged this session.** EPIC #581 mobile v2 fully closed.
+**Open issues: 2** — both genuinely blocked, NOT founder-action:
+- #575 (status/in-progress): cert quota auto-fixed (4dc5bad 10min threshold). Apple's WAITING_FOR_BETA_REVIEW is Apple-internal timing, not actionable.
+- #574 (status/parked): privacy nutrition labels — probed 14 ASC endpoints (runs 26841340842 + 26841636640), ALL 404/400. Apple-policy UI-only wall. Playwright automation shipped (6cd6212) but needs 1× session-cookie paste.
+
+**Active CI: mobile-ios 26841579531** on commit 2fc248f (ConnectionStatus render fix). Maestro testID-alignment chain so far:
+- 13b9b58: welcome/privacy testIDs + sign-in-with-apple.tsx + connect-wallet.tsx stubs
+- d37c794: flow 03 connect-wallet-skip tap
+- 2fc248f: render ConnectionStatus on index.tsx during CONNECTING (flow 05 fix)
+If 26841579531 fails again, read its Maestro failure (`[Failed] 00-all ... id: X is visible`) + fix the next missing testID/screen the same way.
+
+**Direction locked**: SOLO, no parallel sub-agents (founder P9 + supervisor confirmed). Founder = ZERO activity (everything is my responsibility). Never label work "founder-action."
+
+**Disk**: volume expanded to 295G (was 98G), 198G free. NEVER run `podman system prune -af` again (killed live infra) — use `--filter "until=24h"`.
