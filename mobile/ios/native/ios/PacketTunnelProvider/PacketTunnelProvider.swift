@@ -384,7 +384,21 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         region: String,
         completion: @escaping (Result<[ProviderCandidate], Error>) -> Void
     ) {
-        guard let url = URL(string: "https://api.iogrid.org/v1/vpn/regions/\(region)/providers?limit=3") else {
+        // #577 MINOR fix: API base URL must be configurable so staging /
+        // dev / QA builds don't accidentally hit prod. Read from the
+        // providerConfiguration the main app handed us; fall back to
+        // prod so existing v1.0 customers don't have to update their
+        // saved profiles when this lands.
+        let apiBase: String = {
+            if let cfg = (self.protocolConfiguration as? NETunnelProviderProtocol)?
+                .providerConfiguration,
+               let raw = cfg["apiBaseUrl"] as? String,
+               !raw.isEmpty {
+                return raw.hasSuffix("/") ? String(raw.dropLast()) : raw
+            }
+            return "https://api.iogrid.org"
+        }()
+        guard let url = URL(string: "\(apiBase)/v1/vpn/regions/\(region)/providers?limit=3") else {
             completion(.failure(PacketTunnelError.malformedProviderConfiguration(reason: "invalid region")))
             return
         }
