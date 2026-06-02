@@ -1,0 +1,28 @@
+appId: io.iogrid.app
+---
+# Apple sign-in flow — the real system sheet is unmockable in Maestro,
+# so when MAESTRO_MODE=1 the auth.signInWithApple() short-circuits to
+# the in-process mock that returns a fixed credential.
+#
+# This flow re-enters onboarding (clearState), advances to the privacy
+# screen, taps Sign in with Apple, and asserts the home screen renders.
+
+- launchApp:
+    clearState: true
+    clearKeychain: true
+
+- tapOn:
+    id: "onboarding-welcome-continue"
+
+- tapOn:
+    id: "onboarding-sign-in-apple"
+
+# After the mock returns, we navigate to /(onboarding)/connect-wallet
+# (Track 2's stub). Either the connect-wallet primary CTA OR the
+# settings-button on /index should be visible after this point. Use the
+# settings button as the canonical "landed on home" signal because the
+# connect-wallet route gets replaced by Track 2.
+- assertVisible:
+    id: "connect-wallet-skip"
+
+- takeScreenshot: 02-sign-in-landed

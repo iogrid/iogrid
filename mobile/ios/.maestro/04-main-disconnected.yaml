@@ -1,0 +1,32 @@
+appId: io.iogrid.app
+---
+# Main screen — DISCONNECTED state.
+#
+# After cold-restart on an already-onboarded keychain, the router lands
+# on /index. Asserts the connect-button, region-card, wallet-card,
+# settings-button are present + that no spurious quota banner shows.
+#
+# Skips onboarding by NOT clearing state. The previous flow's persisted
+# onboarded=1 + Apple + wallet records carry over.
+
+- launchApp:
+    clearState: false
+    stopApp: true
+
+- assertVisible:
+    id: "connect-button"
+- assertVisible:
+    id: "region-card"
+- assertVisible:
+    id: "wallet-card"
+- assertVisible:
+    id: "settings-button"
+
+# No quota banner on first launch — the server hasn't responded yet
+# so the banner defaults to UNSPECIFIED which renders null.
+- assertNotVisible:
+    id: "quota-banner-throttled"
+- assertNotVisible:
+    id: "quota-banner-exhausted"
+
+- takeScreenshot: 04-main-disconnected

@@ -1,0 +1,27 @@
+appId: io.iogrid.app
+---
+# Main screen — CONNECTING state.
+#
+# Taps the connect-button and asserts the connection-status step list
+# becomes visible. The IPC bridge to Track 3's tunnel hasn't necessarily
+# completed on simulator, so the test only asserts the JS state machine
+# advances into the CONNECTING phase + the connect-button stays
+# queryable through the transition.
+
+- launchApp:
+    clearState: false
+    stopApp: true
+
+- assertVisible:
+    id: "connect-button"
+
+- tapOn:
+    id: "connect-button"
+
+# The CONNECTING phase is held visible for >=500ms by the JS layer (see
+# src/app/index.tsx holdConnectingVisible) so this assertion finds the
+# step list during the connecting window.
+- assertVisible:
+    id: "connection-status"
+
+- takeScreenshot: 05-main-connecting

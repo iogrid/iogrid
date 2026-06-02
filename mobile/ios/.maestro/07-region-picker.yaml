@@ -1,0 +1,27 @@
+appId: io.iogrid.app
+---
+# Region picker flow.
+#
+# Cold-restart to land at /index, tap the region card, assert the
+# region-best-auto row is present + tappable, type into the search
+# field, assert the search input accepts text without crashing.
+
+- launchApp:
+    clearState: false
+    stopApp: true
+
+- tapOn:
+    id: "region-card"
+
+- assertVisible:
+    id: "region-best-auto"
+
+- tapOn:
+    id: "region-search"
+- inputText: "us"
+- hideKeyboard
+
+- assertVisible:
+    id: "region-best-auto"
+
+- takeScreenshot: 07-region-picker

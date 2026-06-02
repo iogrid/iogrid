@@ -1,0 +1,29 @@
+appId: io.iogrid.app
+---
+# Onboarding flow — first-launch path lands on /(onboarding)/welcome.
+#
+# Asserts:
+#   - Welcome screen renders + Continue is tappable
+#   - Privacy screen renders + Sign in with Apple is tappable
+#
+# State reset via clearState + clearKeychain so the onboarded flag is
+# unset and the router falls through to /(onboarding)/welcome.
+
+- launchApp:
+    clearState: true
+    clearKeychain: true
+
+# Welcome screen primary CTA
+- assertVisible:
+    id: "onboarding-welcome-continue"
+
+- takeScreenshot: 01-onboarding-welcome
+
+- tapOn:
+    id: "onboarding-welcome-continue"
+
+# Privacy screen — sign-in CTA visible
+- assertVisible:
+    id: "onboarding-sign-in-apple"
+
+- takeScreenshot: 01-onboarding-privacy

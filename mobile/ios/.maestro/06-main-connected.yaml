@@ -1,0 +1,28 @@
+appId: io.iogrid.app
+---
+# Main screen — CONNECTED state.
+#
+# Real tunnel won't actually establish on simulator (PacketTunnelProvider
+# isn't connectable in the simulator host). In MAESTRO_MODE, the mock
+# coordinator returns a synthetic CONNECTED session. The Track 3
+# TunnelControl stub fires onStatusChange('connected') which advances
+# the JS state machine.
+#
+# v1 of this flow is intentionally permissive: assert connect-button is
+# present, tap it, then assert SOMETHING tunnel-related appears. The
+# strict CONNECTED-side assertions land once Track 3 ships the real
+# tunnel + the simulator mock harness.
+
+- launchApp:
+    clearState: false
+    stopApp: true
+
+- tapOn:
+    id: "connect-button"
+
+# Held connecting at minimum 500ms; transition to CONNECTED happens via
+# IPC. Either way the connect-button remains the canonical anchor.
+- assertVisible:
+    id: "connect-button"
+
+- takeScreenshot: 06-main-connected

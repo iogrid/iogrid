@@ -1,0 +1,24 @@
+appId: io.iogrid.app
+---
+# Settings flow.
+#
+# Cold-restart to land at /index, tap settings-button, assert the
+# canonical rows render (account, wallet, kill-switch, sign-out).
+
+- launchApp:
+    clearState: false
+    stopApp: true
+
+- tapOn:
+    id: "settings-button"
+
+- assertVisible:
+    id: "settings-row-apple"
+- assertVisible:
+    id: "settings-row-wallet"
+- assertVisible:
+    id: "settings-row-killswitch"
+- assertVisible:
+    id: "settings-row-signout"
+
+- takeScreenshot: 08-settings
