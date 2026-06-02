@@ -507,6 +507,35 @@ jobs:
       # archive + TestFlight upload steps are skipped, and the
       # broken build never reaches Apple.
       # ───────────────────────────────────────────────────────────
+      - name: Set up Go (for WireGuardKitGo static lib)
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: false
+
+      - name: Build WireGuardKitGo static lib (libwg-go.a)
+        # WireGuardKit (vendored Swift package) declares
+        # `linkedLibrary("wg-go")` on its WireGuardKitGo target, but the
+        # actual libwg-go.a is built from Go via the upstream Makefile —
+        # SwiftPM doesn't run it. Without this step the linker error is:
+        #   ld: library 'wg-go' not found
+        # at the `Build app for iOS Simulator` step (#605).
+        #
+        # The Makefile builds both arm64 and x86_64 slices + lipos them
+        # into a fat libwg-go.a inside the configured CONFIGURATION_BUILD_DIR.
+        # Default ARCHS=x86_64 arm64 + PLATFORM_NAME=iphonesimulator matches
+        # what xcodebuild will look for when linking the simulator app.
+        run: |
+          set -euo pipefail
+          cd mobile/ios/vendor/wireguard-apple-swift6/Sources/WireGuardKitGo
+          make ARCHS="x86_64 arm64" PLATFORM_NAME=iphonesimulator \
+            CONFIGURATION_BUILD_DIR="$RUNNER_TEMP/wg-go-build" \
+            CONFIGURATION_TEMP_DIR="$RUNNER_TEMP/wg-go-tmp"
+          # Copy the built libwg-go.a into the WireGuardKitGo Sources dir
+          # so SwiftPM's linker step can find it via the standard search
+          # path (relative to the package's Sources/WireGuardKitGo).
+          cp "$RUNNER_TEMP/wg-go-build/libwg-go.a" .
+
       - name: Build app for iOS Simulator (no signing)
         # Use a concrete simulator destination (not "generic") so xcodebuild
         # emits a single-slice .app to the Products dir as expected. Bundle
