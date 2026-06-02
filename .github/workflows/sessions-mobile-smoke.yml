@@ -1,0 +1,163 @@
+name: sessions-mobile-smoke
+
+# One-shot smoke test against the LIVE deployed coordinator at
+# api.iogrid.org. Verifies POST /v1/vpn/sessions/mobile actually
+# responds in production after the #605 ship (commits f4473d6 +
+# b73085d8 + 0672aa0).
+#
+# Why this exists separate from vpn-e2e-smoke.yml:
+#   vpn-e2e-smoke covers the customer-CLI quickstart (regions +
+#   tunnel + exit-IP change). This workflow drills directly at the
+#   mobile session endpoint that the iOS / Android consume-only
+#   apps will hit — no CLI, no provider pairing, no kernel cap.
+#   It's the smallest possible reachability + correctness probe
+#   for the endpoint shipped by #605.
+#
+# Healthy outcomes (any one of these = endpoint is alive):
+#   - 201 Created with session_id in the JSON body
+#     (real session created against an available provider)
+#   - 503 Service Unavailable + Retry-After header
+#     (no peers in the requested region — endpoint is alive and
+#     correctly degraded; this is the expected response while the
+#     provider mesh is still bootstrapping)
+#   - 401 Unauthorized
+#     (BillingValidator is wired in prod and rejected the stub
+#     request; documents the auth gate is in place)
+#
+# Unhealthy outcomes (workflow FAILS):
+#   - Any other 4xx (400 bad request, 404 routing miss, etc.)
+#   - 5xx without Retry-After (unhandled panic, dependency dead)
+#   - Empty response (DNS, ingress, or proxy issue)
+#   - Content-Type != application/json on a 2xx/4xx/5xx response
+#     (misconfigured ingress returning HTML error pages)
+#
+# Refs #605.
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sessions-mobile-smoke
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: deployed-coordinator smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+
+    steps:
+      - name: Probe POST /v1/vpn/sessions/mobile
+        run: |
+          set -euo pipefail
+
+          ENDPOINT="https://api.iogrid.org/v1/vpn/sessions/mobile"
+
+          # Fresh UUID per run so we never collide with a previous
+          # smoke's customer row. uuidgen ships with ubuntu-latest.
+          CUSTOMER_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+          # Stub WireGuard public key — 32 bytes base64 = 44 chars
+          # ending in '='. Coordinator validates length/shape, not
+          # cryptographic provenance, so a deterministic stub is
+          # fine for a reachability probe.
+          CLIENT_PUBKEY="AAAA1111BBBB2222CCCC3333DDDD4444="
+
+          echo "endpoint:    $ENDPOINT"
+          echo "customer_id: $CUSTOMER_ID"
+          echo "client_pk:   $CLIENT_PUBKEY"
+          echo
+
+          BODY_FILE="$(mktemp)"
+          HEADERS_FILE="$(mktemp)"
+
+          # -o body, -D headers, -w status — single round-trip.
+          # --max-time 30s: api.iogrid.org behind a Cloudflare-ish
+          # ingress, 30s is generous for cold-path.
+          # NOTE: no -f / --fail — we WANT to inspect 4xx/5xx
+          # responses below, not have curl exit early.
+          HTTP_CODE="$(curl -sS \
+            --max-time 30 \
+            -o "$BODY_FILE" \
+            -D "$HEADERS_FILE" \
+            -w '%{http_code}' \
+            -X POST "$ENDPOINT" \
+            -H 'Content-Type: application/json' \
+            -H 'Accept: application/json' \
+            --data @- <<EOF
+          {
+            "customer_id": "$CUSTOMER_ID",
+            "region": "auto",
+            "client_public_key": "$CLIENT_PUBKEY"
+          }
+          EOF
+          )" || HTTP_CODE="000"
+
+          echo "================ RESPONSE HEADERS ================"
+          cat "$HEADERS_FILE" || true
+          echo "================== RESPONSE BODY ================="
+          cat "$BODY_FILE" || true
+          echo
+          echo "=================================================="
+          echo "HTTP status: $HTTP_CODE"
+
+          # Empty / DNS / proxy failure
+          if [ "$HTTP_CODE" = "000" ]; then
+            echo "::error::No HTTP response — DNS failure, ingress down, or proxy black-hole."
+            exit 1
+          fi
+
+          # Content-Type invariant — catches misconfigured ingress
+          # returning Cloudflare / nginx HTML error pages instead
+          # of the JSON the service emits at every status code.
+          # Header lookup is case-insensitive per RFC 7230.
+          CONTENT_TYPE="$(grep -i '^content-type:' "$HEADERS_FILE" \
+            | tail -n1 \
+            | sed -E 's/^[Cc]ontent-[Tt]ype:[[:space:]]*//' \
+            | tr -d '\r' \
+            | tr '[:upper:]' '[:lower:]' \
+            || true)"
+          echo "content-type: ${CONTENT_TYPE:-<missing>}"
+          case "$CONTENT_TYPE" in
+            application/json*|application/problem+json*)
+              echo "Content-Type OK"
+              ;;
+            *)
+              echo "::error::Expected application/json Content-Type, got '${CONTENT_TYPE:-<missing>}' — ingress likely returning HTML error page."
+              exit 1
+              ;;
+          esac
+
+          case "$HTTP_CODE" in
+            201)
+              # Real session created — verify body has session_id.
+              if grep -q '"session_id"' "$BODY_FILE"; then
+                echo "::notice::201 Created with session_id — endpoint is healthy and provider mesh has at least one peer."
+                exit 0
+              fi
+              echo "::error::201 returned but no session_id field in body — schema regression."
+              exit 1
+              ;;
+            503)
+              # Degraded-but-alive — endpoint must signal retry.
+              if grep -i '^retry-after:' "$HEADERS_FILE" >/dev/null; then
+                echo "::notice::503 with Retry-After — endpoint is alive and correctly degraded (no peers in region). Expected while provider mesh is bootstrapping."
+                exit 0
+              fi
+              echo "::error::503 without Retry-After header — unhandled service failure, not the intended degraded path."
+              exit 1
+              ;;
+            401)
+              # BillingValidator gate is wired — documents the
+              # auth path. Stub request without api_key is
+              # correctly rejected.
+              echo "::notice::401 Unauthorized — BillingValidator is wired in prod and rejected the unauthenticated stub. Auth gate confirmed."
+              exit 0
+              ;;
+            *)
+              echo "::error::Unexpected HTTP status $HTTP_CODE — endpoint reached but response is neither 201/503-Retry-After/401. See body above."
+              exit 1
+              ;;
+          esac
