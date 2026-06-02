@@ -15,7 +15,7 @@ export default function ProviderStakingPage() {
     <PortalShell
       badge="Provider"
       title="Staking"
-      subtitle="Lock $GRID for a rewards multiplier. Longer locks earn more — early-unlock burns 50% of principal."
+      subtitle="Your $GRID earnings lockup, tier multiplier, and the Ping wallet your vested $GRID off-ramps to. Longer locks earn more — early-unlock burns 50% of principal."
       nav={PROVIDER_NAV}
       activeHref="/provider/staking"
     >
