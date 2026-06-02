@@ -86,7 +86,7 @@ describe('buildVpnApproveUrl — Universal-Link SPL-Approve shape', () => {
     const params = new URLSearchParams(url.slice(`${PING_APPROVE_URL}?`.length));
     expect(params.get('token')).toBe('GRID');
     expect(params.get('delegate')).toBe(VAULT);
-    expect(params.get('amount')).toBe('250000000');
+    expect(params.get('amount')).toBe('250000000000'); // 250 GRID @ 9 decimals
     expect(params.get('memo')).toBe('iogrid.v1:vpn:us-east:30');
     expect(params.get('return_url')).toBe(VPN_ACTIVATED_RETURN);
   });
