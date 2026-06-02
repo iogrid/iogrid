@@ -17,17 +17,27 @@
 import { Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing, TypeScale } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
+const ONBOARDED_FLAG_KEY = 'iogrid.onboarded';
+
 export default function ConnectWalletScreen() {
   const theme = useTheme();
 
-  const onContinue = () => {
-    // Stub: route to main app screen.
+  const onContinue = async () => {
+    // Stamp the onboarded flag so AuthGate skips this flow on
+    // subsequent launches.
+    try {
+      await AsyncStorage.setItem(ONBOARDED_FLAG_KEY, '1');
+    } catch {
+      // Storage failure shouldn't block the demo; the user will
+      // just see onboarding again next launch.
+    }
     router.replace('/' as any);
   };
 
