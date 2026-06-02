@@ -1,0 +1,89 @@
+name: fix-575-tester-and-submit
+on:
+  workflow_dispatch:
+jobs:
+  fix:
+    runs-on: macos-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Re-add emrahbaysal@gmail.com + submit build 61 for Beta Review
+        env:
+          ASC_KEY_ID:    ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          ASC_KEY:       ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+        run: |
+          python3 -m pip install --quiet --break-system-packages pyjwt cryptography requests
+          python3 - <<'PY'
+          import os, base64, time, jwt, requests, json, sys
+          key = base64.b64decode(os.environ['ASC_KEY'])
+          tok = jwt.encode(
+              {'iss': os.environ['ASC_ISSUER_ID'], 'iat': int(time.time()),
+               'exp': int(time.time()) + 1200, 'aud': 'appstoreconnect-v1'},
+              key, algorithm='ES256', headers={'kid': os.environ['ASC_KEY_ID']})
+          H = {'Authorization': f'Bearer {tok}', 'Content-Type': 'application/json'}
+          BASE = 'https://api.appstoreconnect.apple.com'
+          EMAIL = 'emrahbaysal@gmail.com'
+          APP_ID = '6775617937'
+          BUILD_ID = '1af277d1-d7f3-4d97-aa30-63364f383c77'
+          GROUP_ID = '474ed0b2-429e-47f5-8382-f776e43a3423'
+
+          # 1) Confirm vpn-beta group app association
+          ga = requests.get(f'{BASE}/v1/betaGroups/{GROUP_ID}', headers=H, timeout=20).json()
+          print(f'Group {GROUP_ID}:', json.dumps(ga.get('data', {}).get('attributes', {}), indent=2))
+
+          # 2) Look up tester by email across ALL apps (no app filter)
+          tq = requests.get(f'{BASE}/v1/betaTesters?filter[email]={EMAIL}', headers=H, timeout=20).json()
+          existing = tq.get('data', [])
+          if existing:
+              print(f'Tester {EMAIL} exists in ASC: id={existing[0]["id"]}')
+              # Check if tester is associated with our app
+              rels = requests.get(f"{BASE}/v1/betaTesters/{existing[0]['id']}/relationships/apps", headers=H, timeout=20).json()
+              print(f'Tester apps:', json.dumps(rels, indent=2)[:500])
+              tester_id = existing[0]['id']
+          else:
+              # 3) Create tester WITH app + group relationships
+              payload = {'data': {
+                  'type': 'betaTesters',
+                  'attributes': {'email': EMAIL, 'firstName': 'Emrah', 'lastName': 'Baysal'},
+                  'relationships': {
+                      'apps': {'data': [{'type': 'apps', 'id': APP_ID}]},
+                      'betaGroups': {'data': [{'type': 'betaGroups', 'id': GROUP_ID}]},
+                  },
+              }}
+              r = requests.post(f'{BASE}/v1/betaTesters', headers=H, json=payload, timeout=20)
+              print(f'POST /v1/betaTesters → HTTP {r.status_code}')
+              if r.status_code in (200, 201):
+                  tester_id = r.json()['data']['id']
+                  print(f'Created tester {tester_id}')
+              else:
+                  print(f'::error::Create tester failed: {r.text[:500]}')
+                  sys.exit(1)
+
+          # 4) Add tester to vpn-beta (idempotent via relationships endpoint)
+          payload = {'data': [{'type': 'betaTesters', 'id': tester_id}]}
+          r = requests.post(
+              f'{BASE}/v1/betaGroups/{GROUP_ID}/relationships/betaTesters',
+              headers=H, json=payload, timeout=20)
+          print(f'POST add-to-group → HTTP {r.status_code}: {r.text[:300]}')
+
+          # 5) Verify tester now in group
+          gtest = requests.get(f'{BASE}/v1/betaGroups/{GROUP_ID}/betaTesters?limit=200', headers=H, timeout=20).json()
+          print(f'\n=== vpn-beta testers (post-fix) ===')
+          for t in gtest.get('data', []):
+              a = t['attributes']
+              print(f"  id={t['id']} email={a.get('email')} state={a.get('state')} inviteType={a.get('inviteType')}")
+
+          # 6) Submit build 61 for Beta App Review (external)
+          # POST /v1/betaAppReviewSubmissions with build relationship
+          payload = {'data': {
+              'type': 'betaAppReviewSubmissions',
+              'relationships': {'build': {'data': {'type': 'builds', 'id': BUILD_ID}}},
+          }}
+          r = requests.post(f'{BASE}/v1/betaAppReviewSubmissions', headers=H, json=payload, timeout=20)
+          print(f'\nPOST betaAppReviewSubmissions → HTTP {r.status_code}: {r.text[:500]}')
+
+          # 7) Re-poll build state
+          bd = requests.get(f'{BASE}/v1/buildBetaDetails/{BUILD_ID}', headers=H, timeout=20).json()
+          print(f'\nBuild beta state (post-submit):', json.dumps(bd.get('data', {}).get('attributes', {}), indent=2))
+          PY
