@@ -15,12 +15,21 @@ appId: io.iogrid.app
 - assertVisible:
     id: "connect-button"
 
+# waitToSettleTimeoutMs:0 — do NOT let Maestro burn its default post-tap
+# settle (~4s) before the next command. The CONNECTING phase is held for
+# 3000ms from tap-time by the JS layer (src/app/index.tsx
+# holdConnectingVisible). On simulator the mobile-session request
+# DNS-fast-fails, so CONNECTING reverts to OFF 3s after the tap. If
+# Maestro settles for 4s first, the assertVisible below starts AFTER the
+# hold expired and never sees connection-status (observed CI flake: tap
+# 19:33:03, assert 19:33:07, hold gone). Starting the assert immediately
+# puts it well inside the 3s window.
 - tapOn:
     id: "connect-button"
+    waitToSettleTimeoutMs: 0
 
-# The CONNECTING phase is held visible for >=500ms by the JS layer (see
-# src/app/index.tsx holdConnectingVisible) so this assertion finds the
-# step list during the connecting window.
+# The CONNECTING phase is held visible for 3000ms by the JS layer so this
+# assertion finds the step list during the connecting window.
 - assertVisible:
     id: "connection-status"
 
