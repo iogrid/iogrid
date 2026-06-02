@@ -513,6 +513,16 @@ async fn pump(
     let bytes_in_counter = Arc::new(AtomicU64::new(0));
     let bytes_in_for_reader = bytes_in_counter.clone();
 
+    // Reader→writer EOF signal. When the upstream half closes (the common
+    // case: the origin server sends its response then FINs), the reader
+    // breaks out of its loop and fires this oneshot. Without it the writer
+    // loop would block on `mailbox_rx.recv()` forever — the coordinator does
+    // NOT always send a `TunnelClose` for an upstream-initiated EOF — so the
+    // final `Update { bytes_in, bytes_out }` was never emitted and the
+    // provider's relayed bytes never reached billing-svc. That is the
+    // root cause of iogrid/iogrid#633 (work done, zero $GRID credited).
+    let (reader_done_tx, reader_done_rx) = tokio::sync::oneshot::channel::<()>();
+
     // Reader task: pump upstream bytes → outbound TunnelData frames.
     // bytes_in = bytes received FROM the upstream (into the tunnel).
     let reader = tokio::spawn(async move {
@@ -556,29 +566,61 @@ async fn pump(
                 }
             }
         }
+        // Notify the writer loop that the upstream half is gone so it can
+        // stop waiting and emit the byte-accounting Update. A send error
+        // here just means the writer already exited (e.g. coordinator
+        // Close raced ahead) — harmless.
+        let _ = reader_done_tx.send(());
     });
 
     // Writer loop: mailbox → upstream socket.
     // bytes_out = bytes sent TO the upstream (out of the tunnel).
+    //
+    // We `select!` on the mailbox AND the reader-EOF signal so that an
+    // upstream-initiated close terminates the tunnel promptly (and emits
+    // the Update below) instead of hanging until the coordinator decides
+    // to send a TunnelClose. Refs iogrid/iogrid#633.
     let mut close_reason = String::new();
     let mut bytes_out: u64 = 0;
-    while let Some(inbound) = mailbox_rx.recv().await {
-        match inbound {
-            Inbound::Data(payload) => {
-                bytes_out += payload.len() as u64;
-                if let Err(e) = write_half.write_all(&payload).await {
-                    tracing::debug!(
-                        target: "tunnel",
-                        attempt_id = %aid_for_writer,
-                        error = %e,
-                        "upstream write error"
-                    );
-                    close_reason = format!("write_failed: {e}");
-                    break;
+    let mut reader_done_rx = reader_done_rx;
+    loop {
+        tokio::select! {
+            // Bias the mailbox so any already-queued inbound bytes drain
+            // before we honour the upstream-EOF signal.
+            biased;
+            maybe_inbound = mailbox_rx.recv() => {
+                match maybe_inbound {
+                    Some(Inbound::Data(payload)) => {
+                        bytes_out += payload.len() as u64;
+                        if let Err(e) = write_half.write_all(&payload).await {
+                            tracing::debug!(
+                                target: "tunnel",
+                                attempt_id = %aid_for_writer,
+                                error = %e,
+                                "upstream write error"
+                            );
+                            close_reason = format!("write_failed: {e}");
+                            break;
+                        }
+                    }
+                    Some(Inbound::Close(err)) => {
+                        close_reason = err;
+                        break;
+                    }
+                    None => {
+                        // All mailbox senders dropped (manager gone).
+                        break;
+                    }
                 }
             }
-            Inbound::Close(err) => {
-                close_reason = err;
+            _ = &mut reader_done_rx => {
+                // Upstream EOF / read error: the response is complete.
+                // Clean EOF leaves close_reason empty → status "succeeded".
+                tracing::debug!(
+                    target: "tunnel",
+                    attempt_id = %aid_for_writer,
+                    "upstream half closed — finalising tunnel"
+                );
                 break;
             }
         }
@@ -815,6 +857,166 @@ mod tests {
             }
             other => panic!("unexpected frame: {other:?}"),
         }
+    }
+
+    // ── Tests for #633 (bytes reported on upstream-initiated close) ──────────
+    //
+    // These drive `pump()` directly so they bypass the SSRF guard in `open()`
+    // (which blocks the loopback echo server) and exercise the real
+    // byte-accounting + Update-emission path that customers' proxy traffic
+    // takes in production.
+
+    /// Helper: a oneshot-driven echo/close server. Returns the bound addr
+    /// and a `TcpStream` already connected to it, ready to hand to `pump`.
+    async fn connected_pair() -> (TcpStream, tokio::net::TcpListener) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let client = TcpStream::connect(addr).await.unwrap();
+        (client, listener)
+    }
+
+    #[tokio::test]
+    async fn upstream_eof_first_still_emits_byte_update() {
+        // Regression for #633: when the UPSTREAM closes first (server sends
+        // its bytes then FINs) and the coordinator never sends a TunnelClose,
+        // the pump must still emit the final Update carrying bytes_in/bytes_out
+        // so billing-svc can credit the provider.
+        let (client, listener) = connected_pair().await;
+
+        // Upstream: send 5 bytes back to the daemon, then close (EOF).
+        let server = tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            // Read whatever the daemon writes out (bytes_out path).
+            let mut buf = [0u8; 64];
+            let _ = sock.read(&mut buf).await;
+            sock.write_all(b"hello").await.unwrap();
+            // Drop the socket → upstream EOF.
+        });
+
+        let (out_tx, mut out_rx) = mpsc::channel::<DispatchFrame>(32);
+        let (mb_tx, mb_rx) = mpsc::channel::<Inbound>(8);
+
+        // Coordinator pushes 3 bytes toward upstream (bytes_out = 3), then
+        // goes SILENT — it never sends Inbound::Close. Before the fix the
+        // writer loop would block here forever and no Update would be sent.
+        mb_tx.send(Inbound::Data(b"abc".to_vec())).await.unwrap();
+
+        let pump_handle = tokio::spawn(pump(
+            "wl-633".to_string(),
+            "aid-633".to_string(),
+            client,
+            mb_rx,
+            out_tx,
+        ));
+
+        // We expect: zero or more TunnelData frames (the "hello" bytes_in),
+        // then exactly one Update carrying the byte counters, then a
+        // TunnelClose. Collect frames until we see the Update.
+        let mut saw_update = false;
+        let mut update_bytes_in = 0u64;
+        let mut update_bytes_out = 0u64;
+        let mut update_status = String::new();
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
+        while tokio::time::Instant::now() < deadline {
+            match tokio::time::timeout(std::time::Duration::from_millis(500), out_rx.recv()).await {
+                Ok(Some(DispatchFrame::Update {
+                    workload_id,
+                    attempt_id,
+                    status,
+                    bytes_in,
+                    bytes_out,
+                    ..
+                })) => {
+                    assert_eq!(workload_id, "wl-633");
+                    assert_eq!(attempt_id, "aid-633");
+                    update_bytes_in = bytes_in;
+                    update_bytes_out = bytes_out;
+                    update_status = status;
+                    saw_update = true;
+                    break;
+                }
+                Ok(Some(_)) => continue, // TunnelData / TunnelClose — keep draining.
+                Ok(None) => break,
+                Err(_) => break,
+            }
+        }
+
+        assert!(
+            saw_update,
+            "pump must emit a byte-accounting Update on upstream EOF (#633)"
+        );
+        assert_eq!(update_bytes_in, 5, "bytes_in should reflect the 'hello' read");
+        assert_eq!(update_bytes_out, 3, "bytes_out should reflect the 'abc' write");
+        assert_eq!(
+            update_status, "succeeded",
+            "clean upstream EOF is a succeeded session"
+        );
+
+        // Keep the mailbox sender alive until after we've drained so the
+        // writer loop exits on the reader-EOF signal, not on a dropped tx.
+        drop(mb_tx);
+        let _ = pump_handle.await;
+        let _ = server.await;
+    }
+
+    #[tokio::test]
+    async fn coordinator_close_emits_byte_update() {
+        // The other close path: coordinator-initiated TunnelClose. Must also
+        // carry byte counters (preserves the pre-existing #490 behaviour).
+        let (client, listener) = connected_pair().await;
+
+        let server = tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            // Read the daemon's bytes_out, then sit idle (don't EOF) so the
+            // ONLY way the tunnel closes is the coordinator Close below.
+            let mut buf = [0u8; 64];
+            let _ = sock.read(&mut buf).await;
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            drop(sock);
+        });
+
+        let (out_tx, mut out_rx) = mpsc::channel::<DispatchFrame>(32);
+        let (mb_tx, mb_rx) = mpsc::channel::<Inbound>(8);
+
+        let pump_handle = tokio::spawn(pump(
+            "wl-490".to_string(),
+            "aid-490".to_string(),
+            client,
+            mb_rx,
+            out_tx,
+        ));
+
+        mb_tx.send(Inbound::Data(b"hi!!".to_vec())).await.unwrap();
+        // Coordinator closes the tunnel.
+        mb_tx
+            .send(Inbound::Close(String::new()))
+            .await
+            .unwrap();
+
+        let mut saw_update = false;
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
+        while tokio::time::Instant::now() < deadline {
+            match tokio::time::timeout(std::time::Duration::from_millis(500), out_rx.recv()).await {
+                Ok(Some(DispatchFrame::Update {
+                    status,
+                    bytes_out,
+                    ..
+                })) => {
+                    assert_eq!(bytes_out, 4, "bytes_out should reflect 'hi!!'");
+                    assert_eq!(status, "succeeded", "empty close_reason → succeeded");
+                    saw_update = true;
+                    break;
+                }
+                Ok(Some(_)) => continue,
+                Ok(None) => break,
+                Err(_) => break,
+            }
+        }
+
+        assert!(saw_update, "coordinator-Close must still emit a byte Update");
+        drop(mb_tx);
+        let _ = pump_handle.await;
+        let _ = server.await;
     }
 
     // ── New tests for #487 (SSRF guard) ──────────────────────────────────────
