@@ -521,23 +521,46 @@ jobs:
         #   ld: library 'wg-go' not found
         # at the `Build app for iOS Simulator` step (#605).
         #
-        # The Makefile builds both arm64 and x86_64 slices + lipos them
-        # into a fat libwg-go.a inside the configured CONFIGURATION_BUILD_DIR.
-        # Default ARCHS=x86_64 arm64 + PLATFORM_NAME=iphonesimulator matches
-        # what xcodebuild will look for when linking the simulator app.
-        #
-        # Path is relative to the workflow's `defaults.run.working-directory:
-        # mobile/ios` — so `vendor/...` NOT `mobile/ios/vendor/...`.
+        # Run Make for BOTH simulator (sim build below) and device
+        # (archive step further down). Each produces a fat libwg-go.a
+        # in a separate dir; we drop it into the SwiftPM target dir AND
+        # the iOS Pods Frameworks dir (which xcodebuild adds to
+        # LIBRARY_SEARCH_PATHS during its link step) — first location
+        # found wins.
         run: |
           set -euo pipefail
-          cd vendor/wireguard-apple-swift6/Sources/WireGuardKitGo
-          make ARCHS="x86_64 arm64" PLATFORM_NAME=iphonesimulator \
-            CONFIGURATION_BUILD_DIR="$RUNNER_TEMP/wg-go-build" \
-            CONFIGURATION_TEMP_DIR="$RUNNER_TEMP/wg-go-tmp"
-          # Copy the built libwg-go.a into the WireGuardKitGo Sources dir
-          # so SwiftPM's linker step can find it via the standard search
-          # path (relative to the package's Sources/WireGuardKitGo).
-          cp "$RUNNER_TEMP/wg-go-build/libwg-go.a" .
+
+          for plat in iphonesimulator iphoneos; do
+            outdir="$RUNNER_TEMP/wg-go-$plat"
+            cd "$GITHUB_WORKSPACE/mobile/ios/vendor/wireguard-apple-swift6/Sources/WireGuardKitGo"
+            # Choose ARCHS that match the platform. Simulator includes
+            # x86_64 + arm64; device is arm64 only.
+            if [ "$plat" = "iphonesimulator" ]; then
+              archs="x86_64 arm64"
+            else
+              archs="arm64"
+            fi
+            echo "::group::Building libwg-go.a for $plat ($archs)"
+            make clean 2>/dev/null || true
+            make ARCHS="$archs" PLATFORM_NAME="$plat" \
+              CONFIGURATION_BUILD_DIR="$outdir" \
+              CONFIGURATION_TEMP_DIR="$RUNNER_TEMP/wg-go-tmp-$plat"
+            echo "::endgroup::"
+            ls -la "$outdir"
+          done
+
+          # Copy the simulator slice to the SwiftPM target directory (so
+          # SwiftPM-level `-lwg-go` resolves) AND to /usr/local/lib (a
+          # default linker search path) AND to the Pods Frameworks dir
+          # (added to xcodebuild's LIBRARY_SEARCH_PATHS for cocoapods).
+          # The .a is universal-fat so the same file works for both
+          # x86_64 + arm64 simulator slices. The archive step builds
+          # iphoneos slice separately and overwrites.
+          cp "$RUNNER_TEMP/wg-go-iphonesimulator/libwg-go.a" \
+            "$GITHUB_WORKSPACE/mobile/ios/vendor/wireguard-apple-swift6/Sources/WireGuardKitGo/"
+          sudo mkdir -p /usr/local/lib
+          sudo cp "$RUNNER_TEMP/wg-go-iphonesimulator/libwg-go.a" /usr/local/lib/
+          ls -la /usr/local/lib/libwg-go.a
 
       - name: Build app for iOS Simulator (no signing)
         # Use a concrete simulator destination (not "generic") so xcodebuild
