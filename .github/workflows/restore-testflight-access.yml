@@ -1,0 +1,93 @@
+name: restore-testflight-access
+on:
+  workflow_dispatch:
+jobs:
+  restore:
+    runs-on: macos-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: List all apps on team + check founder's beta access status
+        env:
+          ASC_KEY_ID:    ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          ASC_KEY:       ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+        run: |
+          python3 -m pip install --quiet --break-system-packages pyjwt cryptography requests
+          python3 - <<'PY'
+          import os, base64, time, jwt, requests, json
+          key = base64.b64decode(os.environ['ASC_KEY'])
+          tok = jwt.encode(
+              {'iss': os.environ['ASC_ISSUER_ID'], 'iat': int(time.time()),
+               'exp': int(time.time()) + 1200, 'aud': 'appstoreconnect-v1'},
+              key, algorithm='ES256', headers={'kid': os.environ['ASC_KEY_ID']})
+          H = {'Authorization': f'Bearer {tok}', 'Content-Type': 'application/json'}
+          BASE = 'https://api.appstoreconnect.apple.com'
+          EMAIL = 'emrahbaysal@gmail.com'
+
+          # 1. List ALL apps on the team
+          apps = requests.get(f'{BASE}/v1/apps?limit=200', headers=H, timeout=20).json()
+          print(f'=== Apps on team ({len(apps.get("data", []))}) ===')
+          for a in apps.get('data', []):
+              attrs = a['attributes']
+              print(f"  id={a['id']} bundleId={attrs.get('bundleId')} name={attrs.get('name')}")
+
+          # 2. For each app, list beta groups + check if emrahbaysal is in any of them
+          print(f'\n=== Beta groups per app + emrahbaysal tester status ===')
+          to_add = []  # (app_id, app_name, group_id, group_name)
+          for app in apps.get('data', []):
+              app_id = app['id']
+              app_name = app['attributes'].get('name')
+              groups = requests.get(f'{BASE}/v1/apps/{app_id}/betaGroups?limit=50', headers=H, timeout=20).json()
+              for g in groups.get('data', []):
+                  g_id = g['id']
+                  g_name = g['attributes'].get('name')
+                  is_internal = g['attributes'].get('isInternalGroup')
+                  # Get testers in this group, filtering for emrahbaysal
+                  testers = requests.get(
+                      f'{BASE}/v1/betaGroups/{g_id}/betaTesters?filter[email]={EMAIL}&limit=10',
+                      headers=H, timeout=20).json()
+                  has_founder = bool(testers.get('data'))
+                  marker = '✅' if has_founder else '❌'
+                  flag = '[INT]' if is_internal else '[EXT]'
+                  print(f"  {marker} {flag} {app_name} → {g_name} (group {g_id})")
+                  # For internal groups he's not in, add him
+                  if is_internal and not has_founder:
+                      to_add.append((app_id, app_name, g_id, g_name))
+
+          # 3. Re-add to all internal groups he's missing from
+          print(f'\n=== Re-adding emrahbaysal to {len(to_add)} internal groups ===')
+
+          # Find current tester record(s)
+          tq = requests.get(f'{BASE}/v1/betaTesters?filter[email]={EMAIL}&limit=20', headers=H, timeout=20).json()
+          print(f'Found {len(tq.get("data", []))} tester records for {EMAIL}')
+          for t in tq.get('data', []):
+              print(f"  tester id={t['id']} state={t['attributes'].get('state')}")
+
+          if not tq.get('data'):
+              print('::error::No tester record exists at all — Apple needs at least one')
+              # Create a minimal one (no apps/groups rel)
+              payload = {'data': {
+                  'type': 'betaTesters',
+                  'attributes': {'email': EMAIL, 'firstName': 'Emrah', 'lastName': 'Baysal'},
+              }}
+              r = requests.post(f'{BASE}/v1/betaTesters', headers=H, json=payload, timeout=20)
+              print(f'Create tester → HTTP {r.status_code}: {r.text[:300]}')
+              if r.status_code in (200, 201):
+                  tq = {'data': [r.json()['data']]}
+
+          if tq.get('data'):
+              tester_id = tq['data'][0]['id']
+              # Add to each missing internal group
+              for app_id, app_name, g_id, g_name in to_add:
+                  payload = {'data': [{'type': 'betaTesters', 'id': tester_id}]}
+                  r = requests.post(
+                      f'{BASE}/v1/betaGroups/{g_id}/relationships/betaTesters',
+                      headers=H, json=payload, timeout=20)
+                  if r.status_code in (200, 201, 204):
+                      print(f"  ✅ Re-added to {app_name}/{g_name}")
+                  elif r.status_code == 422:
+                      print(f"  -- already in {app_name}/{g_name} (422)")
+                  else:
+                      print(f"  ❌ {app_name}/{g_name}: HTTP {r.status_code}: {r.text[:200]}")
+          PY
