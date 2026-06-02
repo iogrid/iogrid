@@ -892,6 +892,23 @@ func TestUpgradeVPN_InvokesStripe(t *testing.T) {
 	if !strings.Contains(w.Body.String(), "checkout.stripe.com") {
 		t.Fatalf("missing checkout url: %s", w.Body.String())
 	}
+	// Regression for #630 bug family: the web reads `res.checkoutUrl`
+	// (proto3-JSON camelCase). The handler MUST serialise via protojson —
+	// a stdlib encoding/json round-trip would emit the snake_case
+	// `checkout_url`, leaving res.checkoutUrl undefined and navigating the
+	// upgrade button to `undefined`.
+	var got struct {
+		CheckoutURL string `json:"checkoutUrl"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode body: %v (%s)", err, w.Body.String())
+	}
+	if got.CheckoutURL != "https://checkout.stripe.com/c/sess_123" {
+		t.Fatalf("checkoutUrl not in proto3-JSON camelCase form: %s", w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "checkout_url") {
+		t.Fatalf("response leaked snake_case checkout_url; web reads camelCase checkoutUrl: %s", w.Body.String())
+	}
 }
 
 // --- /provide/audit/stream — KEEPALIVE filter (#323) ---------------------

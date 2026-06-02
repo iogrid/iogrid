@@ -1,7 +1,10 @@
 package handlers
 
 import (
+	"encoding/json"
 	"net/http"
+
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/iogrid/iogrid/coordinator/services/gateway-bff/internal/auth"
 
@@ -122,7 +125,20 @@ func (a *API) UpgradeVPN(w http.ResponseWriter, r *http.Request) {
 		writeUpstreamError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, resp)
+	// Serialise via protojson, NOT stdlib encoding/json. The protoc-gen-go
+	// struct tags are snake_case ("checkout_url"), but the web's TS client
+	// reads the proto3-JSON camelCase name ("checkoutUrl") — see
+	// web/src/lib/types.ts CheckoutSessionResponse + the two consumers in
+	// vpn/upgrade/panel.tsx + customer/billing/panel.tsx that do
+	// `window.location.href = res.checkoutUrl`. A stdlib round-trip emitted
+	// "checkout_url", so res.checkoutUrl was undefined and the upgrade
+	// button navigated to `undefined` (#630 bug family).
+	raw, err := protojson.Marshal(resp)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", "failed to encode checkout session")
+		return
+	}
+	writeJSON(w, http.StatusOK, json.RawMessage(raw))
 }
 
 // parseTier maps the public-facing string to the proto enum. We accept
