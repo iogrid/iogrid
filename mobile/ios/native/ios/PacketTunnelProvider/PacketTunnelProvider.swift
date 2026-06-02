@@ -512,19 +512,33 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         conn.stateUpdateHandler = { state in
             switch state {
             case .ready:
+                // #577 MINOR 5 fix: UDP .ready fires on local socket
+                // bind regardless of network reachability, so timing
+                // here measured socket setup not peer RTT. Instead
+                // send the payload at .ready and START the RTT clock
+                // there; record the actual elapsed time on the first
+                // receiveMessage callback, which only fires when the
+                // peer (or an intermediate router) actually responds.
                 let payload = Data(repeating: 0, count: 4)
+                let sendStarted = DispatchTime.now()
                 conn.send(content: payload, completion: .contentProcessed { _ in })
-                let rttMs = self.elapsedMillis(since: started)
                 conn.receiveMessage { _, _, _, _ in
-                    // any inbound refines the measurement
+                    // Inbound = peer actually responded — this is
+                    // a real round-trip number.
+                    let rttMs = self.elapsedMillis(since: sendStarted)
+                    fire(rttMs)
                 }
-                fire(rttMs)
+                // Note: if the peer never responds, the asyncAfter
+                // perCandidateTimeoutMs deadline above will fire(nil)
+                // and mark this candidate as unreachable — exactly
+                // the signal the picker needs.
             case .failed, .cancelled:
                 fire(nil)
             default:
                 break
             }
         }
+        _ = started // kept for symmetry — overall start time logged elsewhere
         conn.start(queue: pathMonitorQueue)
     }
 
