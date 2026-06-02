@@ -3,30 +3,16 @@ name: mobile-ios-ci TestFlight
 on:
   push:
     branches: [main]
+    # GitHub Actions doesn't allow both `paths` and `paths-ignore` on
+    # one trigger. Use negation prefixes (`!`) inside `paths` to
+    # exclude .md docs — they don't affect the iOS build artifact and
+    # cancelling an in-flight 30-minute build for a CONTRIBUTING typo
+    # is waste (caught on 2026-06-02 when a gotcha-doc push cancelled
+    # CI 26830609872 mid-`Build app for iOS Simulator`).
     paths:
       - 'mobile/ios/**'
-      - 'mobile/ios/app.json'
-      - 'mobile/ios/package.json'
-      - 'mobile/ios/package-lock.json'
-      - 'mobile/ios/src/**'
-      - 'mobile/ios/src/components/**'
-      - 'mobile/ios/src/hooks/**'
-      - 'mobile/ios/src/constants/**'
-      - 'mobile/ios/assets/**'
-      - 'mobile/ios/.maestro/**'
       - '.github/workflows/mobile-ios-ci.yml'
-    paths-ignore:
-      # Docs / comments / CONTRIBUTING gotchas don't affect the build.
-      # Excluding them keeps in-flight CI from getting cancelled by
-      # documentation pushes (the cancel-in-progress concurrency
-      # cancelled an in-flight `Build app for iOS Simulator` step in
-      # this session — 2026-06-02 — when a CONTRIBUTING gotcha commit
-      # landed mid-build).
-      - 'mobile/ios/**/*.md'
-      - 'mobile/ios/CLAUDE.md'
-      - 'mobile/ios/AGENTS.md'
-      - 'mobile/ios/CONTRIBUTING.md'
-      - 'mobile/ios/README.md'
+      - '!mobile/ios/**/*.md'
   workflow_dispatch:
 
 # Concurrency group: ALL mobile-ios-ci runs serialize on a single
