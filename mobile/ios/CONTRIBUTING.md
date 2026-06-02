@@ -441,6 +441,57 @@ The `Submit build for external Beta Review` step in
 FULL Apple response body so future regressions can be diffed
 against the live state in a single CI run.
 
+### 28. Apple validator rejects `+447700900000` (UK Ofcom test range) as `INVALID_PHONE_NUMBER`
+
+Even though `+447700900000` is the official Ofcom test number,
+Apple's `PATCH /v1/betaAppReviewDetails` returns HTTP 409
+`ENTITY_ERROR.ATTRIBUTE.INVALID.INVALID_PHONE_NUMBER` with
+detail "The format of the phone number is invalid". The US test
+range `+1 415 555 01XX` is accepted. Use that for any non-PII
+contactPhone needed for review-details submission. Caught
+2026-06-02 on the second iteration of #600's fix.
+
+### 29. Xcode 26 strict module imports need `#include <sys/types.h>` for unsigned typedefs
+
+Xcode 26's Swift 6 toolchain compiles C/C++ headers in strict
+module-imports mode. Headers that use `u_int32_t`, `u_char`,
+`u_short` etc. without explicitly including `<sys/types.h>` fail
+to emit the `.pcm` module file with:
+
+```
+declaration of 'u_int32_t' must be imported from module
+'_DarwinFoundation1.unsigned_types.u_int32_t' before it is required
+```
+
+Vendored upstream C headers (here: WireGuardKit's
+`Sources/WireGuardKitC/WireGuardKitC.h`) are the most common
+casualty — they used to compile fine on Xcode 15 because the
+older Clang module compiler implicitly synthesized the unsigned
+typedefs.
+
+**Fix**: add `#include <sys/types.h>` at the top of any header
+that uses `u_int*_t` / `u_char` / `u_short` / `caddr_t` and was
+written before Xcode 26. Don't patch upstream — patch the
+vendored copy (`mobile/ios/vendor/...`) so re-vendoring from
+upstream re-applies the fix via `mobile/ios/scripts/vendor-wireguard.sh`.
+
+### 30. add-network-extension-target.rb must register ALL source files
+
+When Track 3 split PacketTunnelProvider.swift into three files
+(`PacketTunnelProvider.swift` + `WGTunnel.swift` + `Stats.swift`),
+only the root file was registered into the Xcode extension
+target via `ext_target.add_file_references`. Result: the build
+silently dropped `WGTunnel` + `Stats` from the appex compile
+sources, producing "Cannot find 'WGTunnel' in scope" errors at
+the `Build app for iOS Simulator` step.
+
+Fix: enumerate every Swift file in
+`mobile/ios/native/ios/PacketTunnelProvider/` and register each
+one. The Expo plugin's `withDangerousMod` already copies the
+whole directory recursively, so the files exist on disk in
+`ios/PacketTunnelProvider/` after prebuild — the Ruby script
+just has to add them to the target's Compile Sources phase.
+
 ## Maestro flows
 
 Numbered + orchestrated via `00-all.yaml` (vcard convention — never
