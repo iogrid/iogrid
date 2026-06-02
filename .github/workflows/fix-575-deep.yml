@@ -1,0 +1,111 @@
+name: fix-575-deep
+on:
+  workflow_dispatch:
+jobs:
+  fix:
+    runs-on: macos-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deep fix for #575 — beta description + tester app-link + Beta Review
+        env:
+          ASC_KEY_ID:    ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          ASC_KEY:       ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+        run: |
+          python3 -m pip install --quiet --break-system-packages pyjwt cryptography requests
+          python3 - <<'PY'
+          import os, base64, time, jwt, requests, json, sys
+          key = base64.b64decode(os.environ['ASC_KEY'])
+          tok = jwt.encode(
+              {'iss': os.environ['ASC_ISSUER_ID'], 'iat': int(time.time()),
+               'exp': int(time.time()) + 1200, 'aud': 'appstoreconnect-v1'},
+              key, algorithm='ES256', headers={'kid': os.environ['ASC_KEY_ID']})
+          H = {'Authorization': f'Bearer {tok}', 'Content-Type': 'application/json'}
+          BASE = 'https://api.appstoreconnect.apple.com'
+          APP_ID = '6775617937'
+          BUILD_ID = '1af277d1-d7f3-4d97-aa30-63364f383c77'
+          GROUP_ID = '474ed0b2-429e-47f5-8382-f776e43a3423'
+          EMAIL = 'emrahbaysal@gmail.com'
+
+          # === 1) Set Beta App Description (required for external Beta Review)
+          # First check if betaAppLocalizations exists for the app
+          loc = requests.get(f'{BASE}/v1/apps/{APP_ID}/betaAppLocalizations', headers=H, timeout=20).json()
+          print(f'Existing betaAppLocalizations: {len(loc.get("data", []))}')
+          
+          if not loc.get('data'):
+              # Create one in en-US
+              payload = {'data': {
+                  'type': 'betaAppLocalizations',
+                  'attributes': {
+                      'locale': 'en-US',
+                      'description': 'iogrid is a community-powered VPN with residential exit IPs, no logs, and a toggle-to-connect UX. Tap the big switch to start tunneling; pick a region or let the coordinator auto-select the fastest peer. Account-less (Mullvad-style anonymous IDs).',
+                      'feedbackEmail': EMAIL,
+                      'marketingUrl': 'https://iogrid.org',
+                      'privacyPolicyUrl': 'https://iogrid.org/legal/mobile-privacy',
+                      'tvOsPrivacyPolicy': '',
+                  },
+                  'relationships': {'app': {'data': {'type': 'apps', 'id': APP_ID}}},
+              }}
+              r = requests.post(f'{BASE}/v1/betaAppLocalizations', headers=H, json=payload, timeout=20)
+              print(f'Create betaAppLocalization → HTTP {r.status_code}: {r.text[:500]}')
+          else:
+              loc_id = loc['data'][0]['id']
+              print(f'Existing locale: id={loc_id}')
+
+          # === 2) Set "What to Test" on this build (betaBuildLocalization)
+          bloc = requests.get(f'{BASE}/v1/builds/{BUILD_ID}/betaBuildLocalizations', headers=H, timeout=20).json()
+          print(f'\nExisting betaBuildLocalizations: {len(bloc.get("data", []))}')
+          if not bloc.get('data'):
+              payload = {'data': {
+                  'type': 'betaBuildLocalizations',
+                  'attributes': {
+                      'locale': 'en-US',
+                      'whatsNew': 'v1 beta — VPN toggle, region picker, account number. WireGuardKit data plane not yet linked (#576 follow-up); tunnel state machine + UI flows are testable.',
+                  },
+                  'relationships': {'build': {'data': {'type': 'builds', 'id': BUILD_ID}}},
+              }}
+              r = requests.post(f'{BASE}/v1/betaBuildLocalizations', headers=H, json=payload, timeout=20)
+              print(f'Create betaBuildLocalization → HTTP {r.status_code}: {r.text[:500]}')
+
+          # === 3) Look up + delete-and-recreate tester properly
+          tq = requests.get(f'{BASE}/v1/betaTesters?filter[email]={EMAIL}', headers=H, timeout=20).json()
+          for t in tq.get('data', []):
+              print(f'Deleting stale tester {t["id"]}')
+              dr = requests.delete(f'{BASE}/v1/betaTesters/{t["id"]}', headers=H, timeout=20)
+              print(f'  DELETE → HTTP {dr.status_code}')
+
+          # Re-create WITH app + group relationships in single POST
+          payload = {'data': {
+              'type': 'betaTesters',
+              'attributes': {'email': EMAIL, 'firstName': 'Emrah', 'lastName': 'Baysal'},
+              'relationships': {
+                  'apps': {'data': [{'type': 'apps', 'id': APP_ID}]},
+                  'betaGroups': {'data': [{'type': 'betaGroups', 'id': GROUP_ID}]},
+              },
+          }}
+          r = requests.post(f'{BASE}/v1/betaTesters', headers=H, json=payload, timeout=20)
+          print(f'\nRecreate tester → HTTP {r.status_code}: {r.text[:300]}')
+          if r.status_code in (200, 201):
+              tester_id = r.json()['data']['id']
+              print(f'New tester id: {tester_id}')
+
+          # Verify
+          gtest = requests.get(f'{BASE}/v1/betaGroups/{GROUP_ID}/betaTesters?limit=200', headers=H, timeout=20).json()
+          print(f'\n=== vpn-beta testers (post-fix) ===')
+          for t in gtest.get('data', []):
+              a = t['attributes']
+              print(f"  email={a.get('email')} state={a.get('state')} inviteType={a.get('inviteType')}")
+
+          # === 4) Submit for Beta Review now that description is set
+          payload = {'data': {
+              'type': 'betaAppReviewSubmissions',
+              'relationships': {'build': {'data': {'type': 'builds', 'id': BUILD_ID}}},
+          }}
+          r = requests.post(f'{BASE}/v1/betaAppReviewSubmissions', headers=H, json=payload, timeout=20)
+          print(f'\nBeta Review submit → HTTP {r.status_code}: {r.text[:500]}')
+
+          # === 5) Final state
+          bd = requests.get(f'{BASE}/v1/buildBetaDetails/{BUILD_ID}', headers=H, timeout=20).json()
+          print(f'\nFinal build beta state: {json.dumps(bd.get("data", {}).get("attributes", {}), indent=2)}')
+          PY
