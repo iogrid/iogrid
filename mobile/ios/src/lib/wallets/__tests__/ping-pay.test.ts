@@ -10,13 +10,16 @@
 //     ok=0&reason=<other> hard reject)
 
 import {
+  BUY_VPN_LINK_PREFIX,
   GRID_DECIMALS,
   PING_APPROVE_URL,
   VPN_ACTIVATED_RETURN,
   buildVpnApproveUrl,
+  buildVpnConfirmedReturn,
   buildVpnMemo,
   gridToAtomic,
   onVpnApproveReturn,
+  parseBuyVpnRequest,
   parseVpnReturn,
 } from '../ping-pay';
 
@@ -186,6 +189,65 @@ describe('onVpnApproveReturn — deeplink listener', () => {
       // After unsubscribe no more events.
       mock.__fireUrl(`${mod.VPN_ACTIVATED_RETURN}?ok=0&reason=cancel`);
       expect(seen).toHaveLength(1);
+    });
+  });
+
+  describe('Direction B — parseBuyVpnRequest (iogrid://buy-vpn, C-6)', () => {
+    const RU = 'https://ping.cash/vpn-confirmed';
+
+    it('parses a valid inbound buy-vpn request', () => {
+      const req = parseBuyVpnRequest(
+        `${BUY_VPN_LINK_PREFIX}?amount=250000000000&memo=iogrid.v1:vpn:us-east:30&return_url=${encodeURIComponent(RU)}`,
+      );
+      expect(req).toEqual({
+        amountAtomic: '250000000000',
+        memo: 'iogrid.v1:vpn:us-east:30',
+        returnUrl: RU,
+      });
+    });
+
+    it('returns null for non buy-vpn deeplinks (shared listener ignores foreign)', () => {
+      expect(parseBuyVpnRequest('iogrid://vpn/activated?ok=1')).toBeNull();
+      expect(parseBuyVpnRequest('https://ping.cash/approve?x=1')).toBeNull();
+    });
+
+    it('rejects a non-integer amount', () => {
+      expect(
+        parseBuyVpnRequest(`${BUY_VPN_LINK_PREFIX}?amount=1.5&return_url=${encodeURIComponent(RU)}`),
+      ).toBeNull();
+      expect(
+        parseBuyVpnRequest(`${BUY_VPN_LINK_PREFIX}?amount=abc&return_url=${encodeURIComponent(RU)}`),
+      ).toBeNull();
+    });
+
+    it('SECURITY: rejects a return_url that is not https on an allowed host (open-redirect guard)', () => {
+      // wrong host
+      expect(
+        parseBuyVpnRequest(
+          `${BUY_VPN_LINK_PREFIX}?amount=1&return_url=${encodeURIComponent('https://evil.example/steal')}`,
+        ),
+      ).toBeNull();
+      // non-https scheme
+      expect(
+        parseBuyVpnRequest(
+          `${BUY_VPN_LINK_PREFIX}?amount=1&return_url=${encodeURIComponent('http://ping.cash/x')}`,
+        ),
+      ).toBeNull();
+      // missing return_url
+      expect(parseBuyVpnRequest(`${BUY_VPN_LINK_PREFIX}?amount=1`)).toBeNull();
+    });
+  });
+
+  describe('buildVpnConfirmedReturn — Direction-B bounce-back', () => {
+    const RU = 'https://ping.cash/vpn-confirmed';
+    it('builds ok=1 on success', () => {
+      expect(buildVpnConfirmedReturn(RU, true)).toBe(`${RU}?ok=1`);
+    });
+    it('builds ok=0&reason on failure', () => {
+      expect(buildVpnConfirmedReturn(RU, false, { reason: 'cancel' })).toBe(`${RU}?ok=0&reason=cancel`);
+    });
+    it('appends with & when return_url already has a query', () => {
+      expect(buildVpnConfirmedReturn(`${RU}?t=1`, true)).toBe(`${RU}?t=1&ok=1`);
     });
   });
 });

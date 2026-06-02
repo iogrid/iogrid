@@ -191,6 +191,94 @@ export function onVpnApproveReturn(listener: ReturnListener): () => void {
 }
 
 // -----------------------------------------------------------------------
+// Direction B — Ping → iogrid inbound "buy VPN with $GRID" (C-6)
+// -----------------------------------------------------------------------
+//
+// Ping surfaces a "Use $GRID for VPN" tile and launches
+//   iogrid://buy-vpn?amount=<atomic>&memo=<schema>&return_url=https://ping.cash/vpn-confirmed
+// iogrid shows its VPN-purchase UI, then bounces the result back to Ping's
+// return_url. This is the inbound counterpart to the Direction-A approve
+// flow above. Per Ping's contract, BOTH directions share the iogrid://
+// scheme + a return_url allowlist on both sides.
+
+/** Custom-scheme prefix Ping launches for Direction B. */
+export const BUY_VPN_LINK_PREFIX = 'iogrid://buy-vpn';
+
+/**
+ * Hosts iogrid is willing to bounce a Direction-B result back to. SECURITY:
+ * never bounce to an arbitrary return_url — an open redirect here would let
+ * a malicious deeplink phish/redirect the user post-purchase. Mirrors the
+ * return_url scheme allowlist Ping enforces on their approve.tsx side.
+ */
+const ALLOWED_RETURN_HOSTS = ['ping.cash'];
+
+export type BuyVpnRequest = {
+  /** $GRID amount in atomic (9-decimal) units, as sent by Ping. */
+  amountAtomic: string;
+  /** Purchase memo, e.g. `iogrid.v1:vpn:<region>:<days>` (may be absent). */
+  memo: string | null;
+  /** Validated https return URL to bounce back to after purchase. */
+  returnUrl: string;
+};
+
+/**
+ * Parse an inbound `iogrid://buy-vpn?…` Direction-B request. Returns null
+ * for any non-matching deeplink (so a shared `iogrid://` listener ignores
+ * foreign links) AND for malformed/unsafe requests (non-integer amount, or
+ * a return_url that isn't https on an allowed host).
+ */
+export function parseBuyVpnRequest(url: string): BuyVpnRequest | null {
+  if (!url.startsWith(BUY_VPN_LINK_PREFIX)) return null;
+  const params = (Linking.parse(url).queryParams ?? {}) as Record<string, string>;
+
+  const amountAtomic = params.amount ?? '';
+  if (!/^\d+$/.test(amountAtomic)) return null; // atomic units, integer only
+
+  const returnUrl = params.return_url ?? '';
+  const rp = Linking.parse(returnUrl);
+  if (rp.scheme !== 'https') return null;
+  if (!ALLOWED_RETURN_HOSTS.includes(rp.hostname ?? '')) return null;
+
+  return { amountAtomic, memo: params.memo ?? null, returnUrl };
+}
+
+type BuyVpnListener = (req: BuyVpnRequest) => void;
+let buyVpnSub: { remove(): void } | null = null;
+
+/**
+ * Subscribe to inbound Direction-B buy-VPN requests. Same idempotent,
+ * foreign-deeplink-ignoring pattern as onVpnApproveReturn.
+ */
+export function onBuyVpnRequest(listener: BuyVpnListener): () => void {
+  const sub = Linking.addEventListener('url', (event: { url: string }) => {
+    const req = parseBuyVpnRequest(event.url);
+    if (req) listener(req);
+  });
+  buyVpnSub = sub;
+  return () => {
+    sub.remove();
+    if (buyVpnSub === sub) buyVpnSub = null;
+  };
+}
+
+/**
+ * Build the bounce-back URL to Ping after a Direction-B purchase
+ * completes/cancels: `<return_url>?ok=1` or `?ok=0&reason=<reason>`.
+ * `returnUrl` MUST come from a parseBuyVpnRequest() result (already
+ * validated https + allowed host).
+ */
+export function buildVpnConfirmedReturn(
+  returnUrl: string,
+  ok: boolean,
+  opts?: { reason?: string },
+): string {
+  const sep = returnUrl.includes('?') ? '&' : '?';
+  const params = new URLSearchParams({ ok: ok ? '1' : '0' });
+  if (!ok && opts?.reason) params.set('reason', opts.reason);
+  return `${returnUrl}${sep}${params.toString()}`;
+}
+
+// -----------------------------------------------------------------------
 // Signature verification — PROVISIONAL (Ping C-8 undecided)
 // -----------------------------------------------------------------------
 
