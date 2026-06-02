@@ -3,5 +3,4 @@ kind: Kustomization
 resources:
   - gateway.yaml
   - httproutes.yaml
-  - tlsroute.yaml
   - referencegrants.yaml

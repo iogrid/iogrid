@@ -7,8 +7,6 @@ resources:
   - hpa.yaml
   - networkpolicy.yaml
   - configmap.yaml
-  - servicemonitor.yaml
-  - prometheusrules.yaml
   - alertmanager-config.yaml
   - grafana-dashboards-kustomization.yaml
 

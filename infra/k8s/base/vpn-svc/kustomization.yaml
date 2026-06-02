@@ -6,4 +6,3 @@ resources:
   - service.yaml
   - hpa.yaml
   - networkpolicy.yaml
-  - prometheusrules.yaml
