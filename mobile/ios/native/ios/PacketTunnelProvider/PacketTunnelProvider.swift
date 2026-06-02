@@ -554,7 +554,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 
     // ── adapter.update endpoint re-pin ───────────────────────────
 
-    private func repinEndpoint(to provider: ProviderCandidate, generation: UInt64, started: DispatchTime) {
+    private func repinEndpoint(to provider: ProviderCandidate, generation _: UInt64, started: DispatchTime) {
         guard let preferred = provider.preferredCandidate(),
               let newEndpoint = Endpoint(from: "\(preferred.address):\(preferred.port)") else {
             os_log("repin: malformed candidate %{public}@:%{public}d",
@@ -581,7 +581,6 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                    log: self.logger, type: .info,
                    provider.providerId, elapsedMs)
             self.currentPeerPublicKey = provider.wgPublicKey
-            _ = generation
         }
     }
 
