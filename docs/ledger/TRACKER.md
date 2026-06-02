@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-02T15:35Z` ✍️ hand-bump #2 — Xcode 26 unblock chain + #577 polish + cert quota fix |
+| Last refreshed | `2026-06-02T15:30Z` 🟢 cron-refresh: +4 commits since last TRACKER bump |
 | Session 2026-06-02 Xcode 26 unblock | 7 fixes for CI 26828731695 INVALID-build investigation: 645abd9 WireGuardKitC.h `<sys/types.h>` (strict-module unsigned typedefs), dd5bb0c Ruby script wires WGTunnel + Stats targets, 080a1e1 PressableCard style type, 78a1ca8 onboarding/topup route casts, 391dc51 #577 MINOR 1 apiBaseUrl configurable, 7a2c358 #577 MINOR 3 JSONSerialization IPC, 3e7898d #577 MINOR 5 RTT measure on receive, 4dc5bad CI cert-revoke threshold 60→10min (sigh quota fix). |
 | Session 2026-06-02 web legal | 6481c40 — /legal/mobile-privacy + /legal/mobile-eula pages live (required for #574 + Apple's reviewer; bd72776 wires these URLs into appInfoLocalization). Both ~700 words; counsel-review-pending placeholder. |
 | #578 closed | Duplicate of #605. Closed without code change — handler work is tracked on #605 only. |
