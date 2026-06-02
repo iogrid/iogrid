@@ -286,19 +286,26 @@ jobs:
                   except urllib.error.HTTPError as e:
                       print(f'  delete HTTP {e.code}: {e.read().decode()[:200]}')
 
-          # PRE-REVOKE: each CI run creates a fresh Distribution cert
-          # (the previous run's cert lives in Apple's portal but the
-          # private key only lived in that runner's keychain — useless
-          # to us now). Apple caps Distribution certs at 2 per team, so
-          # the second run hits "maximum number of available
-          # Distribution certificates" and fails. Revoke ALL IOS_DISTRIBUTION
-          # certs before fastlane cert creates a fresh one.
+          # PRE-REVOKE: each CI run creates a fresh Distribution cert.
+          # Apple caps Distribution certs at 2 per team, so we revoke
+          # stale ones before fastlane cert creates a fresh one.
           #
-          # Safe because: nothing in our pipeline depends on cert
-          # continuity — every run creates + uses its own cert. The
-          # previously-uploaded TestFlight builds remain valid because
-          # signing happens at upload time, not at install time.
-          print('=== revoking existing Distribution certs ===')
+          # CROSS-PROJECT CONCURRENCY: vcard / cinova / ping all share
+          # the Dynolabs Apple Developer team and all do their own
+          # pre-revoke. If we revoke ALL distribution certs, we'd nuke
+          # a sibling's just-created cert mid-archive — exactly the bug
+          # iogrid iter 10/12 hit, where cinova's CI was running in
+          # parallel and revoked iogrid's fresh cert.
+          #
+          # Heuristic fix: revoke only certs OLDER than 60 minutes.
+          # In-flight CI runs created their cert within the last few
+          # minutes; truly-stale certs have been around for hours.
+          # Apple's certs.expirationDate is set to creation+1year, so
+          # filter: expirationDate < (now + 365days - 60min).
+          import datetime
+          print('=== revoking only OLD Distribution certs (>60min) ===')
+          now = datetime.datetime.now(datetime.timezone.utc)
+          threshold = now + datetime.timedelta(days=365) - datetime.timedelta(minutes=60)
           creq = urllib.request.Request(
               'https://api.appstoreconnect.apple.com/v1/certificates?filter[certificateType]=IOS_DISTRIBUTION,DISTRIBUTION&limit=200',
               headers=hdrs,
@@ -313,7 +320,18 @@ jobs:
               cid = c['id']
               cname = c.get('attributes', {}).get('name', '')
               ctype = c.get('attributes', {}).get('certificateType', '')
-              print(f'  revoking cert {cid} ({ctype} {cname})')
+              exp_str = c.get('attributes', {}).get('expirationDate', '')
+              try:
+                  exp = datetime.datetime.fromisoformat(exp_str.replace('Z', '+00:00'))
+              except (ValueError, AttributeError):
+                  print(f'  SKIP cert {cid} — unparseable expirationDate: {exp_str!r}')
+                  continue
+              if exp >= threshold:
+                  age_min = round((now + datetime.timedelta(days=365) - exp).total_seconds() / 60, 1)
+                  print(f'  SKIP cert {cid} ({ctype} {cname}) — {age_min}min old, sibling CI in-flight')
+                  continue
+              age_h = round((now + datetime.timedelta(days=365) - exp).total_seconds() / 3600, 1)
+              print(f'  revoking cert {cid} ({ctype} {cname}) — {age_h}h old')
               dreq = urllib.request.Request(
                   f'https://api.appstoreconnect.apple.com/v1/certificates/{cid}',
                   headers=hdrs, method='DELETE',
