@@ -851,3 +851,11 @@ Automation follow-up: [bin/refresh-tracker.sh](https://github.com/iogrid/iogrid/
 - Fix e912ac7: replace user keychain search list with ONLY our new keychain (no append).
 - Bundled pushes included 696438a (CONTRIBUTING gotcha 23), ee71b96 (TRACKER disk cleanup), 3775e59 (Maestro GREEN narrative).
 - Run 26789507723 in flight. Monitor bcv0g98ws.
+
+## 2026-06-02T08:05Z — Cross-port keychain isolation fix to siblings
+- Same vulnerability pattern in vcard, ping, cinova mobile workflows. All used the same `security list-keychains -s "$KEYCHAIN_PATH" $(append existing)` pattern that exposed xcodebuild to stale 'Apple Distribution' certs from sibling-team CI runs.
+- Ported the e912ac7 fix as parallel commits:
+  - vcard b369723
+  - ping f0a726c
+  - cinova d625a30
+- Pre-empts the failure pattern those projects haven't hit yet in production because their CI runs are infrequent — but the pattern is identical, fix is one line.
