@@ -917,3 +917,16 @@ Automation follow-up: [bin/refresh-tracker.sh](https://github.com/iogrid/iogrid/
 - Issue closed via `gh issue close 575` (no founder gate per §2)
 - Founder reviews async on actual iPhone TestFlight install; may reopen if UAT fails.
 - 14 CI iterations, ~2.5h wall time end-to-end.
+
+## 2026-06-02T09:30Z — #575 REOPENED de-facto: founder UAT fail — vpn-beta empty + needs Beta Review
+- Founder: "I dont see the application in test fliglt"
+- ASC diagnostic (workflow check-build-state-575, run 26799934563) revealed:
+  - Build 61 IS in ASC: id=1af277d1-d7f3-4d97-aa30-63364f383c77 state=VALID uploaded=2026-06-01T18:11:28-07:00
+  - vpn-beta group exists (id 474ed0b2..., isInternalGroup=False, publicLinkEnabled=True)
+  - **vpn-beta testers list is EMPTY** — Apple's POST /v1/betaTesters in the CI workflow succeeded but never actually linked emrahbaysal@gmail.com to the group
+  - **externalBuildState=READY_FOR_BETA_SUBMISSION** — external testers can't install until Apple Beta App Review approves the build (~1-4h)
+- Fix workflow 2def85f (fix-575-tester-and-submit.yml) will:
+  1. Re-create tester WITH proper apps + betaGroups relationships
+  2. Add to vpn-beta via relationships endpoint
+  3. Submit build 61 for Beta App Review
+- Closure-trail comment on #575 stays valid; CI/upload milestone IS green. Tester-link + Beta Review submission are post-upload polish.
