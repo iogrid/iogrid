@@ -13,12 +13,12 @@ appId: io.iogrid.app
     id: "settings-button"
 
 - assertVisible:
-    id: "settings-row-apple"
+    id: "settings-row-account-apple"
 - assertVisible:
-    id: "settings-row-wallet"
+    id: "settings-row-account-wallet"
 - assertVisible:
-    id: "settings-row-killswitch"
+    id: "settings-row-kill-switch"
 - assertVisible:
-    id: "settings-row-signout"
+    id: "settings-sign-out"
 
 - takeScreenshot: 08-settings

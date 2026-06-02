@@ -11,21 +11,21 @@ appId: io.iogrid.app
     stopApp: true
 
 - tapOn:
-    id: "wallet-topup-button"
+    id: "wallet-card-topup"
 
 - assertVisible:
-    id: "topup-quick-500"
+    id: "topup-chip-500"
 - assertVisible:
-    id: "topup-quick-2500"
+    id: "topup-chip-2500"
 - assertVisible:
-    id: "topup-quick-10000"
+    id: "topup-chip-10000"
 - assertVisible:
     id: "topup-method-apple_pay"
 - assertVisible:
     id: "topup-continue"
 
 - tapOn:
-    id: "topup-quick-2500"
+    id: "topup-chip-2500"
 - tapOn:
     id: "topup-method-card"
 

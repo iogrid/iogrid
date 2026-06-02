@@ -17,7 +17,7 @@ appId: io.iogrid.app
     id: "region-best-auto"
 
 - tapOn:
-    id: "region-search"
+    id: "regions-search"
 - inputText: "us"
 - hideKeyboard
 
