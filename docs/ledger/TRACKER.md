@@ -887,3 +887,9 @@ Automation follow-up: [bin/refresh-tracker.sh](https://github.com/iogrid/iogrid/
 - This is acceptable for iogrid's primary mission (get to TestFlight). Sibling failures self-heal once the 60min window expires + their cert ages out.
 - iter 13's cert is now PROTECTED from sibling pre-revokes by the same filter. Archive should land.
 - Trade-off documented in CONTRIBUTING gotcha 25 (TODO when iter 13 lands).
+
+## 2026-06-02T08:50Z — Iteration 14: flow 05 black-screen fix
+- Iter 13 (run 26790610773) made it through age-based pre-revoke (skipped sibling cert 27.9min old; created own YKH6PY9632) but FAILED at Maestro flow 05's vpn-toggle assertion.
+- Trace: flow 04 cold-restarts with stopApp:true. flow 05's separate clearState→clearKeychain→launchApp re-entered with a black screen, vpn-toggle invisible. Same iOS-sim flakiness vcard's 02-create-card.yaml comment warns about.
+- Fix ad2a1cf: consolidate flow 05's clearState/clearKeychain/launchApp into single `launchApp: clearState: true, clearKeychain: true` command. Maestro handles sequencing atomically.
+- Run 26791325490 in flight. Monitor bngqxd78u.
