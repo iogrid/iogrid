@@ -492,6 +492,37 @@ whole directory recursively, so the files exist on disk in
 `ios/PacketTunnelProvider/` after prebuild — the Ruby script
 just has to add them to the target's Compile Sources phase.
 
+### 31. WireGuardKitGo's libwg-go.a must be on the linker search path
+
+The vendored WireGuardKit Package.swift declares
+`.linkedLibrary("wg-go")` on its WireGuardKitGo target. SwiftPM
+does NOT build this library — it's a Go static library produced
+by `Sources/WireGuardKitGo/Makefile` via cross-compiling Go to
+both x86_64 + arm64 slices via cgo, then lipo'd into a fat .a.
+
+CI must run that Make step BEFORE xcodebuild, AND the resulting
+`libwg-go.a` must land on a path that ld searches. Three workable
+locations (in order of robustness):
+
+1. **`/usr/local/lib/libwg-go.a`** — default ld search path
+   on macOS. Works without any xcconfig changes. Use this for
+   CI. (Caveat: needs `sudo cp` on the runner.)
+2. **`Sources/WireGuardKitGo/libwg-go.a`** — SwiftPM's target
+   source dir. Theoretically xcodebuild adds this to
+   LIBRARY_SEARCH_PATHS for `.linkedLibrary` resolution, but
+   in practice we found it NOT searched (CI 26831852258 failed
+   with `ld: library 'wg-go' not found` despite the file
+   existing there).
+3. **`Sources/WireGuardKitGo/x86_64/libwg-go.a` + arm64**
+   per-arch dirs — overkill for our use case since we lipo into
+   a fat .a; mentioned for completeness.
+
+The Make step needs to be run for BOTH `iphonesimulator` (for the
+sim Maestro gate) and `iphoneos` (for the archive step), with
+matching ARCHS per platform. The simulator build runs first; the
+archive overwrites `/usr/local/lib/libwg-go.a` with the device
+slice just before xcodebuild archives.
+
 ## Maestro flows
 
 Numbered + orchestrated via `00-all.yaml` (vcard convention — never
