@@ -56,7 +56,7 @@ export function WalletCard({
     balanceGrid != null && balanceGrid > 0 && balanceGrid < 0.001;
   const empty = balanceGrid != null && balanceGrid === 0;
 
-  const handleTopUp = onTopUp ?? (() => router.push('/topup'));
+  const handleTopUp = onTopUp ?? (() => router.push('/topup' as any));
 
   return (
     <View

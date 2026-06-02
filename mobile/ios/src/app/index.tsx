@@ -300,7 +300,7 @@ export default function MainScreen() {
             </ThemedText>
             <Pressable
               testID="wallet-card-topup"
-              onPress={() => router.push('/topup')}
+              onPress={() => router.push('/topup' as any)}
               style={({ pressed }) => [
                 styles.topupButton,
                 { backgroundColor: theme.backgroundElement },

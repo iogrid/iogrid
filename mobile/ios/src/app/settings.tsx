@@ -82,7 +82,7 @@ export default function SettingsScreen() {
             } catch {
               // ignore
             }
-            router.replace('/(onboarding)/welcome');
+            router.replace('/(onboarding)/welcome' as any);
           },
         },
       ],
@@ -128,7 +128,7 @@ export default function SettingsScreen() {
               value={truncateEmail(appleEmail)}
               chevron
               onPress={() => {
-                if (!appleEmail) router.push('/(onboarding)/sign-in-with-apple');
+                if (!appleEmail) router.push('/(onboarding)/sign-in-with-apple' as any);
               }}
             />
             <Row

@@ -36,7 +36,7 @@ export default function WelcomeScreen() {
           </View>
           <Pressable
             testID="onboarding-skip"
-            onPress={() => router.replace('/(onboarding)/sign-in-with-apple')}
+            onPress={() => router.replace('/(onboarding)/sign-in-with-apple' as any)}
             hitSlop={12}
             accessibilityLabel="Skip onboarding"
             accessibilityRole="button"
@@ -98,7 +98,7 @@ export default function WelcomeScreen() {
         <View style={styles.ctaWrap}>
           <Pressable
             testID="onboarding-continue"
-            onPress={() => router.push('/(onboarding)/privacy')}
+            onPress={() => router.push('/(onboarding)/privacy' as any)}
             style={({ pressed }) => [
               styles.cta,
               { backgroundColor: theme.text },
