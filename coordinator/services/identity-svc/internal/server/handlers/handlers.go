@@ -105,6 +105,15 @@ func (a *API) MountV1(r chi.Router) {
 		// the picker.
 		r.Put("/me/preferred-landing-role", a.setPreferredLandingRole)
 
+		// /me/notification-prefs — read + write the caller's
+		// notification-channel preferences (Refs #631). GET returns the
+		// stored JSON object (or null when never customised); PUT with
+		// `{"prefs": {...}}` persists it. gateway-bff forwards
+		// /api/v1/account/notifications onto these routes via the
+		// service-token shim.
+		r.Get("/me/notification-prefs", a.getNotificationPrefs)
+		r.Put("/me/notification-prefs", a.setNotificationPrefs)
+
 		// Apple Sign-in JSON endpoint (Refs #582). Mobile-iOS calls
 		// POST /v1/identity/apple-signin with the Apple identity_token;
 		// validates against Apple's JWKS, finds/creates the user by
@@ -168,6 +177,14 @@ func userToJSON(u *store.User) map[string]any {
 	}
 	if u.DeletedAt != nil {
 		out["deleted_at"] = u.DeletedAt.UTC().Format(time.RFC3339Nano)
+	}
+	// notification_prefs is a raw JSON object string in the store; emit
+	// it as a parsed object (or null) so the web reads it as structured
+	// JSON rather than an escaped string (Refs #631).
+	if u.NotificationPrefs != nil && *u.NotificationPrefs != "" {
+		out["notification_prefs"] = json.RawMessage(*u.NotificationPrefs)
+	} else {
+		out["notification_prefs"] = nil
 	}
 	return out
 }
@@ -515,6 +532,79 @@ func (a *API) setPreferredLandingRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := a.Store.SetPreferredLandingRole(r.Context(), nil, authedID, req.Role); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// notificationPrefsReq is the JSON payload for
+// PUT /v1/me/notification-prefs (Refs #631). `prefs` is the JSON object
+// the /account/notifications panel submits — a map of event category →
+// {email, in_app} flags. A null / omitted `prefs` clears the column.
+type notificationPrefsReq struct {
+	Prefs json.RawMessage `json:"prefs"`
+}
+
+// getNotificationPrefs returns the caller's stored notification
+// preferences as a JSON object (or null when never customised).
+//
+//	GET /v1/me/notification-prefs
+//	→ 200 { "prefs": { ... } | null }
+func (a *API) getNotificationPrefs(w http.ResponseWriter, r *http.Request) {
+	authedID, ok := authedUserID(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "missing bearer token")
+		return
+	}
+	user, err := a.Store.GetUser(r.Context(), nil, authedID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "not_found", "user not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	var prefs any
+	if user.NotificationPrefs != nil && *user.NotificationPrefs != "" {
+		prefs = json.RawMessage(*user.NotificationPrefs)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"prefs": prefs})
+}
+
+// setNotificationPrefs persists the caller's notification preferences.
+//
+//	PUT /v1/me/notification-prefs
+//	  { "prefs": { "<category>": { "email": bool, "in_app": bool }, ... } }
+//	→ 204 No Content
+//
+// A null / empty `prefs` clears the stored value back to the all-on
+// default. We validate that a non-empty payload is a JSON object before
+// touching the database so a malformed body surfaces as a 400 rather
+// than a generic 500 from the ::jsonb cast.
+func (a *API) setNotificationPrefs(w http.ResponseWriter, r *http.Request) {
+	authedID, ok := authedUserID(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "missing bearer token")
+		return
+	}
+	var req notificationPrefsReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_argument", err.Error())
+		return
+	}
+	prefsJSON := ""
+	if len(req.Prefs) > 0 && string(req.Prefs) != "null" {
+		var obj map[string]any
+		if err := json.Unmarshal(req.Prefs, &obj); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_argument",
+				"prefs must be a JSON object")
+			return
+		}
+		prefsJSON = string(req.Prefs)
+	}
+	if err := a.Store.SetNotificationPrefs(r.Context(), nil, authedID, prefsJSON); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}

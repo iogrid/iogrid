@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/iogrid/iogrid/coordinator/services/identity-svc/internal/auth"
+	authmw "github.com/iogrid/iogrid/coordinator/services/identity-svc/internal/server/middleware"
 	"github.com/iogrid/iogrid/coordinator/services/identity-svc/internal/store"
 )
 
@@ -160,6 +161,55 @@ func TestSetPreferredLandingRole_RequiresBearer(t *testing.T) {
 
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+// /v1/me/notification-prefs — Refs #631 notification-preferences seam.
+
+func TestGetNotificationPrefs_RequiresBearer(t *testing.T) {
+	api := New(nil, nil, nil)
+	r := chi.NewRouter()
+	api.Mount(r)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/me/notification-prefs", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestSetNotificationPrefs_RequiresBearer(t *testing.T) {
+	api := New(nil, nil, nil)
+	r := chi.NewRouter()
+	api.Mount(r)
+
+	req := httptest.NewRequest(http.MethodPut, "/v1/me/notification-prefs",
+		strings.NewReader(`{"prefs":{"security_alerts":{"email":true,"in_app":true}}}`))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+// A non-object `prefs` value must be rejected with 400 BEFORE the
+// handler touches the (nil) store, so the validation branch is what we
+// exercise here — no Postgres required.
+func TestSetNotificationPrefs_RejectsNonObject(t *testing.T) {
+	api := New(nil, nil, nil)
+	authed := uuid.New()
+
+	req := httptest.NewRequest(http.MethodPut, "/v1/me/notification-prefs",
+		strings.NewReader(`{"prefs": "not-an-object"}`))
+	req = req.WithContext(authmw.WithAuthedUser(req.Context(), authed))
+	w := httptest.NewRecorder()
+	api.setNotificationPrefs(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", w.Code, w.Body.String())
 	}
 }
 

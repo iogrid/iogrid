@@ -168,6 +168,16 @@ func Mount(deps Deps) func(chi.Router) {
 					r.Post("/apply", api.ApplyPendingUpdate)
 					r.Post("/rollback", api.RollbackUpdate)
 				})
+
+				// Notification-preferences surface (#631). GET reads the
+				// caller's stored channel toggles; POST persists them.
+				// Both forward to identity-svc's notification-prefs routes
+				// via the service-token shim (durable, server-side).
+				r.Route("/notifications", func(r chi.Router) {
+					r.Use(auth.RequireAuth)
+					r.Get("/", api.GetNotificationPrefs)
+					r.Post("/", api.SaveNotificationPrefs)
+				})
 			})
 
 			// /onboard ----------------------------------------------------

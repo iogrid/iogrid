@@ -54,6 +54,13 @@ type User struct {
 	// shared /account surface is not a valid value — every persona's
 	// rail can reach it.
 	PreferredLandingRole *string
+	// NotificationPrefs is the user's notification-channel preferences,
+	// stored as a raw JSON object string in the users.notification_prefs
+	// JSONB column (Refs #631). nil = never customised → the web surface
+	// renders the all-on-email defaults. We keep it opaque (raw JSON)
+	// here so the store stays agnostic of which event categories exist;
+	// the web/account layer owns the object shape.
+	NotificationPrefs *string
 }
 
 // Identifier is one row in identifiers; one User may have many.
