@@ -1,0 +1,90 @@
+appId: io.iogrid.app
+---
+# Mobile session bring-up against a LIVE coordinator (#588, #605).
+#
+# Earlier flows (02 sign-in, 03 wallet-connect) ran with MAESTRO_MODE=1
+# and short-circuited the auth + wallet handshake to in-process mocks.
+# This flow runs against MAESTRO_MODE=0 — the connect tap actually
+# POSTs to POST /v1/vpn/sessions/mobile (PR #605, commit b73085d8).
+#
+# Scope: DEGRADED path.
+#
+# In CI no real iogrid provider is registered against the cluster, so
+# the coordinator's peer-picker returns ErrNoPeer → handler responds
+# 503 + Retry-After. The JS layer surfaces a "Could not connect"
+# Alert, the UI state machine returns to OFF, and the connect-button
+# stays queryable for a retry.
+#
+# What we assert:
+#   1. Cold-start on already-onboarded keychain — flows 01-03 ran
+#      first and left an Apple credential + wallet on disk.
+#   2. connect-button is tappable + tunnel is OFF (no disconnect-button).
+#   3. Tapping connect-button transitions the JS state machine OFF →
+#      CONNECTING. The connect-button remains visible through the
+#      transition (re-renders to its "connecting" variant).
+#   4. The JS layer logs `[iogrid/coordinator] POST /v1/vpn/sessions/mobile`
+#      as it issues the POST — sanity that the new endpoint (not the
+#      legacy /sessions one) is the one being hit. Maestro doesn't
+#      have a first-class log-assert primitive on iOS today, so the
+#      console log is consumed via `xcrun simctl spawn ... log show`
+#      in CI's post-step. The marker is a stable string the harness
+#      can grep verbatim.
+#   5. Within ~5s the 503 surfaces as a "Could not connect" Alert.
+#      Maestro taps OK; the JS layer's holdConnectingVisible() keeps
+#      CONNECTING displayed for ≥3000ms so the Alert is reachable.
+#   6. Post-dismiss the tunnel is back to OFF (connect-button visible,
+#      no disconnect-button) — proving the failure path returned to
+#      a clean baseline.
+#
+# Why DEGRADED instead of HAPPY:
+#   The HAPPY path requires a real provider in the test cluster
+#   publishing ICE candidates. Until that test fixture exists, the
+#   degraded shape is the only deterministic surface — and #588's
+#   503-Retry-After contract is itself part of the acceptance bar.
+
+- launchApp:
+    clearState: false
+    stopApp: true
+
+# Sanity: we landed on /index (canonical post-onboarding home).
+- assertVisible:
+    id: "connect-button"
+
+# Tunnel is OFF — disconnect-button only renders in CONNECTED state.
+- assertNotVisible:
+    id: "disconnect-button"
+
+- takeScreenshot: 10-mobile-session-pre-tap
+
+- tapOn:
+    id: "connect-button"
+
+# JS state machine should be in CONNECTING for ≥3000ms (the
+# holdConnectingVisible window from src/app/index.tsx) — the
+# connect-button stays mounted but re-renders the "connecting"
+# variant. We assert it's still queryable to prove the screen
+# didn't unmount on failure.
+- assertVisible:
+    id: "connect-button"
+
+- takeScreenshot: 10-mobile-session-connecting
+
+# The 503 → Alert.alert path. The native iOS dialog title is
+# "Could not connect" (see src/app/index.tsx onConnect). Maestro
+# matches the title text; the body varies by retry_after_sec.
+- assertVisible: "Could not connect"
+
+- takeScreenshot: 10-mobile-session-alert-503
+
+# Dismiss the alert — Apple's default OK button.
+- tapOn: "OK"
+
+# Post-dismiss the JS state machine is back to OFF: connect-button
+# present (queryable for a retry), no disconnect-button.
+- assertVisible:
+    id: "connect-button"
+
+- assertNotVisible:
+    id: "disconnect-button"
+
+- takeScreenshot: 10-mobile-session-post-recovery

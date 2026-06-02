@@ -157,6 +157,122 @@ export async function requestSession(
   };
 }
 
+// ── Mobile-session bring-up (#588, #605) ─────────────────────────
+
+/**
+ * Response from POST /v1/vpn/sessions/mobile — vpn-svc returns the
+ * fully resolved WireGuard peer config in one round-trip. Matches
+ * the JSON shape in coordinator/services/vpn-svc/internal/server/
+ * handlers.go::RequestMobileSession.Handle (commit b73085d8, #605).
+ */
+export interface MobileSession {
+  sessionId: string;
+  peerPublicKey: string;
+  peerEndpoint: string;
+  innerIP: string;
+  region: string;
+  // Populated when vpn-svc returns 503 (no peer available yet); the
+  // JS layer reads this to schedule a retry per the spec.
+  retryAfterSec?: number;
+  // HTTP status as observed — 201 on success, 503 on no_peer_available,
+  // 429 on quota_exceeded. Surfaced so the caller can branch without
+  // re-decoding the response.
+  status: number;
+}
+
+/**
+ * POST /v1/vpn/sessions/mobile — single-shot mobile session bring-up.
+ *
+ * Per #588 DoD this replaces the legacy two-step (POST /sessions →
+ * GET /sessions/{id}) with one request that returns the full WG peer
+ * config. The 503 + Retry-After path is the DEGRADED scope tested by
+ * Maestro flow 10 when no real provider is in the cluster.
+ *
+ * Emits a debug log line on entry — Maestro greps the simulator
+ * console for this marker to assert the JS layer actually issued
+ * the POST (cheaper than wiring a Charles proxy into CI).
+ */
+export async function requestMobileSession(args: {
+  apiKey: string;
+  customerId: string;
+  region: string;
+  clientPublicKey: string;
+  paymentAuthorization?: unknown;
+}): Promise<MobileSession> {
+  // Maestro-matchable marker. Keep the prefix stable; tests grep
+  // for the literal string `[iogrid/coordinator] POST /v1/vpn/sessions/mobile`.
+  console.log(
+    `[iogrid/coordinator] POST /v1/vpn/sessions/mobile region=${args.region} customer=${args.customerId}`,
+  );
+  const res = await fetch(`${baseURL()}/v1/vpn/sessions/mobile`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({
+      api_key: args.apiKey,
+      customer_id: args.customerId,
+      region: args.region,
+      client_public_key: args.clientPublicKey,
+      ...(args.paymentAuthorization !== undefined
+        ? { payment_authorization: args.paymentAuthorization }
+        : {}),
+    }),
+  });
+  if (res.status === 503) {
+    // DEGRADED path — no healthy provider in the region yet. The
+    // server includes retry_after_sec in the body AND a Retry-After
+    // header; prefer the header when present (RFC 7231 §7.1.3).
+    const headerRetry = res.headers.get('Retry-After');
+    let bodyRetry: number | undefined;
+    try {
+      const body = (await res.json()) as { retry_after_sec?: number };
+      bodyRetry = body.retry_after_sec;
+    } catch {
+      // body might be empty / non-JSON — fall back to header.
+    }
+    const retryAfterSec = headerRetry ? parseInt(headerRetry, 10) : bodyRetry;
+    console.log(
+      `[iogrid/coordinator] sessions/mobile 503 — no peer available, retry_after_sec=${retryAfterSec ?? 'unknown'}`,
+    );
+    return {
+      sessionId: '',
+      peerPublicKey: '',
+      peerEndpoint: '',
+      innerIP: '',
+      region: args.region,
+      retryAfterSec,
+      status: 503,
+    };
+  }
+  if (res.status === 429) {
+    return {
+      sessionId: '',
+      peerPublicKey: '',
+      peerEndpoint: '',
+      innerIP: '',
+      region: args.region,
+      status: 429,
+    };
+  }
+  if (!res.ok) {
+    throw new CoordinatorError(`requestMobileSession: HTTP ${res.status}`);
+  }
+  const body = (await res.json()) as {
+    session_id: string;
+    peer_public_key: string;
+    peer_endpoint: string;
+    inner_ip?: string;
+    region?: string;
+  };
+  return {
+    sessionId: body.session_id,
+    peerPublicKey: body.peer_public_key,
+    peerEndpoint: body.peer_endpoint,
+    innerIP: body.inner_ip ?? '',
+    region: body.region ?? args.region,
+    status: res.status,
+  };
+}
+
 /** GET /v1/vpn/sessions/{id} — fetch session state for heartbeat / banner refresh.
  *
  * EPIC #566 reviewer MAJOR 3: the account number IS the credential under
