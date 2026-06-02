@@ -4,7 +4,11 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-02T13:30Z` 🟢 cron-refresh: +1 commits since last TRACKER bump |
+| Last refreshed | `2026-06-02T15:10Z` ✍️ hand-bump — EPIC #581 fully shipped + #600 closed + #605 filed |
+| Session 2026-06-02 (mobile v2 + Apple) | **EPIC #581 CLOSED** — 13 hand-shipped UX commits + 5 cherry-picks from agent PRs (5aeb150 Apple sign-in, 0b32dff Phantom+Ping wallets, a85af95 WireGuardKit fork + PacketTunnelProvider). All 20 children closed; PRs #601/#602/#603/#604 closed as superseded. |
+| #600 Apple Beta Review | **CODE FIX SHIPPED** (bd72776) — root cause: (a) appInfoLocalization en-US privacyPolicyUrl=null silently rejects PATCH /v1/betaAppReviewDetails as 409; (b) UK Ofcom phone format rejected. Fix: set privacyPolicyUrl first + use US +1 415 555 0100. Confirmed via submit-existing-build-600.yml run 26819871521 → state advanced READY_FOR_BETA_SUBMISSION → WAITING_FOR_BETA_REVIEW. Build 63 subsequently rolled back to `processingState=INVALID` by Apple's automated scanner (needs investigation). |
+| #575 Apple Beta UAT | **status/blocked-ext**. P23 5-mechanism check done — internal beta (vpn-internal group) is the unblocked founder path. Fresh CI run 26828731695 on HEAD FAILED (logs pending analysis). |
+| #605 deferred handler work | NEW issue — vpn-svc mobile session handler + heartbeat from PR #603 deferred; needs store schema work (AllocateInnerIP, PersistSessionPeerConfig, Session struct fields + 0008 migration columns). |
 | Repo visibility | **PUBLIC** (free CI on github-hosted runners) |
 | Merged PRs | **133+** since bootstrap (incl. PR #503 SPKI-dedupe this session) |
 | Open PRs | **0** |
