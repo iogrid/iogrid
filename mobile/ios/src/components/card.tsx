@@ -91,12 +91,12 @@ export function PressableCard({
       {...rest}
       onPress={onPress}
       accessibilityRole={rest.accessibilityRole ?? 'button'}
-      style={({ pressed }) => [
+      style={(state) => [
         styles.card,
         { backgroundColor: background, borderColor: border },
         noPadding ? styles.noPadding : null,
-        pressed ? styles.pressed : null,
-        typeof style === 'function' ? style({ pressed }) : style,
+        state.pressed ? styles.pressed : null,
+        typeof style === 'function' ? style(state) : style,
       ]}
     >
       {children}
