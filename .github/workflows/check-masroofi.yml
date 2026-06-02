@@ -1,0 +1,54 @@
+name: check-masroofi
+on:
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: macos-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect BD Masroofi beta state for emrahbaysal@gmail.com
+        env:
+          ASC_KEY_ID:    ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          ASC_KEY:       ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+        run: |
+          python3 -m pip install --quiet --break-system-packages pyjwt cryptography requests
+          python3 - <<'PY'
+          import os, base64, time, jwt, requests, json
+          key = base64.b64decode(os.environ['ASC_KEY'])
+          tok = jwt.encode(
+              {'iss': os.environ['ASC_ISSUER_ID'], 'iat': int(time.time()),
+               'exp': int(time.time()) + 1200, 'aud': 'appstoreconnect-v1'},
+              key, algorithm='ES256', headers={'kid': os.environ['ASC_KEY_ID']})
+          H = {'Authorization': f'Bearer {tok}', 'Content-Type': 'application/json'}
+          BASE = 'https://api.appstoreconnect.apple.com'
+          APP_ID = '6763848992'  # BD Masroofi
+          EMAIL = 'emrahbaysal@gmail.com'
+
+          # 1) All beta groups for Masroofi
+          groups = requests.get(f'{BASE}/v1/apps/{APP_ID}/betaGroups?limit=50', headers=H, timeout=20).json()
+          print(f'=== BD Masroofi beta groups ({len(groups.get("data", []))}) ===')
+          for g in groups.get('data', []):
+              g_id = g['id']
+              attrs = g['attributes']
+              print(f"  id={g_id} name={attrs.get('name')} internal={attrs.get('isInternalGroup')} hasAccessToAllBuilds={attrs.get('hasAccessToAllBuilds')}")
+              # List testers in each group
+              testers = requests.get(f'{BASE}/v1/betaGroups/{g_id}/betaTesters?limit=50', headers=H, timeout=20).json()
+              for t in testers.get('data', []):
+                  ta = t['attributes']
+                  print(f"    tester={ta.get('email')} state={ta.get('state')}")
+              # List installable builds for the group
+              builds = requests.get(f'{BASE}/v1/betaGroups/{g_id}/builds?limit=10&sort=-uploadedDate', headers=H, timeout=20).json()
+              print(f"    builds in group: {len(builds.get('data', []))}")
+              for b in builds.get('data', []):
+                  ba = b['attributes']
+                  print(f"      build ver={ba.get('version')} state={ba.get('processingState')} uploaded={ba.get('uploadedDate')}")
+
+          # 2) Recent BD Masroofi builds (regardless of group)
+          builds = requests.get(f'{BASE}/v1/builds?filter[app]={APP_ID}&sort=-uploadedDate&limit=5', headers=H, timeout=20).json()
+          print(f'\n=== Recent BD Masroofi builds ({len(builds.get("data", []))}) ===')
+          for b in builds.get('data', []):
+              ba = b['attributes']
+              print(f"  id={b['id']} ver={ba.get('version')} state={ba.get('processingState')} uploaded={ba.get('uploadedDate')} expired={ba.get('expired')}")
+          PY
