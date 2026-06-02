@@ -24,21 +24,33 @@ import { ThemedView } from '@/components/themed-view';
 import { Spacing, TypeScale } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
-const ONBOARDED_FLAG_KEY = 'iogrid.onboarded';
+export const ONBOARDED_FLAG_KEY = 'iogrid.onboarded';
+
+/**
+ * stampOnboardedAndContinue — completes the onboarding flow by
+ * setting the `iogrid.onboarded` flag in AsyncStorage and then
+ * routing to the main screen. Exported for test coverage: the
+ * order matters (setItem must complete before router.replace,
+ * otherwise a fast re-mount of AuthGate could race the flag and
+ * bounce the user back to /(onboarding)/welcome). The setItem
+ * is wrapped in a try/catch so a storage failure doesn't block
+ * the demo — the user will just see onboarding again next launch.
+ */
+export async function stampOnboardedAndContinue(): Promise<void> {
+  try {
+    await AsyncStorage.setItem(ONBOARDED_FLAG_KEY, '1');
+  } catch {
+    // Storage failure shouldn't block the demo; the user will
+    // just see onboarding again next launch.
+  }
+  router.replace('/' as any);
+}
 
 export default function ConnectWalletScreen() {
   const theme = useTheme();
 
-  const onContinue = async () => {
-    // Stamp the onboarded flag so AuthGate skips this flow on
-    // subsequent launches.
-    try {
-      await AsyncStorage.setItem(ONBOARDED_FLAG_KEY, '1');
-    } catch {
-      // Storage failure shouldn't block the demo; the user will
-      // just see onboarding again next launch.
-    }
-    router.replace('/' as any);
+  const onContinue = () => {
+    void stampOnboardedAndContinue();
   };
 
   return (

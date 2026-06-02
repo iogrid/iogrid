@@ -17,7 +17,7 @@
 /** @type {import('jest').Config} */
 module.exports = {
   testEnvironment: 'node',
-  testMatch: ['<rootDir>/src/**/__tests__/**/*.test.ts'],
+  testMatch: ['<rootDir>/src/**/__tests__/**/*.test.ts', '<rootDir>/src/**/__tests__/**/*.test.tsx'],
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   transform: {
     '^.+\\.tsx?$': [
@@ -44,6 +44,35 @@ module.exports = {
   moduleNameMapper: {
     '^expo-linking$': '<rootDir>/src/lib/mocks/expo-linking.ts',
     '^expo-crypto$': '<rootDir>/src/lib/mocks/expo-crypto.ts',
+    '^expo-router$': '<rootDir>/src/lib/mocks/expo-router.ts',
+    '^@react-native-async-storage/async-storage$':
+      '<rootDir>/src/lib/mocks/async-storage.ts',
+    // react-native + its peer transitive deps don't load under
+    // `testEnvironment: node`. Stub them so modules under test
+    // (e.g. src/app/_layout.tsx, onboarding screens) can import
+    // without crashing on TurboModule access.
+    '^react-native$': '<rootDir>/src/lib/mocks/react-native.ts',
+    '^react-native-reanimated$': '<rootDir>/src/lib/mocks/empty-module.ts',
+    '^react-native-worklets$': '<rootDir>/src/lib/mocks/empty-module.ts',
+    '^react-native-safe-area-context$':
+      '<rootDir>/src/lib/mocks/empty-module.ts',
+    '^react-native-gesture-handler$': '<rootDir>/src/lib/mocks/empty-module.ts',
+    '^react-native-screens$': '<rootDir>/src/lib/mocks/empty-module.ts',
+    '^expo-image$': '<rootDir>/src/lib/mocks/empty-module.ts',
+    '^expo-status-bar$': '<rootDir>/src/lib/mocks/empty-module.ts',
+    '^expo-splash-screen$': '<rootDir>/src/lib/mocks/empty-module.ts',
+    '^expo-font$': '<rootDir>/src/lib/mocks/empty-module.ts',
+    '^expo-constants$': '<rootDir>/src/lib/mocks/empty-module.ts',
+    // CSS / asset imports are noise under node-tests.
+    '\\.(css|less|scss)$': '<rootDir>/src/lib/mocks/empty-module.ts',
+    '\\.(png|jpg|jpeg|gif|svg)$': '<rootDir>/src/lib/mocks/empty-module.ts',
+    // Resolve `@/...` path alias the same way the production tsconfig
+    // does (relative to src/). The CSS-suffix rule above must take
+    // precedence — Jest evaluates moduleNameMapper entries in
+    // declaration order, so we list `@/global.css` redirect explicitly
+    // here in case the regex precedence trips.
+    '^@/global\\.css$': '<rootDir>/src/lib/mocks/empty-module.ts',
+    '^@/(.*)$': '<rootDir>/src/$1',
   },
   // Default 5s — bump because the retry-with-backoff test waits for
   // setTimeout(0) batches.
