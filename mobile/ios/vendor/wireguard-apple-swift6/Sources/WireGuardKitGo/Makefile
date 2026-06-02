@@ -20,6 +20,23 @@ GOARCH_arm64 := arm64
 GOARCH_x86_64 := amd64
 GOOS_macosx := darwin
 GOOS_iphoneos := ios
+# iogrid (Closes #610): map iphonesimulator to GOOS=ios so cgo runtime
+# compiles `gcc_signal_ios_nolldb.c` (build-tagged `!lldb && ios && arm64`).
+# That file provides `darwin_arm_init_mach_exception_handler` and
+# `darwin_arm_init_thread_exception_port`, which `gcc_darwin_arm64.c`
+# references under `#if TARGET_OS_IPHONE` (TRUE when SDKROOT points at
+# the iphonesimulator SDK). Without GOOS=ios those symbols are undefined
+# at xcodebuild link time, producing:
+#   Undefined symbols for architecture arm64:
+#     "_darwin_arm_init_mach_exception_handler", referenced from
+#         _x_cgo_init in libwg-go.a[arm64][9](000006.o)
+#     "_darwin_arm_init_thread_exception_port", referenced from
+#         _threadentry in libwg-go.a[arm64][9](000006.o)
+# Upstream Makefile omits this mapping because their build runs inside
+# Xcode where empty GOOS still works for the simulator slice (host=darwin),
+# but xcodebuild + Go 1.23 on Xcode 26 trips the strict-mode ld which
+# refuses the unresolved iOS-only symbols. Ref: golang/go#47228.
+GOOS_iphonesimulator := ios
 
 build: $(DESTDIR)/libwg-go.a
 version-header: $(DESTDIR)/wireguard-go-version.h
