@@ -151,6 +151,28 @@ type Store interface {
 	// current calendar month (UTC). The free-tier quota check on
 	// RequestSession compares this against FreeTierQuotaBytes.
 	SumCustomerBytesThisMonth(ctx context.Context, customerID uuid.UUID) (uint64, error)
+
+	// --- Track 3 (#588): mobile-PacketTunnelProvider session config ---
+
+	// AllocateInnerIP increments the per-provider suffix counter and
+	// returns the next free 10.66.X.Y/32 host address for this session.
+	// The 10.66.X.Y space is keyed by the provider's last-octet pair
+	// (deterministic from provider UUID — see memory.go), so two
+	// providers serving the same customer-side mesh don't collide.
+	//
+	// Returns the dotted-quad host (e.g. "10.66.42.2"). Wraparound at
+	// .254 raises an error — at that point we need a /23 expansion,
+	// which is a future-#596 problem.
+	AllocateInnerIP(ctx context.Context, providerID uuid.UUID) (string, error)
+
+	// PersistSessionPeerConfig stamps the Track-3-only fields onto an
+	// existing session row in one go. Called after CreateSession +
+	// AllocateInnerIP so the inner_ip / expires_at / client_public_key
+	// / payment_authorization land atomically. Memory store ignores
+	// payment_authorization opaque payload identity.
+	PersistSessionPeerConfig(ctx context.Context, sessionID uuid.UUID,
+		clientPubKey, innerIP string, expiresAt time.Time,
+		paymentAuth []byte) error
 }
 
 // RegionSummary is one row of the customer region picker.
@@ -192,6 +214,29 @@ type Session struct {
 	// the session is either still active OR terminated-but-unbilled
 	// (pending in the next batch tick).
 	BilledAt *time.Time
+
+	// --- Track 3 (#588): mobile PacketTunnelProvider session config ---
+	// ClientPublicKey is the customer's WG public key (base64). On the
+	// mobile flow this is generated in-app at startup and sent with
+	// POST /v1/vpn/sessions. Distinct from CustomerWgPublicKey above
+	// (which is the legacy daemon-bind path) so the mobile + daemon
+	// flows can co-exist while we migrate.
+	ClientPublicKey string
+	// InnerIP is the customer-side IPv4 we allocated for this session.
+	// Format: dotted-quad (we stash a /32 in the DB INET column but
+	// surface the host address in Go for convenience). Empty when no
+	// allocation has been done yet (e.g. legacy sessions).
+	InnerIP string
+	// ExpiresAt is the wall-clock TTL on the session. The mobile app
+	// requests 24h; the cleanup loop will terminate any session that
+	// outlives this timestamp regardless of heartbeat liveness. Zero
+	// = no expiry set (legacy sessions).
+	ExpiresAt time.Time
+	// PaymentAuthorization is the raw JSON payload Track 5 (#596) will
+	// validate. vpn-svc only persists it for forward-compat; do not
+	// rely on its contents in Track 3 code paths. Empty bytes = no
+	// authorization sent (free-tier flow).
+	PaymentAuthorization []byte
 }
 
 // ProviderInfo represents a provider for regional failover selection.

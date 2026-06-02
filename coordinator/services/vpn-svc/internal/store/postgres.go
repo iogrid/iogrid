@@ -661,6 +661,71 @@ func (p *Postgres) SumCustomerBytesThisMonth(ctx context.Context, customerID uui
 	return uint64(total), nil
 }
 
+// AllocateInnerIP implements Store.
+//
+// Track 3 (#588): atomic increment of vpn_provider_inner_ip_alloc.next_suffix
+// for the supplied provider — first call inserts the row (bootstrap suffix
+// = 1, returns .2), subsequent calls increment. Returns the dotted-quad
+// host address; wraparound at .254 returns an error.
+//
+// The /24 prefix `X` is derived from the provider UUID's first byte so
+// two providers running the same regional mesh don't collide.
+func (p *Postgres) AllocateInnerIP(ctx context.Context, providerID uuid.UUID) (string, error) {
+	// INSERT … ON CONFLICT DO UPDATE … RETURNING gives us a single
+	// round-trip atomic counter increment.
+	const q = `
+		INSERT INTO vpn_provider_inner_ip_alloc (provider_id, next_suffix, updated_at)
+		VALUES ($1, 2, NOW())
+		ON CONFLICT (provider_id) DO UPDATE
+		  SET next_suffix = vpn_provider_inner_ip_alloc.next_suffix + 1,
+		      updated_at = NOW()
+		RETURNING next_suffix
+	`
+	var suffix int
+	if err := p.pool.QueryRow(ctx, q, providerID).Scan(&suffix); err != nil {
+		return "", fmt.Errorf("allocate inner ip: %w", err)
+	}
+	if suffix > 254 {
+		return "", fmt.Errorf("inner-ip suffix exhausted for provider %s (suffix=%d)", providerID, suffix)
+	}
+	third := providerID[0]
+	return fmt.Sprintf("10.66.%d.%d", third, suffix), nil
+}
+
+// PersistSessionPeerConfig implements Store.
+func (p *Postgres) PersistSessionPeerConfig(ctx context.Context, sessionID uuid.UUID,
+	clientPubKey, innerIP string, expiresAt time.Time, paymentAuth []byte) error {
+	// inner_ip column is INET; the host string we pass goes in as-is
+	// (PG accepts "10.66.42.2" with the implicit /32). expires_at is
+	// nullable — passing the zero value would force a NULL via the
+	// COALESCE-like handling below.
+	const q = `
+		UPDATE vpn_sessions
+		   SET client_public_key     = $2,
+		       inner_ip              = $3::inet,
+		       expires_at            = $4,
+		       payment_authorization = $5,
+		       last_activity_at      = NOW()
+		 WHERE id = $1
+	`
+	var expArg interface{} = expiresAt
+	if expiresAt.IsZero() {
+		expArg = nil
+	}
+	var authArg interface{}
+	if len(paymentAuth) > 0 {
+		authArg = paymentAuth
+	}
+	cmd, err := p.pool.Exec(ctx, q, sessionID, clientPubKey, innerIP, expArg, authArg)
+	if err != nil {
+		return fmt.Errorf("persist session peer config: %w", err)
+	}
+	if cmd.RowsAffected() == 0 {
+		return fmt.Errorf("session %s not found", sessionID)
+	}
+	return nil
+}
+
 // MarkSessionBilled implements Store.
 func (p *Postgres) MarkSessionBilled(ctx context.Context, sessionID uuid.UUID) error {
 	_, err := p.pool.Exec(ctx,

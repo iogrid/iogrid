@@ -13,18 +13,20 @@ import (
 
 // Memory is an in-memory implementation of Store (for development/testing).
 type Memory struct {
-	mu         sync.RWMutex
-	sessions   map[uuid.UUID]*Session
-	candidates map[uuid.UUID][]*pb.IceCandidate // provider_id -> candidates
-	providers  map[uuid.UUID]*ProviderInfo      // provider_id -> info
+	mu             sync.RWMutex
+	sessions       map[uuid.UUID]*Session
+	candidates     map[uuid.UUID][]*pb.IceCandidate // provider_id -> candidates
+	providers      map[uuid.UUID]*ProviderInfo      // provider_id -> info
+	innerIPSuffix  map[uuid.UUID]uint8              // provider_id -> last allocated 10.66.X.Y suffix (Track 3, #588)
 }
 
 // NewMemory creates a new in-memory store.
 func NewMemory() Store {
 	return &Memory{
-		sessions:   make(map[uuid.UUID]*Session),
-		candidates: make(map[uuid.UUID][]*pb.IceCandidate),
-		providers:  make(map[uuid.UUID]*ProviderInfo),
+		sessions:      make(map[uuid.UUID]*Session),
+		candidates:    make(map[uuid.UUID][]*pb.IceCandidate),
+		providers:     make(map[uuid.UUID]*ProviderInfo),
+		innerIPSuffix: make(map[uuid.UUID]uint8),
 	}
 }
 
@@ -451,6 +453,58 @@ func (m *Memory) ListUnbilledTerminatedSessions(ctx context.Context, limit int) 
 		}
 	}
 	return out, nil
+}
+
+// AllocateInnerIP implements Store.
+//
+// Track 3 (#588): allocates the next 10.66.X.Y/32 host address per
+// provider. The /24 prefix `X` is derived deterministically from the
+// provider UUID's first byte so two providers in the same regional
+// mesh don't collide. Within a provider, suffixes are sequential and
+// per-provider counter is held in-memory; wraparound at .254 returns
+// an error.
+func (m *Memory) AllocateInnerIP(ctx context.Context, providerID uuid.UUID) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.innerIPSuffix == nil {
+		m.innerIPSuffix = make(map[uuid.UUID]uint8)
+	}
+	prev := m.innerIPSuffix[providerID]
+	// Bootstrap: first allocation -> .2 (so .1 is reserved for the peer
+	// itself, matching the 10.66.X.1 peer convention).
+	if prev < 1 {
+		prev = 1
+	}
+	next := prev + 1
+	if next > 254 {
+		return "", fmt.Errorf("inner-ip suffix exhausted for provider %s", providerID)
+	}
+	m.innerIPSuffix[providerID] = next
+	// Third octet from provider UUID first byte — keeps providers
+	// scoped to disjoint /24s without a registry.
+	third := providerID[0]
+	return fmt.Sprintf("10.66.%d.%d", third, next), nil
+}
+
+// PersistSessionPeerConfig implements Store.
+func (m *Memory) PersistSessionPeerConfig(ctx context.Context, sessionID uuid.UUID,
+	clientPubKey, innerIP string, expiresAt time.Time, paymentAuth []byte) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	session, ok := m.sessions[sessionID]
+	if !ok {
+		return fmt.Errorf("session %s not found", sessionID)
+	}
+	session.ClientPublicKey = clientPubKey
+	session.InnerIP = innerIP
+	session.ExpiresAt = expiresAt
+	// Copy so caller mutation doesn't reach back into store.
+	if len(paymentAuth) > 0 {
+		session.PaymentAuthorization = make([]byte, len(paymentAuth))
+		copy(session.PaymentAuthorization, paymentAuth)
+	}
+	session.LastActivityAt = time.Now()
+	return nil
 }
 
 // SumCustomerBytesThisMonth implements Store.

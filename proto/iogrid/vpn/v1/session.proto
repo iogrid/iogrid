@@ -113,6 +113,58 @@ message TerminateVpnSession {
   int64 terminated_at_unix_ms = 7;
 }
 
+// Mobile PacketTunnelProvider session bring-up (#588 / Track 3).
+//
+// POST /v1/vpn/sessions request body for the mobile flow. The legacy
+// daemon-side ICE-candidate flow stays on the historical wire shape;
+// this message covers the new mobile path where the OS-level extension
+// just needs a complete WG peer config returned in one round-trip.
+message RequestMobileVpnSession {
+  string customer_id = 1;             // From the JWT once Track 1 lands
+  string region = 2;                  // Or "auto" for geo-nearest
+  string client_public_key = 3;       // Customer's WG public key (base64)
+  string payment_authorization = 4;   // Track 5 (#596) JSON payload — accepted but not yet validated
+  string api_key = 5;                 // Forwarded to billing-svc (Track 5 will replace with wallet sig)
+}
+
+// Mobile PacketTunnelProvider session bring-up RESPONSE (#588).
+//
+// Contains every field PacketTunnelProvider.swift needs to call
+// WireGuardAdapter.start without a second round-trip.
+message RequestMobileVpnSessionResponse {
+  string session_id = 1;
+  string peer_public_key = 2;          // Provider's WG public key (base64)
+  string peer_endpoint = 3;            // Provider's UDP endpoint (ip:port)
+  string customer_inner_cidr = 4;      // e.g. "10.66.42.2/32" — inside-tunnel IP for this client
+  string allowed_ips = 5;              // "0.0.0.0/0" for full-tunnel VPN (the only mode mobile uses)
+  repeated string dns_servers = 6;     // Defaults to ["1.1.1.1", "1.0.0.1"]
+  int64 expires_at_unix_ms = 7;        // Session TTL (typically now() + 24h)
+  string region = 8;                   // The region we actually allocated in (may differ from request when "auto")
+  QuotaState quota_state = 9;          // Free-tier banner hint (#573)
+}
+
+// Heartbeat from PacketTunnelProvider (#588). Sent every ~10s while
+// the tunnel is up. Carries the live WireGuardAdapter.stats byte
+// counters so vpn-svc can keep the session's last_activity_at fresh
+// AND so billing has continuous coverage if the tunnel dies before a
+// graceful Terminate.
+message MobileSessionHeartbeat {
+  string session_id = 1;
+  uint64 bytes_in = 2;
+  uint64 bytes_out = 3;
+  uint32 last_handshake_age_seconds = 4;  // Cosmetic, surfaces to UI via the Refresh response
+  uint32 path_latency_ms = 5;             // Current path RTT (set by Track 4's stats loop)
+  int64 sent_at_unix_ms = 6;
+}
+
+// Heartbeat ACK — vpn-svc echoes the quota signal so the mobile banner
+// updates without a second round-trip.
+message MobileSessionHeartbeatAck {
+  string session_id = 1;
+  int64 acked_at_unix_ms = 2;
+  QuotaState quota_state = 3;
+}
+
 // Session ledger entry (coordinator maintains)
 message SessionLedger {
   string session_id = 1;

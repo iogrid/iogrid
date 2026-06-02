@@ -760,6 +760,319 @@ export class TerminateVpnSession extends Message<TerminateVpnSession> {
 }
 
 /**
+ * Mobile PacketTunnelProvider session bring-up (#588 / Track 3).
+ *
+ * POST /v1/vpn/sessions request body for the mobile flow. The legacy
+ * daemon-side ICE-candidate flow stays on the historical wire shape;
+ * this message covers the new mobile path where the OS-level extension
+ * just needs a complete WG peer config returned in one round-trip.
+ *
+ * @generated from message iogrid.vpn.v1.RequestMobileVpnSession
+ */
+export class RequestMobileVpnSession extends Message<RequestMobileVpnSession> {
+  /**
+   * From the JWT once Track 1 lands
+   *
+   * @generated from field: string customer_id = 1;
+   */
+  customerId = "";
+
+  /**
+   * Or "auto" for geo-nearest
+   *
+   * @generated from field: string region = 2;
+   */
+  region = "";
+
+  /**
+   * Customer's WG public key (base64)
+   *
+   * @generated from field: string client_public_key = 3;
+   */
+  clientPublicKey = "";
+
+  /**
+   * Track 5 (#596) JSON payload — accepted but not yet validated
+   *
+   * @generated from field: string payment_authorization = 4;
+   */
+  paymentAuthorization = "";
+
+  /**
+   * Forwarded to billing-svc (Track 5 will replace with wallet sig)
+   *
+   * @generated from field: string api_key = 5;
+   */
+  apiKey = "";
+
+  constructor(data?: PartialMessage<RequestMobileVpnSession>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "iogrid.vpn.v1.RequestMobileVpnSession";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "customer_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "region", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "client_public_key", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 4, name: "payment_authorization", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 5, name: "api_key", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RequestMobileVpnSession {
+    return new RequestMobileVpnSession().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RequestMobileVpnSession {
+    return new RequestMobileVpnSession().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RequestMobileVpnSession {
+    return new RequestMobileVpnSession().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: RequestMobileVpnSession | PlainMessage<RequestMobileVpnSession> | undefined, b: RequestMobileVpnSession | PlainMessage<RequestMobileVpnSession> | undefined): boolean {
+    return proto3.util.equals(RequestMobileVpnSession, a, b);
+  }
+}
+
+/**
+ * Mobile PacketTunnelProvider session bring-up RESPONSE (#588).
+ *
+ * Contains every field PacketTunnelProvider.swift needs to call
+ * WireGuardAdapter.start without a second round-trip.
+ *
+ * @generated from message iogrid.vpn.v1.RequestMobileVpnSessionResponse
+ */
+export class RequestMobileVpnSessionResponse extends Message<RequestMobileVpnSessionResponse> {
+  /**
+   * @generated from field: string session_id = 1;
+   */
+  sessionId = "";
+
+  /**
+   * Provider's WG public key (base64)
+   *
+   * @generated from field: string peer_public_key = 2;
+   */
+  peerPublicKey = "";
+
+  /**
+   * Provider's UDP endpoint (ip:port)
+   *
+   * @generated from field: string peer_endpoint = 3;
+   */
+  peerEndpoint = "";
+
+  /**
+   * e.g. "10.66.42.2/32" — inside-tunnel IP for this client
+   *
+   * @generated from field: string customer_inner_cidr = 4;
+   */
+  customerInnerCidr = "";
+
+  /**
+   * "0.0.0.0/0" for full-tunnel VPN (the only mode mobile uses)
+   *
+   * @generated from field: string allowed_ips = 5;
+   */
+  allowedIps = "";
+
+  /**
+   * Defaults to ["1.1.1.1", "1.0.0.1"]
+   *
+   * @generated from field: repeated string dns_servers = 6;
+   */
+  dnsServers: string[] = [];
+
+  /**
+   * Session TTL (typically now() + 24h)
+   *
+   * @generated from field: int64 expires_at_unix_ms = 7;
+   */
+  expiresAtUnixMs = protoInt64.zero;
+
+  /**
+   * The region we actually allocated in (may differ from request when "auto")
+   *
+   * @generated from field: string region = 8;
+   */
+  region = "";
+
+  /**
+   * Free-tier banner hint (#573)
+   *
+   * @generated from field: iogrid.vpn.v1.QuotaState quota_state = 9;
+   */
+  quotaState = QuotaState.UNSPECIFIED;
+
+  constructor(data?: PartialMessage<RequestMobileVpnSessionResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "iogrid.vpn.v1.RequestMobileVpnSessionResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "session_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "peer_public_key", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "peer_endpoint", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 4, name: "customer_inner_cidr", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 5, name: "allowed_ips", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 6, name: "dns_servers", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
+    { no: 7, name: "expires_at_unix_ms", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+    { no: 8, name: "region", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 9, name: "quota_state", kind: "enum", T: proto3.getEnumType(QuotaState) },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RequestMobileVpnSessionResponse {
+    return new RequestMobileVpnSessionResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RequestMobileVpnSessionResponse {
+    return new RequestMobileVpnSessionResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RequestMobileVpnSessionResponse {
+    return new RequestMobileVpnSessionResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: RequestMobileVpnSessionResponse | PlainMessage<RequestMobileVpnSessionResponse> | undefined, b: RequestMobileVpnSessionResponse | PlainMessage<RequestMobileVpnSessionResponse> | undefined): boolean {
+    return proto3.util.equals(RequestMobileVpnSessionResponse, a, b);
+  }
+}
+
+/**
+ * Heartbeat from PacketTunnelProvider (#588). Sent every ~10s while
+ * the tunnel is up. Carries the live WireGuardAdapter.stats byte
+ * counters so vpn-svc can keep the session's last_activity_at fresh
+ * AND so billing has continuous coverage if the tunnel dies before a
+ * graceful Terminate.
+ *
+ * @generated from message iogrid.vpn.v1.MobileSessionHeartbeat
+ */
+export class MobileSessionHeartbeat extends Message<MobileSessionHeartbeat> {
+  /**
+   * @generated from field: string session_id = 1;
+   */
+  sessionId = "";
+
+  /**
+   * @generated from field: uint64 bytes_in = 2;
+   */
+  bytesIn = protoInt64.zero;
+
+  /**
+   * @generated from field: uint64 bytes_out = 3;
+   */
+  bytesOut = protoInt64.zero;
+
+  /**
+   * Cosmetic, surfaces to UI via the Refresh response
+   *
+   * @generated from field: uint32 last_handshake_age_seconds = 4;
+   */
+  lastHandshakeAgeSeconds = 0;
+
+  /**
+   * Current path RTT (set by Track 4's stats loop)
+   *
+   * @generated from field: uint32 path_latency_ms = 5;
+   */
+  pathLatencyMs = 0;
+
+  /**
+   * @generated from field: int64 sent_at_unix_ms = 6;
+   */
+  sentAtUnixMs = protoInt64.zero;
+
+  constructor(data?: PartialMessage<MobileSessionHeartbeat>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "iogrid.vpn.v1.MobileSessionHeartbeat";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "session_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "bytes_in", kind: "scalar", T: 4 /* ScalarType.UINT64 */ },
+    { no: 3, name: "bytes_out", kind: "scalar", T: 4 /* ScalarType.UINT64 */ },
+    { no: 4, name: "last_handshake_age_seconds", kind: "scalar", T: 13 /* ScalarType.UINT32 */ },
+    { no: 5, name: "path_latency_ms", kind: "scalar", T: 13 /* ScalarType.UINT32 */ },
+    { no: 6, name: "sent_at_unix_ms", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): MobileSessionHeartbeat {
+    return new MobileSessionHeartbeat().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): MobileSessionHeartbeat {
+    return new MobileSessionHeartbeat().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): MobileSessionHeartbeat {
+    return new MobileSessionHeartbeat().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: MobileSessionHeartbeat | PlainMessage<MobileSessionHeartbeat> | undefined, b: MobileSessionHeartbeat | PlainMessage<MobileSessionHeartbeat> | undefined): boolean {
+    return proto3.util.equals(MobileSessionHeartbeat, a, b);
+  }
+}
+
+/**
+ * Heartbeat ACK — vpn-svc echoes the quota signal so the mobile banner
+ * updates without a second round-trip.
+ *
+ * @generated from message iogrid.vpn.v1.MobileSessionHeartbeatAck
+ */
+export class MobileSessionHeartbeatAck extends Message<MobileSessionHeartbeatAck> {
+  /**
+   * @generated from field: string session_id = 1;
+   */
+  sessionId = "";
+
+  /**
+   * @generated from field: int64 acked_at_unix_ms = 2;
+   */
+  ackedAtUnixMs = protoInt64.zero;
+
+  /**
+   * @generated from field: iogrid.vpn.v1.QuotaState quota_state = 3;
+   */
+  quotaState = QuotaState.UNSPECIFIED;
+
+  constructor(data?: PartialMessage<MobileSessionHeartbeatAck>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "iogrid.vpn.v1.MobileSessionHeartbeatAck";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "session_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "acked_at_unix_ms", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+    { no: 3, name: "quota_state", kind: "enum", T: proto3.getEnumType(QuotaState) },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): MobileSessionHeartbeatAck {
+    return new MobileSessionHeartbeatAck().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): MobileSessionHeartbeatAck {
+    return new MobileSessionHeartbeatAck().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): MobileSessionHeartbeatAck {
+    return new MobileSessionHeartbeatAck().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: MobileSessionHeartbeatAck | PlainMessage<MobileSessionHeartbeatAck> | undefined, b: MobileSessionHeartbeatAck | PlainMessage<MobileSessionHeartbeatAck> | undefined): boolean {
+    return proto3.util.equals(MobileSessionHeartbeatAck, a, b);
+  }
+}
+
+/**
  * Session ledger entry (coordinator maintains)
  *
  * @generated from message iogrid.vpn.v1.SessionLedger

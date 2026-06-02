@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	pb "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/vpn/v1"
+	"github.com/iogrid/iogrid/coordinator/services/vpn-svc/internal/peer"
 	"github.com/iogrid/iogrid/coordinator/services/vpn-svc/internal/store"
 )
 
@@ -1090,5 +1092,410 @@ func (h *ListRegions) Handle(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"regions": out,
 		"count":   len(out),
+	})
+}
+
+// -------------------------------------------------------------------
+// Track 3 (#588): mobile PacketTunnelProvider session bring-up.
+// -------------------------------------------------------------------
+//
+// POST /v1/vpn/sessions/mobile — accepts the mobile-app session
+// payload (client_public_key, region, payment_authorization) and
+// returns the complete WG peer config (peer_public_key, peer_endpoint,
+// customer_inner_cidr, allowed_ips, dns_servers, session_id,
+// expires_at) so PacketTunnelProvider can call WireGuardAdapter.start
+// without a second round-trip.
+//
+// Distinct from the legacy POST /v1/vpn/sessions handler which is the
+// daemon-side ICE-candidate flow (kept intact for backwards-compat). A
+// future PR may converge the two once Track 1's JWT auth lands and the
+// legacy daemon path is fully retired.
+
+// MobileDataPlaneDefaults centralises the mobile-flow defaults so a
+// future operator override (env var) can replace them without touching
+// the handler code. DNSServers matches iCloud Private Relay defaults +
+// the WireGuardKit shipping default.
+type MobileDataPlaneDefaults struct {
+	DNSServers       []string
+	SessionTTL       time.Duration
+	HeartbeatTimeout time.Duration
+	RetryAfter       time.Duration // 503 Retry-After when no peer
+}
+
+// DefaultMobileDataPlane returns the canonical defaults per the #588 DoD.
+func DefaultMobileDataPlane() MobileDataPlaneDefaults {
+	return MobileDataPlaneDefaults{
+		DNSServers:       []string{"1.1.1.1", "1.0.0.1"},
+		SessionTTL:       24 * time.Hour,
+		HeartbeatTimeout: 60 * time.Second,
+		RetryAfter:       15 * time.Second,
+	}
+}
+
+// RequestMobileSession handles POST /v1/vpn/sessions/mobile.
+type RequestMobileSession struct {
+	st        store.Store
+	logger    *slog.Logger
+	picker    *peer.Picker
+	defaults  MobileDataPlaneDefaults
+	validator APIKeyValidator
+}
+
+// NewRequestMobileSession builds the mobile handler. validator may be
+// nil for dev / smoke mode (per the legacy handler).
+func NewRequestMobileSession(st store.Store, logger *slog.Logger) *RequestMobileSession {
+	return &RequestMobileSession{
+		st:       st,
+		logger:   logger,
+		picker:   peer.NewPicker(st),
+		defaults: DefaultMobileDataPlane(),
+	}
+}
+
+// WithValidator wires up the optional API-key validator (mirrors the
+// legacy handler's contract).
+func (h *RequestMobileSession) WithValidator(v APIKeyValidator) *RequestMobileSession {
+	h.validator = v
+	return h
+}
+
+// requestMobileSessionReq is the wire shape — superset of the proto
+// RequestMobileVpnSession message. We keep payment_authorization as
+// raw json.RawMessage so the structure is opaque to vpn-svc (Track 5
+// owns the schema) but still persisted intact for #596 validation.
+type requestMobileSessionReq struct {
+	CustomerID            string          `json:"customer_id"`
+	Region                string          `json:"region"`
+	ClientPublicKey       string          `json:"client_public_key"`
+	APIKey                string          `json:"api_key"`
+	PaymentAuthorization  json.RawMessage `json:"payment_authorization,omitempty"`
+}
+
+// Handle implements http.Handler for RequestMobileSession.
+func (h *RequestMobileSession) Handle(w http.ResponseWriter, r *http.Request) {
+	req := &requestMobileSessionReq{}
+	if err := json.NewDecoder(r.Body).Decode(req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+	if req.CustomerID == "" {
+		respondError(w, http.StatusBadRequest, "customer_id required")
+		return
+	}
+	if req.ClientPublicKey == "" {
+		respondError(w, http.StatusBadRequest, "client_public_key required")
+		return
+	}
+	// "auto" is the default region for the mobile flow — explicit empty
+	// region is coerced to "auto" so the JS layer can omit it.
+	if req.Region == "" {
+		req.Region = "auto"
+	}
+	customerUUID, err := uuid.Parse(req.CustomerID)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "customer_id must be a UUID")
+		return
+	}
+
+	// Optional API-key validation (#531 parity with the legacy handler).
+	resolvedTier := ""
+	usedBytes := uint64(0)
+	if h.validator != nil {
+		if req.APIKey == "" {
+			respondError(w, http.StatusUnauthorized, "api_key required")
+			return
+		}
+		_, custID, tier, vErr := h.validator.Validate(r.Context(), req.APIKey)
+		if vErr != nil {
+			h.logger.Warn("mobile session: api key rejected",
+				slog.String("customer_id", req.CustomerID),
+				slog.String("error", vErr.Error()))
+			respondError(w, http.StatusUnauthorized, "invalid api_key")
+			return
+		}
+		if custID != "" {
+			customerUUID = uuid.MustParse(custID)
+		}
+		resolvedTier = tier
+
+		if isFreeTier(tier) {
+			used, sumErr := h.st.SumCustomerBytesThisMonth(r.Context(), customerUUID)
+			if sumErr == nil {
+				usedBytes = used
+				if used >= FreeTierQuotaBytes {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusTooManyRequests)
+					_ = json.NewEncoder(w).Encode(map[string]interface{}{
+						"error":       "quota_exceeded",
+						"detail":      "free-tier 2 GiB/month bandwidth quota exhausted — upgrade to plus or pro",
+						"quota_bytes": FreeTierQuotaBytes,
+						"used_bytes":  used,
+						"quota_state": pb.QuotaState_QUOTA_STATE_EXHAUSTED.String(),
+					})
+					return
+				}
+			}
+		}
+	}
+
+	// payment_authorization is captured opaquely. Track 5 (#596) will
+	// inject a ValidatePayment hook here; for now we accept anything
+	// (including nil) and persist verbatim.
+	paymentAuth := []byte(req.PaymentAuthorization)
+	if len(paymentAuth) > 0 {
+		h.logger.Debug("payment_authorization received (validation deferred to #596)",
+			slog.Int("payload_bytes", len(paymentAuth)))
+	}
+
+	// Pick a peer in the requested region (or geo-nearest if "auto").
+	ipHint := firstForwardedFor(r.Header.Get("X-Forwarded-For"))
+	providerID, chosenRegion, pickErr := h.picker.Pick(r.Context(), req.Region, ipHint)
+	if pickErr != nil {
+		if errors.Is(pickErr, peer.ErrNoPeer) {
+			h.logger.Warn("mobile session: no peer available",
+				slog.String("region", req.Region),
+				slog.String("ip_hint", ipHint))
+			retryAfter := int(h.defaults.RetryAfter.Seconds())
+			w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"error":           "no_peer_available",
+				"detail":          "no healthy peer in region — retry shortly",
+				"region":          req.Region,
+				"retry_after_sec": retryAfter,
+			})
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "peer selection failed")
+		return
+	}
+
+	// Allocate inner IPv4 from the peer's /24.
+	innerIP, allocErr := h.st.AllocateInnerIP(r.Context(), providerID)
+	if allocErr != nil {
+		h.logger.Error("mobile session: inner-ip alloc failed",
+			slog.String("provider_id", providerID.String()),
+			slog.String("error", allocErr.Error()))
+		respondError(w, http.StatusInternalServerError, "inner ip allocation failed")
+		return
+	}
+
+	// Look up the peer's WG public key + a probable endpoint. The
+	// endpoint comes from the provider's freshest ICE candidate set
+	// (preferring srflx > host > relay). If none is available we
+	// surface 503 — the peer is registered but un-reachable.
+	providerInfo, providerErr := h.lookupProvider(r.Context(), providerID, chosenRegion)
+	if providerErr != nil {
+		h.logger.Warn("mobile session: peer endpoint lookup failed",
+			slog.String("provider_id", providerID.String()),
+			slog.String("error", providerErr.Error()))
+		retryAfter := int(h.defaults.RetryAfter.Seconds())
+		w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+		respondError(w, http.StatusServiceUnavailable, "peer endpoint not yet published")
+		return
+	}
+
+	// Create the session row.
+	sessionID := uuid.New()
+	expiresAt := time.Now().Add(h.defaults.SessionTTL)
+	session := &store.Session{
+		ID:              sessionID,
+		CustomerID:      customerUUID,
+		Region:          chosenRegion,
+		PrimaryProvider: providerID,
+		CurrentProvider: providerID,
+		State:           pb.VpnSessionState_CREATING,
+		CreatedAt:       time.Now(),
+		LastActivityAt:  time.Now(),
+		// Persist the in-memory copy of the peer config too so the
+		// memory-store-backed tests see it via GetSession even before
+		// PersistSessionPeerConfig overwrites the postgres row.
+		ClientPublicKey:      req.ClientPublicKey,
+		InnerIP:              innerIP,
+		ExpiresAt:            expiresAt,
+		PaymentAuthorization: paymentAuth,
+	}
+	if err := h.st.CreateSession(r.Context(), session); err != nil {
+		h.logger.Error("mobile session: create failed", slog.String("error", err.Error()))
+		respondError(w, http.StatusInternalServerError, "failed to create session")
+		return
+	}
+
+	// Stamp the Track-3 fields onto the persisted row. Memory store
+	// already has them from the in-place pointer; Postgres needs the
+	// explicit UPDATE. We surface any failure as 500 — the session
+	// row exists at this point so a retry would dup-key, but the
+	// cleanup tick will catch the orphan.
+	if err := h.st.PersistSessionPeerConfig(
+		r.Context(), sessionID,
+		req.ClientPublicKey, innerIP, expiresAt, paymentAuth); err != nil {
+		h.logger.Error("mobile session: persist peer config failed",
+			slog.String("session_id", sessionID.String()),
+			slog.String("error", err.Error()))
+		respondError(w, http.StatusInternalServerError, "failed to persist session config")
+		return
+	}
+
+	// TODO(#596): once Track 5 lands wallet-signed authorization, push
+	// the client_public_key to the provider daemon's WG peer set via
+	// the daemon-transport interface (Track 4 wires this — currently
+	// the daemon polls /providers/{id}/assigned-sessions every 5s and
+	// will pick up the new session row on its own). The push path is
+	// captured here as a no-op for now so the handler's contract
+	// matches the #588 DoD verbatim.
+	h.logger.Info("mobile session created",
+		slog.String("session_id", sessionID.String()),
+		slog.String("provider_id", providerID.String()),
+		slog.String("region", chosenRegion),
+		slog.String("inner_ip", innerIP))
+
+	SessionsCreated.Inc()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"session_id":           sessionID.String(),
+		"peer_public_key":      providerInfo.WgPublicKey,
+		"peer_endpoint":        providerInfo.Endpoint,
+		"customer_inner_cidr":  innerIP + "/32",
+		"allowed_ips":          "0.0.0.0/0",
+		"dns_servers":          h.defaults.DNSServers,
+		"expires_at":           expiresAt.UTC().Format(time.RFC3339),
+		"region":               chosenRegion,
+		"quota_state":          computeQuotaState(resolvedTier, usedBytes).String(),
+	})
+}
+
+// mobilePeerInfo bundles the two fields the mobile response surfaces
+// from a provider's registration.
+type mobilePeerInfo struct {
+	WgPublicKey string
+	Endpoint    string
+}
+
+// lookupProvider resolves a provider UUID to its WG pubkey + a
+// best-guess UDP endpoint (preferring srflx > host > relay ICE
+// candidates). Returns error if no endpoint is published — the
+// handler surfaces that as 503 with Retry-After so the client retries
+// once the daemon's next ICE-candidate POST lands.
+func (h *RequestMobileSession) lookupProvider(ctx context.Context, providerID uuid.UUID, region string) (mobilePeerInfo, error) {
+	probes, err := h.st.SelectTopProvidersInRegion(ctx, region, 50)
+	if err != nil {
+		return mobilePeerInfo{}, err
+	}
+	for _, p := range probes {
+		if p.ProviderID != providerID {
+			continue
+		}
+		endpoint := pickEndpoint(p.Candidates)
+		if endpoint == "" {
+			return mobilePeerInfo{}, errors.New("no ICE candidate published yet")
+		}
+		return mobilePeerInfo{WgPublicKey: p.WgPublicKey, Endpoint: endpoint}, nil
+	}
+	// Provider isn't in the top-50 probe result — surface 404-shaped
+	// error string but as a generic "endpoint not published" so the
+	// caller path stays uniform.
+	return mobilePeerInfo{}, errors.New("provider not in region top-N (no fresh candidates)")
+}
+
+// pickEndpoint applies the srflx > host > relay preference order to a
+// fresh ICE candidate set. Returns the dotted-quad+port string the
+// mobile client can pass straight to WireGuardKit's Endpoint(from:).
+//
+// IceCandidate.CandidateType is a string ("host", "srflx", "prflx",
+// "relay") — not an enum — so we string-match.
+func pickEndpoint(candidates []*pb.IceCandidate) string {
+	order := []string{"srflx", "host", "prflx", "relay"}
+	for _, t := range order {
+		for _, c := range candidates {
+			if c == nil {
+				continue
+			}
+			if c.CandidateType == t && c.ConnectionAddress != "" && c.ConnectionPort > 0 {
+				return c.ConnectionAddress + ":" + strconv.FormatUint(uint64(c.ConnectionPort), 10)
+			}
+		}
+	}
+	// Fallback: first non-empty candidate of any type.
+	for _, c := range candidates {
+		if c == nil {
+			continue
+		}
+		if c.ConnectionAddress != "" && c.ConnectionPort > 0 {
+			return c.ConnectionAddress + ":" + strconv.FormatUint(uint64(c.ConnectionPort), 10)
+		}
+	}
+	return ""
+}
+
+// MobileHeartbeat handles POST /v1/vpn/sessions/{sessionID}/heartbeat.
+//
+// Per the #588 DoD: accept byte counters. We forward them to the
+// existing UpdateSessionMetrics path (so the earnings batcher sees
+// them) AND echo the quota signal so the mobile banner stays in sync.
+type MobileHeartbeat struct {
+	st     store.Store
+	logger *slog.Logger
+}
+
+// NewMobileHeartbeat builds the heartbeat handler.
+func NewMobileHeartbeat(st store.Store, logger *slog.Logger) *MobileHeartbeat {
+	return &MobileHeartbeat{st: st, logger: logger}
+}
+
+type mobileHeartbeatReq struct {
+	BytesIn               uint64 `json:"bytes_in"`
+	BytesOut              uint64 `json:"bytes_out"`
+	LastHandshakeAgeSec   uint32 `json:"last_handshake_age_seconds"`
+	PathLatencyMs         uint32 `json:"path_latency_ms"`
+	SentAtUnixMs          int64  `json:"sent_at_unix_ms"`
+}
+
+// Handle implements http.Handler for MobileHeartbeat.
+func (h *MobileHeartbeat) Handle(w http.ResponseWriter, r *http.Request) {
+	sessionID, err := uuid.Parse(chi.URLParam(r, "sessionID"))
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid session id")
+		return
+	}
+	req := &mobileHeartbeatReq{}
+	if err := json.NewDecoder(r.Body).Decode(req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	// Reuse the existing metrics-update path so the earnings batcher
+	// + roaming/failover counters stay coherent. We leave
+	// roaming_events / failover_count untouched (heartbeat doesn't
+	// know about them).
+	sess, getErr := h.st.GetSession(r.Context(), sessionID)
+	if getErr != nil {
+		respondError(w, http.StatusNotFound, "session not found")
+		return
+	}
+	if err := h.st.UpdateSessionMetrics(r.Context(), sessionID,
+		req.BytesIn, req.BytesOut,
+		sess.RoamingEvents, sess.FailoverCount); err != nil {
+		h.logger.Error("mobile heartbeat: update failed",
+			slog.String("session_id", sessionID.String()),
+			slog.String("error", err.Error()))
+		respondError(w, http.StatusInternalServerError, "heartbeat update failed")
+		return
+	}
+	SessionRefreshes.Inc()
+
+	// Quota signal echo — heartbeat doesn't carry an api_key so we
+	// degenerate to free-tier semantics (paid customers never accrue
+	// enough to flip the state).
+	qs := pb.QuotaState_QUOTA_STATE_UNSPECIFIED
+	if used, sumErr := h.st.SumCustomerBytesThisMonth(r.Context(), sess.CustomerID); sumErr == nil {
+		qs = computeQuotaState("", used)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"session_id":   sessionID.String(),
+		"acked_at":     time.Now().UTC().Format(time.RFC3339Nano),
+		"quota_state":  qs.String(),
 	})
 }
