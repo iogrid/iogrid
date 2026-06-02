@@ -11,55 +11,51 @@
 //     main app's Keychain into the extension without exposing it on
 //     disk in plaintext)
 //
-// Flow:
+// Flow (#587, post-WG-wire):
 //   1. Main app generates customer WG keypair, stores private key in
 //      App Group Keychain under a known label.
-//   2. Main app calls coordinator POST /v1/vpn/sessions, gets a
-//      provider WG pubkey + endpoint + AllowedIPs.
-//   3. Main app sets NEVPNProtocol.providerConfiguration with
-//      {peerPublicKey, peerEndpoint, allowedIPs, customerInnerCIDR,
-//       region}
-//      and calls connection.startVPNTunnel().
+//   2. Main app calls coordinator POST /v1/vpn/sessions/mobile (#588),
+//      gets a complete peer config: peer_public_key, peer_endpoint,
+//      customer_inner_cidr, allowed_ips, dns_servers, session_id.
+//   3. Main app sets NEVPNProtocol.providerConfiguration with the
+//      full payload and calls connection.startVPNTunnel().
 //   4. iOS launches THIS process, calls startTunnel(options:).
 //   5. We read the config, read the private key from Keychain, build
-//      a WireGuardAdapter, call .start.
+//      a TunnelConfiguration (WGTunnel.swift), call
+//      WireGuardAdapter.start.
 //   6. NWPathMonitor observes the device network path; on a path
 //      change we re-probe the region's top-3 providers and re-pin
 //      the WG peer endpoint to the lowest-RTT survivor WITHOUT
 //      dropping the tunnel session (#572 seamless roaming).
+//   7. Every 1s we tick the stats loop: query adapter.getRuntimeConfiguration,
+//      parse to a Stats struct, post to the main app via
+//      NEProvider.displayMessage path (the main app's TunnelControl
+//      module surfaces these as onStatsUpdate events to JS).
 //
-// Refs #568, #572. Pairs with the Expo config plugin
-// `plugins/with-network-extension.ts` that wires this file into the
-// Xcode project at prebuild time.
+// Refs #568, #572, #587. Pairs with WGTunnel.swift + Stats.swift +
+// the Expo config plugin `plugins/with-network-extension.ts`.
 
 import Foundation
 import Network
 import NetworkExtension
 import os.log
-
-// WireGuardKit comes from the wireguard-apple Swift package, embedded
-// via SwiftPM in the extension target by the config plugin. The
-// import is gated behind a #if canImport so this file still compiles
-// in a basic scaffold before the package is wired (matters during
-// the v1 bootstrap — we ship the .swift first, the package wiring
-// follows in the same #568 milestone).
-#if canImport(WireGuardKit)
 import WireGuardKit
-#endif
 
 @objc(PacketTunnelProvider)
 final class PacketTunnelProvider: NEPacketTunnelProvider {
 
     private let logger = OSLog(subsystem: "io.iogrid.app.PacketTunnelProvider", category: "tunnel")
 
-#if canImport(WireGuardKit)
+    /// WireGuardAdapter is the WireGuardKit driver — owns the tunnel
+    /// lifecycle (start / stop / update) + exposes the runtime config
+    /// string we parse for stats. Lazy so we only spin up the adapter
+    /// on the first startTunnel call (matches the OS lifecycle).
     private lazy var adapter: WireGuardAdapter = {
         return WireGuardAdapter(with: self) { [weak self] logLevel, message in
             guard let self = self else { return }
-            os_log("%{public}@", log: self.logger, type: .info, message)
+            os_log("[wg] %{public}@", log: self.logger, type: .info, message)
         }
     }()
-#endif
 
     // ── Roaming state (#572) ─────────────────────────────────────
     //
@@ -71,23 +67,44 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     // Probe results are race-protected by a monotonic generation
     // counter: when the path changes, we bump `probeGeneration`
     // and any in-flight probe that returns with a stale value
-    // discards its result. This handles WiFi→cellular→WiFi
-    // ping-pong while a probe is mid-flight.
+    // discards its result.
     private var pathMonitor: NWPathMonitor?
     private let pathMonitorQueue = DispatchQueue(label: "io.iogrid.app.PacketTunnelProvider.path")
     private var lastPath: Network.NWPath?
     private var currentRegion: String?
     private var currentPeerPublicKey: String?
+    private var currentSessionConfig: SessionPeerConfig?
     private var probeGeneration: UInt64 = 0
     private let probeLock = NSLock()
 
+    /// NEVPNStatusDidChange observer — held in a strong ref so we can
+    /// removeObserver cleanly on stopTunnel (CONTRIBUTING #17 / #22).
+    /// nil when no observer is active.
+    private var statusObserver: NSObjectProtocol?
+
+    // ── Stats loop (#587) ────────────────────────────────────────
+    //
+    // Timer-based — fires every `statsIntervalMs` while the tunnel
+    // is up, queries adapter.getRuntimeConfiguration, parses into
+    // a Stats struct, writes JSON to App Group UserDefaults. The
+    // main-app TunnelControl module polls that store + emits each
+    // tick as an `onStatsUpdate` event to JS.
+    //
+    // We use App Group UserDefaults (not sendProviderMessage) for
+    // stats because:
+    //   - displayMessage is for OS-level alerts, not data IPC
+    //   - sendProviderMessage is a request/response (main-app driven)
+    //   - App Group UserDefaults gives us a free shared-memory tier
+    //     that the main app can subscribe to via KVO
+    //   - The wire shape is JSON so the JS bridge can parse without
+    //     a binary IPC handshake
+    private var statsTimer: DispatchSourceTimer?
+    private let statsQueue = DispatchQueue(label: "io.iogrid.app.PacketTunnelProvider.stats")
+    private let statsIntervalMs: Int = 1_000
+    private static let statsAppGroup    = "group.io.iogrid.app"
+    private static let statsDefaultsKey = "io.iogrid.PacketTunnelProvider.stats.latest"
+
     // Roaming budget (#572 acceptance criterion):
-    //   - 500 ms hard cap on the probe phase (per-candidate UDP probes
-    //     fan out concurrently). If the probe phase exceeds 500ms
-    //     total we abandon and keep the current endpoint to avoid
-    //     thrashing.
-    //   - 250 ms per-candidate timeout (matches the issue spec).
-    //   - 1 s total budget from pathUpdate fire → adapter.update return.
     private let probePhaseBudgetMs: Int = 500
     private let perCandidateTimeoutMs: Int = 250
 
@@ -107,44 +124,94 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             return
         }
 
-        // Capture roaming-relevant fields before adapter.start so
-        // that even the scaffold-only (#if !canImport WireGuardKit)
-        // path retains them — keeps unit tests for the roaming
-        // logic agnostic of WG linkage state.
-        self.currentRegion = providerConfig["region"] as? String
-        self.currentPeerPublicKey = providerConfig["peerPublicKey"] as? String
+        // Resolve the customer's WG private key. In production this
+        // comes from the App Group Keychain (the main app stores it
+        // under a deterministic label keyed off sessionId). For the
+        // v1 bring-up we accept it inline from providerConfiguration
+        // as a fallback — Track 1 (identity) replaces this with a
+        // Keychain-only read once the keystore lands.
+        let clientPrivateKey: PrivateKey
+        if let pkString = providerConfig["clientPrivateKey"] as? String,
+           let key = PrivateKey(base64Key: pkString) {
+            clientPrivateKey = key
+        } else if let key = readPrivateKeyFromAppGroupKeychain(providerConfig: providerConfig) {
+            clientPrivateKey = key
+        } else {
+            os_log("client WG private key missing from both providerConfiguration and App Group Keychain",
+                   log: logger, type: .error)
+            completionHandler(PacketTunnelError.wireGuardStartFailed(reason: "private key not found"))
+            return
+        }
 
-#if canImport(WireGuardKit)
+        // Decode the typed peer config.
+        let sessionConfig: SessionPeerConfig
         do {
-            let config = try TunnelConfigurationDecoder.decode(providerConfig)
-            adapter.start(tunnelConfiguration: config.wireguardConfig) { [weak self] error in
+            sessionConfig = try WGTunnel.decode(
+                providerConfiguration: providerConfig,
+                clientPrivateKey: clientPrivateKey)
+        } catch {
+            os_log("providerConfiguration decode failed: %{public}@",
+                   log: logger, type: .error, String(describing: error))
+            completionHandler(PacketTunnelError.malformedProviderConfiguration(
+                reason: error.localizedDescription))
+            return
+        }
+
+        // Build the network settings + the TunnelConfiguration.
+        guard let netSettings = WGTunnel.buildNetworkSettings(sessionConfig) else {
+            os_log("buildNetworkSettings returned nil — inner CIDR malformed?",
+                   log: logger, type: .error)
+            completionHandler(PacketTunnelError.malformedProviderConfiguration(
+                reason: "inner CIDR malformed"))
+            return
+        }
+        let tunnelConfig: TunnelConfiguration
+        do {
+            tunnelConfig = try WGTunnel.buildTunnelConfiguration(sessionConfig)
+        } catch {
+            os_log("buildTunnelConfiguration failed: %{public}@",
+                   log: logger, type: .error, String(describing: error))
+            completionHandler(PacketTunnelError.wireGuardStartFailed(
+                reason: error.localizedDescription))
+            return
+        }
+
+        // Capture state needed by roaming + stats loops BEFORE the
+        // potentially-slow adapter.start so an early NWPath update
+        // doesn't race against a half-set state.
+        self.currentRegion = providerConfig["region"] as? String
+        self.currentPeerPublicKey = sessionConfig.peerPublicKey
+        self.currentSessionConfig = sessionConfig
+
+        setTunnelNetworkSettings(netSettings) { [weak self] settingsErr in
+            guard let self = self else { return }
+            if let settingsErr = settingsErr {
+                os_log("setTunnelNetworkSettings failed: %{public}@",
+                       log: self.logger, type: .error,
+                       String(describing: settingsErr))
+                completionHandler(PacketTunnelError.wireGuardStartFailed(
+                    reason: "setTunnelNetworkSettings failed: \(settingsErr.localizedDescription)"))
+                return
+            }
+            self.adapter.start(tunnelConfiguration: tunnelConfig) { [weak self] error in
                 guard let self = self else { return }
                 if let error = error {
                     os_log("WireGuardAdapter.start failed: %{public}@",
                            log: self.logger, type: .error,
                            String(describing: error))
-                    completionHandler(error)
+                    completionHandler(PacketTunnelError.wireGuardStartFailed(
+                        reason: String(describing: error)))
                     return
                 }
-                os_log("tunnel established", log: self.logger, type: .info)
+                os_log("tunnel established session=%{public}@",
+                       log: self.logger, type: .info,
+                       sessionConfig.sessionID)
                 self.startPathMonitor()
+                self.startStatsLoop(sessionID: sessionConfig.sessionID)
+                self.subscribeToStatusChanges()
                 completionHandler(nil)
             }
-        } catch {
-            os_log("decode providerConfiguration failed: %{public}@",
-                   log: logger, type: .error,
-                   String(describing: error))
-            completionHandler(error)
         }
-#else
-        // Scaffold-only build (WG SwiftPM dep deferred to #576).
-        // Fail explicitly so the JS layer reflects CONNECTING → OFF
-        // via the NEVPNStatusDidChange subscriber. Keeps us honest
-        // about #565's "tunnel established" lie — the toggle WILL NOT
-        // claim CONNECTED state when there's no data plane.
-        os_log("WireGuardKit not linked — see #576", log: logger, type: .error)
-        completionHandler(PacketTunnelError.wireGuardKitNotLinked)
-#endif
     }
 
     override func stopTunnel(
@@ -153,30 +220,26 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     ) {
         os_log("stopTunnel reason=%{public}d", log: logger, type: .info, reason.rawValue)
         stopPathMonitor()
-#if canImport(WireGuardKit)
+        stopStatsLoop()
+        unsubscribeFromStatusChanges()
+        // Post a session-end note to the coordinator so the
+        // /heartbeat → terminate flow doesn't have to wait for a
+        // stale timeout. Best-effort — we don't gate the stop on it.
+        if let sess = currentSessionConfig {
+            postSessionEnd(sessionID: sess.sessionID, reason: reason)
+        }
         adapter.stop { [weak self] error in
             if let error = error {
                 os_log("WireGuardAdapter.stop error: %{public}@",
                        log: self?.logger ?? OSLog.default, type: .error,
                        String(describing: error))
             }
+            self?.currentSessionConfig = nil
             completionHandler()
         }
-#else
-        completionHandler()
-#endif
     }
 
     // ── IPC from the main app ────────────────────────────────────
-    //
-    // The main app sends JSON-encoded commands via
-    // NETunnelProviderSession.sendProviderMessage(_:returnError:). We
-    // decode + handle. Three commands recognised in v1:
-    //   - "getStatus" — returns CONNECTED / CONNECTING / DISCONNECTED
-    //   - "forceReconnect" — re-runs the WG handshake on the current peer
-    //   - "setPeer" — re-pins to a new peer endpoint (used by #572
-    //     roaming flow to switch providers without dropping the
-    //     tunnel)
 
     override func handleAppMessage(
         _ messageData: Data,
@@ -188,40 +251,45 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         }
         switch message.command {
         case .getStatus:
-            // TODO(#568) wire to adapter state once WireGuardKit lands.
-            let response = IPCResponse(status: "UNKNOWN")
-            completionHandler?(try? JSONEncoder().encode(response))
+            // Reflect WG adapter state — adapter.getRuntimeConfiguration
+            // returns a non-nil non-empty string once the handshake has
+            // completed, which is our connected signal.
+            adapter.getRuntimeConfiguration { [weak self] runtime in
+                let status: String
+                if let r = runtime, !r.isEmpty {
+                    // Probe for a recent handshake — without one the
+                    // tunnel is up but not authenticated.
+                    if r.contains("last_handshake_time_sec=0") {
+                        status = "HANDSHAKING"
+                    } else {
+                        status = "CONNECTED"
+                    }
+                } else {
+                    status = "DISCONNECTED"
+                }
+                _ = self
+                let resp = IPCResponse(status: status)
+                completionHandler?(try? JSONEncoder().encode(resp))
+            }
         case .forceReconnect:
-            // TODO(#568) call adapter.update with same config to retrigger handshake.
+            // Re-apply the existing config to force a fresh handshake.
+            if let cfg = currentSessionConfig,
+               let tcfg = try? WGTunnel.buildTunnelConfiguration(cfg) {
+                adapter.update(tunnelConfiguration: tcfg) { _ in }
+            }
             completionHandler?(nil)
         case .setPeer:
-            // TODO(#572) re-pin endpoint without re-deriving keys.
-            // The main app drives setPeer via the existing IPC shape;
-            // the in-extension roaming flow (NWPathMonitor below)
-            // does the same re-pin directly without round-tripping
-            // through the main app.
+            // #572 roaming path — re-pin endpoint without re-deriving
+            // keys. The in-extension NWPathMonitor handler also calls
+            // this codepath directly; the main app's setPeer is only
+            // used for forced testing.
             completionHandler?(nil)
         }
     }
 
     // ── Roaming: NWPathMonitor + top-3 re-probe (#572) ───────────
-    //
-    // iOS surfaces network path changes via NWPathMonitor on the
-    // Network framework. The callback fires for *any* path change:
-    //   - WiFi ↔ cellular
-    //   - IPv4 ↔ IPv6 default route flip
-    //   - same-interface address rebind (DHCP renewal, carrier IP
-    //     change on cellular)
-    //   - VPN-on-VPN nesting transitions
-    //
-    // Not every event needs a re-probe — we filter to the cases
-    // that materially affect throughput / RTT to the WG peer. See
-    // `pathDifferenceTriggersReprobe`.
 
     private func startPathMonitor() {
-        // NWPathMonitor is one-shot per instance. If startTunnel is
-        // called twice in a row (shouldn't happen — iOS guarantees
-        // one process per session — but be defensive), bail.
         guard pathMonitor == nil else {
             os_log("startPathMonitor: monitor already running, no-op",
                    log: logger, type: .info)
@@ -245,14 +313,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     private func handlePathUpdate(_ newPath: Network.NWPath) {
-        // Compare against the last-known path. The first update
-        // after start() is the *current* path snapshot — we record
-        // it but don't re-probe (the tunnel was just established
-        // on this path).
         defer { self.lastPath = newPath }
         guard let previous = lastPath else {
-            // NWPath.Status is a plain `@frozen public enum` — no
-            // rawValue. Use the description string instead.
             os_log("initial path snapshot recorded: status=%{public}@",
                    log: logger, type: .info, "\(newPath.status)")
             return
@@ -261,9 +323,6 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             return
         }
 
-        // Bump generation BEFORE kicking off probes so that any
-        // in-flight probes from the previous generation see a
-        // stale value when they finish and discard their results.
         probeLock.lock()
         probeGeneration &+= 1
         let myGeneration = probeGeneration
@@ -282,31 +341,18 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         reprobeAndRepin(region: region, generation: myGeneration, started: started)
     }
 
-    /// Returns true if the path-change shape warrants a top-3 re-probe.
-    /// Filters out cosmetic updates (e.g. WiFi SSID rename with same
-    /// gateway, idle radio wake) that wouldn't affect WG throughput.
     private func pathDifferenceTriggersReprobe(previous: Network.NWPath, new: Network.NWPath) -> Bool {
         if previous.status != new.status { return true }
-        // Interface-set comparison: any change in usesInterfaceType
-        // for the four meaningful types is a re-probe trigger.
         let interestingTypes: [NWInterface.InterfaceType] = [.wifi, .cellular, .wiredEthernet, .other]
         for t in interestingTypes where previous.usesInterfaceType(t) != new.usesInterfaceType(t) {
             return true
         }
-        // IP family availability flip (IPv4 ↔ IPv6) — relevant
-        // because srflx candidates are family-specific.
         if previous.supportsIPv4 != new.supportsIPv4 { return true }
         if previous.supportsIPv6 != new.supportsIPv6 { return true }
-        // Expensive flag flips (e.g. moving onto a metered hotspot)
-        // are worth re-pinning to a closer provider too.
         if previous.isExpensive != new.isExpensive { return true }
         return false
     }
 
-    /// End-to-end roaming flow: fetch top-3 → UDP-probe → pick
-    /// lowest-RTT → adapter.update with swapped endpoint.
-    /// Generation gating discards any work that has been superseded
-    /// by a newer pathUpdate.
     private func reprobeAndRepin(region: String, generation: UInt64, started: DispatchTime) {
         fetchTopProviders(region: region) { [weak self] result in
             guard let self = self else { return }
@@ -338,15 +384,13 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         region: String,
         completion: @escaping (Result<[ProviderCandidate], Error>) -> Void
     ) {
-        // URL is host-pinned to api.iogrid.org per #570. The
-        // coordinator returns top-N by region-local median_rtt_ms.
         guard let url = URL(string: "https://api.iogrid.org/v1/vpn/regions/\(region)/providers?limit=3") else {
             completion(.failure(PacketTunnelError.malformedProviderConfiguration(reason: "invalid region")))
             return
         }
         var req = URLRequest(url: url)
         req.httpMethod = "GET"
-        req.timeoutInterval = 0.4 // 400ms — leaves headroom inside the 500ms probe-phase budget
+        req.timeoutInterval = 0.4
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         let task = URLSession.shared.dataTask(with: req) { data, response, error in
             if let error = error {
@@ -364,12 +408,6 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 return
             }
             do {
-                // EPIC #566 reviewer BLOCKER 2: server returns
-                // {"region": ..., "providers": [...], "count": ...} —
-                // an envelope, NOT a bare array. Decode the envelope
-                // then unwrap. Before this fix, every roaming
-                // re-probe failed JSON decode silently and defeated
-                // #572's entire purpose.
                 let envelope = try JSONDecoder().decode(ProvidersEnvelope.self, from: data)
                 completion(.success(envelope.providers))
             } catch {
@@ -380,13 +418,6 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     // ── UDP latency probe ────────────────────────────────────────
-    //
-    // Per the issue spec we use NWConnection (not BSD sockets) so the
-    // probe lives inside the NE sandbox cleanly. For each candidate
-    // we pick its preferred address — srflx > host > relay — and send
-    // a 4-byte zero datagram. RTT is measured from .send completion
-    // to first .receive callback or .ready→.failed transition.
-    // Timeout is 250 ms per candidate.
 
     private func probeCandidates(
         _ providers: [ProviderCandidate],
@@ -410,8 +441,6 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             }
         }
 
-        // Bail at probePhaseBudgetMs — if we don't have results by
-        // then, keep the current endpoint (no thrash).
         let deadline = DispatchTime.now() + .milliseconds(probePhaseBudgetMs)
         let waitResult = probeGroup.wait(timeout: deadline)
         let elapsedMs = elapsedMillis(since: started)
@@ -450,8 +479,6 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             return
         }
         let host = NWEndpoint.Host(host)
-        // UDP-only — matches the WG transport. ICMP would need raw
-        // sockets which the NE sandbox forbids.
         let conn = NWConnection(host: host, port: nwPort, using: .udp)
         let started = DispatchTime.now()
         var fired = false
@@ -465,7 +492,6 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             conn.cancel()
             completion(rtt)
         }
-        // Per-candidate timeout — 250ms hard cap.
         pathMonitorQueue.asyncAfter(deadline: .now() + .milliseconds(perCandidateTimeoutMs)) {
             fire(nil)
         }
@@ -474,16 +500,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             case .ready:
                 let payload = Data(repeating: 0, count: 4)
                 conn.send(content: payload, completion: .contentProcessed { _ in })
-                // Schedule receive — WG peers won't necessarily
-                // ack a stray 4-byte datagram, but the time-to-ready
-                // is itself a meaningful proxy for path RTT on the
-                // first SYN/connect roundtrip. We treat .ready as
-                // the floor measurement.
                 let rttMs = self.elapsedMillis(since: started)
                 conn.receiveMessage { _, _, _, _ in
-                    // Any inbound (e.g. WG handshake-init reject)
-                    // refines the measurement; if it doesn't arrive
-                    // the timeout above fires.
+                    // any inbound refines the measurement
                 }
                 fire(rttMs)
             case .failed, .cancelled:
@@ -498,13 +517,6 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     // ── adapter.update endpoint re-pin ───────────────────────────
 
     private func repinEndpoint(to provider: ProviderCandidate, generation: UInt64, started: DispatchTime) {
-#if canImport(WireGuardKit)
-        // Re-pin without re-deriving keys: build a new
-        // TunnelConfiguration where the existing peer's endpoint is
-        // swapped to the winning candidate. WireGuard's stateless
-        // transport survives the source-IP change; the new outbound
-        // binding triggers a handshake re-key on the next data
-        // packet automatically.
         guard let preferred = provider.preferredCandidate(),
               let newEndpoint = Endpoint(from: "\(preferred.address):\(preferred.port)") else {
             os_log("repin: malformed candidate %{public}@:%{public}d",
@@ -513,18 +525,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                    Int(provider.preferredCandidate()?.port ?? 0))
             return
         }
-        // We don't reconstruct the full TunnelConfiguration from
-        // scratch — instead we read the adapter's current config and
-        // mutate only the peer endpoint. WireGuardAdapter exposes
-        // `update` which accepts a full TunnelConfiguration; we
-        // synthesize one with `peerPublicKey` mapped to the winner's
-        // peer key.
         guard let newConfig = buildSwappedConfig(currentEndpoint: newEndpoint,
                                                   newPeerPublicKey: provider.wgPublicKey) else {
-            // buildSwappedConfig returned nil — keep existing tunnel.
-            // Re-pin aborts safely (no adapter.update call). Reviewer
-            // #568 finding 2: phantom random-key configs would
-            // silently kill the tunnel.
             os_log("repin aborted (config build failed)", log: logger, type: .error)
             return
         }
@@ -540,67 +542,193 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             os_log("repin complete: provider=%{public}@ elapsed=%{public}dms (budget=1000ms)",
                    log: self.logger, type: .info,
                    provider.providerId, elapsedMs)
-            // Track the new peer key so subsequent repins can
-            // skip-no-op when the winner hasn't changed.
             self.currentPeerPublicKey = provider.wgPublicKey
-            _ = generation // generation is logged upstream; no-op
+            _ = generation
         }
-#else
-        // Scaffold-only build: log + drop. The roaming logic is still
-        // wired up; only the actual peer swap is gated on
-        // WireGuardKit linkage. This keeps the file compilable in
-        // either state per the #572 acceptance criterion.
-        let elapsedMs = self.elapsedMillis(since: started)
-        os_log("repin (scaffold-only — WireGuardKit not linked): provider=%{public}@ elapsed=%{public}dms",
-               log: logger, type: .info, provider.providerId, elapsedMs)
-        _ = generation
-#endif
     }
 
-#if canImport(WireGuardKit)
-    /// Synthesises a TunnelConfiguration whose single peer points at
-    /// the winning candidate. The customer-side interface (private
-    /// key, addresses, DNS) is preserved from the original startTunnel
-    /// payload because we never persist it on the daemon side and the
-    /// adapter retains it across .update calls — we only need to
-    /// supply a peer with the swapped endpoint.
-    ///
-    /// NOTE: This is intentionally minimal. The full config decoder
-    /// (TunnelConfigurationDecoder) lives in a sibling file that
-    /// lands in the SwiftPM-wiring milestone (#568). Until then this
-    /// function is unreachable in the scaffold-only build (gated by
-    /// the same #if canImport(WireGuardKit) above).
+    /// Re-decode providerConfiguration into a TunnelConfiguration, then
+    /// swap the peer endpoint + public key on the resulting peer[0]. We
+    /// re-derive from providerConfiguration so the customer's
+    /// addresses / DNS / private key stay consistent across re-pins.
     private func buildSwappedConfig(currentEndpoint: Endpoint, newPeerPublicKey: String) -> TunnelConfiguration? {
-        // Re-decode the providerConfiguration to get a fresh
-        // TunnelConfiguration, then swap the peer endpoint/key.
-        // Returns nil on decode failure so the caller bails the
-        // re-pin rather than substituting a phantom random-key
-        // config — reviewer #568 finding 2, MAJOR. Phantom-key
-        // would silently kill the tunnel since the peer doesn't
-        // know our re-generated identity.
-        let providerConfig = (protocolConfiguration as? NETunnelProviderProtocol)?
-            .providerConfiguration ?? [:]
-        guard let base = try? TunnelConfigurationDecoder.decode(providerConfig) else {
-            os_log("buildSwappedConfig: decode failed — aborting re-pin", log: logger, type: .error)
+        guard let providerConfig = (protocolConfiguration as? NETunnelProviderProtocol)?
+                .providerConfiguration,
+              let cfg = currentSessionConfig else {
+            os_log("buildSwappedConfig: no session config in memory — aborting", log: logger, type: .error)
             return nil
         }
-        let cfg = base.wireguardConfig
-        var peers = cfg.peers
-        guard !peers.isEmpty else {
-            os_log("buildSwappedConfig: no peers in decoded config — aborting", log: logger, type: .error)
+
+        // Build from current session config (preserves client private key).
+        // Override the peer fields with the swap targets.
+        do {
+            let base = try WGTunnel.buildTunnelConfiguration(cfg)
+            var peers = base.peers
+            guard !peers.isEmpty else {
+                os_log("buildSwappedConfig: no peers in base config", log: logger, type: .error)
+                return nil
+            }
+            guard let newKey = PublicKey(base64Key: newPeerPublicKey) else {
+                os_log("buildSwappedConfig: invalid newPeerPublicKey", log: logger, type: .error)
+                return nil
+            }
+            var peer = peers[0]
+            peer.endpoint = currentEndpoint
+            peer.publicKey = newKey
+            peers[0] = peer
+            _ = providerConfig
+            return TunnelConfiguration(name: base.name, interface: base.interface, peers: peers)
+        } catch {
+            os_log("buildSwappedConfig: rebuild failed: %{public}@",
+                   log: logger, type: .error, String(describing: error))
             return nil
         }
-        guard let newKey = PublicKey(base64Key: newPeerPublicKey) else {
-            os_log("buildSwappedConfig: invalid newPeerPublicKey — aborting", log: logger, type: .error)
-            return nil
-        }
-        var peer = peers[0]
-        peer.endpoint = currentEndpoint
-        peer.publicKey = newKey
-        peers[0] = peer
-        return TunnelConfiguration(name: cfg.name, interface: cfg.interface, peers: peers)
     }
-#endif
+
+    // ── Stats loop (#587) ────────────────────────────────────────
+
+    private func startStatsLoop(sessionID: String) {
+        stopStatsLoop() // defensive — never double-fire
+        let timer = DispatchSource.makeTimerSource(queue: statsQueue)
+        timer.schedule(deadline: .now() + .milliseconds(statsIntervalMs),
+                       repeating: .milliseconds(statsIntervalMs))
+        timer.setEventHandler { [weak self] in
+            self?.tickStats(sessionID: sessionID)
+        }
+        timer.resume()
+        statsTimer = timer
+        os_log("stats loop started (interval=%{public}dms)",
+               log: logger, type: .info, statsIntervalMs)
+    }
+
+    private func stopStatsLoop() {
+        statsTimer?.cancel()
+        statsTimer = nil
+    }
+
+    private func tickStats(sessionID: String) {
+        adapter.getRuntimeConfiguration { [weak self] runtime in
+            guard let self = self, let runtime = runtime else { return }
+            guard let stats = StatsParser.parse(runtime, sessionID: sessionID) else { return }
+            self.emitStats(stats)
+        }
+    }
+
+    /// Encode the stats payload as JSON + write to App Group UserDefaults.
+    /// The main-app TunnelControl module polls that key + emits each
+    /// new tick as an `onStatsUpdate` event to JS (see TunnelControl.swift).
+    private func emitStats(_ stats: Stats) {
+        guard let json = try? JSONEncoder().encode(stats),
+              let str = String(data: json, encoding: .utf8) else { return }
+        guard let defaults = UserDefaults(suiteName: Self.statsAppGroup) else { return }
+        defaults.set(str, forKey: Self.statsDefaultsKey)
+        // synchronize() is deprecated but the App Group store needs an
+        // explicit flush to be visible to the host process — the OS
+        // doesn't write-back as aggressively as the standard suite.
+        defaults.synchronize()
+    }
+
+    // ── Status observer (CONTRIBUTING #17/#22) ──────────────────
+
+    /// Subscribe to NEVPNStatusDidChange so we can react to OS-driven
+    /// teardowns (low-power mode, kill switch, user-toggled Settings
+    /// VPN switch). The observer must be removed on stopTunnel — keep
+    /// the reference in a strong property so removeObserver(self,...)
+    /// has a non-nil handle.
+    private func subscribeToStatusChanges() {
+        guard statusObserver == nil else { return }
+        statusObserver = NotificationCenter.default.addObserver(
+            forName: .NEVPNStatusDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self = self,
+                  let conn = notification.object as? NEVPNConnection else { return }
+            os_log("NEVPNStatusDidChange status=%{public}d",
+                   log: self.logger, type: .info, conn.status.rawValue)
+        }
+    }
+
+    private func unsubscribeFromStatusChanges() {
+        if let obs = statusObserver {
+            NotificationCenter.default.removeObserver(obs)
+            statusObserver = nil
+        }
+    }
+
+    // ── Session-end best-effort POST ─────────────────────────────
+
+    /// Best-effort fire-and-forget POST to
+    /// /v1/vpn/sessions/{id}/heartbeat with a final byte count so the
+    /// coordinator's billing batcher closes out the session promptly
+    /// instead of waiting for the staleness window.
+    private func postSessionEnd(sessionID: String, reason: NEProviderStopReason) {
+        adapter.getRuntimeConfiguration { [weak self] runtime in
+            guard let self = self,
+                  let runtime = runtime,
+                  let stats = StatsParser.parse(runtime, sessionID: sessionID),
+                  let url = URL(string: "https://api.iogrid.org/v1/vpn/sessions/\(sessionID)/heartbeat") else {
+                return
+            }
+            var req = URLRequest(url: url)
+            req.httpMethod = "POST"
+            req.timeoutInterval = 1.0
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            let body: [String: Any] = [
+                "bytes_in":  stats.bytesReceived,
+                "bytes_out": stats.bytesSent,
+                "last_handshake_age_seconds": stats.handshakeAgeSeconds,
+                "sent_at_unix_ms": Int64(Date().timeIntervalSince1970 * 1000),
+                "stop_reason": reason.rawValue,
+            ]
+            req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+            URLSession.shared.dataTask(with: req) { _, _, err in
+                if let err = err {
+                    os_log("postSessionEnd error: %{public}@",
+                           log: self.logger, type: .info,
+                           String(describing: err))
+                }
+            }.resume()
+        }
+    }
+
+    // ── App Group Keychain — client WG private key ───────────────
+
+    /// Look up the customer's WG private key in the App Group Keychain
+    /// under a label derived from the session id (or the customer id
+    /// if the main app stashed it that way). Returns nil if absent —
+    /// caller falls back to the providerConfiguration inline path.
+    ///
+    /// Track 1 (identity) will lock this down to keychain-only once
+    /// the keystore lands; v1 keeps the inline fallback so the
+    /// bring-up flow stays bootstrappable.
+    private func readPrivateKeyFromAppGroupKeychain(providerConfig: [String: Any]) -> PrivateKey? {
+        // We accept either an explicit label OR derive from sessionId.
+        let label: String
+        if let l = providerConfig["clientPrivateKeyLabel"] as? String, !l.isEmpty {
+            label = l
+        } else if let sid = providerConfig["sessionId"] as? String, !sid.isEmpty {
+            label = "wg.client.\(sid)"
+        } else {
+            return nil
+        }
+        let query: [String: Any] = [
+            kSecClass as String:        kSecClassGenericPassword,
+            kSecAttrAccessGroup as String: "group.io.iogrid.app",
+            kSecAttrLabel as String:    label,
+            kSecReturnData as String:   true,
+            kSecMatchLimit as String:   kSecMatchLimitOne,
+        ]
+        var item: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        guard status == errSecSuccess,
+              let data = item as? Data,
+              let str = String(data: data, encoding: .utf8),
+              let key = PrivateKey(base64Key: str) else {
+            return nil
+        }
+        return key
+    }
 
     // ── Util ─────────────────────────────────────────────────────
 
@@ -630,10 +758,6 @@ private struct IPCResponse: Encodable {
 
 // ── Provider candidate shapes (#572 — matches coordinator #570) ──
 
-/// Envelope returned by GET /v1/vpn/regions/{r}/providers?limit=N.
-/// Coordinator returns `{"region": ..., "providers": [...], "count": ...}`.
-/// EPIC #566 reviewer BLOCKER 2 — decoder was unwrapping `[ProviderCandidate]`
-/// directly which silently failed every roaming re-probe.
 private struct ProvidersEnvelope: Decodable {
     let providers: [ProviderCandidate]
 }
@@ -651,11 +775,6 @@ private struct ProviderCandidate: Decodable {
         case medianRttMs = "median_rtt_ms"
     }
 
-    /// Picks the preferred candidate address per ICE-like ordering:
-    /// srflx (server-reflexive — i.e. observed by STUN, routable
-    /// across NAT) > host (LAN-local) > relay (TURN — last resort).
-    /// Matches the daemon-side flow that publishes these in the
-    /// provider registration RPC (#570).
     func preferredCandidate() -> WGCandidate? {
         let order = ["srflx", "host", "relay"]
         for kind in order {
@@ -676,16 +795,16 @@ private struct WGCandidate: Decodable {
 enum PacketTunnelError: Error, LocalizedError {
     case missingProviderConfiguration
     case malformedProviderConfiguration(reason: String)
-    case wireGuardKitNotLinked
+    case wireGuardStartFailed(reason: String)
 
     var errorDescription: String? {
         switch self {
         case .missingProviderConfiguration:
-            return "providerConfiguration was nil — main app must call setTunnelNetworkSettings before startTunnel"
+            return "providerConfiguration was nil — main app must set NEVPNProtocol.providerConfiguration before startTunnel"
         case .malformedProviderConfiguration(let reason):
             return "providerConfiguration malformed: \(reason)"
-        case .wireGuardKitNotLinked:
-            return "WireGuardKit Swift package not linked into the extension target (config plugin not finished wiring SwiftPM dep)"
+        case .wireGuardStartFailed(let reason):
+            return "WireGuardAdapter.start failed: \(reason)"
         }
     }
 }

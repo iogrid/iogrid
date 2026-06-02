@@ -26,6 +26,34 @@ export type TunnelStatus =
   | 'disconnecting'
   | 'unknown';
 
+/**
+ * Per-tick stats from the PacketTunnelProvider extension (#587).
+ *
+ * Wire shape mirrors `Stats.swift` in the extension. `sessionId` is
+ * the iogrid session id (UUIDv7 from vpn-svc), NOT the OS-level VPN
+ * connection UUID — the latter is opaque + only useful for OS log
+ * correlation.
+ *
+ * `handshakeAge === -1` means the WG handshake hasn't completed yet
+ * (tunnel just established). `latency === -1` means no probe sample
+ * is available yet (Track 4 / #591 will fill this from the path-probe
+ * RTT once that loop is wired).
+ */
+export interface TunnelStats {
+  /** iogrid session id (UUIDv7) */
+  sessionId: string;
+  /** bytes sent over the tunnel since startTunnel */
+  sent: number;
+  /** bytes received over the tunnel since startTunnel */
+  received: number;
+  /** path latency in ms (-1 if no probe sample yet) */
+  latency: number;
+  /** seconds since the last successful WG handshake (-1 if no handshake yet) */
+  handshakeAge: number;
+  /** wall-clock timestamp when the extension captured these counters */
+  capturedAtUnixMs: number;
+}
+
 interface TunnelControlNative {
   getStatus(): Promise<TunnelStatus>;
   startTunnel(config: TunnelConfig): Promise<void>;
@@ -33,9 +61,23 @@ interface TunnelControlNative {
   sendProviderMessage(command: string): Promise<string | null>;
 }
 
+// The native event payload uses snake_case (matches the Swift Stats
+// CodingKeys); JS consumers get the camelCase TunnelStats above via
+// the `onStatsUpdate` mapper below.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+interface NativeStatsPayload {
+  session_id: string;
+  bytes_sent: number;
+  bytes_received: number;
+  path_latency_ms: number;
+  handshake_age_seconds: number;
+  captured_at_unix_ms: number;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type TunnelEvents = Record<string, (...args: any[]) => void> & {
   status: (e: { status: TunnelStatus }) => void;
+  stats: (e: NativeStatsPayload) => void;
 };
 
 const native = requireNativeModule<TunnelControlNative>('TunnelControl');
@@ -63,6 +105,29 @@ export const TunnelControl = {
   /** Subscribe to status updates emitted by the OS on NEVPNStatusDidChange. */
   onStatusChange: (listener: (e: { status: TunnelStatus }) => void): EventSubscription =>
     emitter.addListener('status', listener),
+
+  /**
+   * Subscribe to per-tick stats from the PacketTunnelProvider extension (#587).
+   *
+   * Fires roughly every 1s while a tunnel is up. Stats are captured by the
+   * extension, written to App Group UserDefaults, and polled+forwarded by
+   * the main app's TunnelControl module — so the cadence is approximate
+   * and may skip ticks under heavy main-thread load.
+   *
+   * The native event uses snake_case; this wrapper maps to camelCase
+   * TunnelStats for JS ergonomics.
+   */
+  onStatsUpdate: (listener: (stats: TunnelStats) => void): EventSubscription =>
+    emitter.addListener('stats', (e: NativeStatsPayload) => {
+      listener({
+        sessionId: e.session_id,
+        sent: e.bytes_sent,
+        received: e.bytes_received,
+        latency: e.path_latency_ms,
+        handshakeAge: e.handshake_age_seconds,
+        capturedAtUnixMs: e.captured_at_unix_ms,
+      });
+    }),
 };
 
 export default TunnelControl;
