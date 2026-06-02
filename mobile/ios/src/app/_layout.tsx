@@ -18,27 +18,41 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 
-const ONBOARDED_FLAG_KEY = 'iogrid.onboarded';
+export const ONBOARDED_FLAG_KEY = 'iogrid.onboarded';
 
-function AuthGate() {
+/**
+ * checkOnboardedAndRoute — the core first-launch routing decision.
+ *
+ * Reads the `iogrid.onboarded` flag from AsyncStorage. If the flag is
+ * missing OR the read throws (storage corruption, native-module
+ * unavailable), routes to /(onboarding)/welcome. If the flag is
+ * present, returns without navigating — the caller stays on whatever
+ * route Expo Router resolved for the current URL.
+ *
+ * Exported as a standalone helper so the test suite can drive it
+ * without spinning up a React renderer. AuthGate below is the
+ * production wrapper that runs this inside a useEffect at mount.
+ */
+export async function checkOnboardedAndRoute(): Promise<void> {
+  try {
+    const flag = await AsyncStorage.getItem(ONBOARDED_FLAG_KEY);
+    if (!flag) {
+      // First launch — route into onboarding.
+      router.replace('/(onboarding)/welcome' as any);
+    }
+  } catch {
+    // Storage failure: default to onboarding so the user sees the
+    // welcome screen rather than a confusing main screen with stub
+    // data.
+    router.replace('/(onboarding)/welcome' as any);
+  }
+}
+
+export function AuthGate() {
   const [checked, setChecked] = useState(false);
 
   useEffect(() => {
-    AsyncStorage.getItem(ONBOARDED_FLAG_KEY)
-      .then((flag) => {
-        if (!flag) {
-          // First launch — route into onboarding.
-          router.replace('/(onboarding)/welcome' as any);
-        }
-        setChecked(true);
-      })
-      .catch(() => {
-        // Storage failure: default to onboarding so the user sees the
-        // welcome screen rather than a confusing main screen with stub
-        // data.
-        router.replace('/(onboarding)/welcome' as any);
-        setChecked(true);
-      });
+    checkOnboardedAndRoute().finally(() => setChecked(true));
   }, []);
 
   // Render nothing while checking — the splash overlay covers it.
