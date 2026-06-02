@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
@@ -23,7 +24,14 @@ func (s *Service) completeGoogleForTest(ctx context.Context, id *google.Identity
 	err := s.Store.WithTx(ctx, func(tx pgx.Tx) error {
 		existing, err := s.Store.FindIdentifierBySubject(ctx, tx, store.KindGoogle, id.Subject)
 		if err == nil {
-			_ = s.Store.TouchIdentifier(ctx, tx, existing.ID)
+			// Mirror the production CompleteGoogle fix from #620
+			// follow-up: propagate the TouchIdentifier error so a
+			// SQLSTATE 40001 under Serializable bubbles through
+			// store.WithTx for retry instead of silently aborting the
+			// transaction.
+			if err := s.Store.TouchIdentifier(ctx, tx, existing.ID); err != nil {
+				return fmt.Errorf("touch google identifier: %w", err)
+			}
 			user, err := s.Store.GetUser(ctx, tx, existing.UserID)
 			if err != nil {
 				return err

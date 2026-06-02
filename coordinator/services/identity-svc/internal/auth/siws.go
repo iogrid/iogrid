@@ -157,7 +157,16 @@ func (s *Service) CompleteSiwsBinding(ctx context.Context, userID uuid.UUID, wal
 				return errors.New("siws: wallet already bound to another user")
 			}
 			// Touch + return existing binding without minting a new one.
-			_ = s.Store.TouchIdentifier(ctx, tx, existing.ID)
+			//
+			// Propagate the TouchIdentifier error: under Serializable
+			// isolation a SQLSTATE 40001 here would otherwise silently
+			// abort the rest of the transaction (every later statement
+			// would then surface as 25P02 "current transaction is
+			// aborted"). Bubbling lets WithTx see the 40001 and retry.
+			// See #620 for the same fix applied to the Apple flow.
+			if err := s.Store.TouchIdentifier(ctx, tx, existing.ID); err != nil {
+				return fmt.Errorf("touch solana identifier: %w", err)
+			}
 			result.IdentifierID = existing.ID
 			result.UserID = existing.UserID
 			return nil
