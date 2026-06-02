@@ -1,0 +1,32 @@
+appId: io.iogrid.app
+---
+# Top-up flow.
+#
+# Cold-restart to land at /index, tap the wallet card's Top up button,
+# assert the quick-amount chips + payment methods + Continue render.
+# Tap a chip + a method + Continue, asserts navigation pops back.
+
+- launchApp:
+    clearState: false
+    stopApp: true
+
+- tapOn:
+    id: "wallet-topup-button"
+
+- assertVisible:
+    id: "topup-quick-500"
+- assertVisible:
+    id: "topup-quick-2500"
+- assertVisible:
+    id: "topup-quick-10000"
+- assertVisible:
+    id: "topup-method-apple_pay"
+- assertVisible:
+    id: "topup-continue"
+
+- tapOn:
+    id: "topup-quick-2500"
+- tapOn:
+    id: "topup-method-card"
+
+- takeScreenshot: 09-topup

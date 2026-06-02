@@ -1,27 +1,33 @@
 appId: io.iogrid.app
 ---
-# Master flow — orchestrates the iogrid iOS smoke gate in dependency
-# order. `maestro test .maestro/` parallelizes flows which breaks
-# chained scenarios (later flows reuse state from earlier ones — e.g.
-# 02-toggle-on assumes the toggle screen rendered by 01-launch).
+# Master flow — orchestrates the v2 iogrid iOS smoke suite in
+# dependency order. `maestro test .maestro/` parallelizes flows which
+# breaks chained scenarios (later flows reuse state from earlier ones).
 #
-# CI invokes this single file, NOT the directory, per the vcard
-# pattern that learned this the hard way (~10 broken builds before
-# converging on serial execution).
+# CI invokes this single file, NOT the directory (vcard pattern that
+# learned this the hard way).
 #
-# Scope of v1 (bootstrap):
-#   01 — first-launch contract (no login screen, toggle visible)
-#   02 — toggle ON → CONNECTING state (no real WG connect — that's #572)
-#   03 — region picker reachable + 'Best (auto)' default
-#   04 — settings reachable + account-number row present
+# v2 coverage (8 flows replacing the v1 set):
+#   01 — onboarding (welcome → privacy → sign-in)
+#   02 — sign-in (mocked Apple credential)
+#   03 — wallet-connect (mocked Phantom/Ping handshake)
+#   04 — main DISCONNECTED (post-onboarding home screen)
+#   05 — main CONNECTING (tap connect, observe step list)
+#   06 — main CONNECTED (egress IP visible, stats card, disconnect)
+#   07 — region picker (auto pinned, search, country expand, city pick)
+#   08 — settings (account row + sign-out)
+#   09 — top up (quick amount + payment method + Continue)
 #
-# Out of scope for the smoke (covered by separate e2e-with-provider
-# job once #568 + #569 + #570 + #572 land):
-#   - Real WG handshake via PacketTunnelProvider
-#   - Real exit-IP change observable from in-app webview
-#   - Roaming WiFi ↔ cellular tunnel survival
-- runFlow: 01-launch.yaml
-- runFlow: 02-toggle-on.yaml
-- runFlow: 03-region-picker.yaml
-- runFlow: 04-settings-account-id.yaml
-- runFlow: 05-quota-banner.yaml
+# Gotchas observed during v1:
+#   - No `- back` (gotcha 23) — flows cold-restart instead
+#   - No regex-poisoned text assertions on Pressable+Text (gotcha 21+21b)
+#     — prefer testID assertions for tappable rows
+- runFlow: 01-onboarding.yaml
+- runFlow: 02-sign-in.yaml
+- runFlow: 03-wallet-connect.yaml
+- runFlow: 04-main-disconnected.yaml
+- runFlow: 05-main-connecting.yaml
+- runFlow: 06-main-connected.yaml
+- runFlow: 07-region-picker.yaml
+- runFlow: 08-settings.yaml
+- runFlow: 09-topup.yaml

@@ -1,0 +1,30 @@
+appId: io.iogrid.app
+---
+# Wallet connect flow — Track 2 owns the real deeplink flow. In
+# MAESTRO_MODE the wallet.connect() short-circuits to the in-process
+# mock that returns a fixed Ping address + balance.
+#
+# This flow re-enters onboarding, walks through sign-in, lands on the
+# wallet-connect stub, taps Continue. Asserts main screen renders.
+
+- launchApp:
+    clearState: true
+    clearKeychain: true
+
+- tapOn:
+    id: "onboarding-welcome-continue"
+
+- tapOn:
+    id: "onboarding-sign-in-apple"
+
+- assertVisible:
+    id: "connect-wallet-continue"
+
+- tapOn:
+    id: "connect-wallet-continue"
+
+# Landed on /index — connect-button is the canonical home signal.
+- assertVisible:
+    id: "connect-button"
+
+- takeScreenshot: 03-wallet-connected
