@@ -97,7 +97,7 @@ export default function PrivacyScreen() {
         {/* ── Sign in with Apple CTA ───────────────────────────── */}
         <View style={styles.ctaWrap}>
           <Pressable
-            testID="onboarding-signin-cta"
+            testID="onboarding-sign-in-apple"
             onPress={() => router.push('/(onboarding)/sign-in-with-apple' as any)}
             style={({ pressed }) => [
               styles.cta,

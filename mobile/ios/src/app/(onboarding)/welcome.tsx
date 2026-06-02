@@ -97,7 +97,7 @@ export default function WelcomeScreen() {
         {/* ── Primary CTA ──────────────────────────────────────── */}
         <View style={styles.ctaWrap}>
           <Pressable
-            testID="onboarding-continue"
+            testID="onboarding-welcome-continue"
             onPress={() => router.push('/(onboarding)/privacy' as any)}
             style={({ pressed }) => [
               styles.cta,
