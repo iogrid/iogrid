@@ -2,11 +2,13 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"sort"
 	"time"
 
 	"golang.org/x/sync/errgroup"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/iogrid/iogrid/coordinator/services/gateway-bff/internal/auth"
@@ -33,10 +35,32 @@ type providerDashboard struct {
 // /api/v1/provide/schedule. Carries an explicit has_provider flag so the
 // frontend can distinguish "no daemon paired yet" from "daemon paired
 // but config never set". Issue #305.
+// Config is serialised via protojson (NOT stdlib encoding/json) because the
+// web client uses protobuf-es, which speaks proto3-JSON (camelCase jsonName
+// e.g. "bandwidthCapGbPerMonth"). The protoc-gen-go struct tags are snake_case
+// ("bandwidth_cap_gb_per_month"), so a stdlib round-trip silently dropped
+// every cap on read and rejected the camelCase payload on write with
+// `json: unknown field "bandwidthCapGbPerMonth"` (#630). json.RawMessage lets
+// us splice the protojson-encoded config into this stdlib-encoded envelope.
 type providerSchedule struct {
-	Config      *providersv1.SchedulingConfig `json:"config"`
-	HasProvider bool                          `json:"has_provider"`
-	Providers   []*providersv1.Provider       `json:"providers"`
+	Config      json.RawMessage         `json:"config"`
+	HasProvider bool                    `json:"has_provider"`
+	Providers   []*providersv1.Provider `json:"providers"`
+}
+
+// scheduleEnvelope builds the GET /provide/schedule response, encoding the
+// SchedulingConfig with protojson so its field names match the web's
+// protobuf-es client. A nil cfg serialises as JSON null.
+func scheduleEnvelope(cfg *providersv1.SchedulingConfig, hasProvider bool, providers []*providersv1.Provider) (providerSchedule, error) {
+	env := providerSchedule{Config: json.RawMessage("null"), HasProvider: hasProvider, Providers: providers}
+	if cfg != nil {
+		raw, err := protojson.Marshal(cfg)
+		if err != nil {
+			return env, err
+		}
+		env.Config = raw
+	}
+	return env, nil
 }
 
 // GetProviderDashboard fans out three parallel calls to providers-svc
@@ -143,7 +167,8 @@ func (a *API) GetProviderSchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if pid == "" {
-		writeJSON(w, http.StatusOK, providerSchedule{HasProvider: false, Providers: owned})
+		env, _ := scheduleEnvelope(nil, false, owned)
+		writeJSON(w, http.StatusOK, env)
 		return
 	}
 	resp, err := a.Clients.ProvidersScheduling.GetSchedulingConfig(r.Context(), &providersv1.GetSchedulingConfigRequest{
@@ -153,11 +178,12 @@ func (a *API) GetProviderSchedule(w http.ResponseWriter, r *http.Request) {
 		writeUpstreamError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, providerSchedule{
-		Config:      resp.GetConfig(),
-		HasProvider: true,
-		Providers:   owned,
-	})
+	env, err := scheduleEnvelope(resp.GetConfig(), true, owned)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", "failed to encode scheduling config")
+		return
+	}
+	writeJSON(w, http.StatusOK, env)
 }
 
 // UpdateProviderSchedule replaces the scheduling config (read-modify-
@@ -170,19 +196,27 @@ func (a *API) UpdateProviderSchedule(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "unauthenticated", "valid Bearer token required")
 		return
 	}
+	// Config carries the protobuf-es proto3-JSON shape (camelCase). Capture
+	// it raw, then protojson.Unmarshal — stdlib decode against the snake_case
+	// protoc-gen-go tags rejected the camelCase payload (#630).
 	var body struct {
-		Config *providersv1.SchedulingConfig `json:"config"`
+		Config json.RawMessage `json:"config"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
 		return
 	}
-	if body.Config == nil {
+	if len(body.Config) == 0 || string(body.Config) == "null" {
 		writeError(w, http.StatusBadRequest, "bad_request", "config required")
 		return
 	}
+	cfg := &providersv1.SchedulingConfig{}
+	if err := protojson.Unmarshal(body.Config, cfg); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
 	resp, err := a.Clients.ProvidersScheduling.UpdateSchedulingConfig(r.Context(), &providersv1.UpdateSchedulingConfigRequest{
-		Config: body.Config,
+		Config: cfg,
 	})
 	if err != nil {
 		writeUpstreamError(w, err)

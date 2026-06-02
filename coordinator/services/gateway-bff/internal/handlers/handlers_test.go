@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/iogrid/iogrid/coordinator/services/gateway-bff/internal/auth"
@@ -550,8 +551,8 @@ func TestGetProviderSchedule_NoProvider_ReturnsNullConfig(t *testing.T) {
 	}
 	var got providerSchedule
 	mustReadJSON(t, w.Body, &got)
-	if got.Config != nil {
-		t.Fatalf("config should be nil when no provider paired, got %#v", got.Config)
+	if s := string(got.Config); s != "null" {
+		t.Fatalf("config should serialise as JSON null when no provider paired, got %q", s)
 	}
 	if got.HasProvider {
 		t.Fatal("has_provider should be false when caller owns nothing")
@@ -599,8 +600,15 @@ func TestGetProviderSchedule_OwnedProvider_ReturnsRealProviderID(t *testing.T) {
 	if !got.HasProvider {
 		t.Fatal("has_provider should be true when caller owns a provider")
 	}
-	if got.Config.GetProviderId().GetValue() != pid {
-		t.Fatalf("returned config.provider_id=%s, want %s", got.Config.GetProviderId().GetValue(), pid)
+	// Config is now protojson-encoded raw JSON (#630); decode it back into
+	// the proto message to assert on fields. This also exercises that the
+	// emitted JSON is valid proto3-JSON (camelCase, parseable by protojson).
+	gotCfg := &providersv1.SchedulingConfig{}
+	if err := protojson.Unmarshal(got.Config, gotCfg); err != nil {
+		t.Fatalf("config not valid proto3-JSON: %v (body=%s)", err, string(got.Config))
+	}
+	if gotCfg.GetProviderId().GetValue() != pid {
+		t.Fatalf("returned config.provider_id=%s, want %s", gotCfg.GetProviderId().GetValue(), pid)
 	}
 }
 
@@ -649,6 +657,40 @@ func TestUpdateProviderSchedule_RoundTrip(t *testing.T) {
 	body, _ := json.Marshal(map[string]any{
 		"config": map[string]any{
 			"caps": map[string]int{"bandwidth_cap_gb_per_month": 100},
+		},
+	})
+	r := withAuth(httptest.NewRequest(http.MethodPost, "/api/v1/provide/schedule", bytes.NewReader(body)))
+	w := httptest.NewRecorder()
+	api.UpdateProviderSchedule(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if !called {
+		t.Fatal("UpdateSchedulingConfig not called")
+	}
+}
+
+// TestUpdateProviderSchedule_CamelCasePayload is the #630 regression guard:
+// the web protobuf-es client posts proto3-JSON camelCase ("bandwidthCapGbPerMonth"),
+// which the old stdlib DisallowUnknownFields decode rejected with
+// `json: unknown field "bandwidthCapGbPerMonth"`. protojson must accept it.
+func TestUpdateProviderSchedule_CamelCasePayload(t *testing.T) {
+	called := false
+	set := &clients.Set{
+		ProvidersScheduling: &mockScheduling{
+			updateConfig: func(_ context.Context, req *providersv1.UpdateSchedulingConfigRequest) (*providersv1.UpdateSchedulingConfigResponse, error) {
+				called = true
+				if req.Config == nil || req.Config.Caps == nil || req.Config.Caps.BandwidthCapGbPerMonth != 100 {
+					t.Fatalf("unexpected config %#v", req.Config)
+				}
+				return &providersv1.UpdateSchedulingConfigResponse{Config: req.Config}, nil
+			},
+		},
+	}
+	api := newAPI(t, set)
+	body, _ := json.Marshal(map[string]any{
+		"config": map[string]any{
+			"caps": map[string]int{"bandwidthCapGbPerMonth": 100},
 		},
 	})
 	r := withAuth(httptest.NewRequest(http.MethodPost, "/api/v1/provide/schedule", bytes.NewReader(body)))
