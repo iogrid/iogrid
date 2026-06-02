@@ -4,7 +4,10 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-02T15:15Z` 🟢 cron-refresh: +4 commits since last TRACKER bump |
+| Last refreshed | `2026-06-02T15:35Z` ✍️ hand-bump #2 — Xcode 26 unblock chain + #577 polish + cert quota fix |
+| Session 2026-06-02 Xcode 26 unblock | 7 fixes for CI 26828731695 INVALID-build investigation: 645abd9 WireGuardKitC.h `<sys/types.h>` (strict-module unsigned typedefs), dd5bb0c Ruby script wires WGTunnel + Stats targets, 080a1e1 PressableCard style type, 78a1ca8 onboarding/topup route casts, 391dc51 #577 MINOR 1 apiBaseUrl configurable, 7a2c358 #577 MINOR 3 JSONSerialization IPC, 3e7898d #577 MINOR 5 RTT measure on receive, 4dc5bad CI cert-revoke threshold 60→10min (sigh quota fix). |
+| Session 2026-06-02 web legal | 6481c40 — /legal/mobile-privacy + /legal/mobile-eula pages live (required for #574 + Apple's reviewer; bd72776 wires these URLs into appInfoLocalization). Both ~700 words; counsel-review-pending placeholder. |
+| #578 closed | Duplicate of #605. Closed without code change — handler work is tracked on #605 only. |
 | Session 2026-06-02 (mobile v2 + Apple) | **EPIC #581 CLOSED** — 13 hand-shipped UX commits + 5 cherry-picks from agent PRs (5aeb150 Apple sign-in, 0b32dff Phantom+Ping wallets, a85af95 WireGuardKit fork + PacketTunnelProvider). All 20 children closed; PRs #601/#602/#603/#604 closed as superseded. |
 | #600 Apple Beta Review | **CODE FIX SHIPPED** (bd72776) — root cause: (a) appInfoLocalization en-US privacyPolicyUrl=null silently rejects PATCH /v1/betaAppReviewDetails as 409; (b) UK Ofcom phone format rejected. Fix: set privacyPolicyUrl first + use US +1 415 555 0100. Confirmed via submit-existing-build-600.yml run 26819871521 → state advanced READY_FOR_BETA_SUBMISSION → WAITING_FOR_BETA_REVIEW. Build 63 subsequently rolled back to `processingState=INVALID` by Apple's automated scanner (needs investigation). |
 | #575 Apple Beta UAT | **status/blocked-ext**. P23 5-mechanism check done — internal beta (vpn-internal group) is the unblocked founder path. Fresh CI run 26828731695 on HEAD FAILED (logs pending analysis). |
