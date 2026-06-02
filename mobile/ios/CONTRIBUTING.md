@@ -311,6 +311,91 @@ fastest feedback loop:
 
 Average wall time per iteration: ~4-5 min once CocoaPods cache is warm.
 
+### 25. Age-based cert pre-revoke (cross-project safety)
+
+The Dynolabs Apple Developer team is shared across iogrid / vcard /
+cinova / ping. Each project's CI has its own pre-revoke loop that
+clears stale Distribution certs before fastlane cert mints a fresh
+one (Apple caps Distribution certs at 2 per team).
+
+Naive pre-revoke deletes ALL distribution certs. That works in
+isolation but BREAKS when sibling project's CI is in-flight: their
+just-created cert gets revoked mid-archive, xcodebuild's manual
+signing then fails with "Signing certificate ... is not valid. It
+may have been revoked or expired" using a cert serial that doesn't
+match what fastlane cert just created (because Apple revoked it in
+between).
+
+Concrete failure mode caught 2026-06-02 across iogrid iter 10/12
+runs `26788950651` + `26789892395` — three different cert serials
+across three iterations, each killed mid-archive by a sibling's
+pre-revoke step.
+
+Fix: filter pre-revoke by age. Apple's `certs.expirationDate` is
+set to creation + 1 year; recent in-flight certs have
+expirationDate close to (now + 365 days). Skip certs younger than
+60 minutes (expirationDate > now + 365d − 60min). Truly-stale
+certs (hours old) get cleaned up; sibling in-flights are spared.
+
+```python
+threshold = now + datetime.timedelta(days=365) - datetime.timedelta(minutes=60)
+for cert in dist_certs:
+    exp = datetime.datetime.fromisoformat(cert['attributes']['expirationDate'])
+    if exp >= threshold:
+        print(f"  SKIP {cert['id']} — sibling CI in-flight")
+        continue
+    revoke(cert['id'])
+```
+
+Cross-port the same logic to vcard / cinova / ping workflows
+(commits cae2af1, 1e5ff1e, 46406b5 on those repos).
+
+Trade-off: when 2 fresh certs already exist on the team (one per
+in-flight CI), a third project's CI hits Apple's 2-cert limit at
+fastlane cert. That's preferable to nuking each other's certs
+mid-archive. The 60-min window self-heals.
+
+### 26. NEVER call DELETE /v1/betaTesters — cross-app blast radius
+
+Apple's ASC API exposes `betaTesters` as a per-team-per-email
+record. ONE row per email, shared across ALL apps in the team.
+`DELETE /v1/betaTesters/{id}` removes the row entirely — and with
+it, every app's beta-group association for that email.
+
+Symptom caught 2026-06-02 during iogrid #575 UAT recovery:
+founder reported "only iogrid is there" in TestFlight on iPhone —
+all 10 other team apps gone (vCard, Cinova, Ping, 6 Bank Dhofar
+apps, Phrasely). Earlier iteration in `fix-575-deep.yml` called
+DELETE on 3 "stale" tester records to clean up before recreate.
+Those records were the canonical ones for the other 10 apps;
+deleting them revoked founder's TestFlight access across the team.
+
+Rules:
+
+1. **NEVER call `DELETE /v1/betaTesters/{id}`** in any workflow or
+   script. It's a destructive cross-app operation.
+
+2. **For removing from one specific group**, use the relationships
+   endpoint:
+   `DELETE /v1/betaGroups/{group_id}/relationships/betaTesters`
+   with payload `{data: [{type: 'betaTesters', id: tester_id}]}`.
+   Removes the link, keeps the record.
+
+3. **For adding team members as internal testers**:
+   - First PATCH the user to `allAppsVisible=true` via
+     `PATCH /v1/users/{user_id}`
+   - Then POST `/v1/betaTesters` with single `betaGroups`
+     relationship per call. Apple auto-resolves to the team-member
+     record.
+   - Do NOT include `apps` relationship in the POST
+     (`ENTITY_ERROR.RELATIONSHIP.NOT_ALLOWED`).
+
+4. **Recovery if you accidentally DELETEd**: restore via
+   `restore-v3-direct-add.yml` pattern from the 2026-06-02 session
+   — PATCH user.allAppsVisible=true, then POST betaTesters with
+   single betaGroups rel per internal group (one POST per group,
+   HTTP 201 means re-linked).
+
 ## Maestro flows
 
 Numbered + orchestrated via `00-all.yaml` (vcard convention — never
