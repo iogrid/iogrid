@@ -55,6 +55,24 @@ users pay $GRID via Ping's wallet) is governed by Ping's canonical contract:
 
 iogrid-side conformance to that contract is tracked in iogrid issue **#629**.
 
+### Multi-tenant matrix + Universal-Link groundwork (C-6)
+
+The tenant-routing shape that sits on top of this token identity (the
+per-tenant `return_url` scheme table, the memo schema, and the
+bidirectional handshake) is documented in
+[`MULTI_TENANT_MATRIX.md`](./MULTI_TENANT_MATRIX.md), which Ping's contract
+cross-references. As part of coordination item **C-6** (Ping → iogrid
+"Direction B" handoff), iogrid now also ships an Apple App Site Association
+(AASA) file so `iogrid.org` is a Universal-Link target:
+
+- Static body: `web/public/.well-known/apple-app-site-association`
+- Route handler (pins `application/json`):
+  `web/src/app/.well-known/apple-app-site-association/route.ts`
+
+The Apple **Team ID is a placeholder** (`PLACEHOLDER_TEAMID`, overridable
+via `NEXT_PUBLIC_APPLE_TEAM_ID`) pending real iogrid Foundation Apple
+credentials — see MULTI_TENANT_MATRIX.md "What remains blocked".
+
 ## Liquidity obligation
 
 iogrid owes Ping `$GRID → USDC` Jupiter liquidity within a 0.5% slippage
