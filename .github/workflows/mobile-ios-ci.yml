@@ -254,6 +254,58 @@ jobs:
               tok = tok.decode()
           hdrs = {'Authorization': f'Bearer {tok}', 'Accept': 'application/json'}
 
+          # Ensure the App ID has the capabilities the app's entitlements
+          # require BEFORE we regenerate the profile (sigh copies whatever
+          # is enabled on the App ID). The archive failed with: profile
+          # "iogrid App Store" doesn't include the
+          # com.apple.developer.applesignin entitlement / Sign In with Apple
+          # capability — i.e. APPLE_ID_AUTH was never enabled on
+          # io.iogrid.app, though the app ships Apple sign-in (#581). Enable
+          # it idempotently so the regenerated profile carries it (#575).
+          def _bundle_id(identifier):
+              req = urllib.request.Request(
+                  f'https://api.appstoreconnect.apple.com/v1/bundleIds?filter[identifier]={urllib.parse.quote(identifier)}&limit=10',
+                  headers=hdrs)
+              try:
+                  with urllib.request.urlopen(req) as r:
+                      for b in json.load(r).get('data', []):
+                          if b.get('attributes', {}).get('identifier') == identifier:
+                              return b['id']
+              except urllib.error.HTTPError as e:
+                  print(f'  bundleIds HTTP {e.code}: {e.read().decode()[:200]}')
+              return None
+
+          def _ensure_capability(bid, cap):
+              req = urllib.request.Request(
+                  f'https://api.appstoreconnect.apple.com/v1/bundleIds/{bid}/bundleIdCapabilities?limit=200',
+                  headers=hdrs)
+              try:
+                  with urllib.request.urlopen(req) as r:
+                      have = {c.get('attributes', {}).get('capabilityType')
+                              for c in json.load(r).get('data', [])}
+              except urllib.error.HTTPError as e:
+                  print(f'  caps list HTTP {e.code}: {e.read().decode()[:200]}'); have = set()
+              if cap in have:
+                  print(f'  capability {cap} already enabled'); return
+              body = json.dumps({'data': {
+                  'type': 'bundleIdCapabilities',
+                  'attributes': {'capabilityType': cap},
+                  'relationships': {'bundleId': {'data': {'type': 'bundleIds', 'id': bid}}}}}).encode()
+              creq = urllib.request.Request(
+                  'https://api.appstoreconnect.apple.com/v1/bundleIdCapabilities',
+                  data=body, headers={**hdrs, 'Content-Type': 'application/json'}, method='POST')
+              try:
+                  urllib.request.urlopen(creq).read(); print(f'  ENABLED capability {cap}')
+              except urllib.error.HTTPError as e:
+                  print(f'  enable {cap} HTTP {e.code}: {e.read().decode()[:300]}')
+
+          _app_bid = _bundle_id('io.iogrid.app')
+          if _app_bid:
+              print(f'=== ensuring Sign In with Apple on io.iogrid.app ({_app_bid}) ===')
+              _ensure_capability(_app_bid, 'APPLE_ID_AUTH')
+          else:
+              print('::warning::io.iogrid.app bundle ID not found via ASC API — cannot ensure SIWA capability; archive may fail')
+
           # Purge existing provisioning profiles for both the main app
           # and the PacketTunnelProvider extension — they're bound to
           # certs we just revoked. If we don't, sigh sees a name
