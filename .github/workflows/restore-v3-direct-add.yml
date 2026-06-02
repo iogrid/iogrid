@@ -1,0 +1,76 @@
+name: restore-v3-direct-add
+on:
+  workflow_dispatch:
+jobs:
+  fix:
+    runs-on: macos-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: v3 — direct POST to internal groups after allAppsVisible propagates
+        env:
+          ASC_KEY_ID:    ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          ASC_KEY:       ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+        run: |
+          python3 -m pip install --quiet --break-system-packages pyjwt cryptography requests
+          python3 - <<'PY'
+          import os, base64, time, jwt, requests, json
+          key = base64.b64decode(os.environ['ASC_KEY'])
+          tok = jwt.encode(
+              {'iss': os.environ['ASC_ISSUER_ID'], 'iat': int(time.time()),
+               'exp': int(time.time()) + 1200, 'aud': 'appstoreconnect-v1'},
+              key, algorithm='ES256', headers={'kid': os.environ['ASC_KEY_ID']})
+          H = {'Authorization': f'Bearer {tok}', 'Content-Type': 'application/json'}
+          BASE = 'https://api.appstoreconnect.apple.com'
+          EMAIL = 'emrahbaysal@gmail.com'
+
+          # Wait for allAppsVisible PATCH to propagate
+          print('Sleeping 5s for Apple API to propagate user changes...')
+          time.sleep(5)
+
+          # Check if a tester record exists now
+          tq = requests.get(f'{BASE}/v1/betaTesters?filter[email]={EMAIL}&limit=20', headers=H, timeout=20).json()
+          print(f'Current tester records: {len(tq.get("data", []))}')
+          for t in tq.get('data', []):
+              print(f"  id={t['id']} state={t['attributes'].get('state')} firstName={t['attributes'].get('firstName')}")
+
+          # Try POST /v1/betaTesters with just email + groups (no apps) for each app's group
+          apps = requests.get(f'{BASE}/v1/apps?limit=200', headers=H, timeout=20).json()
+          for app in apps.get('data', []):
+              app_id = app['id']
+              app_name = app['attributes'].get('name')
+              groups = requests.get(f'{BASE}/v1/apps/{app_id}/betaGroups?limit=50', headers=H, timeout=20).json()
+              for g in groups.get('data', []):
+                  if not g['attributes'].get('isInternalGroup'):
+                      continue
+                  g_id = g['id']
+                  g_name = g['attributes'].get('name')
+
+                  # Try POST /v1/betaTesters with this group as the single rel
+                  payload = {'data': {
+                      'type': 'betaTesters',
+                      'attributes': {'email': EMAIL, 'firstName': 'Emrah', 'lastName': 'Baysal'},
+                      'relationships': {
+                          'betaGroups': {'data': [{'type': 'betaGroups', 'id': g_id}]},
+                      },
+                  }}
+                  r = requests.post(f'{BASE}/v1/betaTesters', headers=H, json=payload, timeout=20)
+                  if r.status_code in (200, 201):
+                      print(f"  ✅ {app_name}/{g_name}: created+linked (HTTP 201)")
+                  elif r.status_code == 409:
+                      # Tester exists, try add-to-group via relationship
+                      tq = requests.get(f'{BASE}/v1/betaTesters?filter[email]={EMAIL}&limit=5', headers=H, timeout=20).json()
+                      if tq.get('data'):
+                          tid = tq['data'][0]['id']
+                          payload2 = {'data': [{'type': 'betaTesters', 'id': tid}]}
+                          r2 = requests.post(
+                              f'{BASE}/v1/betaGroups/{g_id}/relationships/betaTesters',
+                              headers=H, json=payload2, timeout=20)
+                          if r2.status_code in (200, 201, 204):
+                              print(f"  ✅ {app_name}/{g_name}: linked via relationship (HTTP {r2.status_code})")
+                          else:
+                              print(f"  ❌ {app_name}/{g_name}: link HTTP {r2.status_code}: {r2.text[:150]}")
+                  else:
+                      print(f"  ❌ {app_name}/{g_name}: POST HTTP {r.status_code}: {r.text[:200]}")
+          PY
