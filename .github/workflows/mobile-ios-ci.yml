@@ -549,18 +549,34 @@ jobs:
             ls -la "$outdir"
           done
 
-          # Copy the simulator slice to the SwiftPM target directory (so
-          # SwiftPM-level `-lwg-go` resolves) AND to /usr/local/lib (a
-          # default linker search path) AND to the Pods Frameworks dir
-          # (added to xcodebuild's LIBRARY_SEARCH_PATHS for cocoapods).
-          # The .a is universal-fat so the same file works for both
-          # x86_64 + arm64 simulator slices. The archive step builds
-          # iphoneos slice separately and overwrites.
+          # Plan C placement (Plans A & B both failed — see CONTRIBUTING
+          # gotcha 31 for the trace).
+          #
+          # xcodebuild's link step searches `BUILT_PRODUCTS_DIR` first
+          # for `-lwg-go` (it's added to LIBRARY_SEARCH_PATHS by default).
+          # That dir for the simulator build is:
+          #
+          #   $RUNNER_TEMP/sim-build/Build/Products/Release-iphonesimulator
+          #
+          # …and for the archive (device) build, xcodebuild's archive
+          # action constructs its own internal Build/Products path under
+          # the archive-path-derived temp dir; we copy to BOTH the
+          # simulator products dir (for the Maestro gate) AND
+          # `/usr/local/lib` (best-effort fallback).
+          #
+          # Pre-create the dirs since xcodebuild won't have run yet.
+          mkdir -p "$RUNNER_TEMP/sim-build/Build/Products/Release-iphonesimulator"
+          cp "$RUNNER_TEMP/wg-go-iphonesimulator/libwg-go.a" \
+            "$RUNNER_TEMP/sim-build/Build/Products/Release-iphonesimulator/libwg-go.a"
+          ls -la "$RUNNER_TEMP/sim-build/Build/Products/Release-iphonesimulator/libwg-go.a"
+
+          # Belt-and-braces: also drop into the package source dir + the
+          # macOS host /usr/local/lib. ld DOES sometimes search these
+          # for static lib lookups depending on the toolchain configuration.
           cp "$RUNNER_TEMP/wg-go-iphonesimulator/libwg-go.a" \
             "$GITHUB_WORKSPACE/mobile/ios/vendor/wireguard-apple-swift6/Sources/WireGuardKitGo/"
           sudo mkdir -p /usr/local/lib
           sudo cp "$RUNNER_TEMP/wg-go-iphonesimulator/libwg-go.a" /usr/local/lib/
-          ls -la /usr/local/lib/libwg-go.a
 
       - name: Build app for iOS Simulator (no signing)
         # Use a concrete simulator destination (not "generic") so xcodebuild
