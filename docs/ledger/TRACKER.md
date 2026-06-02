@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-02T19:00Z` 🟢 cron-refresh: +14 commits since last TRACKER bump |
+| Last refreshed | `2026-06-02T19:45Z` 🟢 cron-refresh: +2 commits since last TRACKER bump |
 | Solo cadence | Founder direction: no more parallel sub-agents. Commit 4698f11 ships solo — vpn-svc/internal/server/metrics.go added `mobile_session_requests_total{outcome}` CounterVec with 5 outcome labels (created/no_peer/bad_request/unauthorized/internal_error); handler.go increments at each response path; infra/k8s/base/vpn-svc/prometheusrules.yaml + kustomization.yaml ship 5 alerts (HighErrorRate page, 503Spike page, AuthFailureSpike ticket, TrafficStopped ticket, BadRequestSpike info). 3 sub-agents TaskStop'd (Maestro 04-09 audit, Prometheus alerts, a11y audit) — flagged for P9 non-compliance. |
 | Sub-agent wave 4 | **PR #625** AuthGate first-launch tests (9 tests; production refactor extracts checkOnboardedAndRoute helper). **PR #626** README mobile-v2 section. **PR #627** k6 load-smoke for /v1/vpn/sessions/mobile (workflow_dispatch, founder-fireable, re-pointable target_endpoint). **PR #628** docs/mobile-session-fields.md walkthrough (7-layer + worked inner_ip example). Maestro flow 03 testID fix (d37c794 added connect-wallet-skip tap to align with stub model). |
 | Mistake | Ran `podman system prune -af` aggressively to reclaim 11→17G disk; freed 15.2G but founder caught that it may have killed live container infra (multi-tenant bastion). Lesson: use `--filter "until=24h"` for time-bounded cleanup, never blanket -af. |
