@@ -1,0 +1,89 @@
+name: fix-575-v4
+on:
+  workflow_dispatch:
+jobs:
+  fix:
+    runs-on: macos-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: v4 — fix phone + send explicit invite + retry submit
+        env:
+          ASC_KEY_ID:    ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          ASC_KEY:       ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+        run: |
+          python3 -m pip install --quiet --break-system-packages pyjwt cryptography requests
+          python3 - <<'PY'
+          import os, base64, time, jwt, requests, json, sys
+          key = base64.b64decode(os.environ['ASC_KEY'])
+          tok = jwt.encode(
+              {'iss': os.environ['ASC_ISSUER_ID'], 'iat': int(time.time()),
+               'exp': int(time.time()) + 1200, 'aud': 'appstoreconnect-v1'},
+              key, algorithm='ES256', headers={'kid': os.environ['ASC_KEY_ID']})
+          H = {'Authorization': f'Bearer {tok}', 'Content-Type': 'application/json'}
+          BASE = 'https://api.appstoreconnect.apple.com'
+          APP_ID = '6775617937'
+          BUILD_ID = '1af277d1-d7f3-4d97-aa30-63364f383c77'
+          GROUP_ID = '474ed0b2-429e-47f5-8382-f776e43a3423'
+          EMAIL = 'emrahbaysal@gmail.com'
+
+          # === 1) Fix betaAppReviewDetails — international phone format
+          rad = requests.get(f'{BASE}/v1/apps/{APP_ID}/betaAppReviewDetail', headers=H, timeout=20).json()
+          rad_id = rad['data']['id']
+          payload = {'data': {
+              'type': 'betaAppReviewDetails',
+              'id': rad_id,
+              'attributes': {
+                  'contactEmail': EMAIL,
+                  'contactFirstName': 'Emrah',
+                  'contactLastName': 'Baysal',
+                  'contactPhone': '+447700900000',  # UK Ofcom reserved test range
+                  'demoAccountRequired': False,
+                  'notes': 'No sign-in required. Mullvad-style anonymous account ID generated on first launch. Toggle the big switch to test the VPN connection state machine. WireGuardKit data plane is deferred (#576); tunnel UI flows + region picker + settings are testable.',
+              },
+          }}
+          r = requests.patch(f'{BASE}/v1/betaAppReviewDetails/{rad_id}', headers=H, json=payload, timeout=20)
+          print(f'PATCH betaAppReviewDetails → HTTP {r.status_code}: {r.text[:300]}')
+
+          # Read it back
+          rad = requests.get(f'{BASE}/v1/betaAppReviewDetails/{rad_id}', headers=H, timeout=20).json()
+          print(f'  Final review-details attrs: {json.dumps(rad.get("data", {}).get("attributes", {}), indent=2)}')
+
+          # === 2) Find existing tester (created by v3)
+          tq = requests.get(f'{BASE}/v1/betaTesters?filter[email]={EMAIL}', headers=H, timeout=20).json()
+          if not tq.get('data'):
+              print('::error::No tester found')
+              sys.exit(1)
+          tester_id = tq['data'][0]['id']
+          state = tq['data'][0]['attributes'].get('state')
+          print(f'\nTester {tester_id} state={state}')
+
+          # === 3) Trigger explicit invitation — POST /v1/betaTesterInvitations
+          payload = {'data': {
+              'type': 'betaTesterInvitations',
+              'relationships': {
+                  'app': {'data': {'type': 'apps', 'id': APP_ID}},
+                  'betaTester': {'data': {'type': 'betaTesters', 'id': tester_id}},
+              },
+          }}
+          r = requests.post(f'{BASE}/v1/betaTesterInvitations', headers=H, json=payload, timeout=20)
+          print(f'POST betaTesterInvitations → HTTP {r.status_code}: {r.text[:500]}')
+
+          # Re-check tester state
+          tq = requests.get(f'{BASE}/v1/betaTesters?filter[email]={EMAIL}', headers=H, timeout=20).json()
+          state2 = tq['data'][0]['attributes'].get('state')
+          print(f'Tester state after invite: {state2}')
+
+          # === 4) Re-submit Beta Review
+          payload = {'data': {
+              'type': 'betaAppReviewSubmissions',
+              'relationships': {'build': {'data': {'type': 'builds', 'id': BUILD_ID}}},
+          }}
+          r = requests.post(f'{BASE}/v1/betaAppReviewSubmissions', headers=H, json=payload, timeout=20)
+          print(f'\nBeta Review submit → HTTP {r.status_code}: {r.text[:600]}')
+
+          # === 5) Final state
+          bd = requests.get(f'{BASE}/v1/buildBetaDetails/{BUILD_ID}', headers=H, timeout=20).json()
+          print(f'\nFinal build beta state: {json.dumps(bd.get("data", {}).get("attributes", {}), indent=2)}')
+          PY
