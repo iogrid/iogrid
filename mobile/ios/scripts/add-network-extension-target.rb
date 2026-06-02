@@ -70,6 +70,18 @@ WIREGUARDKIT_ENABLED          = false
 WIREGUARDKIT_VENDOR_PATH      = '../vendor/wireguard-apple-swift6' # relative to ios/iogrid.xcodeproj
 WIREGUARDKIT_PRODUCT          = 'WireGuardKit'
 
+# When the WireGuardKit dep is disabled, the PacketTunnelProvider
+# extension's Swift sources can't compile (`import WireGuardKit`
+# would fail). Skip the target entirely; main app still builds.
+# The tunnel toggle in the JS app uses mocked state — no .appex
+# is needed to demonstrate the v2 UX surface on TestFlight.
+if !WIREGUARDKIT_ENABLED
+  puts "[!] WIREGUARDKIT_ENABLED=false — skipping PacketTunnelProvider target entirely (#610)"
+  puts "    Main app build will succeed; mobile-app tunnel toggle uses mocked state."
+  puts "    Re-enable once libwg-go.a cgo runtime symbols resolve."
+  exit 0
+end
+
 # ── Pre-flight ──────────────────────────────────────────────────
 unless File.exist?(PROJECT_PATH)
   abort "Project not found at #{PROJECT_PATH} — run `npx expo prebuild --platform ios --clean` first."
