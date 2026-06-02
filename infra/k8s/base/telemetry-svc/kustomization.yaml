@@ -6,7 +6,6 @@ resources:
   - service.yaml
   - hpa.yaml
   - networkpolicy.yaml
-  - ciliumnetworkpolicy.yaml
   - configmap.yaml
   - servicemonitor.yaml
   - prometheusrules.yaml

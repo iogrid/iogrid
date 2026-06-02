@@ -4,4 +4,3 @@ resources:
   - postgres.yaml
   - redis.yaml
   - nats.yaml
-  - ciliumnetworkpolicy.yaml
