@@ -13,6 +13,8 @@ import type {
   ListUsageResponse,
   ListWorkloadsOptions,
   ListWorkloadsResponse,
+  RequestMobileSessionRequest,
+  RequestMobileSessionResponse,
   UsageRecord,
   Workload,
   WorkloadEvent,
@@ -225,5 +227,46 @@ export class IogridClient {
       signal
     );
     return r.invoices;
+  }
+
+  // --- Mobile VPN session bring-up ---------------------------------------
+
+  /**
+   * Request a one-shot mobile-app VPN session via POST
+   * /v1/vpn/sessions/mobile. Returns the full WireGuard peer config so
+   * the mobile PacketTunnelProvider can call WireGuardAdapter.start
+   * without a second round-trip.
+   *
+   * Distinct from the legacy daemon-driven flow at POST
+   * /v1/vpn/sessions. On 503 the SDK surfaces an IogridError whose
+   * `metadata['retry-after']` carries the server's Retry-After hint —
+   * use {@link retryAfterSeconds} to read it.
+   *
+   * ```ts
+   * const s = await iogrid.requestMobileSession({
+   *   customer_id: 'aaaa-bbbb-cccc-dddd',
+   *   region: 'auto',
+   *   client_public_key: 'base64-wg-public-key',
+   * });
+   * console.log(s.peer_endpoint, s.customer_inner_cidr);
+   * ```
+   */
+  async requestMobileSession(
+    body: RequestMobileSessionRequest,
+    signal?: AbortSignal
+  ): Promise<RequestMobileSessionResponse> {
+    if (!body.customer_id) {
+      throw new Error('requestMobileSession: customer_id is required');
+    }
+    if (!body.client_public_key) {
+      throw new Error('requestMobileSession: client_public_key is required');
+    }
+    return this.transport.request<RequestMobileSessionResponse>(
+      'POST',
+      '/v1/vpn/sessions/mobile',
+      body,
+      undefined,
+      signal
+    );
   }
 }

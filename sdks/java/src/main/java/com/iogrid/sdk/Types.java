@@ -193,6 +193,47 @@ public final class Types {
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public record ListInvoicesResponse(List<Invoice> invoices, String nextPageToken) {}
 
+  /**
+   * Quota-gate signal echoed on every mobile VPN response so the
+   * iOS/Android app can render the "you're at X%" banner. Values
+   * mirror {@code iogrid.vpn.v1.QuotaState}.
+   */
+  public enum QuotaState {
+    QUOTA_STATE_UNSPECIFIED,
+    QUOTA_STATE_HEALTHY,
+    QUOTA_STATE_THROTTLED,
+    QUOTA_STATE_EXHAUSTED;
+  }
+
+  /**
+   * Body for {@code POST /v1/vpn/sessions/mobile}.
+   *
+   * <p>NOTE: the VPN surface uses snake_case on the wire (distinct
+   * from the workload / billing surfaces). The {@link JsonProperty}
+   * annotations below match vpn-svc's handler verbatim.
+   */
+  @JsonInclude(JsonInclude.Include.NON_NULL)
+  public record RequestMobileSessionRequest(
+      @JsonProperty("customer_id") String customerId,
+      @JsonProperty("region") String region,
+      @JsonProperty("client_public_key") String clientPublicKey,
+      @JsonProperty("api_key") String apiKey,
+      /** Opaque to the SDK; Track 5 owns validation. */
+      @JsonProperty("payment_authorization") Object paymentAuthorization) {}
+
+  /** Response from {@code POST /v1/vpn/sessions/mobile}. */
+  @JsonInclude(JsonInclude.Include.NON_NULL)
+  public record RequestMobileSessionResponse(
+      @JsonProperty("session_id") String sessionId,
+      @JsonProperty("peer_public_key") String peerPublicKey,
+      @JsonProperty("peer_endpoint") String peerEndpoint,
+      @JsonProperty("customer_inner_cidr") String customerInnerCidr,
+      @JsonProperty("allowed_ips") String allowedIps,
+      @JsonProperty("dns_servers") List<String> dnsServers,
+      @JsonProperty("region") String region,
+      @JsonProperty("expires_at") Instant expiresAt,
+      @JsonProperty("quota_state") QuotaState quotaState) {}
+
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public record ErrorEnvelope(
       String code,

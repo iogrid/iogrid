@@ -193,6 +193,77 @@ async def test_custom_base_url() -> None:
 
 
 @respx.mock
+async def test_request_mobile_session_posts_snake_case_and_parses_response() -> None:
+    route = respx.post("https://api.iogrid.org/v1/vpn/sessions/mobile").mock(
+        return_value=httpx.Response(
+            201,
+            json={
+                "session_id": "sess-1",
+                "peer_public_key": "peer-pubkey-b64",
+                "peer_endpoint": "203.0.113.7:51820",
+                "customer_inner_cidr": "10.244.7.4/32",
+                "allowed_ips": "0.0.0.0/0",
+                "dns_servers": ["1.1.1.1", "1.0.0.1"],
+                "region": "eu-central",
+                "expires_at": "2026-06-04T00:00:00Z",
+                "quota_state": "QUOTA_STATE_HEALTHY",
+            },
+        )
+    )
+    async with IogridClient(api_key="iog_test") as c:
+        r = await c.request_mobile_session(
+            {
+                "customer_id": "11111111-2222-3333-4444-555555555555",
+                "region": "auto",
+                "client_public_key": "wg-pubkey-b64",
+            }
+        )
+    assert r["session_id"] == "sess-1"
+    assert r["peer_endpoint"] == "203.0.113.7:51820"
+    assert r["dns_servers"] == ["1.1.1.1", "1.0.0.1"]
+    assert r["quota_state"] == "QUOTA_STATE_HEALTHY"
+    sent = route.calls.last.request
+    assert json.loads(sent.content) == {
+        "customer_id": "11111111-2222-3333-4444-555555555555",
+        "region": "auto",
+        "client_public_key": "wg-pubkey-b64",
+    }
+
+
+@respx.mock
+async def test_request_mobile_session_503_surfaces_iogrid_error() -> None:
+    respx.post("https://api.iogrid.org/v1/vpn/sessions/mobile").mock(
+        return_value=httpx.Response(
+            503,
+            headers={"Retry-After": "15"},
+            json={
+                "error": "no_peer_available",
+                "detail": "no healthy peer in region — retry shortly",
+                "region": "us-west",
+                "retry_after_sec": 15,
+            },
+        )
+    )
+    async with IogridClient(api_key="iog_test") as c:
+        with pytest.raises(IogridError) as ei:
+            await c.request_mobile_session(
+                {
+                    "customer_id": "11111111-2222-3333-4444-555555555555",
+                    "client_public_key": "wg-pubkey-b64",
+                }
+            )
+    assert ei.value.status == 503
+
+
+async def test_request_mobile_session_requires_fields() -> None:
+    async with IogridClient(api_key="iog_test") as c:
+        with pytest.raises(ValueError, match="customer_id is required"):
+            await c.request_mobile_session({"client_public_key": "x"})  # type: ignore[typeddict-item]
+        with pytest.raises(ValueError, match="client_public_key is required"):
+            await c.request_mobile_session({"customer_id": "x"})  # type: ignore[typeddict-item]
+
+
+@respx.mock
 async def test_user_agent_header() -> None:
     route = respx.get("https://api.iogrid.org/v1/workloads").mock(
         return_value=httpx.Response(200, json={"workloads": []})

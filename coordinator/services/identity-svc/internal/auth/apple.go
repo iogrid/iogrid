@@ -89,9 +89,13 @@ func (s *Service) CompleteAppleSignIn(ctx context.Context, idToken, clientNonce,
 			if err != nil {
 				return err
 			}
+			wallet, err := s.firstSolanaAddressTx(ctx, tx, user.ID)
+			if err != nil {
+				return fmt.Errorf("apple: first solana address: %w", err)
+			}
 			result.Bundle = bundle
 			result.NewUser = false
-			result.WalletAddress = s.firstSolanaAddressTx(ctx, tx, user.ID)
+			result.WalletAddress = wallet
 			return nil
 		}
 		if !errors.Is(err, store.ErrNotFound) {
@@ -104,23 +108,27 @@ func (s *Service) CompleteAppleSignIn(ctx context.Context, idToken, clientNonce,
 		}
 		if err := s.Store.CreateUserWithAppleSubHash(ctx, tx, u, hash); err != nil {
 			if isUniqueViolation(err) {
-				// Lost the race — re-read.
-				user, rerr := s.Store.FindUserByAppleSubHash(ctx, tx, hash)
-				if rerr != nil {
-					return fmt.Errorf("apple race re-read: %w", rerr)
-				}
-				bundle, err := s.issueBundleTx(ctx, tx, user, req, false, false)
-				if err != nil {
-					return err
-				}
-				result.Bundle = bundle
-				result.NewUser = false
-				result.WalletAddress = s.firstSolanaAddressTx(ctx, tx, user.ID)
-				return nil
+				// Lost the race against another concurrent first-launch
+				// for the same Apple sub. The unique violation has
+				// already aborted this transaction at the Postgres
+				// level (any further statement on `tx` would return
+				// SQLSTATE 25P02 "current transaction is aborted"), so
+				// we cannot do an in-tx re-read here — instead we
+				// return store.ErrRetryTx and let store.WithTx restart
+				// the whole flow. On retry the fast path
+				// (FindUserByAppleSubHash) sees the winner's committed
+				// row and returns the existing user. See #620.
+				return fmt.Errorf("apple race lost on user insert: %w", store.ErrRetryTx)
 			}
 			return fmt.Errorf("create apple user: %w", err)
 		}
 		// Companion identifier row (idempotent via unique kind+subject).
+		// A 23505 here means a concurrent first-launch raced us on the
+		// identifier insert too — same recovery as the user-insert
+		// race above: bounce back through WithTx so the next attempt
+		// hits the fast path with both rows present and committed.
+		// (Any further statement on this tx would return 25P02 "current
+		// transaction is aborted" — we cannot continue inline.)
 		ident := &store.Identifier{
 			UserID:   u.ID,
 			Kind:     store.KindApple,
@@ -129,9 +137,10 @@ func (s *Service) CompleteAppleSignIn(ctx context.Context, idToken, clientNonce,
 			Verified: true,
 		}
 		if err := s.Store.CreateIdentifier(ctx, tx, ident); err != nil {
-			if !isUniqueViolation(err) {
-				return fmt.Errorf("create apple identifier: %w", err)
+			if isUniqueViolation(err) {
+				return fmt.Errorf("apple race lost on identifier insert: %w", store.ErrRetryTx)
 			}
+			return fmt.Errorf("create apple identifier: %w", err)
 		}
 		// Personal workspace + invite consumption mirror the Google path
 		// so a fresh Apple user lands with a workspace ready to use.
@@ -160,11 +169,21 @@ func (s *Service) CompleteAppleSignIn(ctx context.Context, idToken, clientNonce,
 }
 
 // ensureAppleIdentifierTx makes sure the (kind=apple, subject=sub) row
-// exists for the user. Idempotent — a unique violation is a no-op.
+// exists for the user. Idempotent across SEQUENTIAL re-bindings, but
+// CONCURRENT races (two devices hitting first-launch at the same time)
+// need to bubble through WithTx — see the inline note for the 23505
+// branch below.
 func (s *Service) ensureAppleIdentifierTx(ctx context.Context, tx pgx.Tx, userID uuid.UUID, sub, email string) error {
 	existing, err := s.Store.FindIdentifierBySubject(ctx, tx, store.KindApple, sub)
 	if err == nil && existing != nil {
-		_ = s.Store.TouchIdentifier(ctx, tx, existing.ID)
+		// Propagate the TouchIdentifier error: under Serializable
+		// isolation a SQLSTATE 40001 here would otherwise silently
+		// abort the rest of the transaction (every later statement
+		// would then surface as 25P02 "current transaction is
+		// aborted"). Bubbling lets WithTx see the 40001 and retry.
+		if err := s.Store.TouchIdentifier(ctx, tx, existing.ID); err != nil {
+			return fmt.Errorf("touch apple identifier: %w", err)
+		}
 		return nil
 	}
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
@@ -179,7 +198,14 @@ func (s *Service) ensureAppleIdentifierTx(ctx context.Context, tx pgx.Tx, userID
 	}
 	if err := s.Store.CreateIdentifier(ctx, tx, ident); err != nil {
 		if isUniqueViolation(err) {
-			return nil
+			// A concurrent goroutine inserted the row between our
+			// FindIdentifierBySubject and CreateIdentifier calls. The
+			// 23505 has aborted this transaction at the Postgres level
+			// (any further statement would return 25P02), so we cannot
+			// just `return nil` — bounce back through WithTx and let
+			// the next attempt hit the FindIdentifierBySubject fast
+			// path. See #620.
+			return fmt.Errorf("apple race lost on identifier ensure: %w", store.ErrRetryTx)
 		}
 		return fmt.Errorf("create apple identifier: %w", err)
 	}
@@ -188,15 +214,21 @@ func (s *Service) ensureAppleIdentifierTx(ctx context.Context, tx pgx.Tx, userID
 
 // firstSolanaAddressTx fetches the first base58 Solana address bound to
 // the user, or "" if none. Used to populate AppleSignInResponse.wallet_address.
-func (s *Service) firstSolanaAddressTx(ctx context.Context, tx pgx.Tx, userID uuid.UUID) string {
+//
+// Returns the error from the underlying ListIdentifiersForUser so the
+// caller can propagate SQLSTATE 40001 back through WithTx for retry.
+// (Swallowing it silently would let the transaction continue in an
+// aborted state and surface every later statement as 25P02 "current
+// transaction is aborted".)
+func (s *Service) firstSolanaAddressTx(ctx context.Context, tx pgx.Tx, userID uuid.UUID) (string, error) {
 	idents, err := s.Store.ListIdentifiersForUser(ctx, tx, userID)
 	if err != nil {
-		return ""
+		return "", err
 	}
 	for _, i := range idents {
 		if i.Kind == store.KindSolana && i.Subject != "" {
-			return i.Subject
+			return i.Subject, nil
 		}
 	}
-	return ""
+	return "", nil
 }

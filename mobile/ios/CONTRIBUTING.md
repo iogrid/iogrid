@@ -544,6 +544,49 @@ matching ARCHS per platform. The simulator build runs first; the
 archive overwrites `/usr/local/lib/libwg-go.a` with the device
 slice just before xcodebuild archives.
 
+### 31a. WireGuardKitGo Makefile must map `iphonesimulator → GOOS=ios` (#610)
+
+After Plan C placement worked, xcodebuild's link step still failed
+with:
+
+```
+Undefined symbols for architecture arm64:
+  "_darwin_arm_init_mach_exception_handler", referenced from:
+      _x_cgo_init in libwg-go.a[arm64][9](000006.o)
+  "_darwin_arm_init_thread_exception_port", referenced from:
+      _threadentry in libwg-go.a[arm64][9](000006.o)
+      _x_cgo_init in libwg-go.a[arm64][9](000006.o)
+```
+
+Both shim symbols live in `gcc_signal_ios_nolldb.c`, build-tagged
+`//go:build !lldb && ios && arm64`. The vendored upstream Makefile
+ships only `GOOS_macosx := darwin` and `GOOS_iphoneos := ios` —
+NO mapping for `iphonesimulator`. CI invokes
+`make PLATFORM_NAME=iphonesimulator` outside of Xcode, so
+`$(GOOS_iphonesimulator)` evaluates to empty → Go's `go build`
+defaults GOOS to host (`darwin` on the macos runner) → the
+arm64-only iOS signal shim file is excluded → undefined references
+because `gcc_darwin_arm64.c`, which IS compiled, references those
+shims under `#if TARGET_OS_IPHONE` (TRUE when -isysroot points at
+the iphonesimulator SDK).
+
+Fix: add the missing GOOS mapping in the vendored Makefile.
+
+```make
+GOOS_macosx          := darwin
+GOOS_iphoneos        := ios
+GOOS_iphonesimulator := ios   # ← THE FIX (#610)
+```
+
+Verification command (works on any host with Go installed):
+
+```sh
+GOOS=ios   GOARCH=arm64 go list -json runtime/cgo | jq '.IgnoredOtherFiles | index("gcc_signal_ios_nolldb.c")'    # → null (file is included)
+GOOS=darwin GOARCH=arm64 go list -json runtime/cgo | jq '.IgnoredOtherFiles | index("gcc_signal_ios_nolldb.c")'    # → integer (file is excluded)
+```
+
+Refs: golang/go#47228 (same root cause for Mac Catalyst), #610.
+
 ## Maestro flows
 
 Numbered + orchestrated via `00-all.yaml` (vcard convention — never

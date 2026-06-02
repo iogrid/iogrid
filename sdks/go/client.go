@@ -333,6 +333,30 @@ func (c *Client) GetUsage(ctx context.Context, opts GetUsageOptions) ([]UsageRec
 	return out.Usage, nil
 }
 
+// --- Mobile VPN session bring-up --------------------------------------------
+
+// RequestMobileSession opens a one-shot mobile-app VPN session via
+// POST /v1/vpn/sessions/mobile. The response carries the full
+// WireGuard peer config so the iOS/Android PacketTunnelProvider can
+// call WireGuardAdapter.start without a second round-trip.
+//
+// Distinct from the legacy daemon-driven flow at POST
+// /v1/vpn/sessions. On 503 the SDK returns an *Error with Status=503;
+// the server's Retry-After hint defaults to 15s.
+func (c *Client) RequestMobileSession(ctx context.Context, body RequestMobileSessionRequest) (*RequestMobileSessionResponse, error) {
+	if body.CustomerID == "" {
+		return nil, errors.New("iogrid: RequestMobileSession: CustomerID is required")
+	}
+	if body.ClientPublicKey == "" {
+		return nil, errors.New("iogrid: RequestMobileSession: ClientPublicKey is required")
+	}
+	var out RequestMobileSessionResponse
+	if err := c.doJSON(ctx, http.MethodPost, "/v1/vpn/sessions/mobile", body, &out, nil); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // GetInvoices returns one page of invoices.
 func (c *Client) GetInvoices(ctx context.Context, opts GetInvoicesOptions) ([]Invoice, error) {
 	q := url.Values{}

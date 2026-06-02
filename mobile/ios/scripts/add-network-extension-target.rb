@@ -52,21 +52,34 @@ SWIFT_VERSION        = '5.0'
 # on the extension target. Idempotent — re-running this script after
 # the package ref exists is a no-op.
 #
-# 2026-06-03 — Temporarily DISABLED. CI 26833832718 confirmed that
-# the libwg-go.a built by Go 1.23's c-archive mode emits undefined
-# references to cgo runtime symbols (_threadentry, _x_cgo_init)
-# that aren't resolved by the iOS-Simulator linker after 3
-# placement attempts (Plans A/B/C in CONTRIBUTING gotcha 31).
+# 2026-06-03 — Re-ENABLED (Closes #610). Root cause of CI 26833832718's
+# undefined-symbol failure was NOT the symbols the linker named first
+# (_threadentry, _x_cgo_init exist in `gcc_darwin_arm64.c` and DO
+# compile under any darwin/arm64 build) — the actual missing symbols
+# (further down in the ld output that the disable-commit's message
+# elided) were:
 #
-# This skip lets the simulator build succeed → Maestro v2 + v3
-# flows run → TestFlight upload completes → founder demos v2 UX
-# via internal-tester install. The tunnel toggle returns the
-# existing mocked OFF→CONNECTING→CONNECTED state (already what
-# the Maestro flows assert against).
+#   "_darwin_arm_init_mach_exception_handler", referenced from:
+#       _x_cgo_init in libwg-go.a[arm64][9](000006.o)
+#   "_darwin_arm_init_thread_exception_port", referenced from:
+#       _threadentry in libwg-go.a[arm64][9](000006.o)
+#       _x_cgo_init in libwg-go.a[arm64][9](000006.o)
 #
-# Re-enable once libwg-go.a symbols resolve (likely Go 1.21
-# downgrade or extldflags='-static').
-WIREGUARDKIT_ENABLED          = false
+# Those iOS-only shims live in `gcc_signal_ios_nolldb.c` which is
+# build-tagged `//go:build !lldb && ios && arm64`. The vendored
+# upstream Makefile mapped `iphoneos → ios` but had NO mapping for
+# `iphonesimulator`, so the simulator slice was built with GOOS
+# defaulting to host = darwin → `gcc_signal_ios_nolldb.c` excluded →
+# undefined references at xcodebuild link time.
+#
+# Fix lives in
+# `mobile/ios/vendor/wireguard-apple-swift6/Sources/WireGuardKitGo/Makefile`
+# (added `GOOS_iphonesimulator := ios` line). Verified via
+# `go list -json runtime/cgo` that GOOS=ios pulls in the missing
+# shim file; xcodebuild link is now expected to resolve cleanly.
+#
+# Ref: golang/go#47228 (same root cause for Mac Catalyst).
+WIREGUARDKIT_ENABLED          = true
 WIREGUARDKIT_VENDOR_PATH      = '../vendor/wireguard-apple-swift6' # relative to ios/iogrid.xcodeproj
 WIREGUARDKIT_PRODUCT          = 'WireGuardKit'
 

@@ -214,6 +214,112 @@ func TestStreamWorkloadEvents_4xx(t *testing.T) {
 	}
 }
 
+func TestRequestMobileSession(t *testing.T) {
+	expiresAt := time.Date(2026, 6, 4, 0, 0, 0, 0, time.UTC)
+	c, _ := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %s, want POST", r.Method)
+		}
+		if r.URL.Path != "/v1/vpn/sessions/mobile" {
+			t.Errorf("path = %s, want /v1/vpn/sessions/mobile", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer iog_test" {
+			t.Errorf("auth header = %q", got)
+		}
+		var body iogrid.RequestMobileSessionRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		if body.CustomerID != "11111111-2222-3333-4444-555555555555" {
+			t.Errorf("CustomerID = %q", body.CustomerID)
+		}
+		if body.ClientPublicKey != "wg-pubkey-b64" {
+			t.Errorf("ClientPublicKey = %q", body.ClientPublicKey)
+		}
+		if body.Region != "auto" {
+			t.Errorf("Region = %q", body.Region)
+		}
+		// Verify snake_case on the wire by inspecting the raw query of the
+		// already-decoded struct fields via re-encode.
+		raw, _ := json.Marshal(body)
+		if !strings.Contains(string(raw), `"client_public_key"`) {
+			t.Errorf("expected client_public_key in body, got %s", raw)
+		}
+		w.WriteHeader(201)
+		_ = json.NewEncoder(w).Encode(iogrid.RequestMobileSessionResponse{
+			SessionID:         "sess-1",
+			PeerPublicKey:     "peer-pubkey-b64",
+			PeerEndpoint:      "203.0.113.7:51820",
+			CustomerInnerCIDR: "10.244.7.4/32",
+			AllowedIPs:        "0.0.0.0/0",
+			DNSServers:        []string{"1.1.1.1", "1.0.0.1"},
+			Region:            "eu-central",
+			ExpiresAt:         expiresAt,
+			QuotaState:        iogrid.QuotaStateHealthy,
+		})
+	})
+	got, err := c.RequestMobileSession(context.Background(), iogrid.RequestMobileSessionRequest{
+		CustomerID:      "11111111-2222-3333-4444-555555555555",
+		Region:          "auto",
+		ClientPublicKey: "wg-pubkey-b64",
+	})
+	if err != nil {
+		t.Fatalf("RequestMobileSession: %v", err)
+	}
+	if got.SessionID != "sess-1" {
+		t.Errorf("SessionID = %q", got.SessionID)
+	}
+	if got.PeerEndpoint != "203.0.113.7:51820" {
+		t.Errorf("PeerEndpoint = %q", got.PeerEndpoint)
+	}
+	if got.QuotaState != iogrid.QuotaStateHealthy {
+		t.Errorf("QuotaState = %q", got.QuotaState)
+	}
+	if !got.ExpiresAt.Equal(expiresAt) {
+		t.Errorf("ExpiresAt = %v, want %v", got.ExpiresAt, expiresAt)
+	}
+	if len(got.DNSServers) != 2 || got.DNSServers[0] != "1.1.1.1" {
+		t.Errorf("DNSServers = %v", got.DNSServers)
+	}
+}
+
+func TestRequestMobileSession_503NoPeer(t *testing.T) {
+	c, _ := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Retry-After", "15")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"error":"no_peer_available","detail":"no healthy peer","region":"us-west","retry_after_sec":15}`))
+	})
+	_, err := c.RequestMobileSession(context.Background(), iogrid.RequestMobileSessionRequest{
+		CustomerID:      "11111111-2222-3333-4444-555555555555",
+		ClientPublicKey: "wg-pubkey-b64",
+	})
+	if err == nil {
+		t.Fatal("expected 503 error")
+	}
+	var ie *iogrid.Error
+	if !errors.As(err, &ie) || ie.Status != 503 {
+		t.Errorf("err = %+v, want Status=503", err)
+	}
+}
+
+func TestRequestMobileSession_ValidatesRequiredFields(t *testing.T) {
+	c, err := iogrid.NewClient(iogrid.Options{APIKey: "iog_test", BaseURL: "http://invalid"})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	if _, err := c.RequestMobileSession(context.Background(), iogrid.RequestMobileSessionRequest{
+		ClientPublicKey: "wg",
+	}); err == nil {
+		t.Error("expected error when CustomerID empty")
+	}
+	if _, err := c.RequestMobileSession(context.Background(), iogrid.RequestMobileSessionRequest{
+		CustomerID: "x",
+	}); err == nil {
+		t.Error("expected error when ClientPublicKey empty")
+	}
+}
+
 func TestUserAgentHeader(t *testing.T) {
 	var seenUA string
 	c, _ := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {

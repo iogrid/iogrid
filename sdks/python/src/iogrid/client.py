@@ -29,6 +29,8 @@ from .types import (
     ListInvoicesResponse,
     ListUsageResponse,
     ListWorkloadsResponse,
+    RequestMobileSessionRequest,
+    RequestMobileSessionResponse,
     UsageRecord,
     Workload,
     WorkloadEvent,
@@ -286,6 +288,43 @@ class IogridClient:
             ),
         )
         return list(r.get("invoices", []))
+
+    # --- Mobile VPN session bring-up --------------------------------------
+
+    async def request_mobile_session(
+        self,
+        body: RequestMobileSessionRequest,
+    ) -> RequestMobileSessionResponse:
+        """Request a one-shot mobile-app VPN session.
+
+        POSTs to ``/v1/vpn/sessions/mobile`` and returns the full
+        WireGuard peer config so the mobile PacketTunnelProvider can
+        bring up the tunnel without a second round-trip.
+
+        Distinct from the legacy daemon-driven flow at
+        ``/v1/vpn/sessions``. On 503 the SDK raises
+        :class:`IogridError`; the ``Retry-After`` header is preserved
+        on the underlying response — for now callers should retry with
+        backoff (15s server default).
+
+        Required keys in ``body``: ``customer_id`` (UUID),
+        ``client_public_key`` (base64 WG key). Optional: ``region``
+        (default "auto"), ``api_key``, ``payment_authorization``.
+        """
+        if not body.get("customer_id"):
+            raise ValueError(
+                "request_mobile_session: customer_id is required"
+            )
+        if not body.get("client_public_key"):
+            raise ValueError(
+                "request_mobile_session: client_public_key is required"
+            )
+        return cast(
+            RequestMobileSessionResponse,
+            await self._json_request(
+                "POST", "/v1/vpn/sessions/mobile", json=body
+            ),
+        )
 
 
 def _parse_sse_event(raw: str) -> str | None:
