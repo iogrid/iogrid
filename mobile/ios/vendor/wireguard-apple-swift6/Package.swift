@@ -56,16 +56,7 @@ let package = Package(
                 "Makefile"
             ],
             publicHeadersPath: ".",
-            linkerSettings: [
-                .linkedLibrary("wg-go"),
-                // iogrid CI bootstraps libwg-go.a into the WireGuardKitGo
-                // source dir before xcodebuild runs. Add the source dir to
-                // the linker search path so `-lwg-go` resolves. SwiftPM
-                // doesn't add SOURCE_DIR to LIBRARY_SEARCH_PATHS automatically
-                // (it's expected the lib is in CONFIGURATION_BUILD_DIR).
-                // Refs CONTRIBUTING gotcha 31.
-                .unsafeFlags(["-L", "Sources/WireGuardKitGo"]),
-            ]
+            linkerSettings: [.linkedLibrary("wg-go")]
         )
     ]
 )
