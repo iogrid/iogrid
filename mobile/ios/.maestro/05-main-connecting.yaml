@@ -35,12 +35,17 @@ appId: io.iogrid.app
     id: "connect-button"
     waitToSettleTimeoutMs: 0
 
-# Asserted within the 8000ms app-side CONNECTING hold. Give the assert a
-# bounded timeout (5s) so it polls promptly through the window rather
-# than relying on Maestro's default; the connection-status step list is
+# Asserted within the 8000ms app-side CONNECTING hold. `assertVisible`
+# does NOT accept a `timeout` property — Maestro 2.6.0 rejects the whole
+# flow with "Unknown Property: timeout" before any flow runs (run
+# 26845303436). The Maestro-correct way to bound a visibility poll is
+# `extendedWaitUntil`, which DOES support `timeout` (ms) and keeps
+# polling until the element appears. 5000ms sits comfortably inside the
+# 8000ms app-side CONNECTING hold; the connection-status step list is
 # rendered by src/app/index.tsx while connectState === 'connecting'.
-- assertVisible:
-    id: "connection-status"
+- extendedWaitUntil:
+    visible:
+      id: "connection-status"
     timeout: 5000
 
 - takeScreenshot: 05-main-connecting

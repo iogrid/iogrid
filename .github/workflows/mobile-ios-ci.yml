@@ -682,32 +682,41 @@ jobs:
         run: |
           export PATH="$HOME/.maestro/bin:$PATH"
           maestro --version
-          # Stream simulator log to a file in parallel so we capture
-          # any crash trace alongside the maestro report.
-          xcrun simctl spawn "$SIM_UDID" log stream --predicate 'process == "iogrid"' \
+          MAESTRO_SCREEN_DIR=$RUNNER_TEMP/maestro-screenshots
+          mkdir -p "$MAESTRO_SCREEN_DIR"
+          # Stream simulator log to a file in parallel so we capture any
+          # crash trace alongside the maestro report.
+          #
+          # IMPORTANT: the previous `--predicate 'process == "iogrid"'`
+          # matched NOTHING — sim.log uploaded EMPTY (run 26845303436),
+          # leaving native crashes undiagnosable. The OS process name for
+          # an installed .app is the executable name, not the slug, and
+          # os_log subsystem/category vary. Widen by OR-ing the bundle id
+          # (subsystem), the executable, and a substring match so we catch
+          # the app's own NSLog/os_log lines AND any crash-reporter lines.
+          xcrun simctl spawn "$SIM_UDID" log stream --level debug --style compact \
+            --predicate 'process CONTAINS "iogrid" OR subsystem CONTAINS "io.iogrid" OR processImagePath CONTAINS "iogrid.app" OR eventMessage CONTAINS[c] "iogrid"' \
             > $RUNNER_TEMP/sim.log 2>&1 &
           LOG_PID=$!
           set +e
-          # Maestro's `- takeScreenshot:` directives drop PNGs into the
-          # CURRENT WORKING DIRECTORY by default (NOT into ~/.maestro/
-          # tests/<run>/), so any artifact-upload that only mirrors
-          # ~/.maestro/tests misses them. Fix: cd into a dedicated dir
-          # we control AND know gets uploaded.
-          MAESTRO_SCREEN_DIR=$RUNNER_TEMP/maestro-screenshots
-          mkdir -p "$MAESTRO_SCREEN_DIR"
           # Run via the master flow (00-all.yaml) so flows execute in the
           # documented order. `maestro test .maestro/` parallelizes flows
-          # which breaks chained scenarios (edit/share/delete depend on
-          # the card created by 02-create-card). Pass absolute paths so
-          # the cd into MAESTRO_SCREEN_DIR doesn't break flow discovery.
+          # which breaks chained scenarios. Pass absolute paths so the cd
+          # into MAESTRO_SCREEN_DIR doesn't break flow discovery.
+          #
+          # Capture Maestro's full stdout+stderr to a file in the artifact
+          # too: the JUnit/debug logs OMIT per-flow RUNNING/COMPLETED/FAILED
+          # lines AND the parse-error line (e.g. "Unknown Property: timeout
+          # at ...05-main-connecting.yaml" — run 26845303436) only ever hit
+          # the CI step's stdout, never an uploaded file. `tee` fixes that.
           (
             cd "$MAESTRO_SCREEN_DIR" && \
             maestro --device "$SIM_UDID" test \
               --format=junit \
               --output="$RUNNER_TEMP/maestro-junit.xml" \
               "$GITHUB_WORKSPACE/mobile/ios/.maestro/00-all.yaml"
-          )
-          MAESTRO_EXIT=$?
+          ) 2>&1 | tee "$RUNNER_TEMP/maestro-stdout.log"
+          MAESTRO_EXIT=${PIPESTATUS[0]}
           set -e
           kill $LOG_PID 2>/dev/null || true
           # Save Maestro's own debug output dir
@@ -715,19 +724,40 @@ jobs:
             mkdir -p $RUNNER_TEMP/maestro-debug
             cp -R ~/.maestro/tests $RUNNER_TEMP/maestro-debug/
           fi
-          # Log what landed in the screenshots dir (helps debug missing
-          # PNGs the next time we wonder where they went).
+          # ── Collect native crash logs + a fuller os_log dump into the
+          # artifact so an app-launch crash (SIGABRT, missing autolinked
+          # module, RN redbox/Invariant) is diagnosable WITHOUT a Mac.
+          mkdir -p $RUNNER_TEMP/crash-logs
+          # 1. Host-side DiagnosticReports (the simulator writes crashes
+          #    for installed apps to the HOST user's Library, not inside
+          #    the sim container).
+          cp ~/Library/Logs/DiagnosticReports/* $RUNNER_TEMP/crash-logs/ 2>/dev/null || true
+          # 2. Per-sim CoreSimulator DiagnosticReports.
+          find ~/Library/Developer/CoreSimulator/Devices/$SIM_UDID/data/Library/Logs \
+            -name '*.ips' -o -name '*.crash' 2>/dev/null \
+            | while read -r f; do cp "$f" $RUNNER_TEMP/crash-logs/ 2>/dev/null || true; done
+          # 3. A bounded full os_log collection from the sim (predicate-free
+          #    so we don't repeat the empty-log mistake), then grep it for
+          #    JS redbox / RN invariant / fatal markers into a digest file.
+          xcrun simctl spawn "$SIM_UDID" log collect --output $RUNNER_TEMP/sim-logarchive.logarchive 2>/dev/null || true
+          xcrun simctl spawn "$SIM_UDID" log show --last 5m --style compact \
+            > $RUNNER_TEMP/crash-logs/sim-full-5m.log 2>&1 || true
+          grep -nE "iogrid|Invariant Violation|TypeError|RedBox|RCTFatal|JS Exception|Terminating|SIGABRT|EXC_BAD_ACCESS|Fatal" \
+            $RUNNER_TEMP/crash-logs/sim-full-5m.log > $RUNNER_TEMP/crash-logs/sim-crash-digest.log 2>/dev/null || true
           echo "=== Maestro screenshots captured ==="
           ls -la "$MAESTRO_SCREEN_DIR" || true
-          # NATIVE-CRASH DETECTION — Maestro will report flows as passed
-          # if it didn't actively detect a failed assertion. But the JS
-          # ErrorBoundary doesn't catch native bridge crashes (e.g. a
-          # missing autolinked module, a Sharing.shareAsync exception
-          # on iOS 26 new arch). Grep the simulator log for known fatal
-          # patterns and fail the gate independently.
-          if grep -qE "Terminating app due to uncaught exception|signal SIGABRT|EXC_BAD_ACCESS|libsystem_kernel\.dylib.*__pthread_kill" $RUNNER_TEMP/sim.log; then
-            echo "::error::Native crash detected in sim.log — see uploaded artifacts"
-            grep -nE "Terminating|SIGABRT|EXC_BAD_ACCESS|Fatal Exception" $RUNNER_TEMP/sim.log | head -40
+          echo "=== crash-logs captured ==="
+          ls -la $RUNNER_TEMP/crash-logs || true
+          # NATIVE-CRASH DETECTION — Maestro reports flows as passed if it
+          # didn't actively detect a failed assertion, but the JS
+          # ErrorBoundary doesn't catch native bridge crashes. Grep BOTH
+          # the streamed sim.log and the 5-minute dump for fatal patterns
+          # and fail the gate independently.
+          if grep -qE "Terminating app due to uncaught exception|signal SIGABRT|EXC_BAD_ACCESS|libsystem_kernel\.dylib.*__pthread_kill" \
+               $RUNNER_TEMP/sim.log $RUNNER_TEMP/crash-logs/sim-full-5m.log; then
+            echo "::error::Native crash detected — see uploaded crash-logs/ artifacts"
+            grep -nE "Terminating|SIGABRT|EXC_BAD_ACCESS|Fatal Exception" \
+              $RUNNER_TEMP/sim.log $RUNNER_TEMP/crash-logs/sim-full-5m.log | head -40
             exit 1
           fi
           exit $MAESTRO_EXIT
@@ -739,9 +769,11 @@ jobs:
           name: maestro-results
           path: |
             ${{ runner.temp }}/maestro-junit.xml
+            ${{ runner.temp }}/maestro-stdout.log
             ${{ runner.temp }}/maestro-debug/**
             ${{ runner.temp }}/maestro-screenshots/**
             ${{ runner.temp }}/sim.log
+            ${{ runner.temp }}/crash-logs/**
           if-no-files-found: warn
       # ───────────────────────────────────────────────────────────
       # END E2E GATE — anything below only runs on Maestro success.
