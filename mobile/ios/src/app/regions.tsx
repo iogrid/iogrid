@@ -1,21 +1,21 @@
-// Region picker — fetches the live region list from vpn-svc + lets
-// the user select either "Best (auto)" (coordinator picks) or a
-// specific region.
+// Region picker — SectionList grouped by continent (#592).
 //
-// Persists the selection to AsyncStorage so it survives app
-// relaunches; the toggle screen reads the same key on mount.
+// Wireframe ref: mobile/ios/docs/ux-wireframes-v2.md Screen 8.
 //
-// Closes #571. Pairs with the coordinator endpoints sub-agent
-// shipped in #570: GET /v1/vpn/regions (count per region) +
-// GET /v1/vpn/regions/{r}/providers?limit=3 (top-N for client probe,
-// not used here — that's #572's job).
+// "Best (auto)" pinned at top in its own slot, outside the SectionList.
+// Countries are grouped under continent labels (EUROPE / AMERICAS /
+// ASIA-PACIFIC). Tapping a country expands inline city rows with
+// individual ping numbers.
+//
+// Search filters country/city/slug across all sections; "Best (auto)"
+// remains visible regardless of the filter.
 
 import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  FlatList,
   Pressable,
   RefreshControl,
+  SectionList,
   StyleSheet,
   TextInput,
   View,
@@ -23,35 +23,47 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { RegionRow } from '@/components/region-row';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { Spacing } from '@/constants/theme';
-import { listRegions, type RegionRow } from '@/lib/coordinator';
+import { Radii, Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
+import { listRegions, type RegionRow as Region } from '@/lib/coordinator';
 
 const SELECTED_REGION_KEY = 'iogrid.region.selected';
-/** The sentinel value persisted to AsyncStorage when "Best (auto)"
- *  is selected — the toggle screen translates this to region=auto in
- *  the session POST. */
+/** Sentinel persisted to AsyncStorage when "Best (auto)" is selected. */
 export const AUTO_REGION_SENTINEL = 'auto';
 
-interface DisplayRow {
-  /** The opaque region slug we send to vpn-svc (e.g. "us-east-1") OR
-   *  AUTO_REGION_SENTINEL for the auto option. */
-  value: string;
-  /** Human-readable label. */
+interface CityRow {
+  slug: string;
   label: string;
-  /** Optional subtitle (e.g. "12 providers online"). */
-  subtitle?: string;
-  /** Optional flag emoji guessed from the region slug. */
-  flag?: string;
+  pingMs: number;
 }
 
+interface CountryRow {
+  code: string;
+  flag?: string;
+  name: string;
+  cities: CityRow[];
+  pingMs: number;
+}
+
+interface Section {
+  title: string;
+  data: CountryRow[];
+}
+
+const CONTINENT_ORDER = ['EUROPE', 'AMERICAS', 'ASIA-PACIFIC', 'OTHER'] as const;
+type Continent = (typeof CONTINENT_ORDER)[number];
+
 export default function RegionsScreen() {
-  const [rows, setRows] = useState<RegionRow[] | null>(null);
+  const theme = useTheme();
+  const [rows, setRows] = useState<Region[] | null>(null);
   const [selected, setSelected] = useState<string>(AUTO_REGION_SENTINEL);
   const [search, setSearch] = useState<string>('');
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const refresh = async () => {
     setRefreshing(true);
@@ -60,11 +72,6 @@ export default function RegionsScreen() {
       const data = await listRegions();
       setRows(data);
     } catch (e: unknown) {
-      // Graceful: when the coordinator is unreachable (offline /
-      // dev cluster down) we still render the "Best (auto)" row +
-      // a retry-on-pull-down nudge. Maestro smoke flow asserts only
-      // that "Best (auto)" is visible, so this code path is
-      // gate-safe.
       setLoadError(e instanceof Error ? e.message : String(e));
       setRows([]);
     } finally {
@@ -84,175 +91,291 @@ export default function RegionsScreen() {
     try {
       await AsyncStorage.setItem(SELECTED_REGION_KEY, value);
     } catch {
-      // Persistence failure shouldn't block the navigation back —
-      // the in-memory selection is still used for this app session.
+      // Persistence failure is non-fatal — in-memory selection is used
+      // for the current app session.
     }
   };
 
-  const display: DisplayRow[] = useMemo(() => {
-    // "Best (auto)" is pinned at top ALWAYS — even when a search
-    // filter is active. Two reasons: (1) UX — the auto option is the
-    // recommended choice and should never disappear behind a typo;
-    // (2) it's the only row the offline-graceful path can render,
-    // so removing it on filter would make the picker functionally
-    // empty when the coordinator is unreachable + the user starts
-    // typing.
-    const autoRow: DisplayRow = {
-      value: AUTO_REGION_SENTINEL,
-      label: 'Best (auto)',
-      subtitle: 'Coordinator picks the closest fastest provider',
+  const toggleExpand = (code: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(code)) next.delete(code);
+      else next.add(code);
+      return next;
+    });
+  };
+
+  const sections: Section[] = useMemo(() => {
+    const byContinent: Record<Continent, CountryRow[]> = {
+      EUROPE: [],
+      AMERICAS: [],
+      'ASIA-PACIFIC': [],
+      OTHER: [],
     };
-    const regionRows: DisplayRow[] = [];
+    const needle = search.trim().toLowerCase();
+
     for (const r of rows ?? []) {
-      regionRows.push({
-        value: r.region,
-        label: humanizeRegion(r.region),
-        flag: flagForRegion(r.region),
-        subtitle: `${r.healthyProviders} of ${r.totalProviders} online`,
-      });
+      const country = countryForRegion(r.region);
+      const cityLabel = cityForRegion(r.region);
+      const cityRow: CityRow = {
+        slug: r.region,
+        label: cityLabel,
+        pingMs: pingForRegion(r.region),
+      };
+      if (
+        needle &&
+        ![country.name, cityLabel, r.region].some((s) =>
+          s.toLowerCase().includes(needle),
+        )
+      ) {
+        continue;
+      }
+      const list = byContinent[country.continent];
+      let existing = list.find((c) => c.code === country.code);
+      if (!existing) {
+        existing = {
+          code: country.code,
+          flag: country.flag,
+          name: country.name,
+          cities: [],
+          pingMs: 0,
+        };
+        list.push(existing);
+      }
+      existing.cities.push(cityRow);
+      existing.pingMs = Math.round(
+        existing.cities.reduce((acc, c) => acc + c.pingMs, 0) /
+          existing.cities.length,
+      );
     }
-    if (!search) return [autoRow, ...regionRows];
-    const needle = search.toLowerCase();
-    return [
-      autoRow,
-      ...regionRows.filter(
-        (r) =>
-          r.label.toLowerCase().includes(needle) || r.value.toLowerCase().includes(needle),
-      ),
-    ];
+
+    return CONTINENT_ORDER.flatMap((cont) =>
+      byContinent[cont].length > 0
+        ? [{ title: cont, data: byContinent[cont] }]
+        : [],
+    );
   }, [rows, search]);
 
   return (
     <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safe}>
-        <TextInput
-          style={styles.search}
-          placeholder="Search regions"
-          placeholderTextColor="rgba(127, 127, 127, 0.6)"
-          value={search}
-          onChangeText={setSearch}
-          autoCapitalize="none"
-          autoCorrect={false}
-          testID="region-search"
-        />
+      <SafeAreaView style={styles.safe} edges={['bottom']}>
+        <View style={styles.searchWrap}>
+          <TextInput
+            style={[
+              styles.search,
+              {
+                backgroundColor: theme.backgroundElement,
+                color: theme.text,
+              },
+            ]}
+            placeholder="Search country, city, or slug"
+            placeholderTextColor={theme.textTertiary}
+            value={search}
+            onChangeText={setSearch}
+            autoCapitalize="none"
+            autoCorrect={false}
+            testID="region-search"
+          />
+        </View>
+
+        {/* Best (auto) pinned at top, outside SectionList */}
+        <View style={styles.pinnedAuto}>
+          <RegionRow
+            testID="region-best-auto"
+            flag="🌐"
+            label="Best (auto)"
+            subtitle="Coordinator picks the closest fastest provider"
+            selected={selected === AUTO_REGION_SENTINEL}
+            onPress={() => onPick(AUTO_REGION_SENTINEL)}
+          />
+        </View>
+
         {loadError && rows?.length === 0 && (
-          <ThemedText type="small" style={styles.error}>
+          <ThemedText type="body-s" color={theme.error} style={styles.error}>
             Couldn&apos;t fetch the full list — only the default option is
             available. Pull to retry.
           </ThemedText>
         )}
-        <FlatList
-          data={display}
-          keyExtractor={(item) => item.value}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
-          ListEmptyComponent={
-            refreshing ? <ActivityIndicator style={{ paddingVertical: 24 }} /> : null
+
+        <SectionList
+          sections={sections}
+          keyExtractor={(item) => item.code}
+          stickySectionHeadersEnabled={false}
+          contentContainerStyle={styles.listContent}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={refresh} />
           }
-          renderItem={({ item }) => (
-            <Pressable
-              testID={
-                item.value === AUTO_REGION_SENTINEL
-                  ? 'region-row-auto'
-                  : `region-row-${item.value}`
-              }
-              style={[
-                styles.row,
-                item.value === selected ? styles.rowSelected : undefined,
-              ]}
-              onPress={() => onPick(item.value)}
+          ListEmptyComponent={
+            refreshing ? (
+              <ActivityIndicator style={{ paddingVertical: 24 }} />
+            ) : null
+          }
+          renderSectionHeader={({ section }) => (
+            <ThemedText
+              type="caption"
+              color={theme.textSecondary}
+              style={styles.sectionHeader}
             >
-              {item.flag ? <ThemedText type="default">{item.flag}</ThemedText> : null}
-              <View style={styles.rowText}>
-                <ThemedText type="default">{item.label}</ThemedText>
-                {item.subtitle ? (
-                  <ThemedText type="small">{item.subtitle}</ThemedText>
-                ) : null}
-              </View>
-              {item.value === selected ? (
-                <ThemedText type="default">✓</ThemedText>
-              ) : null}
-            </Pressable>
+              {section.title}
+            </ThemedText>
           )}
+          renderItem={({ item }) => {
+            const isExpanded = expanded.has(item.code);
+            const isSelected = item.cities.some((c) => c.slug === selected);
+            return (
+              <View style={styles.countryGroup}>
+                <RegionRow
+                  testID={`region-country-${item.code}`}
+                  flag={item.flag}
+                  label={item.name}
+                  subtitle={`${item.cities.length} ${
+                    item.cities.length === 1 ? 'city' : 'cities'
+                  } • ${item.pingMs}ms`}
+                  selected={isSelected}
+                  expandable
+                  expanded={isExpanded}
+                  onPress={() => toggleExpand(item.code)}
+                />
+                {isExpanded
+                  ? item.cities.map((city) => (
+                      <View key={city.slug} style={styles.cityRow}>
+                        <Pressable
+                          testID={`region-city-${city.slug}`}
+                          accessibilityRole="button"
+                          onPress={() => onPick(city.slug)}
+                          style={({ pressed }) => [
+                            styles.cityInner,
+                            { backgroundColor: theme.backgroundElement },
+                            pressed && { backgroundColor: theme.backgroundSelected },
+                          ]}
+                        >
+                          <ThemedText type="body-m">{city.label}</ThemedText>
+                          <View style={styles.cityRight}>
+                            <ThemedText
+                              type="body-s"
+                              color={theme.textSecondary}
+                              style={styles.pingText}
+                            >
+                              {city.pingMs}ms
+                            </ThemedText>
+                            {selected === city.slug ? (
+                              <ThemedText type="body-m" color={theme.accent}>
+                                ✓
+                              </ThemedText>
+                            ) : null}
+                          </View>
+                        </Pressable>
+                      </View>
+                    ))
+                  : null}
+              </View>
+            );
+          }}
         />
       </SafeAreaView>
     </ThemedView>
   );
 }
 
-// ── Display helpers ───────────────────────────────────────────────
+// ── Region metadata helpers ──────────────────────────────────────────
 
-/** Best-effort human label for a region slug. The vpn-svc backend
- *  doesn't carry display names yet — we synthesise one from the
- *  slug. Falls back to the raw slug for unknown shapes. */
-function humanizeRegion(slug: string): string {
+interface CountryMeta {
+  code: string;
+  name: string;
+  flag?: string;
+  continent: Continent;
+}
+
+const COUNTRIES: Record<string, CountryMeta> = {
+  us: { code: 'us', name: 'United States', flag: '🇺🇸', continent: 'AMERICAS' },
+  ca: { code: 'ca', name: 'Canada', flag: '🇨🇦', continent: 'AMERICAS' },
+  br: { code: 'br', name: 'Brazil', flag: '🇧🇷', continent: 'AMERICAS' },
+  de: { code: 'de', name: 'Germany', flag: '🇩🇪', continent: 'EUROPE' },
+  fr: { code: 'fr', name: 'France', flag: '🇫🇷', continent: 'EUROPE' },
+  nl: { code: 'nl', name: 'Netherlands', flag: '🇳🇱', continent: 'EUROPE' },
+  uk: { code: 'uk', name: 'United Kingdom', flag: '🇬🇧', continent: 'EUROPE' },
+  eu: { code: 'eu', name: 'Europe', flag: '🇪🇺', continent: 'EUROPE' },
+  ie: { code: 'ie', name: 'Ireland', flag: '🇮🇪', continent: 'EUROPE' },
+  jp: { code: 'jp', name: 'Japan', flag: '🇯🇵', continent: 'ASIA-PACIFIC' },
+  sg: { code: 'sg', name: 'Singapore', flag: '🇸🇬', continent: 'ASIA-PACIFIC' },
+  au: { code: 'au', name: 'Australia', flag: '🇦🇺', continent: 'ASIA-PACIFIC' },
+  ap: { code: 'ap', name: 'Asia Pacific', flag: '🌏', continent: 'ASIA-PACIFIC' },
+};
+
+function countryForRegion(slug: string): CountryMeta {
+  const prefix = slug.split('-')[0];
+  if (prefix === 'eu') {
+    if (slug.includes('west')) return COUNTRIES.ie;
+    if (slug.includes('central')) return COUNTRIES.de;
+    return COUNTRIES.eu;
+  }
+  return (
+    COUNTRIES[prefix] ?? {
+      code: prefix || 'unknown',
+      name: prefix.toUpperCase() || 'Other',
+      continent: 'OTHER',
+    }
+  );
+}
+
+function cityForRegion(slug: string): string {
   const map: Record<string, string> = {
-    'us-east-1': 'US East — Virginia',
-    'us-east-2': 'US East — Ohio',
-    'us-west-1': 'US West — California',
-    'us-west-2': 'US West — Oregon',
-    'eu-west-1': 'EU West — Ireland',
-    'eu-central-1': 'EU Central — Frankfurt',
-    'ap-northeast-1': 'Asia Pacific — Tokyo',
-    'ap-southeast-1': 'Asia Pacific — Singapore',
+    'us-east-1': 'Virginia',
+    'us-east-2': 'Ohio',
+    'us-west-1': 'California',
+    'us-west-2': 'Oregon',
+    'eu-west-1': 'Ireland',
+    'eu-central-1': 'Frankfurt',
+    'ap-northeast-1': 'Tokyo',
+    'ap-southeast-1': 'Singapore',
   };
   if (map[slug]) return map[slug];
-  // Title-case the slug: "ca-central-1" → "Ca Central 1"
   return slug
     .split('-')
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
     .join(' ');
 }
 
-/** Flag emoji guess from the region's country code prefix. Same
- *  fallback rule: return empty (no flag) for unknown shapes rather
- *  than a misleading guess. */
-function flagForRegion(slug: string): string | undefined {
-  const prefix = slug.split('-')[0];
-  const flags: Record<string, string> = {
-    us: '🇺🇸',
-    ca: '🇨🇦',
-    eu: '🇪🇺',
-    uk: '🇬🇧',
-    de: '🇩🇪',
-    fr: '🇫🇷',
-    nl: '🇳🇱',
-    jp: '🇯🇵',
-    sg: '🇸🇬',
-    au: '🇦🇺',
-    br: '🇧🇷',
-    ap: '🌏',
-  };
-  return flags[prefix];
+// Stable ping estimates per region for the v1 wireframe. Replaced by
+// real per-provider RTT once Track 3 wires the probe response.
+function pingForRegion(slug: string): number {
+  const hash = Array.from(slug).reduce((acc, c) => acc + c.charCodeAt(0), 0);
+  return 20 + (hash % 80);
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  safe: { flex: 1, paddingHorizontal: Spacing.three, gap: 12 },
+  safe: { flex: 1 },
+  searchWrap: { paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md },
   search: {
-    backgroundColor: 'rgba(127, 127, 127, 0.1)',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 10,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    borderRadius: Radii.md,
     fontSize: 16,
   },
-  error: {
-    color: '#cf222e',
-    paddingHorizontal: 4,
+  pinnedAuto: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.md },
+  error: { paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm },
+  listContent: {
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.xl,
+    gap: Spacing.sm,
   },
-  row: {
+  sectionHeader: {
+    paddingTop: Spacing.lg,
+    paddingBottom: Spacing.sm,
+    textTransform: 'uppercase',
+    letterSpacing: 1.5,
+  },
+  countryGroup: { gap: Spacing.sm },
+  cityRow: { paddingLeft: Spacing.lg },
+  cityInner: {
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    borderRadius: Radii.md,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(127, 127, 127, 0.2)',
+    justifyContent: 'space-between',
   },
-  rowSelected: {
-    backgroundColor: 'rgba(32, 138, 239, 0.08)',
-  },
-  rowText: {
-    flex: 1,
-    gap: 2,
-  },
+  cityRight: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
+  pingText: { fontVariant: ['tabular-nums'] },
 });

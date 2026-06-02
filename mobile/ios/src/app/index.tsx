@@ -24,15 +24,19 @@ import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Clipboard from 'expo-clipboard';
 
 import { ConnectButton, type ConnectState } from '@/components/connect-button';
+import { ConnectionStatus, type ConnectingStep } from '@/components/connection-status';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { WalletCard } from '@/components/wallet-card';
 import { Card, Spacing, TypeScale } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { AUTO_REGION_SENTINEL } from '@/app/regions';
 import { loadOrCreateIdentity } from '@/lib/account';
 import { requestSession } from '@/lib/coordinator';
+import { wallet, type WalletBalance } from '@/lib/wallet';
 import { TunnelControl } from 'iogrid-tunnel-control';
 
 type TunnelState = 'OFF' | 'CONNECTING' | 'CONNECTED' | 'DISCONNECTING';
@@ -48,7 +52,9 @@ function tunnelToConnectState(state: TunnelState): ConnectState {
 export default function MainScreen() {
   const theme = useTheme();
   const [state, setState] = useState<TunnelState>('OFF');
+  const [step, setStep] = useState<ConnectingStep>('resolve');
   const [region, setRegion] = useState<string>('Best (auto)');
+  const [balance, setBalance] = useState<WalletBalance>({ balanceGrid: 0, balanceUsd: 0 });
   // Stats are populated by Track 3's `TunnelControl.onStatsUpdate`
   // event once the real WireGuard tunnel is live. For now, they stay
   // null and render skeleton placeholders in CONNECTED state.
@@ -78,6 +84,10 @@ export default function MainScreen() {
             setRegion(v);
           }
         })
+        .catch(() => undefined);
+      wallet
+        .getBalance()
+        .then(setBalance)
         .catch(() => undefined);
     }, []),
   );
@@ -123,6 +133,7 @@ export default function MainScreen() {
     }
 
     setState('CONNECTING');
+    setStep('resolve');
     const minVisibleStart = Date.now();
     const holdConnectingVisible = async () => {
       // Preserve the failure-path hold from #567: if the tunnel
@@ -140,6 +151,7 @@ export default function MainScreen() {
       const identity = await loadOrCreateIdentity();
       const persistedRegion =
         (await AsyncStorage.getItem(SELECTED_REGION_KEY)) ?? AUTO_REGION_SENTINEL;
+      setStep('tunnel');
       const session = await requestSession(
         identity.accountNumberRaw,
         identity.customerId,
@@ -157,6 +169,7 @@ export default function MainScreen() {
         );
         return;
       }
+      setStep('egress');
       await TunnelControl.startTunnel({
         peerPublicKey: '',
         peerEndpoint: 'discover',
@@ -202,6 +215,9 @@ export default function MainScreen() {
         >
           {/* ── Connect button + status label ─────────────────── */}
           <ConnectButton state={connectState} onPress={onConnect} />
+          {connectState === 'connecting' ? (
+            <ConnectionStatus state="connecting" step={step} />
+          ) : null}
 
           {/* ── Connected state extras: city, egress IP, stats ── */}
           {isConnected ? (
@@ -217,10 +233,14 @@ export default function MainScreen() {
               {stats.egressIP ? (
                 <Pressable
                   testID="egress-ip"
-                  onPress={() => {
-                    // TODO Track 3 wires Clipboard.setStringAsync once
-                    // the stats event provides the egress IP. For now
-                    // this is a no-op stub.
+                  onPress={async () => {
+                    if (!stats.egressIP) return;
+                    try {
+                      await Clipboard.setStringAsync(stats.egressIP);
+                      Alert.alert('Copied', 'Egress IP copied to clipboard.');
+                    } catch (e) {
+                      console.warn('clipboard copy failed', e);
+                    }
                   }}
                   hitSlop={8}
                   accessibilityLabel={`Copy egress IP ${stats.egressIP}`}
@@ -275,44 +295,16 @@ export default function MainScreen() {
             </ThemedText>
           </Pressable>
 
-          {/* ── Wallet card (stub; #594 owns full implementation) ─ */}
-          <View
-            testID="wallet-card"
-            style={[
-              styles.card,
-              styles.walletCard,
-              {
-                backgroundColor: theme.backgroundCard,
-                borderColor: theme.border,
-              },
-            ]}
-          >
-            <View style={styles.walletTopRow}>
-              <ThemedText style={[styles.cardLabel, { color: theme.textTertiary }]}>
-                WALLET
-              </ThemedText>
-            </View>
-            <ThemedText style={[styles.walletBalance, { color: theme.text }]}>
-              — $GRID
-            </ThemedText>
-            <ThemedText style={[styles.walletSubtle, { color: theme.textSecondary }]}>
-              Connect a wallet to start
-            </ThemedText>
-            <Pressable
-              testID="wallet-card-topup"
-              onPress={() => router.push('/topup')}
-              style={({ pressed }) => [
-                styles.topupButton,
-                { backgroundColor: theme.backgroundElement },
-                pressed ? styles.cardPressed : null,
-              ]}
-              accessibilityLabel="Top up wallet"
-              accessibilityRole="button"
-            >
-              <ThemedText style={[styles.topupLabel, { color: theme.text }]}>
-                Top up ›
-              </ThemedText>
-            </Pressable>
+          {/* ── Wallet card (#594) ─────────────────────────────── */}
+          <View style={styles.walletCardSpacer}>
+            <WalletCard
+              balanceGrid={balance.balanceGrid}
+              balanceUsd={balance.balanceUsd}
+              burnRateGridPerMin={isConnected ? balance.burnRateGridPerMin ?? 0.002 : undefined}
+              estimatedDays={balance.estimatedDaysAtUsage}
+              onTopupPress={() => router.push('/topup')}
+              testID="wallet-card"
+            />
           </View>
 
           {/* ── Disconnect (only when CONNECTED) ──────────────── */}
@@ -418,6 +410,9 @@ const styles = StyleSheet.create({
     flexDirection: 'column',
     alignItems: 'stretch',
     gap: Spacing.sm,
+  },
+  walletCardSpacer: {
+    marginTop: Spacing.sm,
   },
   walletTopRow: {
     flexDirection: 'row',
