@@ -17,6 +17,9 @@ appId: io.iogrid.app
 #   07 — region picker (auto pinned, search, country expand, city pick)
 #   08 — settings (account row + sign-out)
 #   09 — top up (quick amount + payment method + Continue)
+#   10 — mobile session bring-up against LIVE coordinator (#588, #605)
+#        — DEGRADED 503 path; runs LAST so the failing connect attempt
+#        leaves a clean OFF state for the suite teardown.
 #
 # Gotchas observed during v1:
 #   - No `- back` (gotcha 23) — flows cold-restart instead
@@ -31,3 +34,4 @@ appId: io.iogrid.app
 - runFlow: 07-region-picker.yaml
 - runFlow: 08-settings.yaml
 - runFlow: 09-topup.yaml
+- runFlow: 10-mobile-session-live.yaml

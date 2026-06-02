@@ -32,7 +32,7 @@ import { Card, Spacing, TypeScale } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { AUTO_REGION_SENTINEL } from '@/app/regions';
 import { loadOrCreateIdentity } from '@/lib/account';
-import { requestSession } from '@/lib/coordinator';
+import { requestMobileSession, requestSession } from '@/lib/coordinator';
 import { TunnelControl } from 'iogrid-tunnel-control';
 
 type TunnelState = 'OFF' | 'CONNECTING' | 'CONNECTED' | 'DISCONNECTING';
@@ -140,6 +140,43 @@ export default function MainScreen() {
       const identity = await loadOrCreateIdentity();
       const persistedRegion =
         (await AsyncStorage.getItem(SELECTED_REGION_KEY)) ?? AUTO_REGION_SENTINEL;
+
+      // #588/#605: single-shot mobile session bring-up. Calls the new
+      // POST /v1/vpn/sessions/mobile endpoint that returns the WG peer
+      // config in one round-trip. On 503 (no provider available yet)
+      // we surface a tappable "Could not connect" alert and stay OFF —
+      // the user can retry later. The legacy two-step path below kicks
+      // in only when the mobile endpoint returns a populated session.
+      const mobile = await requestMobileSession({
+        apiKey: identity.accountNumberRaw,
+        customerId: identity.customerId,
+        region: persistedRegion,
+        // Track 3 will replace this stub with the real WG public key
+        // once iogrid-tunnel-control exposes a generateKeypair() RPC.
+        // The handler accepts any non-empty string for the smoke path.
+        clientPublicKey: 'maestro-degraded-path-stub-pubkey',
+      });
+      if (mobile.status === 503) {
+        await holdConnectingVisible();
+        setState('OFF');
+        Alert.alert(
+          'Could not connect',
+          mobile.retryAfterSec
+            ? `No provider available right now. Try again in ${mobile.retryAfterSec}s.`
+            : 'No provider available right now. Try again in a moment.',
+        );
+        return;
+      }
+      if (mobile.status === 429) {
+        await holdConnectingVisible();
+        setState('OFF');
+        Alert.alert(
+          'Could not connect',
+          'Your free-tier quota is exhausted. Tap Top up to upgrade.',
+        );
+        return;
+      }
+
       const session = await requestSession(
         identity.accountNumberRaw,
         identity.customerId,
