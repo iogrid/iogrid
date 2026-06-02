@@ -4,7 +4,8 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-02T16:15Z` 🟢 cron-refresh: +16 commits since last TRACKER bump |
+| Last refreshed | `2026-06-03T00:30Z` ✍️ hand-bump #5 — sub-agent fan-out: PRs #607/#608/#609 all merged |
+| Sub-agent dispatch wins | 3 agents in parallel, all merged to main: **PR #607** (docs/operator/574-app-store-privacy-and-external-beta.md — 214-line founder runbook for ASC UI). **PR #608** (5 Postgres integration tests for #605 AllocateInnerIP + PersistSessionPeerConfig — verified locally against postgres:16). **PR #609** (Maestro flow 10 + coordinator.requestMobileSession() + index.tsx wire-up — degraded-path 503 + Retry-After UI assertion). Worktrees: 1 (main). |
 | #605 closed | f4473d6 Store API (Session +4 fields, AllocateInnerIP, PersistSessionPeerConfig, memory impl, 5 tests). b73085d handler text from PR #603 worktree + route mount. go build + tests green. **0 in-progress, 2 open: #575 blocked-ext + #574 parked**. |
 | Session 2026-06-02 Xcode 26 unblock | 7 fixes for CI 26828731695 INVALID-build investigation: 645abd9 WireGuardKitC.h `<sys/types.h>` (strict-module unsigned typedefs), dd5bb0c Ruby script wires WGTunnel + Stats targets, 080a1e1 PressableCard style type, 78a1ca8 onboarding/topup route casts, 391dc51 #577 MINOR 1 apiBaseUrl configurable, 7a2c358 #577 MINOR 3 JSONSerialization IPC, 3e7898d #577 MINOR 5 RTT measure on receive, 4dc5bad CI cert-revoke threshold 60→10min (sigh quota fix). |
 | Session 2026-06-02 web legal | 6481c40 — /legal/mobile-privacy + /legal/mobile-eula pages live (required for #574 + Apple's reviewer; bd72776 wires these URLs into appInfoLocalization). Both ~700 words; counsel-review-pending placeholder. |
