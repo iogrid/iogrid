@@ -10,7 +10,7 @@
 /* eslint-disable */
 // @ts-nocheck
 
-import { CompleteGoogleSignInRequest, CompleteGoogleSignInResponse, CompleteMagicLinkRequest, CompleteMagicLinkResponse, CompleteSiwsBindingRequest, CompleteSiwsBindingResponse, CompleteStepUpRequest, CompleteStepUpResponse, ListBoundWalletsRequest, ListBoundWalletsResponse, ListSessionsRequest, ListSessionsResponse, RefreshTokenRequest, RefreshTokenResponse, RequestMagicLinkRequest, RequestMagicLinkResponse, RequestStepUpRequest, RequestStepUpResponse, RevokeSessionRequest, RevokeSessionResponse, SignOutRequest, SignOutResponse, StartGoogleSignInRequest, StartGoogleSignInResponse, StartSiwsBindingRequest, StartSiwsBindingResponse, UnbindWalletRequest, UnbindWalletResponse } from "./auth_pbjs";
+import { AppleSignInRequest, AppleSignInResponse, CompleteGoogleSignInRequest, CompleteGoogleSignInResponse, CompleteMagicLinkRequest, CompleteMagicLinkResponse, CompleteSiwsBindingRequest, CompleteSiwsBindingResponse, CompleteStepUpRequest, CompleteStepUpResponse, ListBoundWalletsRequest, ListBoundWalletsResponse, ListSessionsRequest, ListSessionsResponse, RefreshTokenRequest, RefreshTokenResponse, RequestMagicLinkRequest, RequestMagicLinkResponse, RequestStepUpRequest, RequestStepUpResponse, RevokeSessionRequest, RevokeSessionResponse, SignOutRequest, SignOutResponse, StartGoogleSignInRequest, StartGoogleSignInResponse, StartSiwsBindingRequest, StartSiwsBindingResponse, UnbindWalletRequest, UnbindWalletResponse } from "./auth_pbjs";
 import { MethodKind } from "@bufbuild/protobuf";
 
 /**
@@ -60,6 +60,17 @@ export const AuthService = {
       name: "CompleteMagicLink",
       I: CompleteMagicLinkRequest,
       O: CompleteMagicLinkResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * Sign in with Apple (iOS native sheet → server-side JWT validation).
+     *
+     * @generated from rpc iogrid.identity.v1.AuthService.AppleSignIn
+     */
+    appleSignIn: {
+      name: "AppleSignIn",
+      I: AppleSignInRequest,
+      O: AppleSignInResponse,
       kind: MethodKind.Unary,
     },
     /**

@@ -66,6 +66,25 @@ type Config struct {
 	// in OAuth `return_to` and magic-link redirect URLs. Defends against
 	// open-redirect.
 	AllowedReturnHosts []string `env:"ALLOWED_RETURN_HOSTS" envSeparator:"," envDefault:"localhost,127.0.0.1,iogrid.org,app.iogrid.org"`
+
+	// --- Sign in with Apple (#582) -------------------------------------
+	//
+	// APPLE_SUB_SALT is the per-deployment salt mixed into SHA-256 when
+	// hashing the Apple `sub` claim into the `users.apple_sub_hash`
+	// lookup column. The salt MUST be present in production; the
+	// service will start without it (Apple sign-in returns "not
+	// configured" until set) so dev / unit-test runs that don't
+	// exercise the iOS path still come up.
+	//
+	// AppleAudience overrides the default bundle id (io.iogrid.app) the
+	// validator requires on the `aud` claim. Production deployments
+	// should never set this; it's here so a future TestFlight-only
+	// build with a different bundle id can be tested in isolation.
+	AppleSubSalt   string `env:"APPLE_SUB_SALT"   envDefault:""`
+	AppleAudience  string `env:"APPLE_AUDIENCE"   envDefault:"io.iogrid.app"`
+	AppleJWKSURL   string `env:"APPLE_JWKS_URL"   envDefault:"https://appleid.apple.com/auth/keys"`
+	AppleIssuer    string `env:"APPLE_ISSUER"     envDefault:"https://appleid.apple.com"`
+	AppleJWKSCacheTTL time.Duration `env:"APPLE_JWKS_CACHE_TTL" envDefault:"24h"`
 }
 
 // Load parses environment variables into Config and returns the populated

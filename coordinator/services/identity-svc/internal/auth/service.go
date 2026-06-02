@@ -52,6 +52,17 @@ type Service struct {
 	// TTL. Production wires the Redis-backed implementation; dev / tests
 	// fall back to an in-memory store on first use.
 	SiwsChallenges siws.ChallengeStore
+
+	// Apple is the Sign-in-with-Apple identity-token validator. nil when
+	// the deployment hasn't opted into Apple sign-in (tests / dev). The
+	// CompleteAppleSignIn helper rejects with "not configured" rather
+	// than panicking when nil.
+	Apple *AppleValidator
+
+	// AppleSubSalt is the per-deployment salt mixed into SHA-256 when
+	// hashing the Apple `sub` claim for the `users.apple_sub_hash`
+	// lookup column. Sourced from env APPLE_SUB_SALT at boot time.
+	AppleSubSalt []byte
 }
 
 // Options bundles the constructor inputs.
@@ -65,11 +76,17 @@ type Options struct {
 	BaseURL            string
 	AllowedReturnHosts []string
 
-	MagicLinkTTL              time.Duration
-	RefreshTokenTTL           time.Duration
-	StepUpTTL                 time.Duration
-	MagicLinkPerEmailPerHour  int
-	MagicLinkPerIPPerHour     int
+	MagicLinkTTL             time.Duration
+	RefreshTokenTTL          time.Duration
+	StepUpTTL                time.Duration
+	MagicLinkPerEmailPerHour int
+	MagicLinkPerIPPerHour    int
+
+	// Apple Sign-in collaborators. Apple may be nil in dev / unit tests
+	// where the iOS path isn't exercised; CompleteAppleSignIn returns
+	// "not configured" rather than panicking.
+	Apple        *AppleValidator
+	AppleSubSalt []byte
 }
 
 // New builds a Service from Options. Defaults are filled in for any zero
@@ -111,6 +128,8 @@ func New(o Options) *Service {
 		StepUpTTL:                o.StepUpTTL,
 		MagicLinkPerEmailPerHour: o.MagicLinkPerEmailPerHour,
 		MagicLinkPerIPPerHour:    o.MagicLinkPerIPPerHour,
+		Apple:                    o.Apple,
+		AppleSubSalt:             o.AppleSubSalt,
 	}
 }
 

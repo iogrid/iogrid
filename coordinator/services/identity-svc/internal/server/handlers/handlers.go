@@ -104,6 +104,12 @@ func (a *API) MountV1(r chi.Router) {
 		// with `{"role": ""}` clears it so the next sign-in re-prompts
 		// the picker.
 		r.Put("/me/preferred-landing-role", a.setPreferredLandingRole)
+
+		// Sign in with Apple (#582 / EPIC #581). Mobile iOS app POSTs
+		// the Apple identityToken here. Public (the iOS client has no
+		// bearer on fresh launch). MountAppleJSON also nests this under
+		// /identity/apple-signin per the proto contract.
+		a.MountAppleJSON(r)
 	}
 }
 

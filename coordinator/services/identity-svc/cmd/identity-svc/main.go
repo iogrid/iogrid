@@ -167,6 +167,25 @@ func main() {
 		limiter = ratelimit.NewMemory()
 	}
 
+	// --- Apple sign-in validator (#582 / EPIC #581) ------------------
+	// We always build the validator (even when no salt is set) so the
+	// /v1/identity/apple-signin route mounts and returns a clean
+	// "not configured" 500 instead of 404. The salt's presence is what
+	// gates real sign-ins.
+	var (
+		appleValidator *auth.AppleValidator
+		appleSubSalt   []byte
+	)
+	if cfg.AppleSubSalt != "" {
+		jwksCache := auth.NewJWKSCache(cfg.AppleJWKSURL, cfg.AppleJWKSCacheTTL, nil)
+		appleValidator = auth.NewAppleValidator(jwksCache)
+		appleValidator.Issuer = cfg.AppleIssuer
+		appleValidator.Audience = cfg.AppleAudience
+		appleSubSalt = []byte(cfg.AppleSubSalt)
+	} else {
+		logger.Warn("apple: APPLE_SUB_SALT not set; /v1/identity/apple-signin will return 500 until configured")
+	}
+
 	// --- auth service + handlers ------------------------------------
 	authSvc := auth.New(auth.Options{
 		Store:                    st,
@@ -182,6 +201,8 @@ func main() {
 		StepUpTTL:                cfg.StepUpTTL,
 		MagicLinkPerEmailPerHour: cfg.MagicLinkPerEmailPerHour,
 		MagicLinkPerIPPerHour:    cfg.MagicLinkPerIPPerHour,
+		Apple:                    appleValidator,
+		AppleSubSalt:             appleSubSalt,
 	})
 
 	// --- SIWS challenge store --------------------------------------
