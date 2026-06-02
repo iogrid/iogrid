@@ -13,5 +13,4 @@ resources:
   - gateways/httproute-build.yaml
   - gateways/httproute-docs.yaml
   - gateways/httproute-status.yaml
-  - gateways/tlsroute-proxy.yaml
   - certificates/iogrid-org-cert.yaml
