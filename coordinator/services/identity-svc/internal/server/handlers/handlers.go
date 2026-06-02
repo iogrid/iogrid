@@ -104,6 +104,15 @@ func (a *API) MountV1(r chi.Router) {
 		// with `{"role": ""}` clears it so the next sign-in re-prompts
 		// the picker.
 		r.Put("/me/preferred-landing-role", a.setPreferredLandingRole)
+
+		// Apple Sign-in JSON endpoint (Refs #582). Mobile-iOS calls
+		// POST /v1/identity/apple-signin with the Apple identity_token;
+		// validates against Apple's JWKS, finds/creates the user by
+		// apple_sub_hash, returns the standard AuthBundle. Cherry-
+		// picked from PR #601; route mount was missed in the initial
+		// 5aeb150 cherry-pick which caused the apple_signin_test
+		// suite to 404.
+		a.MountAppleJSON(r)
 	}
 }
 
