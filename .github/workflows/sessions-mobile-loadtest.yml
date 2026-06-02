@@ -1,0 +1,211 @@
+name: sessions-mobile-loadtest
+
+# k6 load smoke for POST /v1/vpn/sessions/mobile (vpn-svc, #605).
+#
+# WHY THIS EXISTS
+# ---------------
+# sessions-mobile-smoke.yml proves the endpoint is REACHABLE for a
+# single caller. The unit + integration tests on #605/#608 prove it
+# is CORRECT for a single caller. Neither catches:
+#
+#   - Lock contention in the in-memory peer-selection mutex when N
+#     mobile clients hit at once.
+#   - DB connection pool exhaustion (vpn-svc Postgres pool default
+#     max_conns=25 in prod) once concurrency exceeds the pool.
+#   - Ingress / Cloudflare connection-limit cliffs on api.iogrid.org.
+#
+# This workflow exercises the endpoint under realistic concurrency
+# (default 50 VUs for 30s ~= 1500 reqs ~= 50 rps sustained) and
+# fails the run on documented bad outcomes:
+#
+#   - Any 5xx that is NOT 503 (unhandled error, not the degraded path).
+#   - Any 4xx that is NOT 401 / 404 / 405 (auth / deploy-pending).
+#   - p99 latency > 5000ms (something is seriously wrong).
+#
+# It does NOT fail on:
+#
+#   - p95 above 500ms (the SLO target — degraded 503 paths can
+#     legitimately bump p95; reported as a metric only).
+#   - 503 responses (degraded-but-alive per the endpoint contract).
+#   - 404/405 responses (deploy-pending Flux reconcile window).
+#
+# DISPATCH
+# --------
+# Founder-fireable via the Actions tab. Inputs let the same workflow
+# be re-pointed at staging / dev clusters by overriding
+# `target_endpoint`. No schedule trigger — load against prod must be
+# intentional, never drive-by.
+#
+# Refs #605.
+
+on:
+  workflow_dispatch:
+    inputs:
+      concurrency:
+        description: 'Parallel virtual users (k6 VUs).'
+        required: false
+        default: '50'
+        type: string
+      duration:
+        description: 'k6 ramp duration (e.g. 30s, 2m, 5m).'
+        required: false
+        default: '30s'
+        type: string
+      target_endpoint:
+        description: >-
+          Full URL of the POST /v1/vpn/sessions/mobile endpoint.
+          Override to point at staging / dev (e.g.
+          https://api.staging.iogrid.org/v1/vpn/sessions/mobile).
+        required: false
+        default: 'https://api.iogrid.org/v1/vpn/sessions/mobile'
+        type: string
+
+permissions:
+  contents: read
+
+# Don't pile concurrent load tests on the same target — Actions UI
+# might let founder fire twice in a row; cancel the older run so we
+# don't double the offered load + skew the second run's metrics.
+concurrency:
+  group: sessions-mobile-loadtest-${{ github.event.inputs.target_endpoint }}
+  cancel-in-progress: true
+
+jobs:
+  loadtest:
+    name: k6 load smoke (${{ github.event.inputs.concurrency }} VUs × ${{ github.event.inputs.duration }})
+    runs-on: ubuntu-latest
+    # 30s default duration + 10s graceful stop + ~30s setup +
+    # threshold buffer for long durations the founder might pick.
+    # Cap at 15min so a typo'd '2h' duration can't burn a runner.
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Echo run parameters
+        run: |
+          echo "concurrency:     ${{ github.event.inputs.concurrency }}"
+          echo "duration:        ${{ github.event.inputs.duration }}"
+          echo "target_endpoint: ${{ github.event.inputs.target_endpoint }}"
+          echo "actor:           ${{ github.actor }}"
+
+      - name: Install k6
+        # The grafana/k6 Docker image works but adds ~10s of pull
+        # overhead and complicates artifact-collection (need a bind
+        # mount). The apt install via the official Grafana repo is
+        # smaller AND lets the k6 binary write artifacts directly
+        # to the runner's workspace — much cleaner.
+        # Source: https://k6.io/docs/get-started/installation/#linux
+        run: |
+          set -euxo pipefail
+          sudo gpg -k
+          sudo gpg --no-default-keyring \
+            --keyring /usr/share/keyrings/k6-archive-keyring.gpg \
+            --keyserver hkp://keyserver.ubuntu.com:80 \
+            --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo 'deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main' \
+            | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update -y
+          sudo apt-get install -y k6
+          k6 version
+
+      - name: Pre-flight DNS / TLS probe
+        # Fail fast with a clear error if the target is unreachable
+        # BEFORE we burn the k6 setup. curl --head with a 10s cap.
+        # We don't gate on status — even 404/405 means DNS+TLS ok.
+        run: |
+          set -uxo pipefail
+          ENDPOINT="${{ github.event.inputs.target_endpoint }}"
+          # Extract host for the DNS probe.
+          HOST="$(echo "$ENDPOINT" | sed -E 's#^https?://([^/]+).*#\1#')"
+          echo "Resolving $HOST ..."
+          getent hosts "$HOST" || {
+            echo "::error::DNS resolution failed for $HOST"
+            exit 1
+          }
+          echo "TLS handshake to $ENDPOINT ..."
+          curl -sS --max-time 10 -o /dev/null -w 'preflight HTTP %{http_code} in %{time_total}s\n' \
+            -X OPTIONS "$ENDPOINT" || true
+          echo "Pre-flight OK — proceeding to load run."
+
+      - name: Run k6 load test
+        # k6's CLI exit code is the source of truth for pass/fail
+        # (thresholds in the script). --summary-export writes the
+        # machine-readable JSON the upload step ships as artifact.
+        # --out json= writes per-sample data for deep-dive analysis.
+        env:
+          TARGET_ENDPOINT: ${{ github.event.inputs.target_endpoint }}
+          CONCURRENCY: ${{ github.event.inputs.concurrency }}
+          DURATION: ${{ github.event.inputs.duration }}
+        run: |
+          set -euxo pipefail
+          mkdir -p loadtest-output
+          k6 run \
+            --summary-export=loadtest-output/k6-summary.json \
+            --out json=loadtest-output/k6-samples.json \
+            e2e/loadtest/sessions-mobile.js \
+            | tee loadtest-output/k6-stdout.log
+
+      - name: Emit GitHub summary
+        # Surface the key numbers on the workflow run page so the
+        # founder doesn't have to download the artifact to see the
+        # outcome. Uses jq on the summary JSON written above.
+        if: always()
+        run: |
+          set -uo pipefail
+          SUMMARY=loadtest-output/k6-summary.json
+          if [ ! -s "$SUMMARY" ]; then
+            echo "::warning::k6 summary JSON missing — load run never produced metrics."
+            exit 0
+          fi
+          {
+            echo "# k6 sessions-mobile load smoke"
+            echo ""
+            echo "- **endpoint**: \`${{ github.event.inputs.target_endpoint }}\`"
+            echo "- **concurrency**: ${{ github.event.inputs.concurrency }} VUs"
+            echo "- **duration**: ${{ github.event.inputs.duration }}"
+            echo ""
+            echo "## Latency (http_req_duration, ms)"
+            echo ""
+            echo "| metric | value |"
+            echo "|---|---|"
+            jq -r '.metrics.http_req_duration.avg     | "| avg | \(. | tonumber | . * 100 | round / 100) |"' "$SUMMARY"
+            jq -r '.metrics.http_req_duration.med     | "| p50 | \(. | tonumber | . * 100 | round / 100) |"' "$SUMMARY"
+            jq -r '.metrics.http_req_duration["p(95)"] | "| p95 | \(. | tonumber | . * 100 | round / 100) |"' "$SUMMARY"
+            jq -r '.metrics.http_req_duration["p(99)"] | "| p99 | \(. | tonumber | . * 100 | round / 100) |"' "$SUMMARY"
+            jq -r '.metrics.http_req_duration.max     | "| max | \(. | tonumber | . * 100 | round / 100) |"' "$SUMMARY"
+            echo ""
+            echo "## Throughput"
+            echo ""
+            echo "| metric | value |"
+            echo "|---|---|"
+            jq -r '.metrics.http_reqs.count           | "| total reqs | \(.) |"' "$SUMMARY"
+            jq -r '.metrics.http_reqs.rate            | "| rps | \(. | tonumber | . * 100 | round / 100) |"' "$SUMMARY"
+            echo ""
+            echo "## Status breakdown"
+            echo ""
+            echo "| status | count | classification |"
+            echo "|---|---|---|"
+            jq -r '.metrics.status_2xx.count          // 0 | "| 2xx | \(.) | healthy (session minted) |"' "$SUMMARY"
+            jq -r '.metrics.status_401.count          // 0 | "| 401 | \(.) | healthy (auth gate) |"' "$SUMMARY"
+            jq -r '.metrics.status_404.count          // 0 | "| 404 | \(.) | deploy-pending |"' "$SUMMARY"
+            jq -r '.metrics.status_405.count          // 0 | "| 405 | \(.) | deploy-pending |"' "$SUMMARY"
+            jq -r '.metrics.status_503.count          // 0 | "| 503 | \(.) | degraded-but-alive |"' "$SUMMARY"
+            jq -r '.metrics.status_other_4xx.count    // 0 | "| other 4xx | \(.) | **FAIL if >0** |"' "$SUMMARY"
+            jq -r '.metrics.status_other_5xx.count    // 0 | "| other 5xx | \(.) | **FAIL if >0** |"' "$SUMMARY"
+            jq -r '.metrics.status_unreachable.count  // 0 | "| unreachable | \(.) | **FAIL if >=10** |"' "$SUMMARY"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload k6 output artifact
+        # Always upload — even on threshold failure, the JSON + stdout
+        # is exactly what the on-call needs to diagnose what went wrong.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-sessions-mobile-${{ github.run_id }}
+          path: loadtest-output/
+          # 30d retention is enough to compare across a few founder
+          # runs without bloating storage.
+          retention-days: 30
+          if-no-files-found: warn
