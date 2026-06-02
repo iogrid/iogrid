@@ -223,6 +223,51 @@ type ListInvoicesResponse struct {
 	NextPageToken string    `json:"nextPageToken,omitempty"`
 }
 
+// QuotaState mirrors iogrid.vpn.v1.QuotaState — the quota-gate signal
+// echoed on every mobile VPN response so the iOS/Android app can
+// render the "you're at X%" banner without a separate fetch.
+type QuotaState string
+
+const (
+	QuotaStateUnspecified QuotaState = "QUOTA_STATE_UNSPECIFIED"
+	QuotaStateHealthy     QuotaState = "QUOTA_STATE_HEALTHY"
+	QuotaStateThrottled   QuotaState = "QUOTA_STATE_THROTTLED"
+	QuotaStateExhausted   QuotaState = "QUOTA_STATE_EXHAUSTED"
+)
+
+// RequestMobileSessionRequest is the body for POST
+// /v1/vpn/sessions/mobile. The mobile-app one-shot bring-up endpoint
+// returns the full WireGuard peer config so PacketTunnelProvider can
+// call WireGuardAdapter.start without a second round-trip.
+//
+// NOTE: the VPN surface uses snake_case on the wire (distinct from the
+// workload / billing surfaces which use camelCase). The struct tags
+// below match vpn-svc's handler verbatim.
+type RequestMobileSessionRequest struct {
+	CustomerID      string `json:"customer_id"`
+	Region          string `json:"region,omitempty"`
+	ClientPublicKey string `json:"client_public_key"`
+	APIKey          string `json:"api_key,omitempty"`
+	// PaymentAuthorization is opaque to the SDK — Track 5 owns
+	// validation. Pass any JSON-marshalable value (struct, map,
+	// json.RawMessage).
+	PaymentAuthorization any `json:"payment_authorization,omitempty"`
+}
+
+// RequestMobileSessionResponse is the body returned by POST
+// /v1/vpn/sessions/mobile (snake_case wire).
+type RequestMobileSessionResponse struct {
+	SessionID         string     `json:"session_id"`
+	PeerPublicKey     string     `json:"peer_public_key"`
+	PeerEndpoint      string     `json:"peer_endpoint"`
+	CustomerInnerCIDR string     `json:"customer_inner_cidr"`
+	AllowedIPs        string     `json:"allowed_ips"`
+	DNSServers        []string   `json:"dns_servers"`
+	Region            string     `json:"region"`
+	ExpiresAt         time.Time  `json:"expires_at"`
+	QuotaState        QuotaState `json:"quota_state"`
+}
+
 // ErrorEnvelope is the JSON body returned by the iogrid API on non-2xx
 // responses. Decoded automatically by the SDK and surfaced as *Error.
 type ErrorEnvelope struct {
