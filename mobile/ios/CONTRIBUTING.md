@@ -501,21 +501,42 @@ by `Sources/WireGuardKitGo/Makefile` via cross-compiling Go to
 both x86_64 + arm64 slices via cgo, then lipo'd into a fat .a.
 
 CI must run that Make step BEFORE xcodebuild, AND the resulting
-`libwg-go.a` must land on a path that ld searches. Three workable
-locations (in order of robustness):
+`libwg-go.a` must land on a path that ld searches.
 
-1. **`/usr/local/lib/libwg-go.a`** — default ld search path
-   on macOS. Works without any xcconfig changes. Use this for
-   CI. (Caveat: needs `sudo cp` on the runner.)
-2. **`Sources/WireGuardKitGo/libwg-go.a`** — SwiftPM's target
-   source dir. Theoretically xcodebuild adds this to
-   LIBRARY_SEARCH_PATHS for `.linkedLibrary` resolution, but
-   in practice we found it NOT searched (CI 26831852258 failed
-   with `ld: library 'wg-go' not found` despite the file
-   existing there).
-3. **`Sources/WireGuardKitGo/x86_64/libwg-go.a` + arm64**
-   per-arch dirs — overkill for our use case since we lipo into
-   a fat .a; mentioned for completeness.
+**The fix that actually works** (after 2 failed attempts on
+2026-06-02):
+
+Patch the vendored `Package.swift` to extend the WireGuardKitGo
+target's linkerSettings with an explicit `-L`:
+
+```swift
+.target(
+    name: "WireGuardKitGo",
+    ...
+    linkerSettings: [
+        .linkedLibrary("wg-go"),
+        .unsafeFlags(["-L", "Sources/WireGuardKitGo"]),
+    ]
+)
+```
+
+Then run Make in CI before xcodebuild and copy the resulting
+fat `libwg-go.a` to `Sources/WireGuardKitGo/`. SwiftPM resolves
+the `-L` path relative to the package root, propagates it to
+xcodebuild's link step, and `-lwg-go` finds the file.
+
+**What does NOT work (failed paths from this session)**:
+
+1. ❌ `/usr/local/lib/libwg-go.a` — macOS-host default, but
+   iOS-Simulator + iOS-Device builds use Xcode's SDKROOT/usr/lib
+   instead. xcodebuild's `TEST_LIBRARY_SEARCH_PATHS` confirmed
+   pointing at the platform sysroot, NOT host dirs. CI
+   26832430349 failed.
+2. ❌ `Sources/WireGuardKitGo/libwg-go.a` alone (no Package.swift
+   patch) — SwiftPM doesn't automatically add the source dir to
+   the linker search path. CI 26831852258 failed.
+3. ❌ Per-arch dirs `Sources/WireGuardKitGo/x86_64/...` —
+   overkill since we lipo into a fat .a; never tested.
 
 The Make step needs to be run for BOTH `iphonesimulator` (for the
 sim Maestro gate) and `iphoneos` (for the archive step), with
