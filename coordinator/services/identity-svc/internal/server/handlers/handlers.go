@@ -104,6 +104,13 @@ func (a *API) MountV1(r chi.Router) {
 		// with `{"role": ""}` clears it so the next sign-in re-prompts
 		// the picker.
 		r.Put("/me/preferred-landing-role", a.setPreferredLandingRole)
+
+		// Consumer-side wallet binding for the mobile VPN app
+		// (Track 2 of EPIC #581 / Closes #583 #584). Distinct from
+		// /v1/wallets + /v1/auth/siws/* which are the PROVIDER-side
+		// SIWS flow that writes to the identifiers table. This
+		// binds one $GRID wallet per customer for VPN consumption.
+		a.MountWalletBind(r)
 	}
 }
 
