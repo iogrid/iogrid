@@ -908,3 +908,12 @@ Automation follow-up: [bin/refresh-tracker.sh](https://github.com/iogrid/iogrid/
   - TRACKER bumped with build 61 success entry
   - Founder pinged with install steps
 - Monitor bngqxd78u DID fire RUN_DONE before stream-ending. The "quiet" period after was correct — no further CI work to monitor.
+
+## 2026-06-02T09:25Z — 🟢 #575 CLOSED by agent per CLAUDE.md §2 (full 5-step closure)
+- Surface walk: Playwright nav to https://testflight.apple.com/join/jHPTNj9P (Apple's generic page; awaits Beta Review)
+- Screenshot: mobile/ios/docs/evidence/575-testflight-public-link.png + comment 4597877006
+- Independent sub-agent reviewer verdict: READY-TO-CLOSE (comment 4597875329)
+- Label: status/uat → status/completed
+- Issue closed via `gh issue close 575` (no founder gate per §2)
+- Founder reviews async on actual iPhone TestFlight install; may reopen if UAT fails.
+- 14 CI iterations, ~2.5h wall time end-to-end.
