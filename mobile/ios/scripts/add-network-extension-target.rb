@@ -158,11 +158,36 @@ ext_target.build_configurations.each do |bc|
   )
 end
 
-# ── 2. Add Swift source file to the target ─────────────────────
-puts "[+] Adding PacketTunnelProvider.swift to the target..."
+# ── 2. Add Swift source files to the target ────────────────────
+#
+# Track 3 (#587) split the implementation across three files:
+#   - PacketTunnelProvider.swift (lifecycle)
+#   - WGTunnel.swift (providerConfig → WireGuardKit.TunnelConfiguration)
+#   - Stats.swift (codable + App Group UserDefaults bridge)
+#
+# All three MUST be added to the extension target, else the build
+# fails with "Cannot find 'WGTunnel' / 'StatsParser' in scope" once
+# WireGuardKitC.h compiles cleanly. We additionally only add files
+# that actually exist on disk so the script stays robust against
+# future single-file refactors.
+EXTENSION_SOURCES = [
+  'PacketTunnelProvider.swift',
+  'WGTunnel.swift',
+  'Stats.swift',
+].freeze
+
 ext_group = project.main_group.new_group(EXTENSION_NAME, EXTENSION_NAME)
-swift_ref = ext_group.new_file('PacketTunnelProvider.swift')
-ext_target.add_file_references([swift_ref])
+ext_dir = File.join(File.dirname(PROJECT_PATH), EXTENSION_NAME)
+EXTENSION_SOURCES.each do |fname|
+  abs = File.join(ext_dir, fname)
+  unless File.exist?(abs)
+    puts "[!] #{fname} not found at #{abs} — skipping (likely the Expo plugin only copied PacketTunnelProvider.swift; vendor-wireguard.sh or the prebuild step needs updating)"
+    next
+  end
+  puts "[+] Adding #{fname} to the target..."
+  swift_ref = ext_group.new_file(fname)
+  ext_target.add_file_references([swift_ref])
+end
 
 # ── 3. WireGuardKit SwiftPM dep (vendored local-path fork) ─────
 if WIREGUARDKIT_ENABLED
