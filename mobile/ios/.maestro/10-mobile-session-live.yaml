@@ -29,9 +29,11 @@ appId: io.iogrid.app
 #      console log is consumed via `xcrun simctl spawn ... log show`
 #      in CI's post-step. The marker is a stable string the harness
 #      can grep verbatim.
-#   5. Within ~5s the 503 surfaces as a "Could not connect" Alert.
-#      Maestro taps OK; the JS layer's holdConnectingVisible() keeps
-#      CONNECTING displayed for ≥3000ms so the Alert is reachable.
+#   5. The 503 surfaces as a "Could not connect" Alert. Maestro taps
+#      OK; the JS layer's holdConnectingVisible() keeps CONNECTING
+#      displayed for ≥8000ms (#599 — the window must outlast Maestro's
+#      ~4–5s post-tap animation settle, since the CONNECTING arc is an
+#      infinite loop) so the Alert is still reachable after the hold.
 #   6. Post-dismiss the tunnel is back to OFF (connect-button visible,
 #      no disconnect-button) — proving the failure path returned to
 #      a clean baseline.
@@ -59,7 +61,7 @@ appId: io.iogrid.app
 - tapOn:
     id: "connect-button"
 
-# JS state machine should be in CONNECTING for ≥3000ms (the
+# JS state machine should be in CONNECTING for ≥8000ms (the
 # holdConnectingVisible window from src/app/index.tsx) — the
 # connect-button stays mounted but re-renders the "connecting"
 # variant. We assert it's still queryable to prove the screen

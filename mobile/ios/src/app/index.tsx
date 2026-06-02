@@ -133,8 +133,21 @@ export default function MainScreen() {
       // start fails fast (e.g. coordinator unreachable, WG not
       // linked yet), keep CONNECTING visible long enough that the
       // user reads it rather than seeing a confusing instant OFF.
+      //
+      // The window must also survive Maestro's post-tap settle on
+      // iOS (#599): the CONNECTING arc is an infinite Animated.loop,
+      // so Maestro's `screenshotBasedTap` cannot detect the hierarchy
+      // settling and spends ~4–5s in back-to-back 3000ms "waiting for
+      // animation to end" cycles BEFORE the next command (the
+      // connection-status assertVisible in flow 05) even starts —
+      // `waitToSettleTimeoutMs:0` does NOT suppress that internal
+      // wait. A 3000ms hold expired ~1.3s before the assert began
+      // (observed: tap-press 20:02:23.6, tap-COMPLETED 20:02:27.9,
+      // assert-RUNNING 20:02:27.9 — hold long gone). 8000ms keeps
+      // CONNECTING observable through the full tap+assert window with
+      // comfortable margin, and reads fine for a real failed connect.
       const elapsed = Date.now() - minVisibleStart;
-      const remaining = 3000 - elapsed;
+      const remaining = 8000 - elapsed;
       if (remaining > 0) {
         await new Promise((resolve) => setTimeout(resolve, remaining));
       }

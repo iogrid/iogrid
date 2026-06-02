@@ -5,8 +5,8 @@ appId: io.iogrid.app
 # Taps the connect-button and asserts the connection-status step list
 # becomes visible. The IPC bridge to Track 3's tunnel hasn't necessarily
 # completed on simulator, so the test only asserts the JS state machine
-# advances into the CONNECTING phase + the connect-button stays
-# queryable through the transition.
+# advances into the CONNECTING phase + the connection-status step list
+# renders during the connecting window.
 
 - launchApp:
     clearState: false
@@ -15,22 +15,32 @@ appId: io.iogrid.app
 - assertVisible:
     id: "connect-button"
 
-# waitToSettleTimeoutMs:0 — do NOT let Maestro burn its default post-tap
-# settle (~4s) before the next command. The CONNECTING phase is held for
-# 3000ms from tap-time by the JS layer (src/app/index.tsx
-# holdConnectingVisible). On simulator the mobile-session request
-# DNS-fast-fails, so CONNECTING reverts to OFF 3s after the tap. If
-# Maestro settles for 4s first, the assertVisible below starts AFTER the
-# hold expired and never sees connection-status (observed CI flake: tap
-# 19:33:03, assert 19:33:07, hold gone). Starting the assert immediately
-# puts it well inside the 3s window.
+# Why this flow is timing-sensitive (#599):
+#
+# The CONNECTING arc in ConnectButton is an infinite Animated.loop, so
+# after the tap Maestro's iOS `screenshotBasedTap` cannot detect the
+# view hierarchy settling. It therefore burns ~4–5s in back-to-back
+# 3000ms "waiting for animation to end" cycles BEFORE the next command
+# (the assertVisible below) even starts. `waitToSettleTimeoutMs:0` does
+# NOT suppress that internal post-tap settle on iOS (observed: tap-press
+# 20:02:23.6, tap-COMPLETED 20:02:27.9, assert-RUNNING 20:02:27.9).
+#
+# The fix lives in the app, not here: src/app/index.tsx holds CONNECTING
+# visible for 8000ms on the simulator failure path (the mobile-session
+# request fast-fails with no provider), which comfortably outlasts the
+# tap+settle window so the assert below lands while CONNECTING is still
+# on screen. We keep waitToSettleTimeoutMs:0 to trim any *post*-assert
+# settle, but it is not load-bearing for this race.
 - tapOn:
     id: "connect-button"
     waitToSettleTimeoutMs: 0
 
-# The CONNECTING phase is held visible for 3000ms by the JS layer so this
-# assertion finds the step list during the connecting window.
+# Asserted within the 8000ms app-side CONNECTING hold. Give the assert a
+# bounded timeout (5s) so it polls promptly through the window rather
+# than relying on Maestro's default; the connection-status step list is
+# rendered by src/app/index.tsx while connectState === 'connecting'.
 - assertVisible:
     id: "connection-status"
+    timeout: 5000
 
 - takeScreenshot: 05-main-connecting
