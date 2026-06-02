@@ -26,6 +26,10 @@ import { router, useFocusEffect } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { ConnectButton, type ConnectState } from '@/components/connect-button';
+import {
+  ConnectionStatus,
+  DEFAULT_CONNECTING_STEPS,
+} from '@/components/connection-status';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Card, Spacing, TypeScale } from '@/constants/theme';
@@ -239,6 +243,15 @@ export default function MainScreen() {
         >
           {/* ── Connect button + status label ─────────────────── */}
           <ConnectButton state={connectState} onPress={onConnect} />
+
+          {/* Step-list shown only while CONNECTING — Maestro flow 05
+              asserts `connection-status` testID visible during this
+              window. Currently uses the DEFAULT_CONNECTING_STEPS set;
+              real WG handshake progress (Track 3 #588) will drive
+              the step state once peer + tunnel + egress events fire. */}
+          {connectState === 'connecting' ? (
+            <ConnectionStatus steps={DEFAULT_CONNECTING_STEPS} />
+          ) : null}
 
           {/* ── Connected state extras: city, egress IP, stats ── */}
           {isConnected ? (
