@@ -900,3 +900,11 @@ Automation follow-up: [bin/refresh-tracker.sh](https://github.com/iogrid/iogrid/
 - emrahbaysal@gmail.com invited via API; TestFlight email arriving in 2-5 min.
 - Founder UAT: install on iPhone via TestFlight app, walk the toggle / region picker / settings / quota banner surface. If green, #575 closes.
 - 14 iteration cycles, ~120 min wall time from credentials-in-place to first build on TestFlight.
+
+## 2026-06-02T09:15Z — Calibration: supervisor false positive (Monitor lapse)
+- Supervisor flagged "Monitor lapsed for assign/invite" but run 26791325490 had already completed (status=completed conclusion=success at 01:13:31Z) and post-success-actions.sh had already fired:
+  - #575 comment posted
+  - #575 label flipped status/in-progress → status/uat
+  - TRACKER bumped with build 61 success entry
+  - Founder pinged with install steps
+- Monitor bngqxd78u DID fire RUN_DONE before stream-ending. The "quiet" period after was correct — no further CI work to monitor.
