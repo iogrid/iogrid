@@ -868,3 +868,11 @@ Automation follow-up: [bin/refresh-tracker.sh](https://github.com/iogrid/iogrid/
 ## 2026-06-02T08:15Z — Issue #579 filed (BillingAPIKeyStore test gap)
 - During cadence audit, found `coordinator/services/gateway-bff/internal/handlers/apikeys_billing.go` has no test neighbor; the #563 BillingAPIKeyStore swap shipped without coverage.
 - Filed #579 (area/coordinator, severity/p3, status/parked) for the follow-up test PR.
+
+## 2026-06-02T08:30Z — Iteration 13: age-based pre-revoke (cross-project race fix)
+- Iter 12 (run 26789892395) made it through Maestro flows for second consecutive run. Archive failed with serial E11ACAD8E0007C10279F670C5CF341C — different from iter 10's serial.
+- ROOT CAUSE finally identified: cross-project pre-revoke race. cinova's CI (run 26789884887) was running in parallel and ALSO failed at archive with serial 6CE8B6E4B0405FA24EC7510F4C5781A1. Each project's pre-revoke was nuking the others' fresh certs.
+- My e912ac7 keychain isolation fix was a red herring — xcodebuild validates cert validity against Apple's portal regardless of local keychain.
+- Real fix d6f2eae: revoke only certs OLDER than 60 minutes (filter via expirationDate). In-flight CI runs' certs are spared; truly-stale certs get cleaned.
+- Run 26790610773 in flight. Monitor bf2kbk01c.
+- Will cross-port to vcard/ping/cinova after iter 13 lands green.
