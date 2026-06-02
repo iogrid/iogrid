@@ -864,3 +864,7 @@ Automation follow-up: [bin/refresh-tracker.sh](https://github.com/iogrid/iogrid/
 - Iter 11 (run 26789507723) cancelled at Maestro flows step because I pushed CONTRIBUTING.md (ed56834) bundled with the TRACKER doc push — same "git push sends all local commits ahead of origin" mistake I made earlier in this session.
 - New run 26789892395 in flight with same fix set + CONTRIBUTING gotcha 24.
 - Monitor b6munzxd5.
+
+## 2026-06-02T08:15Z — Issue #579 filed (BillingAPIKeyStore test gap)
+- During cadence audit, found `coordinator/services/gateway-bff/internal/handlers/apikeys_billing.go` has no test neighbor; the #563 BillingAPIKeyStore swap shipped without coverage.
+- Filed #579 (area/coordinator, severity/p3, status/parked) for the follow-up test PR.
