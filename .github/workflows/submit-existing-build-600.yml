@@ -1,0 +1,99 @@
+name: submit-existing-build-600
+on:
+  workflow_dispatch:
+    inputs:
+      build_id:
+        description: 'ASC build resource ID (UUID)'
+        required: true
+        default: 'b3f19ebd-fac3-42d8-873b-ea6cdcd6c9e9'
+jobs:
+  submit:
+    runs-on: macos-latest
+    timeout-minutes: 5
+    env:
+      ASC_KEY_ID:    ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      ASC_KEY:       ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+      BUILD_ID:      ${{ inputs.build_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set privacyPolicyUrl on appInfoLocalization + PATCH review-details + submit
+        run: |
+          python3 -m pip install --quiet --break-system-packages pyjwt cryptography requests
+          python3 - <<'PY'
+          import os, base64, time, jwt, requests, json, sys
+          tok = jwt.encode(
+              {'iss': os.environ['ASC_ISSUER_ID'], 'iat': int(time.time()),
+               'exp': int(time.time()) + 1200, 'aud': 'appstoreconnect-v1'},
+              base64.b64decode(os.environ['ASC_KEY']), algorithm='ES256',
+              headers={'kid': os.environ['ASC_KEY_ID']})
+          H = {'Authorization': f'Bearer {tok}', 'Content-Type': 'application/json'}
+          BASE = 'https://api.appstoreconnect.apple.com'
+          APP_ID = '6775617937'
+          BUILD_ID = os.environ['BUILD_ID']
+
+          # === 1) Find the en-US appInfoLocalization that needs privacyPolicyUrl
+          infos = requests.get(f'{BASE}/v1/apps/{APP_ID}/appInfos', headers=H, timeout=20).json()
+          print(f'appInfos: {len(infos.get("data", []))}')
+          for info in infos.get('data', []):
+              info_id = info['id']
+              locs = requests.get(
+                  f'{BASE}/v1/appInfos/{info_id}/appInfoLocalizations',
+                  headers=H, timeout=20).json()
+              for loc in locs.get('data', []):
+                  if loc['attributes'].get('locale') != 'en-US':
+                      continue
+                  loc_id = loc['id']
+                  current = loc['attributes'].get('privacyPolicyUrl')
+                  print(f'  appInfo {info_id} en-US loc {loc_id}: privacyPolicyUrl={current!r}')
+                  if not current:
+                      payload = {'data': {
+                          'type': 'appInfoLocalizations',
+                          'id': loc_id,
+                          'attributes': {
+                              'privacyPolicyUrl': 'https://iogrid.org/legal/mobile-privacy',
+                          },
+                      }}
+                      r = requests.patch(
+                          f'{BASE}/v1/appInfoLocalizations/{loc_id}',
+                          headers=H, json=payload, timeout=20)
+                      print(f'    PATCH privacyPolicyUrl → HTTP {r.status_code}: {r.text[:300]}')
+
+          # === 2) PATCH betaAppReviewDetails with full attribute set
+          rad = requests.get(f'{BASE}/v1/apps/{APP_ID}/betaAppReviewDetail', headers=H, timeout=20).json()
+          rad_id = rad['data']['id']
+          payload = {'data': {
+              'type': 'betaAppReviewDetails',
+              'id': rad_id,
+              'attributes': {
+                  'contactEmail': 'emrahbaysal@gmail.com',
+                  'contactFirstName': 'Emrah',
+                  'contactLastName': 'Baysal',
+                  'contactPhone': '+447700900000',
+                  'demoAccountName': '',
+                  'demoAccountPassword': '',
+                  'demoAccountRequired': False,
+                  'notes': 'No sign-in required. Tap the big circular button to test the VPN state machine. WireGuardKit data plane wiring is in PR #603 (vendored Swift-6 fork); UI flows + region picker + settings are fully testable.',
+              },
+          }}
+          r = requests.patch(f'{BASE}/v1/betaAppReviewDetails/{rad_id}', headers=H, json=payload, timeout=20)
+          print(f'\nPATCH betaAppReviewDetails → HTTP {r.status_code}: {r.text[:300]}')
+
+          # Verify readback
+          rad2 = requests.get(f'{BASE}/v1/betaAppReviewDetails/{rad_id}', headers=H, timeout=20).json()
+          print(f'\nReadback attrs:')
+          for k, v in rad2['data']['attributes'].items():
+              print(f'  {k}={v!r}')
+
+          # === 3) Submit Beta Review
+          payload = {'data': {
+              'type': 'betaAppReviewSubmissions',
+              'relationships': {'build': {'data': {'type': 'builds', 'id': BUILD_ID}}},
+          }}
+          r = requests.post(f'{BASE}/v1/betaAppReviewSubmissions', headers=H, json=payload, timeout=20)
+          print(f'\nPOST Beta Review → HTTP {r.status_code}: {r.text[:600]}')
+
+          # === 4) Final build state
+          bd = requests.get(f'{BASE}/v1/buildBetaDetails/{BUILD_ID}', headers=H, timeout=20).json()
+          print(f'\nFinal: {json.dumps(bd["data"]["attributes"], indent=2)}')
+          PY
