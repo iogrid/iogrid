@@ -525,9 +525,12 @@ jobs:
         # into a fat libwg-go.a inside the configured CONFIGURATION_BUILD_DIR.
         # Default ARCHS=x86_64 arm64 + PLATFORM_NAME=iphonesimulator matches
         # what xcodebuild will look for when linking the simulator app.
+        #
+        # Path is relative to the workflow's `defaults.run.working-directory:
+        # mobile/ios` — so `vendor/...` NOT `mobile/ios/vendor/...`.
         run: |
           set -euo pipefail
-          cd mobile/ios/vendor/wireguard-apple-swift6/Sources/WireGuardKitGo
+          cd vendor/wireguard-apple-swift6/Sources/WireGuardKitGo
           make ARCHS="x86_64 arm64" PLATFORM_NAME=iphonesimulator \
             CONFIGURATION_BUILD_DIR="$RUNNER_TEMP/wg-go-build" \
             CONFIGURATION_TEMP_DIR="$RUNNER_TEMP/wg-go-tmp"
