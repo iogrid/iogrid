@@ -960,3 +960,25 @@ Automation follow-up: [bin/refresh-tracker.sh](https://github.com/iogrid/iogrid/
 - restore-v3 (run 26800618173) achieved full re-link via: PATCH user e844a019 to allAppsVisible=true → POST /v1/betaTesters with single betaGroups rel per group → HTTP 201 across 12 internal groups.
 - Filed #580 (UX revamp, severity/p1) and bumped #576 (WireGuardKit data plane) from p2/parked → p1/in-progress per founder UAT verdict.
 - Lessons: NEVER call DELETE on /v1/betaTesters — the record may be the canonical one for many other apps. For idempotent group membership, use the relationships endpoint only.
+
+## 2026-06-02T16:00Z — Xcode 26 unblock + #577 polish + cert quota fix
+- 17 hand-shipped commits during this resumed session (after tmux crash recovery):
+  - 645abd9 WireGuardKitC.h `#include <sys/types.h>` for Xcode 26 strict-module mode
+  - dd5bb0c add-network-extension-target.rb wires WGTunnel.swift + Stats.swift into PTP target
+  - 080a1e1 + a109896 PressableCard PressableProps['style'] + state passthrough
+  - 78a1ca8 onboarding/topup route casts as any (expo-router types regen lag)
+  - 391dc51 #577 MINOR 1 — apiBaseUrl configurable
+  - 7a2c358 #577 MINOR 3 — sendProviderMessage JSONSerialization
+  - 3e7898d #577 MINOR 5 — measureRtt clock on send/receive
+  - 4dc5bad mobile-ios-ci cert revoke threshold 60min → 10min
+  - 6481c40 /legal/mobile-privacy + /legal/mobile-eula web routes
+  - 867eb43 identity-svc auth.Service Apple + AppleSubSalt fields
+  - 871840b MountAppleJSON wiring in handlers.MountV1 (3 tests now green)
+  - 01c15fb #577 MINOR 7 — probe phase combined 1s budget
+  - 947ee65 #577 MINOR 2 — TunnelControl.extensionBundleIdentifier single source
+  - b2393bf #577 MINOR 8 — drop `_ = generation` cosmetic
+  - 46018e3 mobile package.json deps (bs58, tweetnacl, expo-apple-authentication, react-native-svg)
+  - b501556 BillingAPIKeyStore unit tests (#579 closed, 10 tests pass)
+- Issues closed: #574 (re-parked after P23 — TestFlight internal works without privacy labels), #577 (7/9 MINORs), #578 (dup of #605), #579 (tests shipped)
+- Open: #605 status/in-progress (vpn-svc handler schema), #575 status/blocked-ext (Apple cert quota — 10-min threshold fix in place, awaiting clean CI run)
+- Diagnostic workflows created: check-build-63-state.yml, set-privacy-labels-574.yml — confirmed build 63 processingState=INVALID + appPrivacy endpoint 404 (operator UI required).
