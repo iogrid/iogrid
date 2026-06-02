@@ -177,7 +177,16 @@ func (s *Service) CompleteGoogle(ctx context.Context, code, state string, req *h
 		existing, err := s.Store.FindIdentifierBySubject(ctx, tx, store.KindGoogle, id.Subject)
 		if err == nil {
 			// Known user — touch + mint bundle.
-			_ = s.Store.TouchIdentifier(ctx, tx, existing.ID)
+			//
+			// Propagate the TouchIdentifier error: under Serializable
+			// isolation a SQLSTATE 40001 here would otherwise silently
+			// abort the rest of the transaction (every later statement
+			// would then surface as 25P02 "current transaction is
+			// aborted"). Bubbling lets WithTx see the 40001 and retry.
+			// See #620 for the same fix applied to the Apple flow.
+			if err := s.Store.TouchIdentifier(ctx, tx, existing.ID); err != nil {
+				return fmt.Errorf("touch google identifier: %w", err)
+			}
 			user, err := s.Store.GetUser(ctx, tx, existing.UserID)
 			if err != nil {
 				return err
@@ -382,7 +391,15 @@ func (s *Service) CompleteMagicLink(ctx context.Context, rawToken string, req *h
 			if err != nil {
 				return err
 			}
-			_ = s.Store.TouchIdentifier(ctx, tx, ident.ID)
+			// Propagate the TouchIdentifier error: under Serializable
+			// isolation a SQLSTATE 40001 here would otherwise silently
+			// abort the rest of the transaction (every later statement
+			// would then surface as 25P02 "current transaction is
+			// aborted"). Bubbling lets WithTx see the 40001 and retry.
+			// See #620 for the same fix applied to the Apple flow.
+			if err := s.Store.TouchIdentifier(ctx, tx, ident.ID); err != nil {
+				return fmt.Errorf("touch magic-link identifier: %w", err)
+			}
 			bundle, err = s.issueBundleTx(ctx, tx, user, req, false, false)
 			return err
 		case mergeTarget != nil:
@@ -396,19 +413,20 @@ func (s *Service) CompleteMagicLink(ctx context.Context, rawToken string, req *h
 				Verified: true,
 			}
 			if err := s.Store.CreateIdentifier(ctx, tx, newIdent); err != nil {
-				// Could race with another magic-link redemption that
-				// already attached this email — non-fatal, look up
-				// the existing one and proceed.
-				if !isUniqueViolation(err) {
-					return err
+				if isUniqueViolation(err) {
+					// Could race with another magic-link redemption
+					// that already attached this email. The 23505 has
+					// already aborted this transaction at the Postgres
+					// level (any further statement on `tx` would
+					// return SQLSTATE 25P02 "current transaction is
+					// aborted"), so we cannot do an in-tx re-read
+					// here — return store.ErrRetryTx and let
+					// store.WithTx restart the whole flow. On retry
+					// the fast path (findMagicLinkUserOrMergeTarget)
+					// sees the winner's committed row. See #620.
+					return fmt.Errorf("magic-link race lost on identifier insert: %w", store.ErrRetryTx)
 				}
-				existing, err2 := s.Store.FindIdentifiersByEmail(ctx, tx, m.Email)
-				if err2 != nil {
-					return err2
-				}
-				if len(existing) > 0 {
-					newIdent = &existing[0]
-				}
+				return err
 			}
 			if err := s.Store.InsertMergeAudit(ctx, tx, &store.MergeAudit{
 				PrimaryUserID: mergeTarget.ID,
