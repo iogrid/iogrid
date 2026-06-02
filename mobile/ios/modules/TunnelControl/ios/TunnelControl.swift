@@ -123,9 +123,15 @@ public class TunnelControlModule: Module {
 
     AsyncFunction("sendProviderMessage") { (command: String, promise: Promise) in
       Self.loadManager { manager, _ in
+        // #577 MINOR 3 fix: previously assembled JSON via string
+        // interpolation — one careless caller with a quote or
+        // backslash in `command` produced invalid JSON. Use
+        // JSONSerialization so the wire shape is always parseable.
         guard
           let session = manager?.connection as? NETunnelProviderSession,
-          let data = "{\"command\":\"\(command)\"}".data(using: .utf8)
+          let data = try? JSONSerialization.data(
+            withJSONObject: ["command": command],
+            options: [])
         else {
           promise.reject("NO_SESSION", "tunnel session not available")
           return
