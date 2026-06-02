@@ -72,6 +72,12 @@ type API struct {
 	// surface. Optional — when nil the /api/v1/offramp/* + the
 	// /api/v1/webhooks/offramp/* routes respond 503.
 	OffRamp *OffRampProxy
+	// BillingSvcBaseURL is billing-svc's base URL (e.g.
+	// http://billing-svc:8080) used by the customer prepaid-balance
+	// handler to read /v1/grid/balance. Optional — when empty
+	// GET /api/v1/customer/billing/balance responds 503 so the web
+	// surface renders an explicit "balance unavailable" banner (#632/#417).
+	BillingSvcBaseURL string
 }
 
 // New constructs an API. logger defaults to slog.Default(). store

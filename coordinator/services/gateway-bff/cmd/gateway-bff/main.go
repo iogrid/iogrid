@@ -134,6 +134,7 @@ func main() {
 		OffRamp:                  offRampProxy,
 		Transparency:             transparencyStore,
 		TransparencyPublishToken: os.Getenv("TRANSPARENCY_PUBLISH_TOKEN"),
+		BillingSvcBaseURL:        cfg.BillingSvcURL,
 	}
 
 	if err := sharedserver.Run(ctx, sharedserver.Options{
