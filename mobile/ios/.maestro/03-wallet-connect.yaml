@@ -17,6 +17,13 @@ appId: io.iogrid.app
 - tapOn:
     id: "onboarding-sign-in-apple"
 
+# Sign-in-with-apple stub screen renders next — tap the skip-for-now
+# button to advance to the connect-wallet stub (Track 1's real
+# expo-apple-authentication flow lands here once #582's stub is
+# replaced; this matches the current stub state).
+- tapOn:
+    id: "connect-wallet-skip"
+
 - assertVisible:
     id: "connect-wallet-continue"
 
