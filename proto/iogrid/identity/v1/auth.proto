@@ -125,6 +125,67 @@ message CompleteMagicLinkResponse {
   bool merged = 3;
 }
 
+// --- Sign in with Apple (mobile native) -----------------------------------
+//
+// The iogrid iOS app drives this flow via `expo-apple-authentication`:
+//
+//   1. User taps "Sign in with Apple"; the native iOS sheet returns an
+//      Apple ID token (a JWT signed by Apple) plus an opaque user id.
+//   2. The app POSTs the JWT (+ the nonce it generated client-side) to
+//      `POST /v1/identity/apple-signin`.
+//   3. Server verifies the JWT against Apple's JWKS
+//      (https://appleid.apple.com/auth/keys, cached 24h), checks
+//      iss=https://appleid.apple.com, aud=io.iogrid.app, the nonce, and
+//      the exp claim.
+//   4. Server hashes (apple_sub + APPLE_SUB_SALT) with SHA-256 and looks
+//      up the User row by `apple_sub_hash`; mints a fresh User on miss.
+//      The Apple `sub` is the canonical id — Apple may return an Apple-
+//      private-relay email or no email at all, so we never key off email.
+//   5. Server returns a session JWT (1h) + refresh token (30d) + the
+//      user's primary bound Solana wallet (null on first sign-in; bound
+//      later by Track 2 #583).
+//
+// Bundle id `io.iogrid.app` is BAKED INTO the audience check — Apple
+// signs the bundle id into the JWT's `aud` claim, so a token minted for
+// any other app cannot impersonate an iogrid user.
+
+message AppleSignInRequest {
+  // The `identityToken` field returned by expo-apple-authentication's
+  // `signInAsync({ requestedScopes: [...] })`. A JWT signed by Apple.
+  string identity_token = 1;
+  // The nonce the client passed to `signInAsync` (must match the
+  // sha256-hashed `nonce` claim inside identity_token). Optional today
+  // (some Apple SDK versions don't surface it) — when present, server
+  // verifies; when empty, server skips the nonce check but still does
+  // every other validation. Tracked via the `nonce_supplied` field in
+  // the response so the client can log a warning in dev.
+  string nonce = 2;
+  // The `user` field expo-apple-authentication returns on FIRST sign-in
+  // (Apple stops sending it on subsequent sign-ins). Echoes back the
+  // sub claim — server uses the JWT's claim, not this, but keeping it
+  // in the proto helps future debugging of "user mismatch" reports.
+  string apple_user = 3;
+  // Optional fullName from the first sign-in (Apple only returns it
+  // once). The server records it as display_name on the fresh User
+  // row. Subsequent sign-ins where this is empty leave the existing
+  // display_name untouched.
+  string full_name = 4;
+}
+
+message AppleSignInResponse {
+  AuthBundle bundle = 1;
+  // True iff this completion created a brand-new User.
+  bool new_user = 2;
+  // The user's currently-bound Solana wallet address (base58). Empty
+  // when the user hasn't bound a wallet yet — Track 2 #583 wires the
+  // Connect-Wallet flow that populates this. Mobile reads this to know
+  // whether to surface the "Connect wallet" CTA on the home screen.
+  string wallet_address = 3;
+  // True when the server validated the nonce claim against the request
+  // field. False when the nonce was skipped (request.nonce was empty).
+  bool nonce_validated = 4;
+}
+
 // --- Session lifecycle ----------------------------------------------------
 
 // AuthBundle is what every successful sign-in flow returns. Clients
@@ -293,6 +354,9 @@ service AuthService {
   // Magic-link.
   rpc RequestMagicLink(RequestMagicLinkRequest) returns (RequestMagicLinkResponse);
   rpc CompleteMagicLink(CompleteMagicLinkRequest) returns (CompleteMagicLinkResponse);
+
+  // Sign in with Apple (iOS native sheet → server-side JWT validation).
+  rpc AppleSignIn(AppleSignInRequest) returns (AppleSignInResponse);
 
   // Session lifecycle.
   rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse);

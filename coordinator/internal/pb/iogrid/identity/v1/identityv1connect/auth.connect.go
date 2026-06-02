@@ -52,6 +52,8 @@ const (
 	// AuthServiceCompleteMagicLinkProcedure is the fully-qualified name of the AuthService's
 	// CompleteMagicLink RPC.
 	AuthServiceCompleteMagicLinkProcedure = "/iogrid.identity.v1.AuthService/CompleteMagicLink"
+	// AuthServiceAppleSignInProcedure is the fully-qualified name of the AuthService's AppleSignIn RPC.
+	AuthServiceAppleSignInProcedure = "/iogrid.identity.v1.AuthService/AppleSignIn"
 	// AuthServiceRefreshTokenProcedure is the fully-qualified name of the AuthService's RefreshToken
 	// RPC.
 	AuthServiceRefreshTokenProcedure = "/iogrid.identity.v1.AuthService/RefreshToken"
@@ -90,6 +92,7 @@ var (
 	authServiceCompleteGoogleSignInMethodDescriptor = authServiceServiceDescriptor.Methods().ByName("CompleteGoogleSignIn")
 	authServiceRequestMagicLinkMethodDescriptor     = authServiceServiceDescriptor.Methods().ByName("RequestMagicLink")
 	authServiceCompleteMagicLinkMethodDescriptor    = authServiceServiceDescriptor.Methods().ByName("CompleteMagicLink")
+	authServiceAppleSignInMethodDescriptor          = authServiceServiceDescriptor.Methods().ByName("AppleSignIn")
 	authServiceRefreshTokenMethodDescriptor         = authServiceServiceDescriptor.Methods().ByName("RefreshToken")
 	authServiceSignOutMethodDescriptor              = authServiceServiceDescriptor.Methods().ByName("SignOut")
 	authServiceListSessionsMethodDescriptor         = authServiceServiceDescriptor.Methods().ByName("ListSessions")
@@ -110,6 +113,8 @@ type AuthServiceClient interface {
 	// Magic-link.
 	RequestMagicLink(context.Context, *connect.Request[v1.RequestMagicLinkRequest]) (*connect.Response[v1.RequestMagicLinkResponse], error)
 	CompleteMagicLink(context.Context, *connect.Request[v1.CompleteMagicLinkRequest]) (*connect.Response[v1.CompleteMagicLinkResponse], error)
+	// Sign in with Apple (iOS native sheet → server-side JWT validation).
+	AppleSignIn(context.Context, *connect.Request[v1.AppleSignInRequest]) (*connect.Response[v1.AppleSignInResponse], error)
 	// Session lifecycle.
 	RefreshToken(context.Context, *connect.Request[v1.RefreshTokenRequest]) (*connect.Response[v1.RefreshTokenResponse], error)
 	SignOut(context.Context, *connect.Request[v1.SignOutRequest]) (*connect.Response[v1.SignOutResponse], error)
@@ -157,6 +162,12 @@ func NewAuthServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			httpClient,
 			baseURL+AuthServiceCompleteMagicLinkProcedure,
 			connect.WithSchema(authServiceCompleteMagicLinkMethodDescriptor),
+			connect.WithClientOptions(opts...),
+		),
+		appleSignIn: connect.NewClient[v1.AppleSignInRequest, v1.AppleSignInResponse](
+			httpClient,
+			baseURL+AuthServiceAppleSignInProcedure,
+			connect.WithSchema(authServiceAppleSignInMethodDescriptor),
 			connect.WithClientOptions(opts...),
 		),
 		refreshToken: connect.NewClient[v1.RefreshTokenRequest, v1.RefreshTokenResponse](
@@ -228,6 +239,7 @@ type authServiceClient struct {
 	completeGoogleSignIn *connect.Client[v1.CompleteGoogleSignInRequest, v1.CompleteGoogleSignInResponse]
 	requestMagicLink     *connect.Client[v1.RequestMagicLinkRequest, v1.RequestMagicLinkResponse]
 	completeMagicLink    *connect.Client[v1.CompleteMagicLinkRequest, v1.CompleteMagicLinkResponse]
+	appleSignIn          *connect.Client[v1.AppleSignInRequest, v1.AppleSignInResponse]
 	refreshToken         *connect.Client[v1.RefreshTokenRequest, v1.RefreshTokenResponse]
 	signOut              *connect.Client[v1.SignOutRequest, v1.SignOutResponse]
 	listSessions         *connect.Client[v1.ListSessionsRequest, v1.ListSessionsResponse]
@@ -258,6 +270,11 @@ func (c *authServiceClient) RequestMagicLink(ctx context.Context, req *connect.R
 // CompleteMagicLink calls iogrid.identity.v1.AuthService.CompleteMagicLink.
 func (c *authServiceClient) CompleteMagicLink(ctx context.Context, req *connect.Request[v1.CompleteMagicLinkRequest]) (*connect.Response[v1.CompleteMagicLinkResponse], error) {
 	return c.completeMagicLink.CallUnary(ctx, req)
+}
+
+// AppleSignIn calls iogrid.identity.v1.AuthService.AppleSignIn.
+func (c *authServiceClient) AppleSignIn(ctx context.Context, req *connect.Request[v1.AppleSignInRequest]) (*connect.Response[v1.AppleSignInResponse], error) {
+	return c.appleSignIn.CallUnary(ctx, req)
 }
 
 // RefreshToken calls iogrid.identity.v1.AuthService.RefreshToken.
@@ -318,6 +335,8 @@ type AuthServiceHandler interface {
 	// Magic-link.
 	RequestMagicLink(context.Context, *connect.Request[v1.RequestMagicLinkRequest]) (*connect.Response[v1.RequestMagicLinkResponse], error)
 	CompleteMagicLink(context.Context, *connect.Request[v1.CompleteMagicLinkRequest]) (*connect.Response[v1.CompleteMagicLinkResponse], error)
+	// Sign in with Apple (iOS native sheet → server-side JWT validation).
+	AppleSignIn(context.Context, *connect.Request[v1.AppleSignInRequest]) (*connect.Response[v1.AppleSignInResponse], error)
 	// Session lifecycle.
 	RefreshToken(context.Context, *connect.Request[v1.RefreshTokenRequest]) (*connect.Response[v1.RefreshTokenResponse], error)
 	SignOut(context.Context, *connect.Request[v1.SignOutRequest]) (*connect.Response[v1.SignOutResponse], error)
@@ -361,6 +380,12 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 		AuthServiceCompleteMagicLinkProcedure,
 		svc.CompleteMagicLink,
 		connect.WithSchema(authServiceCompleteMagicLinkMethodDescriptor),
+		connect.WithHandlerOptions(opts...),
+	)
+	authServiceAppleSignInHandler := connect.NewUnaryHandler(
+		AuthServiceAppleSignInProcedure,
+		svc.AppleSignIn,
+		connect.WithSchema(authServiceAppleSignInMethodDescriptor),
 		connect.WithHandlerOptions(opts...),
 	)
 	authServiceRefreshTokenHandler := connect.NewUnaryHandler(
@@ -433,6 +458,8 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 			authServiceRequestMagicLinkHandler.ServeHTTP(w, r)
 		case AuthServiceCompleteMagicLinkProcedure:
 			authServiceCompleteMagicLinkHandler.ServeHTTP(w, r)
+		case AuthServiceAppleSignInProcedure:
+			authServiceAppleSignInHandler.ServeHTTP(w, r)
 		case AuthServiceRefreshTokenProcedure:
 			authServiceRefreshTokenHandler.ServeHTTP(w, r)
 		case AuthServiceSignOutProcedure:
@@ -476,6 +503,10 @@ func (UnimplementedAuthServiceHandler) RequestMagicLink(context.Context, *connec
 
 func (UnimplementedAuthServiceHandler) CompleteMagicLink(context.Context, *connect.Request[v1.CompleteMagicLinkRequest]) (*connect.Response[v1.CompleteMagicLinkResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iogrid.identity.v1.AuthService.CompleteMagicLink is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) AppleSignIn(context.Context, *connect.Request[v1.AppleSignInRequest]) (*connect.Response[v1.AppleSignInResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iogrid.identity.v1.AuthService.AppleSignIn is not implemented"))
 }
 
 func (UnimplementedAuthServiceHandler) RefreshToken(context.Context, *connect.Request[v1.RefreshTokenRequest]) (*connect.Response[v1.RefreshTokenResponse], error) {

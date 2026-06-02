@@ -649,6 +649,146 @@ export class CompleteMagicLinkResponse extends Message<CompleteMagicLinkResponse
 }
 
 /**
+ * @generated from message iogrid.identity.v1.AppleSignInRequest
+ */
+export class AppleSignInRequest extends Message<AppleSignInRequest> {
+  /**
+   * The `identityToken` field returned by expo-apple-authentication's
+   * `signInAsync({ requestedScopes: [...] })`. A JWT signed by Apple.
+   *
+   * @generated from field: string identity_token = 1;
+   */
+  identityToken = "";
+
+  /**
+   * The nonce the client passed to `signInAsync` (must match the
+   * sha256-hashed `nonce` claim inside identity_token). Optional today
+   * (some Apple SDK versions don't surface it) — when present, server
+   * verifies; when empty, server skips the nonce check but still does
+   * every other validation. Tracked via the `nonce_supplied` field in
+   * the response so the client can log a warning in dev.
+   *
+   * @generated from field: string nonce = 2;
+   */
+  nonce = "";
+
+  /**
+   * The `user` field expo-apple-authentication returns on FIRST sign-in
+   * (Apple stops sending it on subsequent sign-ins). Echoes back the
+   * sub claim — server uses the JWT's claim, not this, but keeping it
+   * in the proto helps future debugging of "user mismatch" reports.
+   *
+   * @generated from field: string apple_user = 3;
+   */
+  appleUser = "";
+
+  /**
+   * Optional fullName from the first sign-in (Apple only returns it
+   * once). The server records it as display_name on the fresh User
+   * row. Subsequent sign-ins where this is empty leave the existing
+   * display_name untouched.
+   *
+   * @generated from field: string full_name = 4;
+   */
+  fullName = "";
+
+  constructor(data?: PartialMessage<AppleSignInRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "iogrid.identity.v1.AppleSignInRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "identity_token", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "nonce", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "apple_user", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 4, name: "full_name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): AppleSignInRequest {
+    return new AppleSignInRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): AppleSignInRequest {
+    return new AppleSignInRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): AppleSignInRequest {
+    return new AppleSignInRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: AppleSignInRequest | PlainMessage<AppleSignInRequest> | undefined, b: AppleSignInRequest | PlainMessage<AppleSignInRequest> | undefined): boolean {
+    return proto3.util.equals(AppleSignInRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message iogrid.identity.v1.AppleSignInResponse
+ */
+export class AppleSignInResponse extends Message<AppleSignInResponse> {
+  /**
+   * @generated from field: iogrid.identity.v1.AuthBundle bundle = 1;
+   */
+  bundle?: AuthBundle;
+
+  /**
+   * True iff this completion created a brand-new User.
+   *
+   * @generated from field: bool new_user = 2;
+   */
+  newUser = false;
+
+  /**
+   * The user's currently-bound Solana wallet address (base58). Empty
+   * when the user hasn't bound a wallet yet — Track 2 #583 wires the
+   * Connect-Wallet flow that populates this. Mobile reads this to know
+   * whether to surface the "Connect wallet" CTA on the home screen.
+   *
+   * @generated from field: string wallet_address = 3;
+   */
+  walletAddress = "";
+
+  /**
+   * True when the server validated the nonce claim against the request
+   * field. False when the nonce was skipped (request.nonce was empty).
+   *
+   * @generated from field: bool nonce_validated = 4;
+   */
+  nonceValidated = false;
+
+  constructor(data?: PartialMessage<AppleSignInResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "iogrid.identity.v1.AppleSignInResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "bundle", kind: "message", T: AuthBundle },
+    { no: 2, name: "new_user", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 3, name: "wallet_address", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 4, name: "nonce_validated", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): AppleSignInResponse {
+    return new AppleSignInResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): AppleSignInResponse {
+    return new AppleSignInResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): AppleSignInResponse {
+    return new AppleSignInResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: AppleSignInResponse | PlainMessage<AppleSignInResponse> | undefined, b: AppleSignInResponse | PlainMessage<AppleSignInResponse> | undefined): boolean {
+    return proto3.util.equals(AppleSignInResponse, a, b);
+  }
+}
+
+/**
  * AuthBundle is what every successful sign-in flow returns. Clients
  * store the access token in memory (never localStorage) and the refresh
  * token in an httpOnly secure cookie.
