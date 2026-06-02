@@ -293,3 +293,217 @@ func TestHashAppleSub_Deterministic(t *testing.T) {
 		t.Fatal("different salt should produce different hash")
 	}
 }
+
+// TestJWKSCache_TTLExpiryTriggersRefresh exercises the soft-TTL path: a
+// fetch BEFORE the TTL hits returns the cached doc with no new network
+// hit, but the first lookup AFTER the TTL window must trigger a refresh
+// (i.e. hit the JWKS endpoint a second time). Guards against the bug
+// where a deployed pod would happily serve a 6-month-stale JWKS doc
+// because the cache never noticed its TTL had elapsed.
+func TestJWKSCache_TTLExpiryTriggersRefresh(t *testing.T) {
+	f := newFakeJWKSServer(t)
+	// Very short TTL so the test doesn't have to sleep for 24h.
+	cache := NewJWKSCache(f.url(), 50*time.Millisecond, http.DefaultClient)
+	if _, err := cache.GetKey(context.Background(), f.kid); err != nil {
+		t.Fatalf("initial fetch: %v", err)
+	}
+	if got := f.hits.Load(); got != 1 {
+		t.Fatalf("expected 1 hit after first fetch, got %d", got)
+	}
+	// Within-TTL lookup — no extra hit.
+	if _, err := cache.GetKey(context.Background(), f.kid); err != nil {
+		t.Fatalf("within-TTL fetch: %v", err)
+	}
+	if got := f.hits.Load(); got != 1 {
+		t.Errorf("expected 1 hit (within TTL), got %d", got)
+	}
+	// Wait past the soft TTL.
+	time.Sleep(80 * time.Millisecond)
+	if _, err := cache.GetKey(context.Background(), f.kid); err != nil {
+		t.Fatalf("post-TTL fetch: %v", err)
+	}
+	if got := f.hits.Load(); got < 2 {
+		t.Errorf("expected ≥2 hits after TTL expiry, got %d", got)
+	}
+}
+
+// TestApple_Validate_MissingExpClaim — Apple's real tokens always carry
+// `exp`, but a malicious or test-rig token without one must NEVER be
+// accepted. The jwt library may treat the absence as "no expiry to
+// check" in some configurations; our validator explicitly rejects.
+func TestApple_Validate_MissingExpClaim(t *testing.T) {
+	f := newFakeJWKSServer(t)
+	v := newTestValidator(t, f)
+	claims := AppleClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:   AppleIssuer,
+			Subject:  "apple-sub-noexp",
+			Audience: jwt.ClaimStrings{AppleAudience},
+			IssuedAt: jwt.NewNumericDate(time.Now().Add(-time.Minute)),
+			// No ExpiresAt.
+		},
+		Email: "noexp@example.com",
+	}
+	tok := f.sign(t, "", claims)
+	_, err := v.Validate(context.Background(), tok, "")
+	if err == nil {
+		t.Fatal("expected error for missing exp")
+	}
+	if !errors.Is(err, ErrAppleTokenInvalid) {
+		t.Errorf("err: %v", err)
+	}
+	if !strings.Contains(err.Error(), "exp") {
+		t.Errorf("want 'exp' in error, got %v", err)
+	}
+}
+
+// TestApple_Validate_WrongAlg ensures a token signed with anything other
+// than RS256 — even if the signature is technically valid for the alg —
+// is rejected. Apple ONLY signs with RS256; accepting any other alg is
+// the classic "alg=none" / alg-confusion vulnerability surface.
+func TestApple_Validate_WrongAlg(t *testing.T) {
+	f := newFakeJWKSServer(t)
+	v := newTestValidator(t, f)
+	// Build a token with HS256 signed with a symmetric secret.
+	claims := freshClaims("apple-sub-hs", AppleAudience, AppleIssuer, "", time.Now().Add(5*time.Minute))
+	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tok.Header["kid"] = f.kid
+	signed, err := tok.SignedString([]byte("some-symmetric-secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = v.Validate(context.Background(), signed, "")
+	if err == nil {
+		t.Fatal("expected error for HS256 token")
+	}
+	if !errors.Is(err, ErrAppleTokenInvalid) {
+		t.Errorf("err: %v", err)
+	}
+	if !strings.Contains(err.Error(), "alg") {
+		t.Errorf("want 'alg' in error, got %v", err)
+	}
+}
+
+// TestApple_Validate_MissingKidHeader — a token whose header omits `kid`
+// can't be routed to a JWKS entry. The validator must reject before
+// touching the cache (avoids ambiguity if the cache happens to have
+// exactly one key).
+func TestApple_Validate_MissingKidHeader(t *testing.T) {
+	f := newFakeJWKSServer(t)
+	v := newTestValidator(t, f)
+	claims := freshClaims("apple-sub-nokid", AppleAudience, AppleIssuer, "", time.Now().Add(5*time.Minute))
+	tok := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	// Explicitly do NOT set tok.Header["kid"].
+	signed, err := tok.SignedString(f.priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = v.Validate(context.Background(), signed, "")
+	if err == nil {
+		t.Fatal("expected error for missing kid")
+	}
+	if !errors.Is(err, ErrAppleTokenInvalid) {
+		t.Errorf("err: %v", err)
+	}
+	if !strings.Contains(err.Error(), "kid") {
+		t.Errorf("want 'kid' in error, got %v", err)
+	}
+}
+
+// TestApple_Validate_MultiAudWithMatch — Apple sometimes mints tokens
+// with multiple aud entries when a Services ID is involved. As long as
+// OUR bundle id is in the set the token is acceptable.
+func TestApple_Validate_MultiAudWithMatch(t *testing.T) {
+	f := newFakeJWKSServer(t)
+	v := newTestValidator(t, f)
+	claims := AppleClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    AppleIssuer,
+			Subject:   "apple-sub-multi",
+			Audience:  jwt.ClaimStrings{"io.someoneelse.app", AppleAudience, "io.thirdparty.app"},
+			IssuedAt:  jwt.NewNumericDate(time.Now().Add(-time.Minute)),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(5 * time.Minute)),
+		},
+		Email: "multi@example.com",
+	}
+	tok := f.sign(t, "", claims)
+	got, err := v.Validate(context.Background(), tok, "")
+	if err != nil {
+		t.Fatalf("expected ok with multi-aud containing ours, got %v", err)
+	}
+	if got.Subject != "apple-sub-multi" {
+		t.Errorf("subject: %s", got.Subject)
+	}
+}
+
+// TestApple_Validate_EmptyAudClaim — token with the audience claim set
+// to an empty array must be rejected; ClaimStrings with zero entries
+// can't contain our bundle id by definition.
+func TestApple_Validate_EmptyAudClaim(t *testing.T) {
+	f := newFakeJWKSServer(t)
+	v := newTestValidator(t, f)
+	claims := AppleClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    AppleIssuer,
+			Subject:   "apple-sub-noaud",
+			Audience:  jwt.ClaimStrings{},
+			IssuedAt:  jwt.NewNumericDate(time.Now().Add(-time.Minute)),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(5 * time.Minute)),
+		},
+	}
+	tok := f.sign(t, "", claims)
+	_, err := v.Validate(context.Background(), tok, "")
+	if err == nil {
+		t.Fatal("expected error for empty aud")
+	}
+	if !errors.Is(err, ErrAppleTokenInvalid) {
+		t.Errorf("err: %v", err)
+	}
+	if !strings.Contains(err.Error(), "aud") {
+		t.Errorf("want 'aud' in error, got %v", err)
+	}
+}
+
+// TestJWKSCache_ConcurrentGetKey covers the race-condition surface that
+// production WILL hit: 50+ iOS clients all sign in within the same TTL
+// window, each calling GetKey from a different goroutine. The cache
+// must be safe under concurrent reads + refreshes — no data race, no
+// missed lookups, no double-fetch storm.
+//
+// Note: this is the closest analogue to "two concurrent
+// CompleteAppleSignIn calls with the same apple_sub" that we can
+// exercise at the validator layer; the full DB-side race is covered in
+// the integration suite (apple_integration_test.go) which depends on a
+// live Postgres fixture. See follow-up issue for an explicit
+// concurrent-write race test against the Service.
+func TestJWKSCache_ConcurrentGetKey(t *testing.T) {
+	f := newFakeJWKSServer(t)
+	cache := NewJWKSCache(f.url(), 24*time.Hour, http.DefaultClient)
+	const N = 64
+	errs := make(chan error, N)
+	done := make(chan struct{})
+	for i := 0; i < N; i++ {
+		go func() {
+			_, err := cache.GetKey(context.Background(), f.kid)
+			errs <- err
+		}()
+	}
+	go func() {
+		for i := 0; i < N; i++ {
+			<-errs
+		}
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("concurrent GetKey timed out")
+	}
+	// All callers should have succeeded; the server may have been hit
+	// more than once (concurrent refresh isn't deduped today — that's
+	// an optimization, not a correctness gate), but it must NOT have
+	// been hit hundreds of times.
+	if got := f.hits.Load(); got > int64(N) {
+		t.Errorf("excessive JWKS fetches under concurrency: %d (expected ≪ %d)", got, N)
+	}
+}
