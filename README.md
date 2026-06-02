@@ -70,6 +70,30 @@ every failure mode. Operators standing up provider daemons should see
 
 ---
 
+## Mobile app (iOS)
+
+The iogrid iOS app ([`mobile/ios/`](./mobile/ios/)) is the consumer surface for
+the VPN. v2 ships:
+
+- **Sign in with Apple** — native ASAuthorization flow; no email, no password, no
+  account-recovery flow to forget. Anonymous Mullvad-style account number is still
+  generated and recoverable on Settings.
+- **$GRID payments via Phantom and Ping wallets** — Plus / Pro tiers can be paid
+  in $GRID over Solana. Phantom and Ping mobile wallets are bound to the account
+  via deep-link signature challenge; Stripe remains the fiat fallback.
+- **Real WireGuard data plane** — vendored WireGuardKit drives a
+  `NEPacketTunnelProvider` extension. The main app never sees decrypted traffic;
+  the tunnel runs in its own process with App Group IPC for status.
+- **Mullvad-grade UX** — one toggle, region picker with latency, quota banner,
+  account-number recovery, NWPathMonitor-driven seamless WiFi↔cellular roaming.
+  Maestro smoke gate (`.maestro/00-all.yaml`) blocks every TestFlight upload.
+
+Tunnel bring-up calls the coordinator at `POST /v1/vpn/sessions/mobile`, which
+returns the WireGuard peer config (provider pubkey, endpoint, AllowedIPs, DNS)
+the PacketTunnelProvider consumes. Android client tracks behind iOS.
+
+---
+
 ## Why iogrid exists
 
 Existing residential-proxy networks have a known opacity problem. Providers don't see what their IP serves. Bandwidth gets resold for purposes the provider would refuse if asked. The 2015 Hola scandal — free-VPN users turned into a botnet without their knowledge — remains the cautionary tale.
@@ -97,6 +121,9 @@ iogrid/
 │                   build-gateway.
 ├── web/            Next.js 15 management plane — providers + customers + VPN.
 │                   TypeScript, shadcn/ui, Tailwind 4, real-time SSE.
+├── mobile/ios/     Expo SDK 56 React Native consumer VPN app — Sign in with
+│                   Apple, $GRID via Phantom/Ping, native PacketTunnelProvider
+│                   with vendored WireGuardKit, Maestro smoke gate.
 ├── proto/          Buf-managed protobuf schemas for all services.
 ├── infra/k8s/      Flux-managed k8s manifests (deployed on OpenOva ecosystem).
 └── docs/           Architecture, roadmap, tech specs, incentive model, legal.
