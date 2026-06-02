@@ -876,3 +876,8 @@ Automation follow-up: [bin/refresh-tracker.sh](https://github.com/iogrid/iogrid/
 - Real fix d6f2eae: revoke only certs OLDER than 60 minutes (filter via expirationDate). In-flight CI runs' certs are spared; truly-stale certs get cleaned.
 - Run 26790610773 in flight. Monitor bf2kbk01c.
 - Will cross-port to vcard/ping/cinova after iter 13 lands green.
+
+## 2026-06-02T08:35Z — Cross-port age-based pre-revoke to all siblings
+- After cross-port commits, all four projects (iogrid + vcard + ping + cinova) now skip revoking certs <60min old. Stops the cross-project cert-nuke race that broke iogrid iter 10/12 + cinova run 26789884887.
+- vcard cae2af1, ping 46406b5, cinova 1e5ff1e
+- All sibling CI runs that fire from here on use age-based logic.
