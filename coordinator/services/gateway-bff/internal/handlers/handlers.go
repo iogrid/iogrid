@@ -24,6 +24,8 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/iogrid/iogrid/coordinator/services/gateway-bff/internal/clients"
 )
@@ -109,6 +111,60 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)
+}
+
+// writeProtoJSON serialises a protobuf message with protojson (proto3-JSON)
+// instead of stdlib encoding/json, then writes it raw. This is REQUIRED for
+// any response the web protobuf-es client reads: stdlib uses the
+// protoc-gen-go struct tags (snake_case field names, e.g. "total_earned",
+// "pending_payout", and Money as {"micros","currency"}), whereas protobuf-es
+// speaks proto3-JSON (camelCase jsonName, e.g. "totalEarned",
+// "pendingPayout"). A stdlib round-trip therefore makes every field arrive
+// `undefined` on the web — the /provider/earnings page rendered "0 $GRID"
+// even for providers with credited usage. See #633 (family of #630).
+//
+// protojsonMarshal is the shared option set: EmitUnpopulated so a zero
+// int64 (proto3 omits it by default) still appears on the wire — the web's
+// formatMoney + dashboard rely on the field being present rather than absent.
+func writeProtoJSON(w http.ResponseWriter, status int, msg proto.Message) {
+	raw, err := protojsonMarshal(msg)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", "failed to encode response")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_, _ = w.Write(raw)
+}
+
+// protojsonMarshal is the canonical proto3-JSON marshaller for BFF
+// responses headed to the web protobuf-es client. EmitUnpopulated keeps
+// proto3-default fields (zero int64, empty string) present so the web can
+// distinguish "field is zero" from "field absent / endpoint stale".
+func protojsonMarshal(msg proto.Message) ([]byte, error) {
+	return protojson.MarshalOptions{EmitUnpopulated: true}.Marshal(msg)
+}
+
+// jsonNull is the literal JSON null spliced into mixed envelopes for absent
+// protobuf sub-objects.
+var jsonNull = json.RawMessage("null")
+
+// protojsonMarshalSlice encodes a slice of protobuf messages as a JSON
+// array, each element via protojson. Used to splice repeated proto fields
+// (audit events, providers) into mixed stdlib envelopes as json.RawMessage.
+func protojsonMarshalSlice[T proto.Message](items []T) (json.RawMessage, error) {
+	if items == nil {
+		return jsonNull, nil
+	}
+	parts := make([]json.RawMessage, 0, len(items))
+	for _, it := range items {
+		raw, err := protojsonMarshal(it)
+		if err != nil {
+			return nil, err
+		}
+		parts = append(parts, raw)
+	}
+	return json.Marshal(parts)
 }
 
 func writeError(w http.ResponseWriter, status int, code, msg string) {

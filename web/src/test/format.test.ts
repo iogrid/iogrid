@@ -5,7 +5,10 @@ import {
   eventKindLabel,
   formatBytes,
   formatMoney,
+  formatMoneyProto,
   formatRelativeTime,
+  moneyCurrency,
+  moneyMajorUnits,
 } from "@/lib/format";
 
 describe("formatBytes", () => {
@@ -110,6 +113,79 @@ describe("formatMoney", () => {
       ).toThrow();
       // formatMoney must NOT throw.
       expect(formatMoney("1", "GRID")).toBe("1 $GRID");
+    });
+  });
+});
+
+// Regression suite for #633: gateway-bff now emits Money as proto3-JSON
+// `{ currency, micros }` (micros as an int64 STRING) instead of the bogus
+// `{ currencyCode, amount }` shape the web previously read. A credited
+// provider's earnings must render the real value, NOT collapse to
+// "0 $GRID" because `.amount` was undefined.
+describe("Money proto3-JSON accessors (#633)", () => {
+  describe("moneyMajorUnits", () => {
+    it("converts micros string → major units (1500000 → 1.5)", () => {
+      expect(moneyMajorUnits({ currency: "GRID", micros: "1500000" })).toBe(1.5);
+    });
+
+    it("accepts a numeric micros too", () => {
+      expect(moneyMajorUnits({ currency: "GRID", micros: 1_000_000 })).toBe(1);
+    });
+
+    it("returns undefined when no value is present (zero-state)", () => {
+      expect(moneyMajorUnits({ currency: "GRID" })).toBeUndefined();
+      expect(moneyMajorUnits({ currency: "GRID", micros: "" })).toBeUndefined();
+      expect(moneyMajorUnits(undefined)).toBeUndefined();
+      expect(moneyMajorUnits(null)).toBeUndefined();
+    });
+
+    it("falls back to the legacy decimal-string `amount` shape", () => {
+      expect(moneyMajorUnits({ currencyCode: "USD", amount: "12.34" })).toBe(
+        12.34,
+      );
+    });
+
+    it("prefers micros over a stale legacy amount when both present", () => {
+      expect(
+        moneyMajorUnits({ currency: "GRID", micros: "2000000", amount: "9" }),
+      ).toBe(2);
+    });
+  });
+
+  describe("moneyCurrency", () => {
+    it("reads the proto3 `currency` field", () => {
+      expect(moneyCurrency({ currency: "USD", micros: "0" })).toBe("USD");
+    });
+    it("falls back to legacy `currencyCode`, then to GRID", () => {
+      expect(moneyCurrency({ currencyCode: "EUR" })).toBe("EUR");
+      expect(moneyCurrency({})).toBe("GRID");
+      expect(moneyCurrency(undefined)).toBe("GRID");
+    });
+  });
+
+  describe("formatMoneyProto", () => {
+    it("renders a credited GRID balance from micros (THE #633 bug)", () => {
+      // Pre-fix this read `.amount` (undefined) and rendered "0 $GRID".
+      expect(formatMoneyProto({ currency: "GRID", micros: "1500000" })).toBe(
+        "1.5 $GRID",
+      );
+      expect(formatMoneyProto({ currency: "GRID", micros: "4200000" })).toBe(
+        "4.2 $GRID",
+      );
+    });
+
+    it("renders USD via Intl from micros", () => {
+      expect(formatMoneyProto({ currency: "USD", micros: "12340000" })).toBe(
+        "$12.34",
+      );
+    });
+
+    it("renders '0 $GRID' for the Phase-0 zero / empty state", () => {
+      expect(formatMoneyProto({ currency: "GRID", micros: "0" })).toBe(
+        "0 $GRID",
+      );
+      expect(formatMoneyProto(undefined)).toBe("0 $GRID");
+      expect(formatMoneyProto({})).toBe("0 $GRID");
     });
   });
 });

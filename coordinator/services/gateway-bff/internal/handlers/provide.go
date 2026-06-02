@@ -20,15 +20,23 @@ import (
 
 // providerDashboard is the aggregated payload returned by GET
 // /api/v1/provide/dashboard. We fan out to providers-svc in parallel.
+//
+// Every protobuf sub-object is carried as a protojson-encoded
+// json.RawMessage (NOT a *proto struct stdlib-encoded inline) so the web
+// protobuf-es client reads camelCase proto3-JSON — Money as
+// {currency, micros}, enums as strings. Passing the *proto structs straight
+// through stdlib encoding/json emitted snake_case + Money {micros,currency},
+// which the web read as `undefined` ⇒ the earnings cards showed "0 $GRID"
+// even for credited providers (#633, family of #630).
 type providerDashboard struct {
-	Earnings     *providersv1.GetEarningsSummaryResponse `json:"earnings"`
-	State        *providersv1.GetCurrentStateResponse    `json:"state"`
-	RecentEvents []*providersv1.AuditEvent               `json:"recent_events"`
+	Earnings     json.RawMessage `json:"earnings"`
+	State        json.RawMessage `json:"state"`
+	RecentEvents json.RawMessage `json:"recent_events"`
 	// HasProvider is false when the caller owns zero paired providers.
-	// In that case Earnings/State/RecentEvents are also nil. The web
+	// In that case Earnings/State/RecentEvents are also null. The web
 	// layer falls through to the "Install the daemon" empty-state.
-	HasProvider bool                     `json:"has_provider"`
-	Providers   []*providersv1.Provider  `json:"providers"`
+	HasProvider bool            `json:"has_provider"`
+	Providers   json.RawMessage `json:"providers"`
 }
 
 // providerSchedule mirrors the JSON envelope returned by GET
@@ -83,7 +91,12 @@ func (a *API) GetProviderDashboard(w http.ResponseWriter, r *http.Request) {
 		// the web layer can render the "Install the daemon" CTA. We
 		// deliberately do NOT call providers-svc with a synthesised
 		// provider_id (#305).
-		writeJSON(w, http.StatusOK, providerDashboard{HasProvider: false, Providers: owned})
+		env, err := buildProviderDashboard(nil, nil, nil, false, owned)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "failed to encode dashboard")
+			return
+		}
+		writeJSON(w, http.StatusOK, env)
 		return
 	}
 	now := time.Now().UTC()
@@ -134,16 +147,66 @@ func (a *API) GetProviderDashboard(w http.ResponseWriter, r *http.Request) {
 		writeUpstreamError(w, err)
 		return
 	}
-	out := providerDashboard{
-		Earnings:    earnings,
-		State:       state,
-		HasProvider: true,
-		Providers:   owned,
-	}
+	var recent []*providersv1.AuditEvent
 	if events != nil {
-		out.RecentEvents = events.Events
+		recent = events.Events
+	}
+	out, err := buildProviderDashboard(earnings, state, recent, true, owned)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", "failed to encode dashboard")
+		return
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// buildProviderDashboard assembles the /provide/dashboard envelope,
+// encoding every protobuf sub-object with protojson (camelCase proto3-JSON)
+// and splicing it via json.RawMessage. nil sub-objects serialise as JSON
+// null. See the providerDashboard doc comment for why stdlib is wrong here
+// (#633).
+func buildProviderDashboard(
+	earnings *providersv1.GetEarningsSummaryResponse,
+	state *providersv1.GetCurrentStateResponse,
+	events []*providersv1.AuditEvent,
+	hasProvider bool,
+	providers []*providersv1.Provider,
+) (providerDashboard, error) {
+	env := providerDashboard{
+		Earnings:     jsonNull,
+		State:        jsonNull,
+		RecentEvents: jsonNull,
+		HasProvider:  hasProvider,
+		Providers:    jsonNull,
+	}
+	if earnings != nil {
+		raw, err := protojsonMarshal(earnings)
+		if err != nil {
+			return env, err
+		}
+		env.Earnings = raw
+	}
+	if state != nil {
+		raw, err := protojsonMarshal(state)
+		if err != nil {
+			return env, err
+		}
+		env.State = raw
+	}
+	if events != nil {
+		raw, err := protojsonMarshalSlice(events)
+		if err != nil {
+			return env, err
+		}
+		env.RecentEvents = raw
+	}
+	if providers != nil {
+		raw, err := protojsonMarshalSlice(providers)
+		if err != nil {
+			return env, err
+		}
+		env.Providers = raw
+	}
+	return env, nil
 }
 
 // GetProviderSchedule returns the current scheduling config keyed by the
@@ -298,7 +361,7 @@ func (a *API) GetProviderEarnings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if pid == "" {
-		writeJSON(w, http.StatusOK, &providersv1.GetEarningsSummaryResponse{})
+		writeProtoJSON(w, http.StatusOK, &providersv1.GetEarningsSummaryResponse{})
 		return
 	}
 	window := parseTimeWindow(r)
@@ -310,7 +373,9 @@ func (a *API) GetProviderEarnings(w http.ResponseWriter, r *http.Request) {
 		writeUpstreamError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, resp)
+	// protojson so totalEarned / byWorkloadType Money fields arrive as
+	// camelCase {currency, micros} the web protobuf-es client can read. #633.
+	writeProtoJSON(w, http.StatusOK, resp)
 }
 
 // resolveOwnedProviderID figures out which provider the request should

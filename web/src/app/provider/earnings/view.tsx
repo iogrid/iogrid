@@ -10,7 +10,7 @@ import {
 } from "@/components/dashboard/provider-empty-state";
 import { Button } from "@/components/ui/button";
 import { browserApi } from "@/lib/api";
-import { formatMoney } from "@/lib/format";
+import { formatMoneyProto, moneyCurrency, moneyMajorUnits } from "@/lib/format";
 import { useProviderOwnership } from "@/lib/use-provider-ownership";
 import { cn } from "@/lib/utils";
 import type {
@@ -163,7 +163,7 @@ export function EarningsView() {
   // hasn't arrived yet. Both default to GRID currency for #312/#315.
   const headlineTotal = headline?.summary?.totalEarned;
   const total = headlineTotal ?? summary?.summary?.totalEarned;
-  const currency = total?.currencyCode ?? "GRID";
+  const currency = moneyCurrency(total);
   const breakdown = Object.entries(summary?.summary?.byWorkloadType ?? {});
 
   const nextPayout = nextPayoutDate();
@@ -189,10 +189,7 @@ export function EarningsView() {
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatsCard
           label="Total earned (lifetime)"
-          value={formatMoney(
-            headline?.summary?.totalEarned?.amount,
-            headline?.summary?.totalEarned?.currencyCode ?? currency,
-          )}
+          value={formatMoneyProto(headline?.summary?.totalEarned)}
           hint={
             headline?.summary?.lifetimeWorkloads
               ? `${headline.summary.lifetimeWorkloads} workloads`
@@ -202,18 +199,14 @@ export function EarningsView() {
         />
         <StatsCard
           label="Last 30 days"
-          value={formatMoney(
-            headline?.summary?.last30D?.amount,
-            headline?.summary?.last30D?.currencyCode ?? currency,
+          value={formatMoneyProto(
+            headline?.summary?.last30d ?? headline?.summary?.last30D,
           )}
           hint="Rolling 30-day window"
         />
         <StatsCard
           label="Pending payout"
-          value={formatMoney(
-            headline?.summary?.pendingPayout?.amount,
-            headline?.summary?.pendingPayout?.currencyCode ?? currency,
-          )}
+          value={formatMoneyProto(headline?.summary?.pendingPayout)}
           hint={payoutHint(payout)}
         />
         <StatsCard
@@ -293,7 +286,7 @@ export function EarningsView() {
               <li key={k} className="flex items-center justify-between p-3 text-sm">
                 <span>{workloadLabel(k)}</span>
                 <span className="font-mono">
-                  {formatMoney(v.amount, v.currencyCode)}
+                  {formatMoneyProto(v)}
                 </span>
               </li>
             ))
@@ -424,7 +417,7 @@ function buildChartPoints(
   resp: GetEarningsSummaryResponse | null,
   period: Period,
 ): EarningsPoint[] {
-  const total = Number(resp?.summary?.totalEarned?.amount ?? 0);
+  const total = moneyMajorUnits(resp?.summary?.totalEarned) ?? 0;
   const buckets = period === "daily" ? 14 : period === "weekly" ? 8 : 12;
   if (total === 0) return [];
   const result: EarningsPoint[] = [];

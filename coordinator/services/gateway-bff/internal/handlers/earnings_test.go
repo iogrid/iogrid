@@ -3,12 +3,15 @@ package handlers
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/iogrid/iogrid/coordinator/services/gateway-bff/internal/clients"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 
 	billingv1 "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/billing/v1"
 	commonv1 "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/common/v1"
@@ -64,8 +67,13 @@ func TestGetProviderEarningsSummary_NoProvider(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d body=%s", w.Code, w.Body.String())
 	}
+	body := w.Body.Bytes()
+	// The web protobuf-es client reads proto3-JSON (camelCase). Assert the
+	// raw wire shape carries camelCase keys — a stdlib encoding (snake_case
+	// "total_earned") would render every card undefined ⇒ "0 $GRID" (#633).
+	assertCamelEarningsKeys(t, body)
 	var resp billingv1.GetEarningsSummaryResponse
-	mustReadJSON(t, w.Body, &resp)
+	mustReadProtoJSON(t, body, &resp)
 	if resp.Summary == nil || resp.Summary.TotalEarned == nil {
 		t.Fatalf("summary missing TotalEarned: %#v", resp.Summary)
 	}
@@ -74,6 +82,54 @@ func TestGetProviderEarningsSummary_NoProvider(t *testing.T) {
 	}
 	if resp.Summary.TotalEarned.Micros != 0 {
 		t.Fatalf("micros = %d, want 0", resp.Summary.TotalEarned.Micros)
+	}
+}
+
+// assertCamelEarningsKeys verifies the JSON the BFF emits uses the
+// proto3-JSON camelCase field names the web protobuf-es client expects.
+// This is the load-bearing assertion for #633: with stdlib encoding/json
+// the keys were snake_case ("summary.total_earned", "lifetime_workloads")
+// and the web read undefined everywhere.
+func assertCamelEarningsKeys(t *testing.T, body []byte) {
+	t.Helper()
+	var env struct {
+		Summary map[string]json.RawMessage `json:"summary"`
+	}
+	if err := json.Unmarshal(body, &env); err != nil {
+		t.Fatalf("unmarshal envelope: %v: %s", err, body)
+	}
+	if env.Summary == nil {
+		t.Fatalf("no summary in body: %s", body)
+	}
+	for _, camel := range []string{"totalEarned", "last30d", "last7d", "pendingPayout", "lifetimeWorkloads"} {
+		if _, ok := env.Summary[camel]; !ok {
+			t.Fatalf("summary missing camelCase key %q (got keys %v) — stdlib snake_case regression (#633): %s",
+				camel, keysOf(env.Summary), body)
+		}
+	}
+	for _, snake := range []string{"total_earned", "pending_payout", "lifetime_workloads"} {
+		if _, ok := env.Summary[snake]; ok {
+			t.Fatalf("summary leaked snake_case key %q — web protobuf-es can't read it (#633): %s", snake, body)
+		}
+	}
+}
+
+func keysOf(m map[string]json.RawMessage) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
+// mustReadProtoJSON deserialises a proto3-JSON body into a protobuf message
+// using protojson — the correct decoder for the camelCase wire shape the
+// BFF now emits. (mustReadJSON, the stdlib path, would silently read zero
+// from camelCase keys against the snake_case protoc-gen-go tags.)
+func mustReadProtoJSON(t *testing.T, body []byte, out proto.Message) {
+	t.Helper()
+	if err := protojson.Unmarshal(body, out); err != nil {
+		t.Fatalf("protojson unmarshal: %v: %s", err, body)
 	}
 }
 
@@ -114,10 +170,21 @@ func TestGetProviderEarningsSummary_OwnedProvider(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d body=%s", w.Code, w.Body.String())
 	}
+	body := w.Body.Bytes()
+	assertCamelEarningsKeys(t, body)
+	// Decode the way the web does (proto3-JSON / camelCase). This is the
+	// regression guard for #633: a credited provider (1.5 $GRID, 3
+	// workloads) MUST survive the round-trip, not collapse to zero.
 	var resp billingv1.GetEarningsSummaryResponse
-	mustReadJSON(t, w.Body, &resp)
-	if resp.Summary.LifetimeWorkloads != 3 {
-		t.Fatalf("lifetimeWorkloads = %d, want 3", resp.Summary.LifetimeWorkloads)
+	mustReadProtoJSON(t, body, &resp)
+	if resp.Summary.GetLifetimeWorkloads() != 3 {
+		t.Fatalf("lifetimeWorkloads = %d, want 3 (body=%s)", resp.Summary.GetLifetimeWorkloads(), body)
+	}
+	if got := resp.Summary.GetTotalEarned().GetMicros(); got != 1_500_000 {
+		t.Fatalf("totalEarned.micros = %d, want 1500000 (body=%s)", got, body)
+	}
+	if got := resp.Summary.GetTotalEarned().GetCurrency(); got != "GRID" {
+		t.Fatalf("totalEarned.currency = %q, want GRID", got)
 	}
 }
 

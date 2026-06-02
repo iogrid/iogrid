@@ -21,11 +21,28 @@ export interface UUIDValue {
   value: string;
 }
 
+/**
+ * Money mirrors `iogrid.common.v1.Money` as serialised by gateway-bff via
+ * protojson (proto3-JSON). The canonical wire shape is
+ * `{ currency, micros }` where `micros` is an int64 amount in millionths of
+ * the major unit, emitted as a decimal STRING per proto3 int64 mapping
+ * (e.g. 1.5 $GRID → { currency: "GRID", micros: "1500000" }).
+ *
+ * The legacy `{ currencyCode, amount }` fields are kept optional for
+ * forwards/backwards compatibility with any caller still on the old
+ * (incorrect) stdlib snake-case path; new code should read via
+ * `moneyMajorUnits` / `moneyCurrency` (see format.ts) rather than touching
+ * these fields directly. See #633.
+ */
 export interface Money {
-  /** ISO-4217 currency code, e.g. "USD". */
-  currencyCode: string;
-  /** Decimal string. proto3 maps int64 + scale to a string. */
-  amount: string;
+  /** ISO-4217 / native ("GRID") currency code. proto field: currency. */
+  currency?: string;
+  /** int64 micros (1 unit == 1_000_000), proto3 maps to a string. */
+  micros?: string | number;
+  /** @deprecated legacy alias for `currency` — pre-#633 shape. */
+  currencyCode?: string;
+  /** @deprecated legacy decimal-string amount — pre-#633 shape. */
+  amount?: string;
   /** Optional power-of-ten the amount is divided by (e.g. 2 → cents). */
   nanos?: number;
 }
@@ -197,9 +214,15 @@ export interface GetEarningsSummaryResponse {
 export interface BillingEarningsSummary {
   providerId?: UUIDValue;
   totalEarned?: Money;
-  /** Trailing 30 days. proto field name: last_30d. */
+  /**
+   * Trailing 30 days. proto3-JSON jsonName is `last30d` (all-lowercase d —
+   * protojson lowercases the trailing letter). The capital-D `last30D`
+   * alias is kept for any stale reader. See #633.
+   */
+  last30d?: Money;
   last30D?: Money;
-  /** Trailing 7 days. proto field name: last_7d. */
+  /** Trailing 7 days. proto3-JSON jsonName is `last7d`. */
+  last7d?: Money;
   last7D?: Money;
   /** Credited but not yet swept by the off-ramp cron. */
   pendingPayout?: Money;

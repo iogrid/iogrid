@@ -174,6 +174,62 @@ export function formatMoney(
 }
 
 /**
+ * Minimal structural Money: the proto3-JSON canonical shape is
+ * `{ currency, micros }` (micros as a decimal string), but we tolerate the
+ * legacy `{ currencyCode, amount }` shape too so a partial rollout never
+ * crashes. See #633.
+ */
+type MoneyLike =
+  | {
+      currency?: string;
+      micros?: string | number;
+      currencyCode?: string;
+      amount?: string | number;
+    }
+  | null
+  | undefined;
+
+/**
+ * moneyCurrency returns the currency code from either the proto3-JSON
+ * (`currency`) or the legacy (`currencyCode`) shape, defaulting to the
+ * native token "GRID" (#312/#315).
+ */
+export function moneyCurrency(m: MoneyLike): string {
+  if (!m) return "GRID";
+  return m.currency ?? m.currencyCode ?? "GRID";
+}
+
+/**
+ * moneyMajorUnits converts a Money to its major-unit numeric value
+ * (e.g. micros "1500000" → 1.5). Reads the canonical `micros` field first
+ * (int64 micros, 1 unit == 1_000_000), then falls back to the legacy
+ * decimal-string `amount`. Returns undefined when no value is present so
+ * formatMoney can render the Phase-0 "0 $GRID" / "—" empty-state. #633.
+ */
+export function moneyMajorUnits(m: MoneyLike): number | undefined {
+  if (!m) return undefined;
+  if (m.micros !== undefined && m.micros !== null && m.micros !== "") {
+    const micros = typeof m.micros === "string" ? Number(m.micros) : m.micros;
+    if (Number.isFinite(micros)) return micros / 1_000_000;
+  }
+  if (m.amount !== undefined && m.amount !== null && m.amount !== "") {
+    const amt = typeof m.amount === "string" ? Number(m.amount) : m.amount;
+    if (Number.isFinite(amt)) return amt;
+  }
+  return undefined;
+}
+
+/**
+ * formatMoneyProto renders a proto Money (`{ currency, micros }`) for
+ * display. This is the correct entry point for any Money that crosses the
+ * gateway-bff protojson boundary — it reads `micros`, not the non-existent
+ * `.amount`, so credited providers no longer render "0 $GRID" (#633).
+ */
+export function formatMoneyProto(m: MoneyLike): string {
+  return formatMoney(moneyMajorUnits(m), moneyCurrency(m));
+}
+
+/**
  * Format a numeric $GRID amount with up to 4 fractional digits (the
  * token is 6-decimal on Solana but UI fidelity below 4dp is noise).
  * Trailing zeros are stripped so "1.0000 $GRID" renders as "1 $GRID"

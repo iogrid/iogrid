@@ -10,7 +10,7 @@ import {
   PROVIDER_EMPTY_OVERVIEW_SUBTITLE,
 } from "@/components/dashboard/provider-empty-state";
 import { browserApi } from "@/lib/api";
-import { formatBytes, formatMoney } from "@/lib/format";
+import { formatBytes, formatMoneyProto } from "@/lib/format";
 import { schedulerStateShortName } from "@/lib/proto-enum";
 import { cn } from "@/lib/utils";
 import type { ProviderDashboard } from "@/lib/types";
@@ -133,7 +133,7 @@ export function ProvideOverview() {
         />
         <StatsCard
           label="Earnings this month"
-          value={formatMoney(earnings?.totalEarned?.amount, earnings?.totalEarned?.currencyCode ?? "GRID")}
+          value={formatMoneyProto(earnings?.totalEarned)}
           hint="So far this period"
         />
         <StatsCard

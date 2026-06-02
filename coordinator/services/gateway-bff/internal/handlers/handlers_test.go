@@ -523,6 +523,88 @@ func TestGetProviderDashboard_FansOut(t *testing.T) {
 	}
 }
 
+// TestGetProviderDashboard_ProtoJSONWireShape verifies the dashboard
+// envelope splices its protobuf sub-objects as proto3-JSON (camelCase,
+// Money as {currency, micros}) so the web protobuf-es client reads real
+// values. With the old stdlib encoding the earnings Money arrived as
+// snake_case {micros, currency} under "total_earned" and the cards showed
+// "0 $GRID" for credited providers (#633).
+func TestGetProviderDashboard_ProtoJSONWireShape(t *testing.T) {
+	pid := uuid.NewString()
+	owned := &providersv1.Provider{
+		Id:          &commonv1.UUID{Value: pid},
+		OwnerUserId: &commonv1.UUID{Value: fakeUserID},
+		Status:      providersv1.ProviderStatus_PROVIDER_STATUS_ACTIVE,
+	}
+	set := &clients.Set{
+		ProvidersDashboard: &mockDashboard{
+			earningsSummary: func(_ context.Context, _ *providersv1.GetEarningsSummaryRequest) (*providersv1.GetEarningsSummaryResponse, error) {
+				return &providersv1.GetEarningsSummaryResponse{Summary: &providersv1.EarningsSummary{
+					ProviderId:  &commonv1.UUID{Value: pid},
+					TotalEarned: &commonv1.Money{Currency: "GRID", Micros: 4_200_000},
+				}}, nil
+			},
+			listEvents: func(_ context.Context, _ *providersv1.ListAuditEventsRequest) (*providersv1.ListAuditEventsResponse, error) {
+				return &providersv1.ListAuditEventsResponse{Events: []*providersv1.AuditEvent{
+					{Id: &commonv1.UUID{Value: uuid.NewString()}},
+				}}, nil
+			},
+		},
+		ProvidersScheduling: &mockScheduling{
+			getState: func(_ context.Context, _ *providersv1.GetCurrentStateRequest) (*providersv1.GetCurrentStateResponse, error) {
+				return &providersv1.GetCurrentStateResponse{State: providersv1.SchedulerState_SCHEDULER_STATE_ACTIVE}, nil
+			},
+		},
+		ProvidersRegistration: staticRegistration(owned),
+	}
+	api := newAPI(t, set)
+	r := withAuth(httptest.NewRequest(http.MethodGet, "/api/v1/provide/dashboard", nil))
+	w := httptest.NewRecorder()
+	api.GetProviderDashboard(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	body := w.Body.Bytes()
+
+	var env struct {
+		Earnings    json.RawMessage `json:"earnings"`
+		HasProvider bool            `json:"has_provider"`
+	}
+	if err := json.Unmarshal(body, &env); err != nil {
+		t.Fatalf("unmarshal dashboard: %v: %s", err, body)
+	}
+	if !env.HasProvider {
+		t.Fatalf("has_provider=false, want true: %s", body)
+	}
+	// Dig into earnings.summary.totalEarned — every level must be camelCase
+	// proto3-JSON.
+	var earn struct {
+		Summary struct {
+			TotalEarned map[string]json.RawMessage `json:"totalEarned"`
+		} `json:"summary"`
+	}
+	if err := json.Unmarshal(env.Earnings, &earn); err != nil {
+		t.Fatalf("unmarshal earnings: %v: %s", err, env.Earnings)
+	}
+	if earn.Summary.TotalEarned == nil {
+		t.Fatalf("earnings.summary.totalEarned missing (snake_case regression #633): %s", env.Earnings)
+	}
+	if _, ok := earn.Summary.TotalEarned["micros"]; !ok {
+		t.Fatalf("Money.micros missing: %s", env.Earnings)
+	}
+	if _, ok := earn.Summary.TotalEarned["currency"]; !ok {
+		t.Fatalf("Money.currency missing: %s", env.Earnings)
+	}
+	// Decode like the web does and assert the value survived.
+	var resp providersv1.GetEarningsSummaryResponse
+	if err := protojson.Unmarshal(env.Earnings, &resp); err != nil {
+		t.Fatalf("protojson earnings: %v: %s", err, env.Earnings)
+	}
+	if got := resp.GetSummary().GetTotalEarned().GetMicros(); got != 4_200_000 {
+		t.Fatalf("totalEarned.micros = %d, want 4200000: %s", got, env.Earnings)
+	}
+}
+
 // TestGetProviderSchedule_NoProvider_ReturnsNullConfig is the direct
 // regression test for #305: a user with zero paired providers must NOT
 // see a synthesised SchedulingConfig keyed by their user_id. They must

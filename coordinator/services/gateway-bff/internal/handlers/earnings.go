@@ -48,7 +48,11 @@ func (a *API) GetProviderEarningsSummary(w http.ResponseWriter, r *http.Request)
 		// Zero-provider Phase-0 path: return a typed empty envelope with
 		// currency "GRID" so the page renders "0 $GRID" via #315's
 		// formatMoney, instead of "—" or a 404.
-		writeJSON(w, http.StatusOK, &billingv1.GetEarningsSummaryResponse{
+		//
+		// protojson (NOT stdlib writeJSON) so the web protobuf-es client
+		// reads camelCase fields (totalEarned, pendingPayout) and Money as
+		// {currency, micros}. See #633.
+		writeProtoJSON(w, http.StatusOK, &billingv1.GetEarningsSummaryResponse{
 			Summary: emptyGridSummary(),
 		})
 		return
@@ -60,7 +64,10 @@ func (a *API) GetProviderEarningsSummary(w http.ResponseWriter, r *http.Request)
 		writeUpstreamError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, resp)
+	// protojson so the headline cards (lifetime / last_30d / last_7d /
+	// pending) actually populate on the web — stdlib snake_case made every
+	// card read `undefined` ⇒ "0 $GRID" even for credited providers. #633.
+	writeProtoJSON(w, http.StatusOK, resp)
 }
 
 // GetProviderPayoutMethod returns the caller's saved election.
