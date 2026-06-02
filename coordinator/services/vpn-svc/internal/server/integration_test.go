@@ -669,3 +669,103 @@ func TestIntegration_TopProvidersInRegion(t *testing.T) {
 	}
 	respBad.Body.Close()
 }
+
+// ── Mobile session bring-up (#588 / #605) ──────────────────────────
+
+// TestIntegration_MobileSession_MissingRegion verifies the mobile
+// endpoint rejects payloads without region or client_public_key
+// before any store work happens. (#605)
+func TestIntegration_MobileSession_MissingRegion(t *testing.T) {
+	srv, _ := boot(t)
+
+	body := map[string]string{
+		"client_public_key": "AAAA1111BBBB2222CCCC3333DDDD4444=",
+		// region intentionally omitted
+	}
+	buf := &bytes.Buffer{}
+	_ = json.NewEncoder(buf).Encode(body)
+	req, _ := http.NewRequest("POST", srv.URL+"/v1/vpn/sessions/mobile", buf)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST /sessions/mobile: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("missing region: status=%d, want 400", resp.StatusCode)
+	}
+}
+
+// TestIntegration_MobileSession_MissingClientPublicKey verifies the
+// handler rejects requests without a client WG public key. (#605)
+func TestIntegration_MobileSession_MissingClientPublicKey(t *testing.T) {
+	srv, _ := boot(t)
+
+	body := map[string]string{
+		"region": "us-east-1",
+		// client_public_key intentionally omitted
+	}
+	buf := &bytes.Buffer{}
+	_ = json.NewEncoder(buf).Encode(body)
+	req, _ := http.NewRequest("POST", srv.URL+"/v1/vpn/sessions/mobile", buf)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST /sessions/mobile: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("missing client_public_key: status=%d, want 400", resp.StatusCode)
+	}
+}
+
+// TestIntegration_MobileSession_NoProviders verifies the handler
+// returns 503 + Retry-After when the requested region has no
+// healthy providers. The mobile app uses this signal to retry
+// after a short backoff. (#605)
+func TestIntegration_MobileSession_NoProviders(t *testing.T) {
+	srv, _ := boot(t)
+
+	body := map[string]string{
+		"customer_id":       uuid.New().String(),
+		"client_public_key": "AAAA1111BBBB2222CCCC3333DDDD4444=",
+		"region":            "us-east-1",
+	}
+	buf := &bytes.Buffer{}
+	_ = json.NewEncoder(buf).Encode(body)
+	req, _ := http.NewRequest("POST", srv.URL+"/v1/vpn/sessions/mobile", buf)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST /sessions/mobile: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("no providers: status=%d, want 503", resp.StatusCode)
+	}
+	if ra := resp.Header.Get("Retry-After"); ra == "" {
+		t.Errorf("503 should carry Retry-After header, got empty")
+	}
+}
+
+// TestIntegration_MobileSession_MissingCustomerID — empty customer_id
+// rejected at pre-validation (no store work happens). (#605)
+func TestIntegration_MobileSession_MissingCustomerID(t *testing.T) {
+	srv, _ := boot(t)
+	body := map[string]string{
+		"client_public_key": "AAAA1111BBBB2222CCCC3333DDDD4444=",
+		"region":            "us-east-1",
+	}
+	buf := &bytes.Buffer{}
+	_ = json.NewEncoder(buf).Encode(body)
+	req, _ := http.NewRequest("POST", srv.URL+"/v1/vpn/sessions/mobile", buf)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST /sessions/mobile: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("missing customer_id: status=%d, want 400", resp.StatusCode)
+	}
+}
