@@ -69,7 +69,7 @@ jobs:
                   'contactEmail': 'emrahbaysal@gmail.com',
                   'contactFirstName': 'Emrah',
                   'contactLastName': 'Baysal',
-                  'contactPhone': '+447700900000',
+                  'contactPhone': '+1 415 555 0100',
                   'demoAccountName': '',
                   'demoAccountPassword': '',
                   'demoAccountRequired': False,
