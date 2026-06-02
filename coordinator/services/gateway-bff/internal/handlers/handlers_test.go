@@ -872,7 +872,11 @@ func TestCustomerUsage(t *testing.T) {
 					t.Fatal("missing workspace id")
 				}
 				return &billingv1.ListUsageResponse{
-					Usage: []*billingv1.UsageRecord{{Quantity: 42}},
+					Usage: []*billingv1.UsageRecord{{
+						Type:     commonv1.WorkloadType_WORKLOAD_TYPE_BANDWIDTH,
+						Quantity: 42,
+						Cost:     &commonv1.Money{Currency: "GRID", Micros: 7000},
+					}},
 				}, nil
 			},
 		},
@@ -883,6 +887,35 @@ func TestCustomerUsage(t *testing.T) {
 	api.GetCustomerUsage(w, r)
 	if w.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d", w.Code)
+	}
+	// #635 regression guard: the BFF must emit the web's UsageRow shape
+	// (rows[] with workloadType/bytes/computeMillicpuSeconds/costMicros/
+	// bucketStart), NOT the raw proto usage[]. The old test only checked
+	// the 200 and would pass against the broken shape.
+	var got struct {
+		Rows []struct {
+			WorkloadType           int    `json:"workloadType"`
+			Bytes                  string `json:"bytes"`
+			ComputeMillicpuSeconds string `json:"computeMillicpuSeconds"`
+			CostMicros             string `json:"costMicros"`
+		} `json:"rows"`
+		Usage json.RawMessage `json:"usage"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("body not JSON: %v (%s)", err, w.Body.String())
+	}
+	if got.Usage != nil {
+		t.Fatalf("response must NOT carry the raw proto `usage` key (#635): %s", w.Body.String())
+	}
+	if len(got.Rows) != 1 {
+		t.Fatalf("want 1 row, got %d (%s)", len(got.Rows), w.Body.String())
+	}
+	// BANDWIDTH quantity lands in bytes, compute stays 0.
+	if got.Rows[0].Bytes != "42" || got.Rows[0].ComputeMillicpuSeconds != "0" {
+		t.Fatalf("bandwidth split wrong: bytes=%q compute=%q", got.Rows[0].Bytes, got.Rows[0].ComputeMillicpuSeconds)
+	}
+	if got.Rows[0].CostMicros != "7000" {
+		t.Fatalf("costMicros: got %q want 7000", got.Rows[0].CostMicros)
 	}
 }
 
