@@ -11,7 +11,7 @@
  * stubs the bind state until those land.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, Linking, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
@@ -20,6 +20,19 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Card, Radii, Spacing, TypeScale } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import {
+  buildVpnApproveUrl,
+  onVpnApproveReturn,
+  verifyApprovalBestEffort,
+  vpnVault,
+} from '@/lib/wallets/ping-pay';
+
+// Default VPN region/length encoded into the Ping approve memo
+// (iogrid.v1:vpn:<region>:<days>). The top-up screen tops up a generic
+// $GRID balance; until per-region selection lands we use a 30-day
+// global-pool memo so the backend can attribute the approved pull.
+const DEFAULT_VPN_REGION = 'global';
+const DEFAULT_VPN_DAYS = 30;
 
 interface AmountChip {
   grid: number;
@@ -59,6 +72,31 @@ export default function TopUpScreen() {
   const walletProvider: 'phantom' | 'ping' | null = null;
   const currentBalance: number | null = null;
 
+  // ── Ping approve return-bounce handler (Refs #629) ─────────────
+  // iogrid://vpn/activated?ok=1&signature=<sig>  → success
+  // iogrid://vpn/activated?ok=0&reason=cancel    → soft cancel (retry OK)
+  useEffect(() => {
+    const unsubscribe = onVpnApproveReturn((result) => {
+      if (result.ok) {
+        // Best-effort confirmation pending Ping's C-8 decision; we don't
+        // block the success UX on it (the bounce ok=1 is authoritative
+        // enough for v1 — chain confirmation runs in the background).
+        void verifyApprovalBestEffort(result.signature);
+        Alert.alert('Top up approved', 'Your $GRID approval is being confirmed.');
+        router.back();
+        return;
+      }
+      if (result.cancelled) {
+        // C-10: soft back-out — user can re-prompt. No scary error.
+        Alert.alert('Top up cancelled', 'No charge was made. You can try again.');
+        return;
+      }
+      // Hard reject — surface the reason verbatim.
+      Alert.alert('Top up failed', `Ping reported: ${result.reason}`);
+    });
+    return unsubscribe;
+  }, []);
+
   const effectiveAmount = (() => {
     if (customAmount) {
       const parsed = parseInt(customAmount, 10);
@@ -93,29 +131,40 @@ export default function TopUpScreen() {
       return;
     }
 
-    // Track 2's wallets/{phantom,ping}.ts owns the deeplink builders.
-    // For now, attempt a best-effort scheme launch with query params
-    // matching the documented Phantom/Ping contracts.
-    const scheme = walletProvider === 'phantom' ? 'phantom' : 'ping';
-    const url =
-      `${scheme}://topup?app=iogrid` +
-      `&amount=${effectiveAmount}` +
-      `&token=GRID` +
-      `&method=${method}` +
-      `&return=iogrid%3A%2F%2Ftopup-return`;
+    // Ping PAYMENT surface (Refs #629): launch the canonical SPL-Approve
+    // Universal Link `https://ping.cash/approve?…` (NOT a custom scheme —
+    // custom schemes trigger the iOS "Open in Ping?" interstitial Ping
+    // designed around). The wallet-BIND flow stays in wallets/ping.ts.
+    if (!vpnVault()) {
+      // The delegate vault is env-indirected and may be unset in CI /
+      // until the real vault address lands. Guard rather than launch a
+      // delegate-less approve.
+      Alert.alert(
+        'Top up unavailable',
+        'The $GRID payment vault is not yet configured. Please try again later.',
+      );
+      return;
+    }
+
+    let url: string;
+    try {
+      url = buildVpnApproveUrl({
+        grid: effectiveAmount,
+        region: DEFAULT_VPN_REGION,
+        days: DEFAULT_VPN_DAYS,
+      });
+    } catch (e) {
+      Alert.alert('Could not build payment', e instanceof Error ? e.message : String(e));
+      return;
+    }
 
     try {
-      const can = await Linking.canOpenURL(url);
-      if (!can) {
-        Alert.alert(
-          `${walletProvider === 'phantom' ? 'Phantom' : 'Ping'} not installed`,
-          'Install the wallet app to continue.',
-        );
-        return;
-      }
+      // Universal Links resolve via Safari/the OS when Ping is installed;
+      // canOpenURL on an https:// link is always true, so we openURL
+      // directly and let iOS route to the Ping app (falling back to web).
       await Linking.openURL(url);
     } catch (e) {
-      Alert.alert('Could not open wallet', e instanceof Error ? e.message : String(e));
+      Alert.alert('Could not open Ping', e instanceof Error ? e.message : String(e));
     }
   };
 
