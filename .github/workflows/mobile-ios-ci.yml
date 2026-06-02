@@ -297,15 +297,25 @@ jobs:
           # iogrid iter 10/12 hit, where cinova's CI was running in
           # parallel and revoked iogrid's fresh cert.
           #
-          # Heuristic fix: revoke only certs OLDER than 60 minutes.
+          # Heuristic fix: revoke only certs OLDER than 10 minutes.
           # In-flight CI runs created their cert within the last few
-          # minutes; truly-stale certs have been around for hours.
+          # minutes; truly-stale certs have been around for tens of
+          # minutes (or hours) — typically from cancelled runs that
+          # the concurrency: cancel-in-progress kills mid-flight,
+          # leaving the cert orphaned. Apple caps at 2 distribution
+          # certs and won't reclaim cancelled-run certs automatically.
+          #
+          # Lowered from 60min to 10min on 2026-06-02 after rapid-fire
+          # session pushes stranded certs from cancelled runs and
+          # blocked sigh with "Could not create another Distribution
+          # certificate" (#575 comment).
+          #
           # Apple's certs.expirationDate is set to creation+1year, so
-          # filter: expirationDate < (now + 365days - 60min).
+          # filter: expirationDate < (now + 365days - 10min).
           import datetime
-          print('=== revoking only OLD Distribution certs (>60min) ===')
+          print('=== revoking Distribution certs older than 10min ===')
           now = datetime.datetime.now(datetime.timezone.utc)
-          threshold = now + datetime.timedelta(days=365) - datetime.timedelta(minutes=60)
+          threshold = now + datetime.timedelta(days=365) - datetime.timedelta(minutes=10)
           creq = urllib.request.Request(
               'https://api.appstoreconnect.apple.com/v1/certificates?filter[certificateType]=IOS_DISTRIBUTION,DISTRIBUTION&limit=200',
               headers=hdrs,
