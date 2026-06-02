@@ -1,0 +1,103 @@
+name: asc-privacy-labels-automation
+on:
+  workflow_dispatch:
+# Sets Apple App Store Connect privacy nutrition labels via browser
+# automation (Apple's public API doesn't expose this surface — see
+# probe-app-data-usages workflow run 26841340842 for the 404 chain).
+#
+# Requires GH secret ASC_SESSION_COOKIE — the value of `myacinfo` +
+# `wosid-lite` cookies from a logged-in ASC browser session. Founder
+# pastes once via DevTools → Application → Cookies export. Cookies
+# valid ~24h, so this re-runs are needed if the secret expires.
+jobs:
+  set-labels:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      ASC_SESSION_COOKIE: ${{ secrets.ASC_SESSION_COOKIE }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Skip when no session cookie configured
+        id: gate
+        run: |
+          if [ -z "$ASC_SESSION_COOKIE" ]; then
+            echo "::notice::ASC_SESSION_COOKIE secret not set — skipping (founder one-time setup pending)"
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set up Node
+        if: steps.gate.outputs.skip != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Playwright
+        if: steps.gate.outputs.skip != 'true'
+        run: |
+          npm init -y > /dev/null
+          npm install --silent playwright@1.50
+          npx playwright install chromium
+
+      - name: Run ASC nutrition-labels automation
+        if: steps.gate.outputs.skip != 'true'
+        run: |
+          cat > set-privacy.mjs <<'JS'
+          import { chromium } from 'playwright';
+          (async () => {
+            const browser = await chromium.launch({ headless: true });
+            const ctx = await browser.newContext();
+
+            // Parse the cookie blob (semicolon-delimited name=value pairs from DevTools).
+            const cookies = process.env.ASC_SESSION_COOKIE
+              .split(';')
+              .map(c => c.trim())
+              .filter(Boolean)
+              .map(c => {
+                const eq = c.indexOf('=');
+                return { name: c.slice(0, eq), value: c.slice(eq + 1), domain: '.apple.com', path: '/' };
+              });
+            await ctx.addCookies(cookies);
+
+            const page = await ctx.newPage();
+            // App ID 6775617937 → iogrid
+            const APP_PRIVACY_URL = 'https://appstoreconnect.apple.com/apps/6775617937/distribution/privacy';
+            console.log('navigating to:', APP_PRIVACY_URL);
+            await page.goto(APP_PRIVACY_URL, { waitUntil: 'networkidle', timeout: 30000 });
+
+            // ASC redirects to /login if session expired. Detect + fail fast.
+            if (page.url().includes('idmsa.apple.com') || page.url().includes('/login')) {
+              console.error('::error::ASC session cookie expired — need fresh ASC_SESSION_COOKIE secret');
+              await browser.close();
+              process.exit(2);
+            }
+
+            // Take a debug screenshot for the artifact upload
+            await page.screenshot({ path: 'asc-privacy-landing.png', fullPage: true });
+
+            // The "No, we do not collect data from this app" radio is in a wizard. The exact selector depends on ASC's React rendering.
+            // Best-effort: find the button that says "Get Started" if it's a fresh app, then click "No" radio.
+            // This will need refinement once we see the actual landing screenshot.
+            console.log('page title:', await page.title());
+            console.log('current URL:', page.url());
+
+            // Print body text for diagnostics
+            const bodyText = await page.textContent('body');
+            console.log('body excerpt:', bodyText?.slice(0, 500));
+
+            await browser.close();
+            console.log('::notice::Run 1 — diagnostic only. Refine selectors from screenshot before flipping to write mode.');
+          })().catch(err => { console.error(err); process.exit(1); });
+          JS
+          node set-privacy.mjs
+
+      - name: Upload screenshots
+        if: always() && steps.gate.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: asc-privacy-screenshots
+          path: |
+            asc-privacy-landing.png
+          retention-days: 7
