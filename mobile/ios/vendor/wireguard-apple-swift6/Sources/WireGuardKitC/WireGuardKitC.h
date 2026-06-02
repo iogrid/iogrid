@@ -1,6 +1,14 @@
 // SPDX-License-Identifier: MIT
 // Copyright © 2018-2023 WireGuard LLC. All Rights Reserved.
 
+// iogrid patch (#605 follow-up): Xcode 26's strict module import mode
+// won't synthesize Darwin's unsigned typedefs (u_int32_t, u_char,
+// u_int16_t) — they must be sourced explicitly from sys/types.h.
+// Without this include the WireGuardKitC.pcm build fails with
+// "declaration of 'u_int32_t' must be imported from module
+// '_DarwinFoundation1.unsigned_types.u_int32_t' before it is required."
+#include <sys/types.h>
+
 #include "key.h"
 #include "x25519.h"
 
