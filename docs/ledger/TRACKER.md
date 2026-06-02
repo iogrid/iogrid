@@ -893,3 +893,10 @@ Automation follow-up: [bin/refresh-tracker.sh](https://github.com/iogrid/iogrid/
 - Trace: flow 04 cold-restarts with stopApp:true. flow 05's separate clearState→clearKeychain→launchApp re-entered with a black screen, vpn-toggle invisible. Same iOS-sim flakiness vcard's 02-create-card.yaml comment warns about.
 - Fix ad2a1cf: consolidate flow 05's clearState/clearKeychain/launchApp into single `launchApp: clearState: true, clearKeychain: true` command. Maestro handles sequencing atomically.
 - Run 26791325490 in flight. Monitor bngqxd78u.
+
+## 2026-06-02T08:XXZ — 🎉 FIRST TESTFLIGHT BUILD LANDED (iter 14)
+- Run 26791325490 succeeded end-to-end: setup → checkout → node → Xcode → deps → prebuild → NE target → CFBundleVersion → Podfile patch → CocoaPods → ASC API key → keychain → fastlane sigh (BOTH profiles, no cross-project nuke) → scheme → SKIP_INSTALL fix → sim build → sim boot → install → Maestro install → **all 5 Maestro flows GREEN** → archive (per-target signing) → IPA export → altool upload → beta-group assign → invite emrahbaysal@gmail.com.
+- Build 61 uploaded to App Store Connect (App ID 6775617937), assigned to vpn-beta (id 474ed0b2-429e-47f5-8382-f776e43a3423).
+- emrahbaysal@gmail.com invited via API; TestFlight email arriving in 2-5 min.
+- Founder UAT: install on iPhone via TestFlight app, walk the toggle / region picker / settings / quota banner surface. If green, #575 closes.
+- 14 iteration cycles, ~120 min wall time from credentials-in-place to first build on TestFlight.
