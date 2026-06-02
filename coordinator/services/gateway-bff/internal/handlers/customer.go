@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -101,6 +102,55 @@ func (a *API) DeleteAPIKey(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// usageRow is the /customer/usage wire shape the web client consumes
+// (web/src/lib/types.ts UsageRow). billing-svc's proto UsageRecord is
+// {type, quantity, cost, recorded_at}; the web reads
+// {workloadType, bytes, computeMillicpuSeconds, costMicros, bucketStart}.
+// Passing the raw proto through writeJSON emitted `usage[]` with the wrong
+// per-record fields, so the usage page rendered empty (#635). We remap
+// here: per the proto comment, `quantity` is bytes for BANDWIDTH and
+// seconds for compute workloads, so it's split by type. (computeMillicpu‑
+// Seconds carries the metered seconds; true millicpu weighting needs the
+// rate card and is out of scope here.)
+type usageRow struct {
+	WorkloadType           int32  `json:"workloadType"`
+	Bytes                  string `json:"bytes"`
+	ComputeMillicpuSeconds string `json:"computeMillicpuSeconds"`
+	CostMicros             string `json:"costMicros"`
+	BucketStart            string `json:"bucketStart"`
+}
+
+type usageListResponse struct {
+	Rows []usageRow `json:"rows"`
+}
+
+func usageRecordsToRows(records []*billingv1.UsageRecord) []usageRow {
+	rows := make([]usageRow, 0, len(records))
+	for _, u := range records {
+		var bytes, compute uint64
+		switch u.GetType() {
+		case commonv1.WorkloadType_WORKLOAD_TYPE_BANDWIDTH:
+			bytes = u.GetQuantity()
+		case commonv1.WorkloadType_WORKLOAD_TYPE_DOCKER,
+			commonv1.WorkloadType_WORKLOAD_TYPE_GPU,
+			commonv1.WorkloadType_WORKLOAD_TYPE_IOS_BUILD:
+			compute = u.GetQuantity()
+		}
+		bucket := ""
+		if ts := u.GetRecordedAt(); ts != nil {
+			bucket = ts.AsTime().UTC().Format(time.RFC3339)
+		}
+		rows = append(rows, usageRow{
+			WorkloadType:           int32(u.GetType()),
+			Bytes:                  strconv.FormatUint(bytes, 10),
+			ComputeMillicpuSeconds: strconv.FormatUint(compute, 10),
+			CostMicros:             strconv.FormatInt(u.GetCost().GetMicros(), 10),
+			BucketStart:            bucket,
+		})
+	}
+	return rows
+}
+
 // GetCustomerUsage returns metering aggregates from billing-svc.
 //
 //	GET /api/v1/customer/usage?workspace_id=<UUID>&start=<ISO>&end=<ISO>
@@ -125,7 +175,7 @@ func (a *API) GetCustomerUsage(w http.ResponseWriter, r *http.Request) {
 		writeUpstreamError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, resp)
+	writeJSON(w, http.StatusOK, usageListResponse{Rows: usageRecordsToRows(resp.GetUsage())})
 }
 
 // SubmitWorkload forwards a customer workload submission.
