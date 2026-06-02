@@ -1,28 +1,86 @@
 import { Platform, StyleSheet, Text, type TextProps } from 'react-native';
 
-import { Fonts, ThemeColor } from '@/constants/theme';
+import { Fonts, ThemeColor, TypeScale, type TypeVariant } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
+/**
+ * v2 design system variants (#589):
+ *   - display-l / display-m / display-s
+ *   - body-l / body-m / body-s
+ *   - caption
+ *   - mono
+ *
+ * Legacy variants (`default`, `title`, `small`, etc.) are mapped to v2
+ * variants so the existing call-sites keep typechecking during the
+ * cut-over.
+ */
+export type ThemedTextVariant =
+  | 'display-l'
+  | 'display-m'
+  | 'display-s'
+  | 'body-l'
+  | 'body-m'
+  | 'body-s'
+  | 'caption'
+  | 'mono'
+  | 'default'
+  | 'title'
+  | 'small'
+  | 'smallBold'
+  | 'subtitle'
+  | 'link'
+  | 'linkPrimary'
+  | 'code';
+
 export type ThemedTextProps = TextProps & {
-  type?: 'default' | 'title' | 'small' | 'smallBold' | 'subtitle' | 'link' | 'linkPrimary' | 'code';
+  type?: ThemedTextVariant;
   themeColor?: ThemeColor;
+  /** Override the resolved color with an explicit value. */
+  color?: string;
 };
 
-export function ThemedText({ style, type = 'default', themeColor, ...rest }: ThemedTextProps) {
+// Map any variant (v2 or legacy) to a TypeScale token in the upstream
+// design system. The TypeScale uses camelCase keys (bodyL/etc.).
+const variantToScale: Record<ThemedTextVariant, TypeVariant> = {
+  'display-l': 'displayL',
+  'display-m': 'displayM',
+  'display-s': 'displayS',
+  'body-l': 'bodyL',
+  'body-m': 'bodyM',
+  'body-s': 'bodyS',
+  caption: 'caption',
+  mono: 'monoS',
+  // Legacy aliases
+  default: 'bodyL',
+  title: 'displayL',
+  small: 'bodyS',
+  smallBold: 'bodyS',
+  subtitle: 'displayM',
+  link: 'bodyS',
+  linkPrimary: 'bodyS',
+  code: 'monoS',
+};
+
+export function ThemedText({
+  style,
+  type = 'body-m',
+  themeColor,
+  color,
+  ...rest
+}: ThemedTextProps) {
   const theme = useTheme();
+  const scaleKey = variantToScale[type] ?? 'bodyM';
+  const baseStyle = TypeScale[scaleKey];
 
   return (
     <Text
       style={[
-        { color: theme[themeColor ?? 'text'] },
-        type === 'default' && styles.default,
-        type === 'title' && styles.title,
-        type === 'small' && styles.small,
+        { color: color ?? theme[themeColor ?? 'text'] },
+        baseStyle,
         type === 'smallBold' && styles.smallBold,
-        type === 'subtitle' && styles.subtitle,
         type === 'link' && styles.link,
-        type === 'linkPrimary' && styles.linkPrimary,
-        type === 'code' && styles.code,
+        type === 'linkPrimary' && [styles.link, { color: theme.accent }],
+        (type === 'code' || type === 'mono') && styles.mono,
         style,
       ]}
       {...rest}
@@ -31,43 +89,10 @@ export function ThemedText({ style, type = 'default', themeColor, ...rest }: The
 }
 
 const styles = StyleSheet.create({
-  small: {
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: 500,
-  },
-  smallBold: {
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: 700,
-  },
-  default: {
-    fontSize: 16,
-    lineHeight: 24,
-    fontWeight: 500,
-  },
-  title: {
-    fontSize: 48,
-    fontWeight: 600,
-    lineHeight: 52,
-  },
-  subtitle: {
-    fontSize: 32,
-    lineHeight: 44,
-    fontWeight: 600,
-  },
-  link: {
-    lineHeight: 30,
-    fontSize: 14,
-  },
-  linkPrimary: {
-    lineHeight: 30,
-    fontSize: 14,
-    color: '#3c87f7',
-  },
-  code: {
+  smallBold: { fontWeight: '700' },
+  link: { textDecorationLine: 'underline' },
+  mono: {
     fontFamily: Fonts.mono,
-    fontWeight: Platform.select({ android: 700 }) ?? 500,
-    fontSize: 12,
+    fontWeight: Platform.select({ android: '700' }) ?? '500',
   },
 });
