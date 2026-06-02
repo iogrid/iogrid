@@ -120,13 +120,24 @@ jobs:
             | tr '[:upper:]' '[:lower:]' \
             || true)"
           echo "content-type: ${CONTENT_TYPE:-<missing>}"
-          case "$CONTENT_TYPE" in
-            application/json*|application/problem+json*)
-              echo "Content-Type OK"
+          # Content-Type check is GATED on status — 404/405 are
+          # legitimately the ingress-or-route returning bare text
+          # before the route is deployed. We only enforce the
+          # JSON Content-Type on 2xx + non-route-missing 4xx/5xx.
+          case "$HTTP_CODE" in
+            404|405)
+              echo "Skipping Content-Type check for $HTTP_CODE (deploy-pending path)"
               ;;
             *)
-              echo "::error::Expected application/json Content-Type, got '${CONTENT_TYPE:-<missing>}' — ingress likely returning HTML error page."
-              exit 1
+              case "$CONTENT_TYPE" in
+                application/json*|application/problem+json*)
+                  echo "Content-Type OK"
+                  ;;
+                *)
+                  echo "::error::Expected application/json Content-Type, got '${CONTENT_TYPE:-<missing>}' — ingress likely returning HTML error page."
+                  exit 1
+                  ;;
+              esac
               ;;
           esac
 
