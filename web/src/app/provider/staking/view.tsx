@@ -32,6 +32,18 @@ import {
   type StakePosition,
 } from "@/lib/solana/staking";
 import { fetchWalletBalances } from "@/lib/solana/balances";
+import { TierLockupCard, type StakingState } from "./tier-lockup-card";
+import { PingWalletCard } from "./ping-wallet-card";
+
+/** Raw GET /api/v1/staking/ envelope (gateway-bff emptyStakingState). */
+interface RawStakingState {
+  stake_amount?: number;
+  stakeAmount?: number;
+  opted_in?: boolean;
+  optedIn?: boolean;
+  tier?: string | null;
+  tier_name?: string | null;
+}
 
 export function StakingView() {
   const ownership = useProviderOwnership();
@@ -39,6 +51,9 @@ export function StakingView() {
   const { publicKey, connected } = useWallet();
 
   const [positions, setPositions] = React.useState<StakePosition[] | null>(null);
+  const [stakingState, setStakingState] = React.useState<StakingState | null>(
+    null,
+  );
   const [availableGrid, setAvailableGrid] = React.useState<number>(0);
   const [loadError, setLoadError] = React.useState<string | null>(null);
 
@@ -49,6 +64,22 @@ export function StakingView() {
       setLoadError(null);
     } catch (e) {
       setLoadError((e as Error).message);
+    }
+    // Real opt-in / tier state. The backend is currently the Phase-0
+    // empty stub (opted_in:false, stake_amount:0); we map that to an
+    // honest "Standard base lockup, no live positions" state rather
+    // than fabricating a staked balance (#634 / #417).
+    try {
+      const raw = await browserApi().get<RawStakingState>("/api/v1/staking/");
+      const amount = raw.stake_amount ?? raw.stakeAmount ?? null;
+      setStakingState({
+        stakeAmountUi: typeof amount === "number" ? amount : null,
+        optedIn: Boolean(raw.opted_in ?? raw.optedIn ?? false),
+        tierName: raw.tier_name ?? raw.tier ?? null,
+      });
+    } catch {
+      // Leave stakingState null → TierLockupCard renders its loading
+      // shimmer; it never invents numbers.
     }
     if (connected && publicKey) {
       try {
@@ -118,6 +149,10 @@ export function StakingView() {
 
   return (
     <div className="space-y-6">
+      <TierLockupCard state={stakingState} />
+
+      <PingWalletCard />
+
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <WalletBalance />
         <Card>
