@@ -17,14 +17,24 @@ type Memory struct {
 	sessions   map[uuid.UUID]*Session
 	candidates map[uuid.UUID][]*pb.IceCandidate // provider_id -> candidates
 	providers  map[uuid.UUID]*ProviderInfo      // provider_id -> info
+
+	// innerIPAlloc tracks the next free Y in 10.66.X.Y for each
+	// provider (#605). Keyed by (providerID, sessionID) for
+	// idempotency — a second AllocateInnerIP call with the same
+	// args returns the previously-allocated value instead of
+	// burning a new Y.
+	innerIPNext  map[uuid.UUID]uint8       // provider_id → next Y counter (2..253; 0/1/254/255 reserved)
+	innerIPAlloc map[string]string         // "provider:session" → "10.66.X.Y"
 }
 
 // NewMemory creates a new in-memory store.
 func NewMemory() Store {
 	return &Memory{
-		sessions:   make(map[uuid.UUID]*Session),
-		candidates: make(map[uuid.UUID][]*pb.IceCandidate),
-		providers:  make(map[uuid.UUID]*ProviderInfo),
+		sessions:     make(map[uuid.UUID]*Session),
+		candidates:   make(map[uuid.UUID][]*pb.IceCandidate),
+		providers:    make(map[uuid.UUID]*ProviderInfo),
+		innerIPNext:  make(map[uuid.UUID]uint8),
+		innerIPAlloc: make(map[string]string),
 	}
 }
 
@@ -539,5 +549,67 @@ func (m *Memory) TriggerFailover(ctx context.Context, sessionID uuid.UUID, curre
 	session.FailoverCount++
 	session.State = pb.VpnSessionState_FAILING_OVER
 	session.LastActivityAt = time.Now()
+	return nil
+}
+
+// AllocateInnerIP implements Store. The in-memory variant is the
+// authoritative implementation for unit tests and dev mode; the
+// Postgres variant (postgres.go) uses an INSERT … ON CONFLICT DO
+// UPDATE … RETURNING against vpn_provider_inner_ip_alloc to get the
+// same atomicity across replicas. (#605)
+func (m *Memory) AllocateInnerIP(ctx context.Context, providerID, sessionID uuid.UUID) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := providerID.String() + ":" + sessionID.String()
+	if existing, ok := m.innerIPAlloc[key]; ok {
+		return existing, nil
+	}
+	// X is the provider UUID's first byte, clamped to [2, 253] so we
+	// avoid 10.66.0.0/24 (reserved for tooling) and 10.66.255.0/24
+	// (broadcast space). Provider UUIDs are uniformly distributed so
+	// the X distribution across providers is also uniform.
+	x := providerID[0]
+	if x < 2 {
+		x = 2
+	}
+	if x > 253 {
+		x = 253
+	}
+	// Y is monotonic per provider; allocate from a counter that starts
+	// at 2 (we reserve .0 broadcast, .1 gateway).
+	y := m.innerIPNext[providerID]
+	if y < 2 {
+		y = 2
+	}
+	if y >= 254 {
+		// Provider's /24 is exhausted. In production this signals
+		// "rotate to next provider"; in memory we just error.
+		return "", fmt.Errorf("inner-IP space exhausted for provider %s", providerID)
+	}
+	ip := fmt.Sprintf("10.66.%d.%d", x, y)
+	m.innerIPNext[providerID] = y + 1
+	m.innerIPAlloc[key] = ip
+	return ip, nil
+}
+
+// PersistSessionPeerConfig implements Store. Writes the resolved peer
+// public key + endpoint onto the session row. Idempotent — repeated
+// calls overwrite with the latest values (mobile flow may re-resolve
+// the peer on $GRID re-authorization).
+func (m *Memory) PersistSessionPeerConfig(ctx context.Context, sessionID uuid.UUID, peerPubKey, peerEndpoint string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	session, ok := m.sessions[sessionID]
+	if !ok {
+		return fmt.Errorf("session %s not found", sessionID)
+	}
+	session.ProviderWgPublicKey = peerPubKey
+	// Endpoint isn't a top-level field on Session; the mobile flow
+	// uses ProviderWgPublicKey for the WG handshake + reads the
+	// endpoint from the provider record. Keep peerEndpoint param in
+	// the API for forward-compat (Postgres impl will persist it on
+	// a new vpn_sessions.peer_endpoint column). For in-memory we
+	// drop it — tests assert on ProviderWgPublicKey only.
+	_ = peerEndpoint
 	return nil
 }

@@ -711,3 +711,19 @@ func (p *Postgres) scanSession(row interface {
 	session.State = pb.VpnSessionState(stateVal)
 	return session, nil
 }
+
+// AllocateInnerIP implements Store. Postgres variant is stubbed
+// pending migration 0008 — until vpn_provider_inner_ip_alloc table
+// + INSERT…ON CONFLICT DO UPDATE…RETURNING SQL ships, we return
+// an error so any production call surfaces clearly instead of
+// silently no-oping. In-memory Memory.AllocateInnerIP is the
+// authoritative path for tests + dev mode meanwhile. (#605)
+func (p *Postgres) AllocateInnerIP(ctx context.Context, providerID, sessionID uuid.UUID) (string, error) {
+	return "", fmt.Errorf("postgres AllocateInnerIP not implemented — pending 0008 migration (#605)")
+}
+
+// PersistSessionPeerConfig implements Store. Stub — peer_endpoint
+// column needs adding to vpn_sessions in migration 0008. (#605)
+func (p *Postgres) PersistSessionPeerConfig(ctx context.Context, sessionID uuid.UUID, peerPubKey, peerEndpoint string) error {
+	return fmt.Errorf("postgres PersistSessionPeerConfig not implemented — pending 0008 migration (#605)")
+}

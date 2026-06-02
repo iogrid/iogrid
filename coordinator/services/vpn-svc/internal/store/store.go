@@ -151,6 +151,24 @@ type Store interface {
 	// current calendar month (UTC). The free-tier quota check on
 	// RequestSession compares this against FreeTierQuotaBytes.
 	SumCustomerBytesThisMonth(ctx context.Context, customerID uuid.UUID) (uint64, error)
+
+	// --- Mobile session bring-up (#588 / #605) ---
+
+	// AllocateInnerIP atomically allocates a per-session tunnel-inner
+	// IPv4 address in the 10.66.X.Y/16 space where X derives from the
+	// provider UUID's first byte and Y is drawn from a monotonic
+	// counter on the vpn_provider_inner_ip_alloc table. Idempotent
+	// on (providerID, sessionID): a second call with the same args
+	// returns the previously-allocated IP rather than burning a new Y.
+	// Returns the dotted-quad string (e.g. "10.66.42.3").
+	AllocateInnerIP(ctx context.Context, providerID, sessionID uuid.UUID) (string, error)
+
+	// PersistSessionPeerConfig writes the resolved peer endpoint +
+	// public key onto the session row so a subsequent GetSession can
+	// surface it to the mobile client without re-running peer
+	// selection. Called by the mobile session handler after it picks
+	// a provider via the geo-nearest picker.
+	PersistSessionPeerConfig(ctx context.Context, sessionID uuid.UUID, peerPubKey, peerEndpoint string) error
 }
 
 // RegionSummary is one row of the customer region picker.
@@ -192,6 +210,43 @@ type Session struct {
 	// the session is either still active OR terminated-but-unbilled
 	// (pending in the next batch tick).
 	BilledAt *time.Time
+
+	// ── Mobile session fields (#588 / #605) ──────────────────────
+	//
+	// The mobile PacketTunnelProvider needs a single-round-trip
+	// session bring-up (POST /v1/vpn/sessions/mobile) that returns
+	// the complete WG peer config. The four fields below carry that
+	// payload; all are zero/empty for the legacy daemon-driven
+	// session flow (which uses ICE candidates + bind-provider RPC
+	// instead).
+
+	// ClientPublicKey is the customer's WireGuard public key, base64
+	// encoded. Sent by the mobile app in the start-session request;
+	// kept here so the provider daemon can pre-allocate the peer
+	// slot when it next polls /assigned-sessions.
+	ClientPublicKey string
+
+	// InnerIP is the per-session tunnel-inner IPv4 address the
+	// mobile client uses inside the VPN namespace. Allocated by
+	// vpn-svc atomically (AllocateInnerIP) at session-create time
+	// in the 10.66.X.Y/16 range where X derives from the provider
+	// UUID's first byte and Y comes from an atomic counter
+	// (vpn_provider_inner_ip_alloc table). Empty for non-mobile
+	// sessions.
+	InnerIP string
+
+	// ExpiresAt is the wall-clock deadline after which the mobile
+	// client must call POST /sessions/{id}/heartbeat to renew its
+	// $GRID payment authorization. Nil for non-$GRID sessions
+	// (legacy daemon flow or paid-tier customers).
+	ExpiresAt *time.Time
+
+	// PaymentAuthorization is the opaque $GRID payment-authorization
+	// blob the mobile client supplies at start-session time. Track 5
+	// (#596) validates it against on-chain balance + signs an escrow
+	// receipt; vpn-svc stores it as opaque bytes for now so the
+	// handler contract is forward-compatible while #596 finishes.
+	PaymentAuthorization []byte
 }
 
 // ProviderInfo represents a provider for regional failover selection.
