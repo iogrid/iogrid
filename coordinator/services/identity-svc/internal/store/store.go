@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"net"
 	"strings"
 	"time"
@@ -17,6 +18,16 @@ import (
 // ErrNotFound is returned when a lookup matches zero rows. Use
 // errors.Is(err, store.ErrNotFound) to detect.
 var ErrNotFound = errors.New("identity-svc: not found")
+
+// ErrRetryTx is a sentinel that callers inside WithTx can return when
+// they detect a transient, idempotent-on-retry conflict (e.g. a unique
+// violation racing two concurrent first-launch sign-ins for the same
+// Apple sub — see #620). WithTx rolls back + restarts the transaction
+// when fn returns an error that wraps ErrRetryTx, up to withTxMaxRetries
+// times. On retry, fn typically takes the fast path (the winning
+// transaction has already committed the row that triggered the
+// conflict) and returns success.
+var ErrRetryTx = errors.New("identity-svc: retry transaction")
 
 // Store wraps the pgx pool with typed methods. Methods accept a Querier
 // so callers can either pass *pgxpool.Pool (auto-pooled queries) or
@@ -39,10 +50,69 @@ func New(pool *pgxpool.Pool) *Store {
 	return &Store{Pool: pool}
 }
 
+// withTxMaxRetries caps the number of times WithTx will retry on a
+// Postgres SQLSTATE 40001 (serialization_failure). Eight retries with
+// the exponential-jitter backoff below gives ~250ms of total slack,
+// which empirically absorbs a 16-way concurrent first-launch storm
+// against the same Apple sub on commodity hardware (#620 regression
+// test). Beyond that the surfaced error is genuine contention, not
+// transient race-loss, and the caller should surface it.
+const withTxMaxRetries = 8
+
+// withTxBaseBackoff is the seed value for the exponential-with-jitter
+// delay between WithTx retries. The first retry waits ~1ms, doubling
+// per attempt — small enough to stay invisible to the caller (a single
+// sign-in already amortises >>50ms over JWKS + JWT validation + bcrypt)
+// but large enough that two retrying transactions don't collide on the
+// same clock tick.
+const withTxBaseBackoff = 1 * time.Millisecond
+
 // WithTx runs fn inside a serializable Postgres transaction. Used by
 // sign-in flows that must atomically (a) find-or-create the user, (b)
 // upsert the identifier, (c) insert a session row.
+//
+// Retry semantics: Postgres at Serializable isolation can reject a
+// committing transaction with SQLSTATE 40001 (read/write dependency
+// cycle) when multiple sessions race for the same row — most notably
+// the Apple sign-in find-or-create flow when multiple devices launch
+// the app concurrently with the same Apple sub (#620). On 40001 the
+// entire transaction is aborted by Postgres; the loser must roll back
+// + retry. WithTx absorbs that retry loop internally so callers can
+// stay oblivious to the isolation-level wrinkle. fn MUST be idempotent
+// under retry — every WithTx caller in identity-svc today already
+// satisfies that (the only side effect outside the tx is the async
+// merge notification fired AFTER WithTx returns).
 func (s *Store) WithTx(ctx context.Context, fn func(tx pgx.Tx) error) error {
+	var lastErr error
+	for attempt := 0; attempt <= withTxMaxRetries; attempt++ {
+		err := s.runTxOnce(ctx, fn)
+		if err == nil {
+			return nil
+		}
+		if !isRetriable(err) {
+			return err
+		}
+		lastErr = err
+		if attempt == withTxMaxRetries {
+			break
+		}
+		// Exponential backoff with jitter: 1ms→2ms→4ms ±50%. Sleeping
+		// here (rather than busy-looping) hands the goroutine off so
+		// the winning transaction can commit before we retry.
+		backoff := withTxBaseBackoff << attempt
+		jitter := time.Duration(rand.Int63n(int64(backoff)))
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff/2 + jitter):
+		}
+	}
+	return fmt.Errorf("withTx: exhausted %d retries on serialization failure: %w", withTxMaxRetries, lastErr)
+}
+
+// runTxOnce runs fn inside a single serializable transaction and
+// returns the first error encountered (either from fn or from commit).
+func (s *Store) runTxOnce(ctx context.Context, fn func(tx pgx.Tx) error) error {
 	tx, err := s.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -52,6 +122,36 @@ func (s *Store) WithTx(ctx context.Context, fn func(tx pgx.Tx) error) error {
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+// isSerializationFailure reports whether err is a Postgres SQLSTATE
+// 40001 (serialization_failure). Used by WithTx to identify retriable
+// concurrency conflicts under Serializable isolation.
+func isSerializationFailure(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "40001"
+}
+
+// isRetriable reports whether err signals that WithTx should roll back
+// the current transaction + restart fn. Two triggers:
+//
+//   - SQLSTATE 40001 (serialization_failure): Postgres' canonical
+//     Serializable retry signal, raised when a read/write dependency
+//     cycle is detected — most commonly when two concurrent
+//     CompleteAppleSignIn calls race the find-or-create flow (#620).
+//   - ErrRetryTx sentinel: callers inside fn can wrap this when they
+//     detect a transient conflict that isn't a 40001 — most commonly a
+//     SQLSTATE 23505 unique-violation that the next attempt's fast
+//     path will resolve cleanly (the winning transaction's row has
+//     committed by retry time, so the lookup hits).
+func isRetriable(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, ErrRetryTx) {
+		return true
+	}
+	return isSerializationFailure(err)
 }
 
 // --- users ----------------------------------------------------------------
