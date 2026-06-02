@@ -930,3 +930,10 @@ Automation follow-up: [bin/refresh-tracker.sh](https://github.com/iogrid/iogrid/
   2. Add to vpn-beta via relationships endpoint
   3. Submit build 61 for Beta App Review
 - Closure-trail comment on #575 stays valid; CI/upload milestone IS green. Tester-link + Beta Review submission are post-upload polish.
+
+## 2026-06-02T09:33Z — #575 fix attempt 1: two more blockers found
+- Fix workflow run 26800021708 succeeded but Apple rejected both substantive POSTs:
+  - **Add tester to group**: HTTP 409 STATE_ERROR "Tester(s) cannot be assigned" — tester record exists but app-link is missing
+  - **Submit Beta Review**: HTTP 422 MISSING_BETA_APP_DESCRIPTION — "Beta App Description is required to submit a build for external testing"
+- Deep-fix workflow b4d1c8c will: (1) create betaAppLocalization (description + privacy URL + feedback email), (2) create betaBuildLocalization (what to test), (3) delete + recreate tester atomically with app+group rels, (4) re-submit Beta Review.
+- Run 26800073146 firing now. Monitor brjwy554j.
