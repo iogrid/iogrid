@@ -455,13 +455,23 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             }
         }
 
-        let deadline = DispatchTime.now() + .milliseconds(probePhaseBudgetMs)
+        // #577 MINOR 7 fix: enforce the COMBINED budget across
+        // fetchTopProviders + probeCandidates rather than giving each
+        // phase its own 500ms (which let the combined path drift to
+        // ~1100ms even when the "1s total budget" comment claimed
+        // otherwise). Compute remaining budget from the original
+        // `started` timestamp and clamp to a 50ms floor — if we've
+        // already burned the budget, give probes a brief window to
+        // either return a fast LAN result or be discarded.
+        let elapsedBeforeProbe = elapsedMillis(since: started)
+        let remainingMs = max(50, probePhaseBudgetMs * 2 - elapsedBeforeProbe)
+        let deadline = DispatchTime.now() + .milliseconds(remainingMs)
         let waitResult = probeGroup.wait(timeout: deadline)
         let elapsedMs = elapsedMillis(since: started)
 
         if waitResult == .timedOut {
-            os_log("probe phase exceeded %{public}dms budget (elapsed=%{public}dms) — keeping current endpoint",
-                   log: logger, type: .info, probePhaseBudgetMs, elapsedMs)
+            os_log("probe phase exceeded combined budget (remaining=%{public}dms, total=%{public}dms) — keeping current endpoint",
+                   log: logger, type: .info, remainingMs, elapsedMs)
             return
         }
 
