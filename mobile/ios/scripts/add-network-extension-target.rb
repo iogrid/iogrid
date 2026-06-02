@@ -51,19 +51,7 @@ SWIFT_VERSION        = '5.0'
 # dir, plus the WireGuardKit product as a XCSwiftPackageProductDependency
 # on the extension target. Idempotent — re-running this script after
 # the package ref exists is a no-op.
-#
-# 2026-06-03 — Temporarily DISABLED while cgo runtime symbols are
-# missing in the libwg-go.a static lib (Go 1.23 c-archive mode
-# emits references to _threadentry + _x_cgo_init that aren't
-# resolved by the iOS-Simulator linker). Without this we can't
-# ship a TestFlight build for founder UX demo. The PacketTunnelProvider
-# extension still builds (NetworkExtension imports work) but can't
-# actually start a WireGuard tunnel — the v2 UX state machine is
-# fully testable via Maestro flows that mock the tunnel layer.
-#
-# Tracked as a follow-up; flip back to true once libwg-go.a symbols
-# are resolved (likely Go 1.21 downgrade or extldflags=-static).
-WIREGUARDKIT_ENABLED          = false
+WIREGUARDKIT_ENABLED          = true
 WIREGUARDKIT_VENDOR_PATH      = '../vendor/wireguard-apple-swift6' # relative to ios/iogrid.xcodeproj
 WIREGUARDKIT_PRODUCT          = 'WireGuardKit'
 
