@@ -408,6 +408,9 @@ func userToProto(u *store.User) *identityv1.User {
 	if u.DeletedAt != nil {
 		out.DeletedAt = timestamppb.New(*u.DeletedAt)
 	}
+	if u.NotificationPrefs != nil {
+		out.NotificationPrefs = *u.NotificationPrefs
+	}
 	return out
 }
 

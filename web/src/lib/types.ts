@@ -510,3 +510,70 @@ export interface UpdateState {
   pendingVersion?: string;
   history: UpdateHistoryEntry[];
 }
+
+// ---- notification preferences (#631) --------------------------------------
+
+// NotificationCategoryKey is the stable key persisted in the
+// users.notification_prefs JSONB column. Keep these in sync with the
+// NOTIFICATION_CATEGORIES table below — the keys are the contract
+// between web + identity-svc (which treats the object as opaque JSON).
+export type NotificationCategoryKey =
+  | "earnings_credited"
+  | "payout_sent"
+  | "security_alerts"
+  | "product_updates";
+
+// NotificationChannelPrefs is the per-category channel toggle pair.
+// `in_app` is snake_case to match the stored JSON keys verbatim (the
+// payload is forwarded through gateway-bff untouched, so there is no
+// camelCase remap layer for this surface).
+export interface NotificationChannelPrefs {
+  email: boolean;
+  in_app: boolean;
+}
+
+// NotificationPrefs maps every category to its channel toggles.
+export type NotificationPrefs = Record<
+  NotificationCategoryKey,
+  NotificationChannelPrefs
+>;
+
+// NOTIFICATION_CATEGORIES drives the /account/notifications table —
+// label + helper copy for each persisted key.
+export const NOTIFICATION_CATEGORIES: ReadonlyArray<{
+  key: NotificationCategoryKey;
+  label: string;
+  description: string;
+}> = [
+  {
+    key: "earnings_credited",
+    label: "Earnings credited",
+    description: "When your provider earnings are credited to your balance.",
+  },
+  {
+    key: "payout_sent",
+    label: "Payout sent",
+    description: "When a payout leaves iogrid for your wallet or bank.",
+  },
+  {
+    key: "security_alerts",
+    label: "Security alerts",
+    description: "New sign-ins, identifier changes, and account safety events.",
+  },
+  {
+    key: "product_updates",
+    label: "Product updates",
+    description: "Occasional news about new iogrid features.",
+  },
+];
+
+// defaultNotificationPrefs is the all-on-email baseline applied when the
+// user has never saved a preference (the server returns null). Product
+// updates default to in-app only so we don't email feature news without
+// an explicit opt-in.
+export const defaultNotificationPrefs: NotificationPrefs = {
+  earnings_credited: { email: true, in_app: true },
+  payout_sent: { email: true, in_app: true },
+  security_alerts: { email: true, in_app: true },
+  product_updates: { email: false, in_app: true },
+};

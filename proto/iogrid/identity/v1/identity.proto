@@ -61,6 +61,15 @@ message User {
 
   // Soft-delete sentinel; null when active.
   google.protobuf.Timestamp deleted_at = 9;
+
+  // notification_prefs is the user's notification-channel preferences,
+  // serialised as a JSON object string (Refs #631). Backed by the
+  // users.notification_prefs JSONB column. Empty string = the user has
+  // never customised them, so clients should fall back to the
+  // all-on-email default. Carried as an opaque JSON string rather than
+  // a typed message so adding an event category never needs a proto
+  // change + cross-service redeploy.
+  string notification_prefs = 10;
 }
 
 // Identifier represents a single way the user can authenticate. A user
@@ -116,6 +125,12 @@ message UpdateUserRequest {
   string display_name = 2;
   string primary_email = 3;
   string picture_url = 4;
+
+  // notification_prefs carries the JSON-object string the user submitted
+  // from the /account/notifications surface (Refs #631). Empty string =
+  // "do not change" so partial profile updates stay caller-friendly,
+  // matching the empty-string semantics of the fields above.
+  string notification_prefs = 5;
 }
 message UpdateUserResponse {
   User user = 1;

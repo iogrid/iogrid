@@ -12,6 +12,7 @@ const ITEMS = [
   { href: "/account/wallets",      label: "Wallets" },
   { href: "/account/sessions",     label: "Sessions" },
   { href: "/account/notifications",label: "Notifications" },
+  { href: "/account/updates",      label: "Updates" },
   { href: "/account/danger-zone",  label: "Danger zone" },
 ];
 

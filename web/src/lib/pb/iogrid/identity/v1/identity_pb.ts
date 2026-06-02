@@ -169,6 +169,19 @@ export class User extends Message<User> {
    */
   deletedAt?: Timestamp;
 
+  /**
+   * notification_prefs is the user's notification-channel preferences,
+   * serialised as a JSON object string (Refs #631). Backed by the
+   * users.notification_prefs JSONB column. Empty string = the user has
+   * never customised them, so clients should fall back to the
+   * all-on-email default. Carried as an opaque JSON string rather than
+   * a typed message so adding an event category never needs a proto
+   * change + cross-service redeploy.
+   *
+   * @generated from field: string notification_prefs = 10;
+   */
+  notificationPrefs = "";
+
   constructor(data?: PartialMessage<User>) {
     super();
     proto3.util.initPartial(data, this);
@@ -186,6 +199,7 @@ export class User extends Message<User> {
     { no: 7, name: "updated_at", kind: "message", T: Timestamp },
     { no: 8, name: "last_login_at", kind: "message", T: Timestamp },
     { no: 9, name: "deleted_at", kind: "message", T: Timestamp },
+    { no: 10, name: "notification_prefs", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): User {
@@ -500,6 +514,16 @@ export class UpdateUserRequest extends Message<UpdateUserRequest> {
    */
   pictureUrl = "";
 
+  /**
+   * notification_prefs carries the JSON-object string the user submitted
+   * from the /account/notifications surface (Refs #631). Empty string =
+   * "do not change" so partial profile updates stay caller-friendly,
+   * matching the empty-string semantics of the fields above.
+   *
+   * @generated from field: string notification_prefs = 5;
+   */
+  notificationPrefs = "";
+
   constructor(data?: PartialMessage<UpdateUserRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -512,6 +536,7 @@ export class UpdateUserRequest extends Message<UpdateUserRequest> {
     { no: 2, name: "display_name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 3, name: "primary_email", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 4, name: "picture_url", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 5, name: "notification_prefs", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): UpdateUserRequest {

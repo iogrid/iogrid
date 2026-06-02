@@ -182,12 +182,12 @@ func (s *Store) GetUser(ctx context.Context, q Querier, id uuid.UUID) (*User, er
 	err := q.QueryRow(ctx, `
 		SELECT id, primary_email, display_name, picture_url, roles,
 		       created_at, updated_at, last_login_at, deleted_at,
-		       preferred_landing_role
+		       preferred_landing_role, notification_prefs::text
 		  FROM users
 		 WHERE id = $1`, id).
 		Scan(&u.ID, &u.PrimaryEmail, &u.DisplayName, &u.PictureURL, &u.Roles,
 			&u.CreatedAt, &u.UpdatedAt, &u.LastLoginAt, &u.DeletedAt,
-			&u.PreferredLandingRole)
+			&u.PreferredLandingRole, &u.NotificationPrefs)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -220,6 +220,33 @@ func (s *Store) SetPreferredLandingRole(ctx context.Context, q Querier, id uuid.
 		   SET preferred_landing_role = $2::preferred_landing_role,
 		       updated_at = now()
 		 WHERE id = $1`, id, role)
+	return err
+}
+
+// SetNotificationPrefs persists the user's notification-channel
+// preferences (Refs #631). prefsJSON MUST be a JSON object string (the
+// handler validates it parses before calling); pass the empty string to
+// clear the column back to NULL, which re-arms the all-on-email default
+// on the /account/notifications surface.
+//
+// The ::jsonb cast happens in Postgres; malformed JSON surfaces as a
+// regular pgx error (SQLSTATE 22P02) which handlers translate to
+// CodeInvalidArgument.
+func (s *Store) SetNotificationPrefs(ctx context.Context, q Querier, id uuid.UUID, prefsJSON string) error {
+	if q == nil {
+		q = s.Pool
+	}
+	if prefsJSON == "" {
+		_, err := q.Exec(ctx, `
+			UPDATE users SET notification_prefs = NULL, updated_at = now()
+			 WHERE id = $1`, id)
+		return err
+	}
+	_, err := q.Exec(ctx, `
+		UPDATE users
+		   SET notification_prefs = $2::jsonb,
+		       updated_at = now()
+		 WHERE id = $1`, id, prefsJSON)
 	return err
 }
 
