@@ -133,6 +133,29 @@ HEADER
   mv "${PKG}.tmp" "${PKG}"
 fi
 
+# Re-apply Makefile patch for iphonesimulator → GOOS=ios (#610).
+# Upstream Makefile has GOOS_macosx + GOOS_iphoneos but is missing
+# GOOS_iphonesimulator, which causes the simulator slice to build with
+# GOOS=darwin and exclude the iOS-only signal-handler shim file
+# (gcc_signal_ios_nolldb.c). See vendor-wireguard.sh git log + #610.
+WG_GO_MAKEFILE="${VENDOR_DIR}/Sources/WireGuardKitGo/Makefile"
+if [ -f "${WG_GO_MAKEFILE}" ] && ! grep -q "GOOS_iphonesimulator" "${WG_GO_MAKEFILE}"; then
+  echo "[vendor-wireguard] patching Makefile: add GOOS_iphonesimulator := ios (#610)"
+  awk '
+    /^GOOS_iphoneos := ios$/ {
+      print
+      print "# iogrid (Closes #610): map iphonesimulator to GOOS=ios so cgo runtime"
+      print "# compiles `gcc_signal_ios_nolldb.c` (build-tagged `!lldb && ios && arm64`)."
+      print "# Without GOOS=ios darwin_arm_init_{mach_exception_handler,thread_exception_port}"
+      print "# are undefined at xcodebuild link time. Ref: golang/go#47228."
+      print "GOOS_iphonesimulator := ios"
+      next
+    }
+    { print }
+  ' "${WG_GO_MAKEFILE}" > "${WG_GO_MAKEFILE}.tmp"
+  mv "${WG_GO_MAKEFILE}.tmp" "${WG_GO_MAKEFILE}"
+fi
+
 # Idempotency check: search for any leftover Swift-5-only syntax that
 # can break under the Swift 6 toolchain. The most common offender is
 # `@_implementationOnly import` which Swift 6 deprecates. Today's
