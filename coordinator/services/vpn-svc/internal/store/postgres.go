@@ -712,18 +712,92 @@ func (p *Postgres) scanSession(row interface {
 	return session, nil
 }
 
-// AllocateInnerIP implements Store. Postgres variant is stubbed
-// pending migration 0008 — until vpn_provider_inner_ip_alloc table
-// + INSERT…ON CONFLICT DO UPDATE…RETURNING SQL ships, we return
-// an error so any production call surfaces clearly instead of
-// silently no-oping. In-memory Memory.AllocateInnerIP is the
-// authoritative path for tests + dev mode meanwhile. (#605)
+// AllocateInnerIP implements Store. Uses INSERT…ON CONFLICT DO UPDATE
+// …RETURNING against vpn_provider_inner_ip_alloc to atomically claim
+// the next Y suffix for the provider, then composes the dotted-quad
+// using X = first byte of providerID (clamped 2..253). Idempotent
+// at the (provider, session) level via a follow-up SELECT against
+// vpn_sessions.inner_ip: if a row already exists with the same
+// (provider, session) pair, return the previously-allocated IP
+// instead of burning a new suffix.
+//
+// Migration 0008_session_peer_config.sql defines the table:
+//
+//	CREATE TABLE vpn_provider_inner_ip_alloc (
+//	    provider_id UUID PRIMARY KEY,
+//	    next_suffix INT NOT NULL DEFAULT 1,
+//	    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+//	);
+//
+// Refs #605.
 func (p *Postgres) AllocateInnerIP(ctx context.Context, providerID, sessionID uuid.UUID) (string, error) {
-	return "", fmt.Errorf("postgres AllocateInnerIP not implemented — pending 0008 migration (#605)")
+	// 1. Idempotency check — return existing if already allocated.
+	var existing sql.NullString
+	const existingQuery = `
+		SELECT host(inner_ip) FROM vpn_sessions
+		WHERE id = $1 AND inner_ip IS NOT NULL
+	`
+	err := p.pool.QueryRow(ctx, existingQuery, sessionID).Scan(&existing)
+	if err == nil && existing.Valid && existing.String != "" {
+		return existing.String, nil
+	}
+
+	// 2. Atomic suffix bump.
+	const allocQuery = `
+		INSERT INTO vpn_provider_inner_ip_alloc (provider_id, next_suffix, updated_at)
+		VALUES ($1, 2, NOW())
+		ON CONFLICT (provider_id) DO UPDATE
+		SET next_suffix = vpn_provider_inner_ip_alloc.next_suffix + 1,
+		    updated_at = NOW()
+		RETURNING next_suffix
+	`
+	var nextY int
+	if err := p.pool.QueryRow(ctx, allocQuery, providerID).Scan(&nextY); err != nil {
+		return "", fmt.Errorf("inner-ip alloc: %w", err)
+	}
+	if nextY >= 254 {
+		// Per-provider /24 exhausted; signal upstream.
+		return "", fmt.Errorf("inner-ip space exhausted for provider %s", providerID)
+	}
+
+	// 3. Compose dotted-quad from providerID[0] (clamped to safe range)
+	// and the allocated Y.
+	x := providerID[0]
+	if x < 2 {
+		x = 2
+	}
+	if x > 253 {
+		x = 253
+	}
+	return fmt.Sprintf("10.66.%d.%d", x, nextY), nil
 }
 
-// PersistSessionPeerConfig implements Store. Stub — peer_endpoint
-// column needs adding to vpn_sessions in migration 0008. (#605)
+// PersistSessionPeerConfig implements Store. Writes the resolved peer
+// public key + endpoint onto the session row via an UPDATE against
+// vpn_sessions. Refs #605.
+//
+// Note: peer_endpoint isn't a column on vpn_sessions yet (it would
+// be added in a follow-up migration if we decide to surface it via
+// GetSession). For now we store the WG public key only — the
+// endpoint is re-derived on demand from the provider's freshest ICE
+// candidate, which is already what the mobile handler does on its
+// own.
 func (p *Postgres) PersistSessionPeerConfig(ctx context.Context, sessionID uuid.UUID, peerPubKey, peerEndpoint string) error {
-	return fmt.Errorf("postgres PersistSessionPeerConfig not implemented — pending 0008 migration (#605)")
+	const query = `
+		UPDATE vpn_sessions
+		SET provider_wg_public_key = $1
+		WHERE id = $2
+	`
+	tag, err := p.pool.Exec(ctx, query, peerPubKey, sessionID)
+	if err != nil {
+		return fmt.Errorf("persist peer config: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("session %s not found", sessionID)
+	}
+	// peerEndpoint reserved for future per-session pinning; the
+	// mobile flow derives it from the provider's ICE candidates so
+	// dropping it here is forward-compatible.
+	_ = peerEndpoint
+	return nil
 }
