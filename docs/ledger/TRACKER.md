@@ -946,3 +946,9 @@ Automation follow-up: [bin/refresh-tracker.sh](https://github.com/iogrid/iogrid/
 - v6 (run 26800279684) assigns build 61 to vpn-internal.
 - Internal beta needs NO Apple Beta Review — founder install is immediate after build assignment lands.
 - Side discovery: betaAppReviewDetails PATCH on the app returns 200 but values don't persist (notes/contactPhone/contactEmail all null on readback). External beta-review path still blocked; parked as follow-up.
+
+## 2026-06-02T09:55Z — Tester-record blast radius + full restore
+- Founder UAT damage: v3's `DELETE /v1/betaTesters/{id}` for 3 stale records (intended to clean up before recreate) nuked emrahbaysal@gmail.com's tester records across all 11 team apps — including critical Bank Dhofar customer apps (BD Salalah Souq, BD Masroofi, BD sadad, BD Online, BD Sandbox, BD Hisab).
+- restore-v3 (run 26800618173) achieved full re-link via: PATCH user e844a019 to allAppsVisible=true → POST /v1/betaTesters with single betaGroups rel per group → HTTP 201 across 12 internal groups.
+- Filed #580 (UX revamp, severity/p1) and bumped #576 (WireGuardKit data plane) from p2/parked → p1/in-progress per founder UAT verdict.
+- Lessons: NEVER call DELETE on /v1/betaTesters — the record may be the canonical one for many other apps. For idempotent group membership, use the relationships endpoint only.
