@@ -12,6 +12,7 @@
       "buildNumber": "1",
       "supportsTablet": false,
       "icon": "./assets/images/icon.png",
+      "usesAppleSignIn": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSAppTransportSecurity": {
@@ -40,6 +41,7 @@
     },
     "plugins": [
       "expo-router",
+      "expo-apple-authentication",
       "./plugins/with-network-extension.ts",
       [
         "expo-splash-screen",

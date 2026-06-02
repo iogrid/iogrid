@@ -6,6 +6,7 @@
     "@expo/ui": "~56.0.15",
     "@react-native-async-storage/async-storage": "^3.1.1",
     "expo": "~56.0.8",
+    "expo-apple-authentication": "~56.0.4",
     "expo-clipboard": "^56.0.3",
     "expo-constants": "~56.0.16",
     "expo-crypto": "^56.0.4",
