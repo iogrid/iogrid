@@ -35,28 +35,25 @@ APP_GROUP            = 'group.io.iogrid.app'
 DEPLOYMENT_TARGET    = '16.0'
 SWIFT_VERSION        = '5.0'
 
-# WireGuardKit SwiftPM dep — DEFERRED.
+# WireGuardKit SwiftPM dep — VENDORED FORK (#586).
 #
-# wireguard-apple's Package.swift uses Swift 5 manifest syntax that
-# fails to compile under Xcode 26 / Swift 6 toolchain ("Invalid
-# manifest" at the manifest compilation step). Upstream zx2c4 hasn't
-# updated for Swift 6 yet.
+# We vendor a patched copy of wireguard-apple at
+# `mobile/ios/vendor/wireguard-apple-swift6/` because upstream's
+# Package.swift declares `swift-tools-version:5.3` which Xcode 26's
+# Swift 6 toolchain refuses to compile ("Invalid manifest"). See
+# `mobile/ios/scripts/vendor-wireguard.sh` for the re-vendoring
+# procedure and `vendor/wireguard-apple-swift6/README.iogrid.md` for
+# rationale.
 #
-# Pragmatic pivot for the v1 TestFlight ship: PacketTunnelProvider.swift
-# already gates the WG-using code paths behind `#if canImport(WireGuardKit)`
-# so the extension target compiles cleanly without the dep linked.
-# The tunnel WILL FAIL to start (returns wireGuardKitNotLinked error)
-# until WireGuardKit is wired in — but the app reaches TestFlight,
-# the UI works, and the toggle / region picker / account ID flows
-# are testable.
-#
-# Wire-in options for the follow-up:
-#   1. Wait for upstream wireguard-apple to fix Swift 6 compat
-#   2. Vendor a known-good fork (github.com/mullvad/wireguardkit-rs or similar)
-#   3. Patch upstream's Package.swift via a custom branch
-#
-# Tracked in EPIC #566 as the "data plane wire" follow-up.
-WIREGUARDKIT_ENABLED = false
+# Wire-in shape: a local-path XCLocalSwiftPackageReference (Xcode
+# supports both XCRemoteSwiftPackageReference and the local-path
+# variant via the same xcodeproj API surface) pointing at the vendor
+# dir, plus the WireGuardKit product as a XCSwiftPackageProductDependency
+# on the extension target. Idempotent — re-running this script after
+# the package ref exists is a no-op.
+WIREGUARDKIT_ENABLED          = true
+WIREGUARDKIT_VENDOR_PATH      = '../vendor/wireguard-apple-swift6' # relative to ios/iogrid.xcodeproj
+WIREGUARDKIT_PRODUCT          = 'WireGuardKit'
 
 # ── Pre-flight ──────────────────────────────────────────────────
 unless File.exist?(PROJECT_PATH)
@@ -167,11 +164,91 @@ ext_group = project.main_group.new_group(EXTENSION_NAME, EXTENSION_NAME)
 swift_ref = ext_group.new_file('PacketTunnelProvider.swift')
 ext_target.add_file_references([swift_ref])
 
-# ── 3. WireGuardKit SwiftPM dep — DEFERRED until upstream Swift 6 compat
+# ── 3. WireGuardKit SwiftPM dep (vendored local-path fork) ─────
 if WIREGUARDKIT_ENABLED
-  raise 'WireGuardKit wiring is currently disabled — see comment above the flag in this file. Re-enable only when upstream wireguard-apple supports Swift 6.'
+  puts "[+] Adding WireGuardKit local SwiftPM dep from #{WIREGUARDKIT_VENDOR_PATH}..."
+
+  # Idempotency: only add the package reference if one with the same
+  # path isn't already present. xcodeproj's `package_references`
+  # array holds both XCRemote and XCLocal variants; we match on
+  # `path` (XCLocalSwiftPackageReference) or `relative_path` (older
+  # gem versions sometimes use a different attribute name).
+  existing_ref = project.root_object.package_references.find do |ref|
+    ref_attrs = ref.respond_to?(:to_hash) ? ref.to_hash : {}
+    matches_path = ref_attrs['relativePath'] == WIREGUARDKIT_VENDOR_PATH ||
+                   (ref.respond_to?(:relative_path) && ref.relative_path == WIREGUARDKIT_VENDOR_PATH) ||
+                   (ref.respond_to?(:path) && ref.path == WIREGUARDKIT_VENDOR_PATH)
+    matches_path
+  end
+
+  if existing_ref
+    puts "[+] WireGuardKit local package reference already present — no-op"
+    pkg_ref = existing_ref
+  else
+    # XCLocalSwiftPackageReference is the canonical type for path-based
+    # SwiftPM deps in modern xcodeproj gem versions. Older gems (<1.22)
+    # exposed only XCRemoteSwiftPackageReference and required the
+    # local-path shape via a `requirement: { kind: 'kind-1' }` hack —
+    # we fall back to that if the class isn't defined.
+    if defined?(Xcodeproj::Project::Object::XCLocalSwiftPackageReference)
+      pkg_ref = project.new(Xcodeproj::Project::Object::XCLocalSwiftPackageReference)
+      pkg_ref.relative_path = WIREGUARDKIT_VENDOR_PATH
+    else
+      pkg_ref = project.new(Xcodeproj::Project::Object::XCRemoteSwiftPackageReference)
+      # Local-path indicator on older gems — repositoryURL set to a
+      # file:// path that resolves relative to the .xcodeproj.
+      pkg_ref.repositoryURL = WIREGUARDKIT_VENDOR_PATH
+      pkg_ref.requirement = { 'kind' => 'kind-1' } # local-path marker
+    end
+    project.root_object.package_references << pkg_ref
+  end
+
+  # Add the WireGuardKit product as a dependency on the extension target.
+  # Idempotent: skip if an entry for this product already exists on the
+  # target.
+  already_linked = ext_target.package_product_dependencies.any? do |dep|
+    dep.respond_to?(:product_name) && dep.product_name == WIREGUARDKIT_PRODUCT
+  end
+
+  unless already_linked
+    product_dep = project.new(Xcodeproj::Project::Object::XCSwiftPackageProductDependency)
+    product_dep.product_name = WIREGUARDKIT_PRODUCT
+    product_dep.package = pkg_ref
+    ext_target.package_product_dependencies << product_dep
+
+    # Link the product into the extension target's Frameworks build
+    # phase so the linker sees -lWireGuardKit at archive time.
+    frameworks_phase = ext_target.frameworks_build_phase
+    build_file = project.new(Xcodeproj::Project::Object::PBXBuildFile)
+    build_file.product_ref = product_dep
+    frameworks_phase.files << build_file
+  end
+
+  # Embed wireguard-go.framework into the extension's Embed Frameworks
+  # build phase. WireGuardAdapter dlopens wireguard-go at runtime, and
+  # the NE sandbox refuses to load anything not present in the .appex's
+  # Frameworks dir — SwiftPM resolves the static lib but it's the
+  # framework wrapper that must be embedded. The framework itself is
+  # produced by SwiftPM's resource processing during the WireGuardKitGo
+  # target build; we just need an Embed Frameworks phase on the
+  # extension that copies it.
+  embed_frameworks = ext_target.build_phases.find do |phase|
+    phase.is_a?(Xcodeproj::Project::Object::PBXCopyFilesBuildPhase) &&
+      phase.dst_subfolder_spec == '10' # 10 = Frameworks
+  end
+  unless embed_frameworks
+    embed_frameworks = project.new(Xcodeproj::Project::Object::PBXCopyFilesBuildPhase)
+    embed_frameworks.name = 'Embed Frameworks'
+    embed_frameworks.symbol_dst_subfolder_spec = :frameworks
+    embed_frameworks.dst_path = ''
+    ext_target.build_phases << embed_frameworks
+  end
+  puts "[+] Embed Frameworks phase present on extension target (Frameworks subfolder spec)."
+
+  puts "[+] WireGuardKit SwiftPM dep wired into #{EXTENSION_NAME} target."
+else
+  puts "[+] WireGuardKit wiring skipped (flag disabled)."
 end
-puts "[+] WireGuardKit SwiftPM dep DEFERRED (upstream Swift 6 compat). Tunnel data plane will surface 'wireGuardKitNotLinked' error until wired."
 
 # ── 4. Embed extension in the main app ─────────────────────────
 puts "[+] Embedding #{EXTENSION_NAME} into #{MAIN_APP_NAME}..."

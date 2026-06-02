@@ -299,6 +299,47 @@ iter 11 (run 26789507723) carries the fix. Confirmed by iter 10
 failure: fastlane created cert 9NK3S33W6K but xcodebuild signed
 with a DIFFERENT serial 1CE647F4992DFD0CEAA4528443705912.
 
+### 25. WireGuardKit Swift-6 fork — re-vendor procedure
+
+Upstream wireguard-apple ships `swift-tools-version:5.3` which Xcode 26's
+Swift 6 toolchain refuses to compile (`Invalid manifest` at the manifest
+compile step — the 5.x manifest compiler is no longer bundled).
+
+We vendor a patched fork at `mobile/ios/vendor/wireguard-apple-swift6/`.
+The `Package.swift` pin is bumped to `5.9` (NOT 6.0 — see header in the
+file for why) and the WireGuardApp / WireGuardNetworkExtension / Shared
+pieces are trimmed because we only consume the `WireGuardKit` Swift
+product from the PacketTunnelProvider extension target.
+
+To refresh from upstream after a zx2c4 fix lands:
+
+```bash
+mobile/ios/scripts/vendor-wireguard.sh           # idempotent fetch+reset
+mobile/ios/scripts/vendor-wireguard.sh --force   # nuke + clean re-clone
+```
+
+The script:
+- Shallow-clones `https://git.zx2c4.com/wireguard-apple` `master` (zx2c4
+  still uses `master`, not `main` — gotcha #5 above).
+- Strips the WireGuardApp client + .xcodeproj.
+- Rewrites the `swift-tools-version` line to `5.9` via awk (deterministic
+  regardless of what upstream currently pins to).
+- Warns if upstream re-introduces `@_implementationOnly import` — that's
+  a Swift 6 deprecation we'll need to patch separately.
+
+The Xcode wiring is handled by `add-network-extension-target.rb`, which
+adds an `XCLocalSwiftPackageReference` pointing at the vendor dir + a
+`XCSwiftPackageProductDependency` linking `WireGuardKit` into the
+extension target. Both steps are idempotent — re-running the script
+on a fresh prebuild is a no-op if the package ref already exists.
+
+`WIREGUARDKIT_ENABLED = true` in the ruby script unblocks #586/#587 —
+the `#if canImport(WireGuardKit)` guards in PacketTunnelProvider.swift
+now resolve to the real path.
+
+Refs: iogrid #586 (vendor), #587 (PacketTunnelProvider real tunnel),
+#576 (original park-until-upstream issue this unblocks).
+
 ## Iterating CI locally
 
 You can't iterate Xcode 26 builds on the bastion (no macOS). The
