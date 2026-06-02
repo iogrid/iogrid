@@ -5,20 +5,20 @@
 //
 // The flow:
 //
-//   1. vpn-svc terminates a session and POSTs to /v1/grid/session-end with
-//      the (session_id, customer_wallet, escrowed, consumed, bytes_in,
-//      bytes_out) tuple.
-//   2. SessionMeter.Settle() computes:
-//          refund         = max(0, escrowed - consumed)
-//          provider_share = consumed * ProviderSharePct / 100
-//          iogrid_share   = consumed - provider_share
-//      … and writes a grid_settlement row with status=PENDING and
-//      tx_signature=NULL.
-//   3. The settlement-worker cron (#598) selects unsettled rows GROUPed by
-//      provider_wallet and submits one batched SPL TransferChecked per
-//      wallet per tick.
-//   4. On a successful on-chain confirm, the worker stamps settled_at +
-//      tx_signature.
+//  1. vpn-svc terminates a session and POSTs to /v1/grid/session-end with
+//     the (session_id, customer_wallet, escrowed, consumed, bytes_in,
+//     bytes_out) tuple.
+//  2. SessionMeter.Settle() computes:
+//     refund         = max(0, escrowed - consumed)
+//     provider_share = consumed * ProviderSharePct / 100
+//     iogrid_share   = consumed - provider_share
+//     … and writes a grid_settlement row with status=PENDING and
+//     tx_signature=NULL.
+//  3. The settlement-worker cron (#598) selects unsettled rows GROUPed by
+//     provider_wallet and submits one batched SPL TransferChecked per
+//     wallet per tick.
+//  4. On a successful on-chain confirm, the worker stamps settled_at +
+//     tx_signature.
 //
 // Pure arithmetic + a Store interface — easy to unit-test without Postgres.
 package grid
@@ -49,26 +49,37 @@ const IogridSharePct = 100 - ProviderSharePct
 // settlement.
 const MinSettlementAtomic = 1_000_000
 
+// GraceOverageCapAtomic is the founder-ruled prepaid-overage ceiling
+// (#632). The customer model is prepaid: they consume only the $GRID they
+// hold and must top up first. The balance MAY dip slightly negative — up
+// to this cap — to cover a single in-flight cycle's consumption that
+// outran the escrow, and that arrears MUST be cleared on the next top-up
+// before further consumption. It is NEVER unbounded negative.
+//
+// Set to 1 GRID (= 1e9 atomic) ≈ one cycle's worth of bandwidth. Surfaced
+// on /customer/billing so the user sees both the cap and any amount owed.
+const GraceOverageCapAtomic uint64 = 1_000_000_000
+
 // Settlement is one row of grid_settlement. Mirrors the Postgres schema in
 // migrations/0006_grid_settlement.sql.
 type Settlement struct {
-	ID              uuid.UUID
-	SessionID       uuid.UUID
-	CustomerWallet  string
-	ProviderWallet  string // empty if vpn-svc didn't supply yet — worker re-resolves before submit
-	ProviderID      uuid.UUID
-	BytesIn         uint64
-	BytesOut        uint64
-	EscrowedAtomic  uint64
-	ConsumedAtomic  uint64
-	RefundAtomic    uint64
-	ProviderShare   uint64
-	IogridShare     uint64
-	CreatedAt       time.Time
-	SettledAt       *time.Time
-	TxSignature     string
-	SettleAttempts  int
-	LastError       string
+	ID             uuid.UUID
+	SessionID      uuid.UUID
+	CustomerWallet string
+	ProviderWallet string // empty if vpn-svc didn't supply yet — worker re-resolves before submit
+	ProviderID     uuid.UUID
+	BytesIn        uint64
+	BytesOut       uint64
+	EscrowedAtomic uint64
+	ConsumedAtomic uint64
+	RefundAtomic   uint64
+	ProviderShare  uint64
+	IogridShare    uint64
+	CreatedAt      time.Time
+	SettledAt      *time.Time
+	TxSignature    string
+	SettleAttempts int
+	LastError      string
 }
 
 // ComputeShares is the pure-function arithmetic. Used by both the meter

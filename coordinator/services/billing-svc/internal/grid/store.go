@@ -170,6 +170,35 @@ func (p *PostgresStore) MarkAttemptFailed(ctx context.Context, ids []uuid.UUID, 
 	return err
 }
 
+// SumGraceOverageOwedByCustomer returns the total prepaid-overage arrears
+// (atomic $GRID) the customer wallet has accrued but not yet cleared — the
+// "amount owed" surfaced on /customer/billing (#632).
+//
+// For each unsettled session the overage is max(0, consumed - escrowed):
+// the slice of consumption that ran past what the customer pre-funded into
+// escrow. Settled rows are excluded because their refund/settlement already
+// reconciled. The sum is the arrears the next top-up must clear before
+// further consumption (founder-ruled prepaid + capped-grace model).
+func (p *PostgresStore) SumGraceOverageOwedByCustomer(ctx context.Context, customerWallet string) (uint64, error) {
+	if customerWallet == "" {
+		return 0, nil
+	}
+	row := p.pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(GREATEST(consumed_atomic - escrowed_atomic, 0)), 0)
+		  FROM grid_settlement
+		 WHERE customer_wallet = $1
+		   AND settled_at IS NULL`,
+		customerWallet)
+	var owed int64
+	if err := row.Scan(&owed); err != nil {
+		return 0, err
+	}
+	if owed < 0 {
+		owed = 0
+	}
+	return uint64(owed), nil
+}
+
 // FaucetClaim is one row of grid_devnet_faucet_log.
 type FaucetClaim struct {
 	ID            uuid.UUID

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,10 +21,10 @@ import (
 // (#597) and /v1/devnet/faucet (#595). Wired up in main.go alongside the
 // existing server.Deps.
 type GridDeps struct {
-	Meter        *grid.SessionMeter
-	Store        *grid.PostgresStore
-	Solana       *solana.Service // for the faucet (mint authority)
-	Logger       *slog.Logger
+	Meter  *grid.SessionMeter
+	Store  *grid.PostgresStore
+	Solana *solana.Service // for the faucet (mint authority)
+	Logger *slog.Logger
 	// DevnetMode is true when we're authorised to mint test $GRID via the
 	// faucet. Wired from IOGRID_CLUSTER env (= "devnet").
 	DevnetMode bool
@@ -46,6 +47,94 @@ func mountGrid(r chi.Router, deps *GridDeps) {
 	}
 	r.Post("/v1/grid/session-end", deps.handleSessionEnd)
 	r.Post("/v1/devnet/faucet", deps.handleFaucet)
+	r.Get("/v1/grid/balance", deps.handleBalance)
+}
+
+// ── /v1/grid/balance ─────────────────────────────────────────────────
+//
+//	GET /v1/grid/balance?wallet=<base58>
+//	-> 200 {
+//	     wallet,
+//	     balance_atomic, balance_grid,           // on-chain $GRID held
+//	     grace_overage_owed_atomic,              // arrears to clear next top-up
+//	     grace_overage_cap_atomic,               // founder-ruled ceiling
+//	     available_atomic                        // balance - owed (may be < 0)
+//	   }
+//
+// Backs the customer prepaid-balance surface (#632). gateway-bff resolves
+// the caller's bound wallet and forwards it here; this service owns the
+// Solana RPC + the grace-overage arrears query.
+//
+// Anti-fake-state (#417): when the Solana subsystem is in stub mode (no
+// $GRID mint configured yet) we return 503 rather than a misleading zero
+// balance — the web surface renders an explicit "balance unavailable"
+// banner instead of a fake $0.00 that masks the outage.
+func (g *GridDeps) handleBalance(w http.ResponseWriter, r *http.Request) {
+	wallet := strings.TrimSpace(r.URL.Query().Get("wallet"))
+	if wallet == "" {
+		writeErr(w, http.StatusBadRequest, "wallet query param required")
+		return
+	}
+	recipient := common.PublicKeyFromString(wallet)
+	if recipient.ToBase58() != wallet {
+		writeErr(w, http.StatusBadRequest, "wallet malformed")
+		return
+	}
+	if g.Solana == nil || !g.Solana.Enabled() {
+		writeErr(w, http.StatusServiceUnavailable, "balance unavailable: $GRID mint not configured (pre-TGE)")
+		return
+	}
+	if g.Store == nil {
+		writeErr(w, http.StatusServiceUnavailable, "grid store unconfigured")
+		return
+	}
+	balAtomic, err := g.Solana.GRIDAtomicWalletBalance(r.Context(), wallet)
+	if err != nil {
+		if g.Logger != nil {
+			g.Logger.Warn("grid: balance read failed",
+				slog.String("wallet", wallet), slog.String("error", err.Error()))
+		}
+		writeErr(w, http.StatusBadGateway, "balance read failed: "+err.Error())
+		return
+	}
+	owed, err := g.Store.SumGraceOverageOwedByCustomer(r.Context(), wallet)
+	if err != nil {
+		if g.Logger != nil {
+			g.Logger.Warn("grid: overage query failed",
+				slog.String("wallet", wallet), slog.String("error", err.Error()))
+		}
+		writeErr(w, http.StatusInternalServerError, "overage lookup failed")
+		return
+	}
+	// available = on-chain balance minus arrears owed. Signed so the web
+	// can render a slightly-negative prepaid balance under the grace cap.
+	available := int64(balAtomic) - int64(owed)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"wallet":                    wallet,
+		"balance_atomic":            balAtomic,
+		"balance_grid":              gridFromAtomic(balAtomic),
+		"grace_overage_owed_atomic": owed,
+		"grace_overage_cap_atomic":  grid.GraceOverageCapAtomic,
+		"available_atomic":          available,
+	})
+}
+
+// gridFromAtomic renders an atomic (9-decimal) $GRID amount as a decimal
+// string with up to 4 fractional digits — enough precision for the UI
+// without exposing lamport-level noise.
+func gridFromAtomic(atomic uint64) string {
+	const decimals = 1_000_000_000 // 1e9, $GRID has 9 decimals
+	whole := atomic / decimals
+	frac := (atomic % decimals) / 100_000 // keep 4 dp
+	return strconv.FormatUint(whole, 10) + "." +
+		leftPad(strconv.FormatUint(frac, 10), 4)
+}
+
+func leftPad(s string, n int) string {
+	for len(s) < n {
+		s = "0" + s
+	}
+	return s
 }
 
 // ── /v1/grid/session-end ────────────────────────────────────────────
@@ -128,7 +217,7 @@ func (g *GridDeps) handleFaucet(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusTooManyRequests)
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"error":     "rate_limited",
+			"error":           "rate_limited",
 			"retry_after_sec": int(cooldown.Seconds() - time.Since(last.ClaimedAt).Seconds()),
 		})
 		return

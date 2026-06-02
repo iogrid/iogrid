@@ -5,16 +5,17 @@ import { BillingPanel } from "./panel";
 export const metadata = { title: "Billing — iogrid" };
 
 /**
- * /customer/billing — links into the Stripe Customer Portal and shows
- * the current subscription tier + spend-to-date for the in-flight
- * invoice. The portal is hosted by Stripe so we just redirect.
+ * /customer/billing — prepaid $GRID balance surface (#632). Shows the
+ * current spendable balance, a top-up CTA, the grace-overage cap + any
+ * amount owed, and bandwidth-consumption context. Prepaid + capped-grace
+ * money model (founder-ruled) — no Stripe subscription tiers here.
  */
 export default function CustomerBillingPage() {
   return (
     <PortalShell
       badge="Customer"
       title="Billing"
-      subtitle="Subscription, invoices, payment method."
+      subtitle="Prepaid $GRID balance, top-up, and grace overage."
       nav={CUSTOMER_NAV}
       activeHref="/customer/billing"
     >

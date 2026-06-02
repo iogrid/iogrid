@@ -58,6 +58,10 @@ type Deps struct {
 	// OffRamp is the thin HTTP proxy to billing-svc's off-ramp routes.
 	// When nil the /api/v1/offramp/* + webhook routes return 503.
 	OffRamp *handlers.OffRampProxy
+	// BillingSvcBaseURL is billing-svc's base URL, forwarded to the
+	// customer prepaid-balance handler (#632). When empty the
+	// /api/v1/customer/billing/balance route returns 503.
+	BillingSvcBaseURL string
 }
 
 // Mount builds the routes from the supplied Deps. Pass the returned
@@ -77,6 +81,7 @@ func Mount(deps Deps) func(chi.Router) {
 	}
 	api.Workspaces = deps.Workspaces
 	api.OffRamp = deps.OffRamp
+	api.BillingSvcBaseURL = deps.BillingSvcBaseURL
 	// Phase 0: default to an in-memory customer-onboard store so
 	// POST /api/v1/onboard/customer works end-to-end without further
 	// wiring. Phase 1 swaps this for the identity-svc-backed impl.
@@ -242,6 +247,10 @@ func Mount(deps Deps) func(chi.Router) {
 				// billing-svc's subscription read model + Stripe portal
 				// session generator.
 				r.Get("/billing", emptyCustomerBilling)
+				// /customer/billing/balance (#632) — prepaid $GRID balance
+				// + grace-overage owed. Resolves the caller's bound wallet
+				// then reads billing-svc /v1/grid/balance.
+				r.Get("/billing/balance", api.GetCustomerBalance)
 			})
 
 			// /admin ------------------------------------------------------

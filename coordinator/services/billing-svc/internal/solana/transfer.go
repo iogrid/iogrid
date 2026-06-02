@@ -126,6 +126,38 @@ func (s *Service) GRIDAtomicTreasuryBalance(ctx context.Context) (uint64, error)
 	return res.Amount, nil
 }
 
+// GRIDAtomicWalletBalance returns the $GRID balance (atomic, 9-decimal)
+// held by an arbitrary wallet via its derived ATA. Used by the customer
+// prepaid-balance surface (#632). Returns 0 + no error when the ATA does
+// not exist yet — that's the legitimate "wallet has never received $GRID"
+// state, not an error. Any transport / RPC error bubbles up so the caller
+// can surface an explicit outage instead of a misleading zero (#417).
+func (s *Service) GRIDAtomicWalletBalance(ctx context.Context, walletB58 string) (uint64, error) {
+	if !s.Enabled() {
+		return 0, errors.New("solana: wallet balance in stub mode")
+	}
+	if s.chain == nil {
+		return 0, errors.New("solana: chain client unset")
+	}
+	wallet := common.PublicKeyFromString(walletB58)
+	if wallet.ToBase58() != walletB58 {
+		return 0, fmt.Errorf("solana: malformed wallet address %q", walletB58)
+	}
+	mint := common.PublicKeyFromString(s.cfg.GRIDTokenMint)
+	ata, err := findATA(wallet, mint, s.tokenProgramID)
+	if err != nil {
+		return 0, err
+	}
+	res, err := s.chain.rpc.GetTokenAccountBalance(ctx, ata.ToBase58())
+	if err != nil {
+		if isAccountNotFound(err.Error()) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("solana: getTokenAccountBalance: %w", err)
+	}
+	return res.Amount, nil
+}
+
 func isAccountNotFound(s string) bool {
 	for _, sub := range []string{
 		"could not find account",

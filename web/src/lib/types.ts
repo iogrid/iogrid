@@ -450,6 +450,31 @@ export interface CheckoutSessionResponse {
   sessionId?: string;
 }
 
+// ---- prepaid $GRID balance (#632) -----------------------------------------
+
+/**
+ * CustomerBalance is the prepaid-balance read for /customer/billing.
+ * Backed by gateway-bff GET /api/v1/customer/billing/balance, which
+ * resolves the caller's bound wallet and reads billing-svc
+ * /v1/grid/balance (on-chain $GRID + grace-overage arrears).
+ *
+ * Founder-ruled money model: prepaid + small capped grace overage. The
+ * customer consumes only the $GRID they hold; `available_atomic` MAY dip
+ * slightly negative — up to `grace_overage_cap_atomic` — and that arrears
+ * (`grace_overage_owed_atomic`) MUST be cleared on the next top-up.
+ *
+ * Amounts are atomic (9-decimal) $GRID. `balance_grid` is a pre-rendered
+ * decimal string convenience (up to 4 dp).
+ */
+export interface CustomerBalance {
+  wallet: string;
+  balance_atomic: number;
+  balance_grid: string;
+  grace_overage_owed_atomic: number;
+  grace_overage_cap_atomic: number;
+  available_atomic: number;
+}
+
 // ---- admin ----------------------------------------------------------------
 
 /**
