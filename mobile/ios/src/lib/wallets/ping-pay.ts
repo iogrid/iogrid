@@ -36,8 +36,16 @@
 
 import * as Linking from 'expo-linking';
 
-/** $GRID SPL decimals per Ping's contract. 250 $GRID → 250_000_000. */
-export const GRID_DECIMALS = 6;
+/**
+ * $GRID SPL decimals. CANONICAL = 9 (whitepaper "SPL Token-2022, 9 decimals";
+ * billing-svc meters in 9-decimal atomic units). 250 $GRID → 250_000_000_000.
+ *
+ * NOTE: an earlier draft used 6 (matching an illustrative Ping contract
+ * example); that is a 1000× error. The mint is 9 decimals — see
+ * docs/TOKENOMICS.md decimal-mismatch alert + #629 (Ping must align its
+ * `approve` amount to 9-decimal atomic).
+ */
+export const GRID_DECIMALS = 9;
 
 /** Universal-Link base for the Ping SPL-Approve surface. */
 export const PING_APPROVE_URL = 'https://ping.cash/approve';
@@ -46,7 +54,7 @@ export const PING_APPROVE_URL = 'https://ping.cash/approve';
 export const VPN_ACTIVATED_RETURN = 'iogrid://vpn/activated';
 
 /**
- * Convert a whole-token $GRID amount to atomic units (6 decimals).
+ * Convert a whole-token $GRID amount to atomic units (9 decimals).
  *
  * Uses integer/BigInt math — never float multiplication — so we don't
  * lose precision on large amounts. Accepts integer token amounts only

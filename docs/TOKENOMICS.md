@@ -13,13 +13,22 @@
 |---|---|
 | Symbol | `$GRID` |
 | Network | Solana (Token-2022 SPL) |
-| Decimals | `6` |
+| Decimals | `9` |
 | **Mainnet mint address** | **PRE-LAUNCH — not yet deployed.** See "Mint address contract" below. |
 | Devnet mint address | PRE-LAUNCH — not yet deployed. |
 
-The 6-decimal convention is load-bearing for partners: an amount of
-`N` $GRID is expressed atomically as `N * 10^6`. Example: 250 $GRID →
-`250000000`. Ping's `approve` Universal Link expects the atomic form.
+The **9-decimal** convention (authoritative: `whitepaper.md` — "SPL Token-2022,
+9 decimals, hard cap 1B"; `initialize_mint` creates the mint with decimals=9;
+and `billing-svc` meters all settlement in 9-decimal atomic units) is
+load-bearing for partners: an amount of `N` $GRID is expressed atomically as
+`N * 10^9`. Example: 250 $GRID → `250000000000`. Ping's `approve` Universal Link
+expects the atomic form.
+
+> ⚠️ **Decimal-mismatch alert (2026-06-03):** an earlier draft of this file and
+> Ping's contract example (`amount=250000000` for 250 $GRID) used **6** decimals.
+> The canonical mint is **9** decimals per the whitepaper + billing-svc. Ping's
+> `approve` `amount` and any client building atomic amounts MUST use 9 — a 6 vs 9
+> mismatch is a silent **1000×** error on every payment. Tracked for Ping in #629.
 
 ## Mint address contract
 

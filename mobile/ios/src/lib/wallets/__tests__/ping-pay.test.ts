@@ -3,7 +3,7 @@
 // Covers the canonical-contract realignment away from the self-invented
 // `ping://topup?…` custom scheme to the Universal-Link
 // `https://ping.cash/approve?…` shape:
-//   - atomic-amount conversion (6 decimals)
+//   - atomic-amount conversion (9 decimals — canonical per whitepaper)
 //   - memo schema `iogrid.v1:vpn:<region>:<days>`
 //   - return_url = iogrid://vpn/activated
 //   - return-bounce parser (ok=1 success, ok=0&reason=cancel soft cancel,
@@ -26,17 +26,17 @@ const VAULT = 'VauLt1111111111111111111111111111111111111';
 // atomic conversion
 // -----------------------------------------------------------------------
 
-describe('gridToAtomic — 6-decimal $GRID conversion', () => {
-  it('multiplies whole $GRID by 10^6', () => {
-    expect(GRID_DECIMALS).toBe(6);
-    expect(gridToAtomic(250)).toBe('250000000');
-    expect(gridToAtomic(1)).toBe('1000000');
+describe('gridToAtomic — 9-decimal $GRID conversion', () => {
+  it('multiplies whole $GRID by 10^9 (canonical: whitepaper + billing-svc)', () => {
+    expect(GRID_DECIMALS).toBe(9);
+    expect(gridToAtomic(250)).toBe('250000000000');
+    expect(gridToAtomic(1)).toBe('1000000000');
     expect(gridToAtomic(0)).toBe('0');
   });
 
   it('keeps precision on large amounts (BigInt, not float)', () => {
-    expect(gridToAtomic(10000)).toBe('10000000000');
-    expect(gridToAtomic(2_000_000)).toBe('2000000000000');
+    expect(gridToAtomic(10000)).toBe('10000000000000');
+    expect(gridToAtomic(2_000_000)).toBe('2000000000000000');
   });
 
   it('rejects fractional / negative / non-finite amounts', () => {
