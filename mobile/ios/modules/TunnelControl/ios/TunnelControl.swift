@@ -17,6 +17,16 @@ import ExpoModulesCore
 import NetworkExtension
 
 public class TunnelControlModule: Module {
+  /// PacketTunnelProvider extension bundle identifier — must match the
+  /// EXTENSION_BUNDLE_ID constant in
+  /// mobile/ios/scripts/add-network-extension-target.rb. If these
+  /// drift, NETunnelProviderManager.saveToPreferences silently fails
+  /// (the OS won't load an extension whose bundle ID doesn't match
+  /// what's in PreferencesController). One source of truth as a
+  /// static constant on this module, referenced everywhere below.
+  /// (#577 MINOR 2)
+  public static let extensionBundleIdentifier = "io.iogrid.app.PacketTunnelProvider"
+
   /// Holds the strong reference to the NEVPNStatusDidChange observer
   /// so removeObserver(_:) on OnStopObserving has a valid handle to
   /// release. Setting an observer with addObserver(forName:...) returns
@@ -60,7 +70,7 @@ public class TunnelControlModule: Module {
       Self.loadManager { manager, _ in
         let mgr = manager ?? NETunnelProviderManager()
         let proto = NETunnelProviderProtocol()
-        proto.providerBundleIdentifier = "io.iogrid.app.PacketTunnelProvider"
+        proto.providerBundleIdentifier = TunnelControlModule.extensionBundleIdentifier
         proto.serverAddress = config.peerEndpoint  // arbitrary display string for system VPN list
         proto.providerConfiguration = [
           "peerPublicKey": config.peerPublicKey,
