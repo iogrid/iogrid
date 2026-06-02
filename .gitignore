@@ -7,6 +7,12 @@
 *.test
 *.out
 vendor/
+# But DO check in the vendored wireguard-apple Swift-6 fork (#586) —
+# upstream's Package.swift fails on Xcode 26 / Swift 6, so we vendor a
+# patched copy. See mobile/ios/vendor/wireguard-apple-swift6/README.iogrid.md
+# for the rationale.
+!mobile/ios/vendor/
+!mobile/ios/vendor/**
 bin/
 dist/
 

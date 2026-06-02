@@ -17,6 +17,24 @@ import ExpoModulesCore
 import NetworkExtension
 
 public class TunnelControlModule: Module {
+  /// Holds the strong reference to the NEVPNStatusDidChange observer
+  /// so removeObserver(_:) on OnStopObserving has a valid handle to
+  /// release. Setting an observer with addObserver(forName:...) returns
+  /// an opaque NSObjectProtocol; passing `self` to removeObserver
+  /// wouldn't actually deregister this closure-based observer.
+  /// (CONTRIBUTING gotcha #17 / #22.)
+  private var statusObserver: NSObjectProtocol?
+
+  /// Stats poll timer — when JS has at least one onStatsUpdate listener
+  /// we poll the App Group UserDefaults every `statsPollIntervalMs` and
+  /// emit each new tick. nil when no JS listeners (saves battery during
+  /// idle screens that don't render stats).
+  private var statsTimer: DispatchSourceTimer?
+  private var lastStatsCapturedAtUnixMs: Int64 = 0
+  private static let statsAppGroup    = "group.io.iogrid.app"
+  private static let statsDefaultsKey = "io.iogrid.PacketTunnelProvider.stats.latest"
+  private static let statsPollIntervalMs: Int = 1_000
+
   public func definition() -> ModuleDefinition {
     Name("TunnelControl")
 
@@ -131,11 +149,18 @@ public class TunnelControlModule: Module {
     // Emit "status" events whenever NETunnelProviderManager's
     // connection changes state. JS subscribes via the Expo module
     // event API.
+    //
+    // ALSO emit "stats" events every ~1s with the latest WireGuard
+    // stats from the PacketTunnelProvider extension (#587). The
+    // extension writes to App Group UserDefaults; we poll + diff on
+    // capturedAtUnixMs so we only emit when there's a new tick.
 
-    Events("status")
+    Events("status", "stats")
 
     OnStartObserving {
-      NotificationCenter.default.addObserver(
+      // Status observer — keep a strong ref so OnStopObserving can
+      // remove it cleanly (CONTRIBUTING #17/#22).
+      self.statusObserver = NotificationCenter.default.addObserver(
         forName: .NEVPNStatusDidChange,
         object: nil,
         queue: .main
@@ -146,11 +171,56 @@ public class TunnelControlModule: Module {
         else { return }
         self.sendEvent("status", ["status": statusString(connection.status)])
       }
+
+      // Stats poll — every statsPollIntervalMs, read latest extension
+      // tick from App Group UserDefaults + emit if its
+      // capturedAtUnixMs is newer than what we last emitted.
+      self.startStatsPolling()
     }
 
     OnStopObserving {
-      NotificationCenter.default.removeObserver(self, name: .NEVPNStatusDidChange, object: nil)
+      if let observer = self.statusObserver {
+        NotificationCenter.default.removeObserver(observer)
+        self.statusObserver = nil
+      }
+      self.stopStatsPolling()
     }
+  }
+
+  // ── Stats poll (#587) ──────────────────────────────────────────────
+
+  private func startStatsPolling() {
+    stopStatsPolling()
+    let timer = DispatchSource.makeTimerSource(queue: .main)
+    timer.schedule(deadline: .now() + .milliseconds(Self.statsPollIntervalMs),
+                   repeating: .milliseconds(Self.statsPollIntervalMs))
+    timer.setEventHandler { [weak self] in
+      self?.pollStats()
+    }
+    timer.resume()
+    self.statsTimer = timer
+  }
+
+  private func stopStatsPolling() {
+    statsTimer?.cancel()
+    statsTimer = nil
+    lastStatsCapturedAtUnixMs = 0
+  }
+
+  private func pollStats() {
+    guard let defaults = UserDefaults(suiteName: Self.statsAppGroup),
+          let str = defaults.string(forKey: Self.statsDefaultsKey),
+          let data = str.data(using: .utf8),
+          let dict = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+          let captured = (dict["captured_at_unix_ms"] as? NSNumber)?.int64Value
+    else {
+      return
+    }
+    if captured <= lastStatsCapturedAtUnixMs { return }
+    lastStatsCapturedAtUnixMs = captured
+    // Forward the parsed dict as-is — JS layer's index.ts types it as
+    // { sessionId, sent, received, latency, handshakeAge, ... }.
+    sendEvent("stats", dict)
   }
 
   // ── Helpers ─────────────────────────────────────────────────────

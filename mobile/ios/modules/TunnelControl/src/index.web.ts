@@ -23,11 +23,21 @@ export interface TunnelConfig {
   sessionId: string;
 }
 
+export interface TunnelStats {
+  sessionId: string;
+  sent: number;
+  received: number;
+  latency: number;
+  handshakeAge: number;
+  capturedAtUnixMs: number;
+}
+
 interface Subscription {
   remove: () => void;
 }
 
 const listeners = new Set<(e: { status: TunnelStatus }) => void>();
+const statsListeners = new Set<(stats: TunnelStats) => void>();
 let webStatus: TunnelStatus = 'disconnected';
 
 function emit(status: TunnelStatus) {
@@ -56,6 +66,11 @@ export const TunnelControl = {
   onStatusChange: (listener: (e: { status: TunnelStatus }) => void): Subscription => {
     listeners.add(listener);
     return { remove: () => listeners.delete(listener) };
+  },
+
+  onStatsUpdate: (listener: (stats: TunnelStats) => void): Subscription => {
+    statsListeners.add(listener);
+    return { remove: () => statsListeners.delete(listener) };
   },
 };
 
