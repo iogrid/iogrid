@@ -15,6 +15,18 @@ on:
       - 'mobile/ios/assets/**'
       - 'mobile/ios/.maestro/**'
       - '.github/workflows/mobile-ios-ci.yml'
+    paths-ignore:
+      # Docs / comments / CONTRIBUTING gotchas don't affect the build.
+      # Excluding them keeps in-flight CI from getting cancelled by
+      # documentation pushes (the cancel-in-progress concurrency
+      # cancelled an in-flight `Build app for iOS Simulator` step in
+      # this session — 2026-06-02 — when a CONTRIBUTING gotcha commit
+      # landed mid-build).
+      - 'mobile/ios/**/*.md'
+      - 'mobile/ios/CLAUDE.md'
+      - 'mobile/ios/AGENTS.md'
+      - 'mobile/ios/CONTRIBUTING.md'
+      - 'mobile/ios/README.md'
   workflow_dispatch:
 
 # Concurrency group: ALL mobile-ios-ci runs serialize on a single
