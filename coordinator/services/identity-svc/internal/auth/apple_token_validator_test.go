@@ -464,6 +464,107 @@ func TestApple_Validate_EmptyAudClaim(t *testing.T) {
 	}
 }
 
+// TestApple_Validate_FutureIatRejected — a token whose `iat` is more
+// than IatFutureSkew (default 60s) ahead of our clock must be rejected.
+// Future-dated tokens are a textbook trick to effectively extend a
+// token's useful lifetime past its `exp`: with `exp = iat + N`, pushing
+// `iat` into the future drags `exp` along with it. Issue #612.
+func TestApple_Validate_FutureIatRejected(t *testing.T) {
+	f := newFakeJWKSServer(t)
+	v := newTestValidator(t, f)
+	now := time.Now()
+	claims := AppleClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    AppleIssuer,
+			Subject:   "apple-sub-future-iat",
+			Audience:  jwt.ClaimStrings{AppleAudience},
+			IssuedAt:  jwt.NewNumericDate(now.Add(5 * time.Minute)), // 5 min in the future
+			ExpiresAt: jwt.NewNumericDate(now.Add(10 * time.Minute)),
+		},
+		Email: "future@example.com",
+	}
+	tok := f.sign(t, "", claims)
+	_, err := v.Validate(context.Background(), tok, "")
+	if err == nil {
+		t.Fatal("expected error for future-dated iat")
+	}
+	if !errors.Is(err, ErrAppleTokenInvalid) {
+		t.Errorf("err: %v", err)
+	}
+	if !strings.Contains(err.Error(), "iat") {
+		t.Errorf("want 'iat' in error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "future") {
+		t.Errorf("want 'future' in error, got %v", err)
+	}
+}
+
+// TestApple_Validate_PastIatRejected — a token whose `iat` is more than
+// IatPastSkew (default 24h) behind our clock must be rejected. Either
+// the token has been sat on for a day (replay shape) or our system
+// clock is wildly skewed; either way refusing to mint a session is the
+// safe move. Issue #612.
+func TestApple_Validate_PastIatRejected(t *testing.T) {
+	f := newFakeJWKSServer(t)
+	v := newTestValidator(t, f)
+	now := time.Now()
+	claims := AppleClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:   AppleIssuer,
+			Subject:  "apple-sub-past-iat",
+			Audience: jwt.ClaimStrings{AppleAudience},
+			IssuedAt: jwt.NewNumericDate(now.Add(-25 * time.Hour)), // 25h ago
+			// exp must still be in the future for this test to isolate
+			// the iat check from the exp check.
+			ExpiresAt: jwt.NewNumericDate(now.Add(5 * time.Minute)),
+		},
+		Email: "stale@example.com",
+	}
+	tok := f.sign(t, "", claims)
+	_, err := v.Validate(context.Background(), tok, "")
+	if err == nil {
+		t.Fatal("expected error for past-dated iat")
+	}
+	if !errors.Is(err, ErrAppleTokenInvalid) {
+		t.Errorf("err: %v", err)
+	}
+	if !strings.Contains(err.Error(), "iat") {
+		t.Errorf("want 'iat' in error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "past") {
+		t.Errorf("want 'past' in error, got %v", err)
+	}
+}
+
+// TestApple_Validate_ReasonableIatAccepted — `iat` that is a small
+// number of seconds in the past (normal end-to-end propagation latency)
+// must be accepted. Pins the happy-path of the iat skew check so that a
+// future tightening of the bound doesn't accidentally reject every
+// legitimate sign-in.
+func TestApple_Validate_ReasonableIatAccepted(t *testing.T) {
+	f := newFakeJWKSServer(t)
+	v := newTestValidator(t, f)
+	now := time.Now()
+	claims := AppleClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    AppleIssuer,
+			Subject:   "apple-sub-fresh-iat",
+			Audience:  jwt.ClaimStrings{AppleAudience},
+			IssuedAt:  jwt.NewNumericDate(now.Add(-30 * time.Second)),
+			ExpiresAt: jwt.NewNumericDate(now.Add(5 * time.Minute)),
+		},
+		Email: "fresh@example.com",
+	}
+	tok := f.sign(t, "", claims)
+	got, err := v.Validate(context.Background(), tok, "")
+	if err != nil {
+		t.Fatalf("expected ok for iat=now-30s, got %v", err)
+	}
+	if got.Subject != "apple-sub-fresh-iat" {
+		t.Errorf("subject: %s", got.Subject)
+	}
+}
+
 // TestJWKSCache_ConcurrentGetKey covers the race-condition surface that
 // production WILL hit: 50+ iOS clients all sign in within the same TTL
 // window, each calling GetKey from a different goroutine. The cache

@@ -49,6 +49,21 @@ type AppleClaims struct {
 	IsPrivateMail any    `json:"is_private_email,omitempty"`
 }
 
+// DefaultIatFutureSkew is the maximum amount by which a token's `iat`
+// (issued-at) claim is allowed to be in the future relative to our
+// clock. A token with iat > now+DefaultIatFutureSkew is rejected — it
+// either indicates a client/issuer clock badly ahead of ours OR a
+// future-dated token attack where an attacker tries to extend a token's
+// useful lifetime past its `exp`.
+const DefaultIatFutureSkew = 60 * time.Second
+
+// DefaultIatPastSkew is the maximum age we accept for a token's `iat`
+// claim. A token that claims to have been issued more than 24h ago is
+// either a stale replay (the legitimate issuer has long since rotated
+// to a fresher token) or a sign our clock is wildly wrong. Either way:
+// reject.
+const DefaultIatPastSkew = 24 * time.Hour
+
 // AppleValidator is configured per process. The JWKSCache + clock are
 // the only collaborators; the issuer + audience are constants pinned at
 // construction time so tests can swap them for the fake JWKS server.
@@ -57,6 +72,14 @@ type AppleValidator struct {
 	Audience string
 	JWKS     *JWKSCache
 	Now      func() time.Time // injected clock; tests use a fixed time
+
+	// IatFutureSkew bounds how far the iat claim may lead our clock.
+	// Defaults to DefaultIatFutureSkew at construction; tests tighten it
+	// to assert the boundary precisely.
+	IatFutureSkew time.Duration
+	// IatPastSkew bounds how far the iat claim may lag our clock.
+	// Defaults to DefaultIatPastSkew at construction.
+	IatPastSkew time.Duration
 }
 
 // NewAppleValidator builds a validator with sensible defaults. Pass nil
@@ -66,10 +89,12 @@ func NewAppleValidator(jwks *JWKSCache) *AppleValidator {
 		jwks = NewJWKSCache(AppleJWKSURL, DefaultJWKSCacheTTL, nil)
 	}
 	return &AppleValidator{
-		Issuer:   AppleIssuer,
-		Audience: AppleAudience,
-		JWKS:     jwks,
-		Now:      time.Now,
+		Issuer:        AppleIssuer,
+		Audience:      AppleAudience,
+		JWKS:          jwks,
+		Now:           time.Now,
+		IatFutureSkew: DefaultIatFutureSkew,
+		IatPastSkew:   DefaultIatPastSkew,
 	}
 }
 
@@ -90,7 +115,9 @@ var ErrAppleTokenInvalid = errors.New("apple identity token invalid")
 //  4. iss == "https://appleid.apple.com"
 //  5. aud contains AppleAudience (Apple ships aud as a string OR array)
 //  6. exp > now (clock injected; tests can advance)
-//  7. nonce matches (when request-side nonce is non-empty)
+//  7. iat is within [now-IatPastSkew, now+IatFutureSkew] when present —
+//     guards against future-dated tokens (#612) and very stale replays
+//  8. nonce matches (when request-side nonce is non-empty)
 func (v *AppleValidator) Validate(ctx context.Context, idToken, clientNonce string) (*AppleClaims, error) {
 	parsed, err := jwt.ParseWithClaims(idToken, &AppleClaims{}, func(t *jwt.Token) (any, error) {
 		if t.Method.Alg() != jwt.SigningMethodRS256.Alg() {
@@ -134,6 +161,20 @@ func (v *AppleValidator) Validate(ctx context.Context, idToken, clientNonce stri
 	if now.After(claims.ExpiresAt.Time) {
 		return nil, fmt.Errorf("%w: token expired at %s", ErrAppleTokenInvalid, claims.ExpiresAt.Time)
 	}
+	// iat skew checks — guard against future-dated tokens (which could
+	// effectively extend useful lifetime past `exp`) and against very
+	// stale replays. Skip silently when the claim is absent: Apple
+	// always emits one, but a missing iat is not a security defect on
+	// its own (exp is the authoritative lifetime bound).
+	if claims.IssuedAt != nil {
+		iat := claims.IssuedAt.Time
+		if iat.After(now.Add(v.iatFutureSkew())) {
+			return nil, fmt.Errorf("%w: iat=%s is more than %s in the future (now=%s)", ErrAppleTokenInvalid, iat, v.iatFutureSkew(), now)
+		}
+		if iat.Before(now.Add(-v.iatPastSkew())) {
+			return nil, fmt.Errorf("%w: iat=%s is more than %s in the past (now=%s)", ErrAppleTokenInvalid, iat, v.iatPastSkew(), now)
+		}
+	}
 	if clientNonce != "" {
 		if claims.Nonce == "" {
 			return nil, fmt.Errorf("%w: client supplied nonce but token has none", ErrAppleTokenInvalid)
@@ -153,6 +194,25 @@ func (v *AppleValidator) now() time.Time {
 		return time.Now()
 	}
 	return v.Now()
+}
+
+// iatFutureSkew returns the configured upper bound, falling back to the
+// package default for zero-value validators (e.g. constructed via
+// struct-literal in tests).
+func (v *AppleValidator) iatFutureSkew() time.Duration {
+	if v.IatFutureSkew <= 0 {
+		return DefaultIatFutureSkew
+	}
+	return v.IatFutureSkew
+}
+
+// iatPastSkew returns the configured lower bound, falling back to the
+// package default for zero-value validators.
+func (v *AppleValidator) iatPastSkew() time.Duration {
+	if v.IatPastSkew <= 0 {
+		return DefaultIatPastSkew
+	}
+	return v.IatPastSkew
 }
 
 func audienceContains(aud jwt.ClaimStrings, want string) bool {
