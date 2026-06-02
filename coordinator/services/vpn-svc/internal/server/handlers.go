@@ -1244,14 +1244,17 @@ type requestMobileSessionReq struct {
 func (h *RequestMobileSession) Handle(w http.ResponseWriter, r *http.Request) {
 	req := &requestMobileSessionReq{}
 	if err := json.NewDecoder(r.Body).Decode(req); err != nil {
+		MobileSessionRequests.WithLabelValues("bad_request").Inc()
 		respondError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 	if req.CustomerID == "" {
+		MobileSessionRequests.WithLabelValues("bad_request").Inc()
 		respondError(w, http.StatusBadRequest, "customer_id required")
 		return
 	}
 	if req.ClientPublicKey == "" {
+		MobileSessionRequests.WithLabelValues("bad_request").Inc()
 		respondError(w, http.StatusBadRequest, "client_public_key required")
 		return
 	}
@@ -1262,6 +1265,7 @@ func (h *RequestMobileSession) Handle(w http.ResponseWriter, r *http.Request) {
 	}
 	customerUUID, err := uuid.Parse(req.CustomerID)
 	if err != nil {
+		MobileSessionRequests.WithLabelValues("bad_request").Inc()
 		respondError(w, http.StatusBadRequest, "customer_id must be a UUID")
 		return
 	}
@@ -1271,11 +1275,13 @@ func (h *RequestMobileSession) Handle(w http.ResponseWriter, r *http.Request) {
 	usedBytes := uint64(0)
 	if h.validator != nil {
 		if req.APIKey == "" {
+			MobileSessionRequests.WithLabelValues("unauthorized").Inc()
 			respondError(w, http.StatusUnauthorized, "api_key required")
 			return
 		}
 		_, custID, tier, vErr := h.validator.Validate(r.Context(), req.APIKey)
 		if vErr != nil {
+			MobileSessionRequests.WithLabelValues("unauthorized").Inc()
 			h.logger.Warn("mobile session: api key rejected",
 				slog.String("customer_id", req.CustomerID),
 				slog.String("error", vErr.Error()))
@@ -1321,6 +1327,7 @@ func (h *RequestMobileSession) Handle(w http.ResponseWriter, r *http.Request) {
 	providerID, chosenRegion, pickErr := h.picker.Pick(r.Context(), req.Region, ipHint)
 	if pickErr != nil {
 		if errors.Is(pickErr, peer.ErrNoPeer) {
+			MobileSessionRequests.WithLabelValues("no_peer").Inc()
 			h.logger.Warn("mobile session: no peer available",
 				slog.String("region", req.Region),
 				slog.String("ip_hint", ipHint))
@@ -1336,6 +1343,7 @@ func (h *RequestMobileSession) Handle(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
+		MobileSessionRequests.WithLabelValues("internal_error").Inc()
 		respondError(w, http.StatusInternalServerError, "peer selection failed")
 		return
 	}
@@ -1349,6 +1357,7 @@ func (h *RequestMobileSession) Handle(w http.ResponseWriter, r *http.Request) {
 	sessionID := uuid.New()
 	innerIP, allocErr := h.st.AllocateInnerIP(r.Context(), providerID, sessionID)
 	if allocErr != nil {
+		MobileSessionRequests.WithLabelValues("internal_error").Inc()
 		h.logger.Error("mobile session: inner-ip alloc failed",
 			slog.String("provider_id", providerID.String()),
 			slog.String("error", allocErr.Error()))
@@ -1362,6 +1371,7 @@ func (h *RequestMobileSession) Handle(w http.ResponseWriter, r *http.Request) {
 	// surface 503 — the peer is registered but un-reachable.
 	providerInfo, providerErr := h.lookupProvider(r.Context(), providerID, chosenRegion)
 	if providerErr != nil {
+		MobileSessionRequests.WithLabelValues("no_peer").Inc()
 		h.logger.Warn("mobile session: peer endpoint lookup failed",
 			slog.String("provider_id", providerID.String()),
 			slog.String("error", providerErr.Error()))
@@ -1391,6 +1401,7 @@ func (h *RequestMobileSession) Handle(w http.ResponseWriter, r *http.Request) {
 		PaymentAuthorization: paymentAuth,
 	}
 	if err := h.st.CreateSession(r.Context(), session); err != nil {
+		MobileSessionRequests.WithLabelValues("internal_error").Inc()
 		h.logger.Error("mobile session: create failed", slog.String("error", err.Error()))
 		respondError(w, http.StatusInternalServerError, "failed to create session")
 		return
@@ -1410,6 +1421,7 @@ func (h *RequestMobileSession) Handle(w http.ResponseWriter, r *http.Request) {
 	if err := h.st.PersistSessionPeerConfig(
 		r.Context(), sessionID,
 		providerInfo.WgPublicKey, providerInfo.Endpoint); err != nil {
+		MobileSessionRequests.WithLabelValues("internal_error").Inc()
 		h.logger.Error("mobile session: persist peer config failed",
 			slog.String("session_id", sessionID.String()),
 			slog.String("error", err.Error()))
@@ -1431,6 +1443,7 @@ func (h *RequestMobileSession) Handle(w http.ResponseWriter, r *http.Request) {
 		slog.String("inner_ip", innerIP))
 
 	SessionsCreated.Inc()
+	MobileSessionRequests.WithLabelValues("created").Inc()
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{

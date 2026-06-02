@@ -7,3 +7,4 @@ resources:
   - hpa.yaml
   - networkpolicy.yaml
   - ciliumnetworkpolicy.yaml
+  - prometheusrules.yaml

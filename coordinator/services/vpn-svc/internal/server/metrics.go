@@ -57,4 +57,18 @@ var (
 		Name:      "stun_requests_total",
 		Help:      "Total STUN BINDING REQUESTs processed (RFC 5389)",
 	})
+
+	// MobileSessionRequests counts POST /v1/vpn/sessions/mobile by
+	// outcome. Splits the new mobile bring-up flow from the legacy
+	// daemon-driven /sessions counter so dashboards + alerts can
+	// observe mobile separately. Labels:
+	//   outcome ∈ {created, no_peer, bad_request, unauthorized, internal_error}
+	// — matches the handler's response paths in
+	// internal/server/handlers.go::RequestMobileSession.Handle.
+	MobileSessionRequests = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "iogrid",
+		Subsystem: "vpn_svc",
+		Name:      "mobile_session_requests_total",
+		Help:      "Total POST /v1/vpn/sessions/mobile requests, labeled by outcome",
+	}, []string{"outcome"})
 )
