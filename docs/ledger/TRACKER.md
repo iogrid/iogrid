@@ -937,3 +937,12 @@ Automation follow-up: [bin/refresh-tracker.sh](https://github.com/iogrid/iogrid/
   - **Submit Beta Review**: HTTP 422 MISSING_BETA_APP_DESCRIPTION — "Beta App Description is required to submit a build for external testing"
 - Deep-fix workflow b4d1c8c will: (1) create betaAppLocalization (description + privacy URL + feedback email), (2) create betaBuildLocalization (what to test), (3) delete + recreate tester atomically with app+group rels, (4) re-submit Beta Review.
 - Run 26800073146 firing now. Monitor brjwy554j.
+
+## 2026-06-02T09:40Z — #575 BREAKTHROUGH: internal beta path
+- v5 (run 26800230590) discovered:
+  - emrahbaysal@gmail.com IS already on Apple Developer team (DEVELOPER role) — no team invite needed
+  - vpn-internal group created (id e0ddb17e-7f92-4b13-a3e3-a0749745d58e)
+  - Tester added to vpn-internal (HTTP 204)
+- v6 (run 26800279684) assigns build 61 to vpn-internal.
+- Internal beta needs NO Apple Beta Review — founder install is immediate after build assignment lands.
+- Side discovery: betaAppReviewDetails PATCH on the app returns 200 but values don't persist (notes/contactPhone/contactEmail all null on readback). External beta-review path still blocked; parked as follow-up.
