@@ -1,24 +1,35 @@
-// VPN toggle screen — primary surface of the iogrid mobile app.
-//
-// Scope of #567 (bootstrap): render the toggle + region row + settings
-// entry point with the testIDs the Maestro smoke flow asserts on. The
-// toggle's actual data plane (PacketTunnelProvider, WG handshake,
-// coordinator session POST) lands in #568 + #569 + #570 — for now
-// toggling locally drives the OFF → CONNECTING state transition on
-// the JS side only, so the smoke flow asserts state changes without
-// a live provider.
+/**
+ * Main screen — the home of iogrid.
+ *
+ * v2 rewrite per mobile/ios/docs/ux-wireframes-v2.md Screens 5/6/7.
+ * Drops the iOS Switch + tiny status text in favor of:
+ *
+ *   - Giant 180pt ConnectButton (Mullvad-style) with 3 states
+ *   - Region card (tap → /regions)
+ *   - Wallet card with $GRID balance + burn ticker when CONNECTED
+ *   - Settings affordance in the top-right
+ *   - Egress IP + live stats card shown only in CONNECTED state
+ *
+ * State machine driven by `TunnelControl.onStatusChange`. The legacy
+ * 3000ms CONNECTING-hold workaround stays in the FAILURE path only —
+ * once the real WireGuard data plane lands (#587), success transitions
+ * are driven by the OS NEVPNStatusDidChange notification and no hold
+ * is needed.
+ *
+ * Refs #580, #591.
+ */
 
-import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Switch, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { ConnectButton, type ConnectState } from '@/components/connect-button';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { QuotaBanner, type QuotaState } from '@/components/quota-banner';
-import { Spacing } from '@/constants/theme';
+import { Card, Spacing, TypeScale } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 import { AUTO_REGION_SENTINEL } from '@/app/regions';
 import { loadOrCreateIdentity } from '@/lib/account';
 import { requestSession } from '@/lib/coordinator';
@@ -28,16 +39,35 @@ type TunnelState = 'OFF' | 'CONNECTING' | 'CONNECTED' | 'DISCONNECTING';
 
 const SELECTED_REGION_KEY = 'iogrid.region.selected';
 
-export default function VPNToggleScreen() {
+function tunnelToConnectState(state: TunnelState): ConnectState {
+  if (state === 'CONNECTED') return 'connected';
+  if (state === 'CONNECTING' || state === 'DISCONNECTING') return 'connecting';
+  return 'off';
+}
+
+export default function MainScreen() {
+  const theme = useTheme();
   const [state, setState] = useState<TunnelState>('OFF');
   const [region, setRegion] = useState<string>('Best (auto)');
-  const [quotaState, setQuotaState] = useState<QuotaState>('QUOTA_STATE_UNSPECIFIED');
+  // Stats are populated by Track 3's `TunnelControl.onStatsUpdate`
+  // event once the real WireGuard tunnel is live. For now, they stay
+  // null and render skeleton placeholders in CONNECTED state.
+  const [stats] = useState<{
+    sentBytes: number;
+    receivedBytes: number;
+    egressIP: string | null;
+    city: string | null;
+    flag: string | null;
+    latencyMs: number | null;
+  }>({
+    sentBytes: 0,
+    receivedBytes: 0,
+    egressIP: null,
+    city: null,
+    flag: null,
+    latencyMs: null,
+  });
 
-  // Re-read the persisted region whenever the toggle screen comes
-  // back into focus (typically: user just tapped a row on the
-  // regions screen + the router popped back). useFocusEffect runs
-  // on every focus, not just mount, so the change reflects without
-  // a manual prop drill or pub/sub.
   useFocusEffect(
     useCallback(() => {
       AsyncStorage.getItem(SELECTED_REGION_KEY)
@@ -52,93 +82,7 @@ export default function VPNToggleScreen() {
     }, []),
   );
 
-  const onToggle = async (value: boolean) => {
-    if (value) {
-      setState('CONNECTING');
-      // Hold CONNECTING visible for a minimum window so a fast failure
-      // (e.g. simulator with no NE host, coordinator unreachable, WG
-      // not linked) doesn't make the UI flash OFF before the user
-      // notices the attempt. Mullvad's app does the same: even when
-      // the tunnel is going to fail, the "Connecting…" state stays
-      // visible for a beat so the user can read it.
-      //
-      // Doubles as a non-flaky anchor for the Maestro smoke gate —
-      // the 02-toggle-on flow polls for "CONNECTING" and otherwise
-      // misses the ~10ms flash on simulator. 3s margin covers slow
-      // takeScreenshot (~500-1500ms) + tap-2 latency without the
-      // hold expiring early on busy macos-latest runners.
-      const minVisibleStart = Date.now();
-      const holdConnectingVisible = async () => {
-        const elapsed = Date.now() - minVisibleStart;
-        const remaining = 3000 - elapsed;
-        if (remaining > 0) {
-          await new Promise((resolve) => setTimeout(resolve, remaining));
-        }
-      };
-      try {
-        const identity = await loadOrCreateIdentity();
-        const persistedRegion = (await AsyncStorage.getItem(SELECTED_REGION_KEY)) ?? AUTO_REGION_SENTINEL;
-        // Mullvad-style: the account number IS the API key. vpn-svc
-        // accepts unknown customer_ids + tier-defaults to FREE on
-        // first sight (#569 contract).
-        const session = await requestSession(
-          identity.accountNumberRaw,
-          identity.customerId,
-          persistedRegion,
-        );
-        setQuotaState(session.quotaState);
-
-        // Start the tunnel via NETunnelProviderManager. First run
-        // triggers iOS's "Allow VPN configuration" sheet; subsequent
-        // runs reuse the saved configuration. The PTP extension
-        // (#568/#572) takes over from here.
-        //
-        // KNOWN GAP v1: until #576 lands WireGuardKit, the PTP
-        // extension returns `wireGuardKitNotLinked` and the tunnel
-        // doesn't actually carry traffic. The toggle reflects the
-        // OS-reported status via the NEVPNStatusDidChange subscriber
-        // below — so the UI surfaces CONNECTING → OFF when WG is
-        // missing, without pretending success. See #576.
-        if (session.sessionId) {
-          await TunnelControl.startTunnel({
-            peerPublicKey: '',  // coordinator returns this on the followup peer-info call (#570)
-            peerEndpoint: 'discover',
-            customerInnerCIDR: '10.66.0.2/16',
-            allowedIPs: '0.0.0.0/0',
-            region: session.region,
-            sessionId: session.sessionId,
-          });
-        } else {
-          // EPIC #566 reviewer MAJOR 5: empty sessionId means the
-          // server returned 429 (quota exhausted). Without this
-          // explicit revert the toggle stays visually CONNECTING
-          // forever — NEVPNStatusDidChange can't fire because we
-          // never invoked the OS-level start. The QuotaBanner
-          // already explains the situation; just unwind the
-          // toggle state.
-          await holdConnectingVisible();
-          setState('OFF');
-        }
-      } catch (e) {
-        console.warn('vpn start failed', e);
-        await holdConnectingVisible();
-        setState('OFF');
-      }
-    } else {
-      setState('DISCONNECTING');
-      try {
-        await TunnelControl.stopTunnel();
-      } catch (e) {
-        console.warn('vpn stop failed', e);
-      }
-      setState('OFF');
-    }
-  };
-
-  // Subscribe to native VPN status updates so the toggle reflects
-  // the real OS state. Without this the JS-side state diverges from
-  // what iOS thinks (e.g. user disconnects via Settings → VPN
-  // toggle, our UI would still show ON).
+  // ── Status machine sync — NEVPNStatusDidChange via native module ──
   useEffect(() => {
     const sub = TunnelControl.onStatusChange(({ status }) => {
       switch (status) {
@@ -162,77 +106,347 @@ export default function VPNToggleScreen() {
     return () => sub.remove();
   }, []);
 
-  const isOn = state === 'CONNECTING' || state === 'CONNECTED';
+  const onConnect = useCallback(async () => {
+    if (state !== 'OFF') {
+      // Already CONNECTING / CONNECTED / DISCONNECTING — tapping the
+      // big button when CONNECTED treats it as disconnect intent.
+      if (state === 'CONNECTED') {
+        setState('DISCONNECTING');
+        try {
+          await TunnelControl.stopTunnel();
+        } catch (e) {
+          console.warn('stopTunnel failed', e);
+        }
+        setState('OFF');
+      }
+      return;
+    }
+
+    setState('CONNECTING');
+    const minVisibleStart = Date.now();
+    const holdConnectingVisible = async () => {
+      // Preserve the failure-path hold from #567: if the tunnel
+      // start fails fast (e.g. coordinator unreachable, WG not
+      // linked yet), keep CONNECTING visible long enough that the
+      // user reads it rather than seeing a confusing instant OFF.
+      const elapsed = Date.now() - minVisibleStart;
+      const remaining = 3000 - elapsed;
+      if (remaining > 0) {
+        await new Promise((resolve) => setTimeout(resolve, remaining));
+      }
+    };
+
+    try {
+      const identity = await loadOrCreateIdentity();
+      const persistedRegion =
+        (await AsyncStorage.getItem(SELECTED_REGION_KEY)) ?? AUTO_REGION_SENTINEL;
+      const session = await requestSession(
+        identity.accountNumberRaw,
+        identity.customerId,
+        persistedRegion,
+      );
+      if (!session.sessionId) {
+        // Backend returned a session-less response (e.g. quota
+        // exhausted, or v2's wallet authorization failed). Surface
+        // a tappable error.
+        await holdConnectingVisible();
+        setState('OFF');
+        Alert.alert(
+          'Could not connect',
+          'Your wallet balance may be insufficient. Tap Top up to add $GRID.',
+        );
+        return;
+      }
+      await TunnelControl.startTunnel({
+        peerPublicKey: '',
+        peerEndpoint: 'discover',
+        customerInnerCIDR: '10.66.0.2/16',
+        allowedIPs: '0.0.0.0/0',
+        region: session.region,
+        sessionId: session.sessionId,
+      });
+      // NEVPNStatusDidChange will drive setState to CONNECTED via
+      // the onStatusChange subscriber above.
+    } catch (e) {
+      console.warn('vpn start failed', e);
+      await holdConnectingVisible();
+      setState('OFF');
+    }
+  }, [state]);
+
+  const connectState = tunnelToConnectState(state);
+  const isConnected = state === 'CONNECTED';
 
   return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safe}>
-        <View style={styles.header}>
-          <ThemedText type="title">iogrid</ThemedText>
+    <ThemedView style={styles.root}>
+      <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
+        {/* ── Top bar ─────────────────────────────────────────── */}
+        <View style={styles.topBar}>
+          <ThemedText style={styles.brand}>iogrid</ThemedText>
           <Pressable
             testID="settings-button"
             onPress={() => router.push('/settings')}
             hitSlop={12}
+            accessibilityLabel="Open settings"
+            accessibilityRole="button"
           >
-            <ThemedText type="default">⚙</ThemedText>
+            <ThemedText style={[styles.settingsIcon, { color: theme.textSecondary }]}>
+              ⚙
+            </ThemedText>
           </Pressable>
         </View>
 
-        <QuotaBanner state={quotaState} onUpgrade={() => router.push('/settings')} />
-
-        <View style={styles.toggleBlock}>
-          <Switch
-            testID="vpn-toggle"
-            value={isOn}
-            onValueChange={onToggle}
-            style={styles.bigSwitch}
-          />
-          <ThemedText type="subtitle" style={styles.state}>
-            {state}
-          </ThemedText>
-        </View>
-
-        <Pressable
-          testID="region-picker-row"
-          style={styles.regionRow}
-          onPress={() => router.push('/regions')}
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
         >
-          <View>
-            <ThemedText type="small">Region</ThemedText>
-            <ThemedText type="default">{region}</ThemedText>
+          {/* ── Connect button + status label ─────────────────── */}
+          <ConnectButton state={connectState} onPress={onConnect} />
+
+          {/* ── Connected state extras: city, egress IP, stats ── */}
+          {isConnected ? (
+            <View style={styles.connectedMeta}>
+              {stats.city ? (
+                <ThemedText
+                  testID="connected-city"
+                  style={[styles.locationLine, { color: theme.text }]}
+                >
+                  {stats.flag ?? ''} {stats.city}
+                </ThemedText>
+              ) : null}
+              {stats.egressIP ? (
+                <Pressable
+                  testID="egress-ip"
+                  onPress={() => {
+                    // TODO Track 3 wires Clipboard.setStringAsync once
+                    // the stats event provides the egress IP. For now
+                    // this is a no-op stub.
+                  }}
+                  hitSlop={8}
+                  accessibilityLabel={`Copy egress IP ${stats.egressIP}`}
+                  accessibilityRole="button"
+                >
+                  <ThemedText style={[styles.egressIP, { color: theme.textSecondary }]}>
+                    {stats.egressIP}
+                  </ThemedText>
+                </Pressable>
+              ) : null}
+              <View style={styles.statsRow}>
+                <ThemedText style={[styles.statLine, { color: theme.textSecondary }]}>
+                  ↓ {formatBytes(stats.receivedBytes)}
+                </ThemedText>
+                <ThemedText style={[styles.statLine, { color: theme.textSecondary }]}>
+                  ↑ {formatBytes(stats.sentBytes)}
+                </ThemedText>
+                {stats.latencyMs != null ? (
+                  <ThemedText style={[styles.statLine, { color: theme.textSecondary }]}>
+                    {stats.latencyMs} ms
+                  </ThemedText>
+                ) : null}
+              </View>
+            </View>
+          ) : null}
+
+          {/* ── Region card ───────────────────────────────────── */}
+          <Pressable
+            testID="region-card"
+            onPress={() => router.push('/regions')}
+            style={({ pressed }) => [
+              styles.card,
+              {
+                backgroundColor: theme.backgroundCard,
+                borderColor: theme.border,
+              },
+              pressed ? styles.cardPressed : null,
+            ]}
+            accessibilityLabel={`Region: ${region}. Tap to change.`}
+            accessibilityRole="button"
+          >
+            <View>
+              <ThemedText style={[styles.cardLabel, { color: theme.textTertiary }]}>
+                REGION
+              </ThemedText>
+              <ThemedText style={[styles.cardValue, { color: theme.text }]}>
+                {region}
+              </ThemedText>
+            </View>
+            <ThemedText style={[styles.cardChevron, { color: theme.textTertiary }]}>
+              ›
+            </ThemedText>
+          </Pressable>
+
+          {/* ── Wallet card (stub; #594 owns full implementation) ─ */}
+          <View
+            testID="wallet-card"
+            style={[
+              styles.card,
+              styles.walletCard,
+              {
+                backgroundColor: theme.backgroundCard,
+                borderColor: theme.border,
+              },
+            ]}
+          >
+            <View style={styles.walletTopRow}>
+              <ThemedText style={[styles.cardLabel, { color: theme.textTertiary }]}>
+                WALLET
+              </ThemedText>
+            </View>
+            <ThemedText style={[styles.walletBalance, { color: theme.text }]}>
+              — $GRID
+            </ThemedText>
+            <ThemedText style={[styles.walletSubtle, { color: theme.textSecondary }]}>
+              Connect a wallet to start
+            </ThemedText>
+            <Pressable
+              testID="wallet-card-topup"
+              onPress={() => router.push('/topup')}
+              style={({ pressed }) => [
+                styles.topupButton,
+                { backgroundColor: theme.backgroundElement },
+                pressed ? styles.cardPressed : null,
+              ]}
+              accessibilityLabel="Top up wallet"
+              accessibilityRole="button"
+            >
+              <ThemedText style={[styles.topupLabel, { color: theme.text }]}>
+                Top up ›
+              </ThemedText>
+            </Pressable>
           </View>
-          <ThemedText type="default">›</ThemedText>
-        </Pressable>
+
+          {/* ── Disconnect (only when CONNECTED) ──────────────── */}
+          {isConnected ? (
+            <Pressable
+              testID="disconnect-button"
+              onPress={onConnect}
+              hitSlop={8}
+              accessibilityLabel="Disconnect from iogrid VPN"
+              accessibilityRole="button"
+              style={({ pressed }) => [
+                styles.disconnectButton,
+                pressed ? styles.cardPressed : null,
+              ]}
+            >
+              <ThemedText style={[styles.disconnectLabel, { color: theme.error }]}>
+                Disconnect
+              </ThemedText>
+            </Pressable>
+          ) : null}
+        </ScrollView>
       </SafeAreaView>
     </ThemedView>
   );
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  safe: { flex: 1, paddingHorizontal: Spacing.three },
-  header: {
+  root: { flex: 1 },
+  safe: { flex: 1 },
+  topBar: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 16,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
   },
-  toggleBlock: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 24,
+  brand: {
+    ...TypeScale.displayS,
+    letterSpacing: -0.4,
   },
-  bigSwitch: { transform: [{ scaleX: 2 }, { scaleY: 2 }] },
-  state: { letterSpacing: 2, fontWeight: '600' },
-  regionRow: {
+  settingsIcon: {
+    fontSize: 22,
+    fontWeight: '400',
+  },
+  scrollContent: {
+    paddingBottom: Spacing.xxxl,
+    paddingHorizontal: Spacing.lg,
+  },
+  connectedMeta: {
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginTop: -Spacing.lg, // hug the ConnectButton container
+    marginBottom: Spacing.xl,
+  },
+  locationLine: {
+    ...TypeScale.bodyL,
+    fontWeight: '500',
+  },
+  egressIP: {
+    ...TypeScale.monoM,
+  },
+  statsRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    gap: Spacing.lg,
+    marginTop: Spacing.sm,
+  },
+  statLine: {
+    ...TypeScale.monoS,
+  },
+  card: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 16,
+    justifyContent: 'space-between',
+    padding: Card.padding,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    marginTop: Card.marginVertical,
+  },
+  cardPressed: {
+    opacity: 0.7,
+  },
+  cardLabel: {
+    ...TypeScale.captionStrong,
+    letterSpacing: 1.5,
+    marginBottom: 2,
+  },
+  cardValue: {
+    ...TypeScale.bodyL,
+    fontWeight: '500',
+  },
+  cardChevron: {
+    fontSize: 24,
+    fontWeight: '300',
+  },
+  walletCard: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    gap: Spacing.sm,
+  },
+  walletTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  walletBalance: {
+    ...TypeScale.displayS,
+    fontVariant: ['tabular-nums'],
+  },
+  walletSubtle: {
+    ...TypeScale.bodyS,
+  },
+  topupButton: {
+    marginTop: Spacing.md,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.lg,
     borderRadius: 12,
-    backgroundColor: 'rgba(127, 127, 127, 0.1)',
-    marginBottom: 24,
+    alignItems: 'center',
+  },
+  topupLabel: {
+    ...TypeScale.button,
+  },
+  disconnectButton: {
+    marginTop: Spacing.xl,
+    paddingVertical: Spacing.md,
+    alignItems: 'center',
+  },
+  disconnectLabel: {
+    ...TypeScale.button,
   },
 });
