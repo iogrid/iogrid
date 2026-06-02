@@ -945,8 +945,14 @@ mod tests {
             saw_update,
             "pump must emit a byte-accounting Update on upstream EOF (#633)"
         );
-        assert_eq!(update_bytes_in, 5, "bytes_in should reflect the 'hello' read");
-        assert_eq!(update_bytes_out, 3, "bytes_out should reflect the 'abc' write");
+        assert_eq!(
+            update_bytes_in, 5,
+            "bytes_in should reflect the 'hello' read"
+        );
+        assert_eq!(
+            update_bytes_out, 3,
+            "bytes_out should reflect the 'abc' write"
+        );
         assert_eq!(
             update_status, "succeeded",
             "clean upstream EOF is a succeeded session"
@@ -988,19 +994,14 @@ mod tests {
 
         mb_tx.send(Inbound::Data(b"hi!!".to_vec())).await.unwrap();
         // Coordinator closes the tunnel.
-        mb_tx
-            .send(Inbound::Close(String::new()))
-            .await
-            .unwrap();
+        mb_tx.send(Inbound::Close(String::new())).await.unwrap();
 
         let mut saw_update = false;
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
         while tokio::time::Instant::now() < deadline {
             match tokio::time::timeout(std::time::Duration::from_millis(500), out_rx.recv()).await {
                 Ok(Some(DispatchFrame::Update {
-                    status,
-                    bytes_out,
-                    ..
+                    status, bytes_out, ..
                 })) => {
                     assert_eq!(bytes_out, 4, "bytes_out should reflect 'hi!!'");
                     assert_eq!(status, "succeeded", "empty close_reason → succeeded");
@@ -1013,7 +1014,10 @@ mod tests {
             }
         }
 
-        assert!(saw_update, "coordinator-Close must still emit a byte Update");
+        assert!(
+            saw_update,
+            "coordinator-Close must still emit a byte Update"
+        );
         drop(mb_tx);
         let _ = pump_handle.await;
         let _ = server.await;
