@@ -16,7 +16,11 @@
         "ITSAppUsesNonExemptEncryption": false,
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": false
-        }
+        },
+        "LSApplicationQueriesSchemes": [
+          "phantom",
+          "ping"
+        ]
       },
       "entitlements": {
         "com.apple.developer.networking.networkextension": [

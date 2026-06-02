@@ -191,6 +191,104 @@ export async function getSession(sessionId: string, apiKey: string): Promise<Ses
   };
 }
 
+// ── Wallet binding (#583 / #584 — Track 2 of EPIC #581) ─────────
+
+/** Payload accepted by POST /v1/identity/wallet/bind. */
+export interface BindWalletReq {
+  walletAddress: string;
+  walletProvider: 'phantom' | 'ping';
+  /** "iogrid:bind:<nonce>:<unix_ts>" — same bytes the wallet signed. */
+  challenge: string;
+  /** Base58-encoded ed25519 signature of `challenge`. */
+  signature: string;
+}
+
+/** Resolved binding row as returned by the server. */
+export interface BoundWallet {
+  userId: string;
+  walletAddress: string;
+  walletProvider: 'phantom' | 'ping';
+  boundAt: string;
+}
+
+/**
+ * Bind the user's chosen wallet to their iogrid account. The server
+ * verifies the signature against the address before persisting.
+ *
+ * Currently the call goes through the public coordinator gateway
+ * without an explicit bearer; once Track 1 (Apple sign-in) lands a
+ * `Bearer <access_token>` header should be added here. The endpoint
+ * already enforces auth — calling without a bearer surfaces a 401.
+ */
+export async function bindWalletToCustomer(req: BindWalletReq): Promise<BoundWallet> {
+  const res = await fetch(`${baseURL()}/v1/identity/wallet/bind`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({
+      wallet_address: req.walletAddress,
+      wallet_provider: req.walletProvider,
+      challenge: req.challenge,
+      signature: req.signature,
+    }),
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new CoordinatorError(
+      `bindWalletToCustomer: HTTP ${res.status}${body.message ? `: ${body.message}` : ''}`,
+    );
+  }
+  const body = (await res.json()) as {
+    binding: {
+      user_id: string;
+      wallet_address: string;
+      wallet_provider: 'phantom' | 'ping';
+      bound_at: string;
+    };
+  };
+  return {
+    userId: body.binding.user_id,
+    walletAddress: body.binding.wallet_address,
+    walletProvider: body.binding.wallet_provider,
+    boundAt: body.binding.bound_at,
+  };
+}
+
+/** GET /v1/identity/wallet — returns the user's bound wallet or null. */
+export async function getBoundWallet(): Promise<BoundWallet | null> {
+  const res = await fetch(`${baseURL()}/v1/identity/wallet/`, {
+    headers: { Accept: 'application/json' },
+  });
+  if (!res.ok) {
+    throw new CoordinatorError(`getBoundWallet: HTTP ${res.status}`);
+  }
+  const body = (await res.json()) as {
+    binding: {
+      user_id: string;
+      wallet_address: string;
+      wallet_provider: 'phantom' | 'ping';
+      bound_at: string;
+    } | null;
+  };
+  if (!body.binding) return null;
+  return {
+    userId: body.binding.user_id,
+    walletAddress: body.binding.wallet_address,
+    walletProvider: body.binding.wallet_provider,
+    boundAt: body.binding.bound_at,
+  };
+}
+
+/** PATCH /v1/identity/wallet/unbind — Settings → Wallet → Switch. */
+export async function unbindWallet(): Promise<void> {
+  const res = await fetch(`${baseURL()}/v1/identity/wallet/unbind`, {
+    method: 'PATCH',
+    headers: { Accept: 'application/json' },
+  });
+  if (!res.ok) {
+    throw new CoordinatorError(`unbindWallet: HTTP ${res.status}`);
+  }
+}
+
 // ── Errors ───────────────────────────────────────────────────────
 
 export class CoordinatorError extends Error {

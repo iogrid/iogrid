@@ -19,6 +19,10 @@ export default function RootLayout() {
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="regions" options={{ title: 'Region' }} />
         <Stack.Screen name="settings" options={{ title: 'Settings' }} />
+        <Stack.Screen
+          name="(onboarding)/connect-wallet"
+          options={{ title: 'Connect wallet', presentation: 'modal' }}
+        />
       </Stack>
     </ThemeProvider>
   );
