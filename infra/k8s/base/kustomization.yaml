@@ -2,9 +2,16 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: iogrid
 labels:
+  # includeSelectors MUST be false: the live Deployments were created with
+  # `{app.kubernetes.io/name: <svc>}`-only selectors. spec.selector is
+  # IMMUTABLE, so injecting part-of into selectors (includeSelectors: true)
+  # made Flux's server-side apply fail with "spec.selector: Invalid value"
+  # on every Deployment — which is why iogrid could never be Flux-reconciled
+  # (#637). part-of stays as a metadata label for grouping, just not in the
+  # immutable selector.
   - pairs:
       app.kubernetes.io/part-of: iogrid
-    includeSelectors: true
+    includeSelectors: false
 resources:
   - namespaces
   - data
