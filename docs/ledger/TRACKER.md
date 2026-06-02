@@ -1008,3 +1008,6 @@ If 26841579531 fails again, read its Maestro failure (`[Failed] 00-all ... id: X
 **Direction locked**: SOLO, no parallel sub-agents (founder P9 + supervisor confirmed). Founder = ZERO activity (everything is my responsibility). Never label work "founder-action."
 
 **Disk**: volume expanded to 295G (was 98G), 198G free. NEVER run `podman system prune -af` again (killed live infra) — use `--filter "until=24h"`.
+
+## 2026-06-03T03:25Z — #575 credential audit → UAT
+`gh secret list -R iogrid/iogrid` confirms all 4 ASC creds present (2026-06-01): APPLE_TEAM_ID, APP_STORE_CONNECT_{ISSUER_ID,KEY_ID,PRIVATE_KEY}. CI proven to consume them (clears fastlane sigh every run). #575 'provision credentials' DoD MET → moved status/uat for founder close. Remaining concern (Apple WAITING_FOR_BETA_REVIEW timing) is Apple-internal, non-actionable. CI auto-uploads + auto-submits + auto-invites on green — zero founder action. Terminal CI gate: 26842367936 (sha 6c7c429, all 11 Maestro flows pre-verified).
