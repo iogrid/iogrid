@@ -87,24 +87,49 @@ jobs:
           iogrid version
 
       - name: Probe regions (control-plane sanity)
+        id: regions
         run: |
           set -e
           # Skips login — `iogrid vpn regions` is unauthenticated by design
           # (the customer needs to know where they can connect before
-          # paying for a key). One healthy provider in us-east-1 is
-          # the demo invariant.
+          # paying for a key). The full demo invariant is "one healthy
+          # provider in us-east-1", but for the smoke we degrade
+          # gracefully: if no providers are healthy right now we still
+          # exit 0 (with a warning) because the data-plane assertion is
+          # the only part that needs real providers — and pinning the
+          # CI red on a transient data-plane outage masks real
+          # regressions in the API surface. Closes #606.
           OUT=$(iogrid vpn regions)
           echo "$OUT"
-          echo "$OUT" | grep -q us-east-1 || {
-            echo "::error::us-east-1 missing from regions output"; exit 1; }
+          # Pull the live provider count for us-east-1 straight from the
+          # API so we can branch on it below. Empty/zero → skip
+          # tunnel-establish + data-plane assertion with a clear note.
+          PROVIDER_COUNT=$(curl -fsS --max-time 10 \
+            "$COORDINATOR/v1/vpn/regions/us-east-1/providers" \
+            | jq -r '.count // 0')
+          echo "us-east-1 provider count: $PROVIDER_COUNT"
+          echo "provider_count=$PROVIDER_COUNT" >> "$GITHUB_OUTPUT"
+          if ! echo "$OUT" | grep -q us-east-1; then
+            if [ "$PROVIDER_COUNT" = "0" ]; then
+              echo "::warning::us-east-1 has 0 healthy providers right now — the regions list will be empty. Smoke will skip tunnel-establish + data-plane assertion. Closes #606 (data-plane gated on a live provider serving the region)."
+            else
+              echo "::error::us-east-1 missing from regions output despite provider_count=$PROVIDER_COUNT"
+              exit 1
+            fi
+          fi
 
       - name: Note when smoke credentials are missing
         if: env.IOGRID_API_KEY == '' || env.IOGRID_CUSTOMER_ID == ''
         run: |
           echo "::warning::VPN_SMOKE_API_KEY / VPN_SMOKE_CUSTOMER_ID not set; control-plane regions check passed but skipping connect+exit-IP. Mint a long-lived key at https://iogrid.org/customer/vpn and stash both values under repo Settings → Secrets and variables → Actions."
 
+      - name: Note when no healthy providers in us-east-1
+        if: steps.regions.outputs.provider_count == '0'
+        run: |
+          echo "::warning::us-east-1 has 0 healthy providers right now — skipping tunnel-establish + exit-IP assertion. This is expected when no provider daemon is online (the data-plane half of #532 / #606). Bring a daemon up against api.iogrid.org and re-run to exercise the data-plane path."
+
       - name: iogrid login
-        if: env.IOGRID_API_KEY != '' && env.IOGRID_CUSTOMER_ID != ''
+        if: env.IOGRID_API_KEY != '' && env.IOGRID_CUSTOMER_ID != '' && steps.regions.outputs.provider_count != '0'
         run: |
           set -e
           iogrid login \
@@ -113,7 +138,7 @@ jobs:
             --coordinator="$COORDINATOR"
 
       - name: iogrid vpn run (require CAP_NET_ADMIN, background)
-        if: env.IOGRID_API_KEY != '' && env.IOGRID_CUSTOMER_ID != ''
+        if: env.IOGRID_API_KEY != '' && env.IOGRID_CUSTOMER_ID != '' && steps.regions.outputs.provider_count != '0'
         run: |
           set -e
           # Userspace WireGuard via wireguard-go still needs
@@ -136,14 +161,14 @@ jobs:
             sleep 1
           done
           if ! grep -q "VPN tunnel established successfully" /tmp/vpn-run.log; then
-            echo "::error::tunnel did not establish in 30s"
+            echo "::error::tunnel did not establish in 30s (us-east-1 had ${{ steps.regions.outputs.provider_count }} healthy provider(s) at probe time — if 0 we should not have reached this step; if >0 the provider isn't completing the WG handshake within 30s)"
             cat /tmp/vpn-run.log
             exit 1
           fi
           echo "Tunnel up, holding interface open via PID $(cat /tmp/iogrid.pid)"
 
       - name: Data-plane assertion — exit IP must change
-        if: env.IOGRID_API_KEY != '' && env.IOGRID_CUSTOMER_ID != ''
+        if: env.IOGRID_API_KEY != '' && env.IOGRID_CUSTOMER_ID != '' && steps.regions.outputs.provider_count != '0'
         env:
           BASELINE_IP: ${{ steps.baseline.outputs.baseline_ip }}
         run: |
