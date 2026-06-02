@@ -1,0 +1,22 @@
+{
+  "name": "@iogrid/grid-token-deploy",
+  "version": "0.1.0",
+  "private": true,
+  "description": "$GRID SPL token (Solana) deploy + treasury seed scripts. Refs iogrid/iogrid#595.",
+  "type": "module",
+  "scripts": {
+    "deploy:devnet": "tsx deploy.ts --cluster devnet",
+    "deploy:mainnet": "tsx deploy.ts --cluster mainnet-beta"
+  },
+  "dependencies": {
+    "@metaplex-foundation/mpl-token-metadata": "^3.2.1",
+    "@metaplex-foundation/umi": "^0.9.2",
+    "@metaplex-foundation/umi-bundle-defaults": "^0.9.2",
+    "@solana/spl-token": "^0.4.8",
+    "@solana/web3.js": "^1.95.4"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.1",
+    "typescript": "^5.5.4"
+  }
+}

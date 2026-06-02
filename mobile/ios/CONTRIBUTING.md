@@ -396,6 +396,51 @@ Rules:
    single betaGroups rel per internal group (one POST per group,
    HTTP 201 means re-linked).
 
+### 27. External Beta Review needs `privacyPolicyUrl` on the en-US appInfoLocalization
+
+Apple's `POST /v1/betaAppReviewSubmissions` returns
+`MISSING_REQUIRED_DATA` when the app's en-US `appInfoLocalization`
+has no `privacyPolicyUrl` set, even though the build artefact
+itself has nothing wrong. Worse, the symptom is silent on the
+route the iogrid CI was using before: `PATCH
+/v1/betaAppReviewDetails` returns 200 with the new `notes` /
+`contactEmail` / `contactPhone` fields, but a follow-up GET reads
+them back as `null`. The server is silently rejecting the changes
+because the app-info localization is missing the privacy URL.
+
+Caught 2026-06-02 while implementing issue #600 (Track 5 / EPIC
+#581). Build 61 was uploaded fine but every Beta Review submission
+retry kept returning 422, and the `fix-575-v*` series of
+PATCH-different-fields workflows all failed the same way because
+none of them touched the App Info side.
+
+**The correct order of operations for a new app**:
+
+1. `PATCH /v1/appInfoLocalizations/{en-US-id}` with
+   `privacyPolicyUrl=https://iogrid.org/legal/mobile-privacy`. The
+   URL must resolve to actual content (Apple HEAD-checks it);
+   coordinate with the web team if the route 404s.
+2. `PATCH /v1/betaAppReviewDetails/{id}` with the FULL attribute
+   set (`contactEmail`, `contactFirstName`, `contactLastName`,
+   `contactPhone`, `demoAccountRequired`, `notes`) in a single
+   request. Partial PATCHes silently no-op for some fields.
+3. Verify by reading back `betaAppReviewDetails` — if any of
+   `contactEmail` / `contactPhone` / `notes` is still null, the
+   privacy URL is still mid-propagation; retry in the next CI
+   run rather than blocking the rest of the pipeline.
+4. `POST /v1/betaAppReviewSubmissions` with the build relationship.
+   201 = created, 409 = already submitted (idempotent — treat as
+   success). Poll `betaReviewState` for `IN_BETA_REVIEW`
+   transition; APPROVED requires human review and lands hours
+   later.
+
+The `Submit build for external Beta Review` step in
+`.github/workflows/mobile-ios-ci.yml` encodes all four operations
++ their failure modes; the new `.github/workflows/diagnose-beta-review.yml`
+(workflow_dispatch) runs a no-side-effect probe that prints the
+FULL Apple response body so future regressions can be diffed
+against the live state in a single CI run.
+
 ## Maestro flows
 
 Numbered + orchestrated via `00-all.yaml` (vcard convention — never

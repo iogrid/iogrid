@@ -9,9 +9,12 @@ import (
 	"strings"
 	"time"
 
+	"errors"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	pb "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/vpn/v1"
+	"github.com/iogrid/iogrid/coordinator/services/vpn-svc/internal/payment"
 	"github.com/iogrid/iogrid/coordinator/services/vpn-svc/internal/store"
 )
 
@@ -74,6 +77,7 @@ type RequestSession struct {
 	st        store.Store
 	logger    *slog.Logger
 	validator APIKeyValidator // optional — if nil, requests are unauthenticated (dev mode)
+	escrow    *EscrowDeps     // optional — if set, payment_authorization is accepted
 }
 
 func NewRequestSession(st store.Store, logger *slog.Logger) *RequestSession {
@@ -87,14 +91,41 @@ func (h *RequestSession) WithValidator(v APIKeyValidator) *RequestSession {
 	return h
 }
 
+// WithEscrow wires up the $GRID payment-authorization layer (#596).
+// When set, a payment_authorization in the request body is verified
+// + escrowed before the session is returned to the caller. When the
+// authorization is omitted the session is created as today (free-tier /
+// legacy path).
+func (h *RequestSession) WithEscrow(e *EscrowDeps) *RequestSession {
+	h.escrow = e
+	return h
+}
+
 // requestSessionReq is the wire body — superset of pb.RequestVpnSession with
 // an api_key field. The proto's api_key_hash is treated as historic + ignored;
 // new clients send raw api_key and vpn-svc forwards to billing-svc.
+//
+// PaymentAuthorization is the optional $GRID escrow body (Track 5 / #596).
+// When present, vpn-svc verifies the ed25519 signature against the supplied
+// Solana wallet, ensures the wallet has at least 0.001 GRID on-chain, and
+// records an escrow row keyed by session_id. Clients that don't pay in
+// $GRID (legacy / free-tier flows) omit this field entirely.
 type requestSessionReq struct {
-	CustomerID string `json:"customer_id"`
-	Region     string `json:"region"`
-	APIKey     string `json:"api_key"`
-	APIKeyHash string `json:"api_key_hash"` // deprecated, ignored
+	CustomerID           string           `json:"customer_id"`
+	Region               string           `json:"region"`
+	APIKey               string           `json:"api_key"`
+	APIKeyHash           string           `json:"api_key_hash"`       // deprecated, ignored
+	PaymentAuthorization *paymentAuthBody `json:"payment_authorization,omitempty"`
+}
+
+// paymentAuthBody mirrors payment.Auth on the wire. Kept as a private
+// alias so the JSON shape is stable across refactors of payment.Auth.
+type paymentAuthBody struct {
+	WalletAddress    string `json:"wallet_address"`
+	Signature        string `json:"signature"`
+	Message          string `json:"message"`
+	Nonce            string `json:"nonce"`
+	MaxGRIDPerMinute uint64 `json:"max_grid_per_min"`
 }
 
 func (h *RequestSession) Handle(w http.ResponseWriter, r *http.Request) {
@@ -227,6 +258,47 @@ func (h *RequestSession) Handle(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error("create session failed", slog.String("error", err.Error()))
 		respondError(w, http.StatusInternalServerError, "failed to create session")
 		return
+	}
+
+	// --- $GRID payment authorization (#596 / Track 5) ----------------
+	// When the client included a payment_authorization, verify the
+	// signature, check on-chain $GRID balance, and write an escrow row.
+	// Any failure here is FATAL for the session — we tear down the
+	// freshly-created row so the client isn't holding a paid-for shell
+	// of a session.
+	if h.escrow != nil && h.escrow.Svc != nil && req.PaymentAuthorization != nil {
+		auth := payment.Auth{
+			WalletAddress:    req.PaymentAuthorization.WalletAddress,
+			Signature:        req.PaymentAuthorization.Signature,
+			Message:          req.PaymentAuthorization.Message,
+			Nonce:            req.PaymentAuthorization.Nonce,
+			MaxGRIDPerMinute: req.PaymentAuthorization.MaxGRIDPerMinute,
+		}
+		if _, err := h.escrow.Svc.Authorize(r.Context(), sessionID, customerUUID, auth); err != nil {
+			// Roll back the session row so we don't leave a paid-but-empty
+			// session in the ledger.
+			_ = h.st.TerminateSession(r.Context(), sessionID, "payment_auth_failed")
+			h.logger.Warn("payment authorization rejected",
+				slog.String("session_id", sessionID.String()),
+				slog.String("error", err.Error()))
+			switch {
+			case errors.Is(err, payment.ErrSigInvalid):
+				respondError(w, http.StatusUnauthorized, "payment authorization: signature invalid")
+			case errors.Is(err, payment.ErrInsufficientBalance):
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusPaymentRequired)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"code":     "insufficient_balance",
+					"required": payment.MinEscrowAtomic,
+					"detail":   "wallet has <0.001 GRID — top up before retrying",
+				})
+			case errors.Is(err, payment.ErrNonceReplay):
+				respondError(w, http.StatusConflict, "payment authorization: nonce replay")
+			default:
+				respondError(w, http.StatusBadRequest, "payment authorization: "+err.Error())
+			}
+			return
+		}
 	}
 
 	SessionsCreated.Inc()

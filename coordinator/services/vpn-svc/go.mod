@@ -4,11 +4,13 @@ go 1.23.1
 
 require (
 	connectrpc.com/connect v1.18.1
+	filippo.io/edwards25519 v1.1.0
 	github.com/go-chi/chi/v5 v5.1.0
 	github.com/google/uuid v1.6.0
 	github.com/iogrid/iogrid/coordinator/internal/pb v0.1.0
 	github.com/iogrid/iogrid/coordinator/shared v0.1.0
 	github.com/jackc/pgx/v5 v5.7.1
+	github.com/mr-tron/base58 v1.3.0
 	github.com/nats-io/nats.go v1.37.0
 	github.com/pressly/goose/v3 v3.22.1
 	github.com/prometheus/client_golang v1.20.5

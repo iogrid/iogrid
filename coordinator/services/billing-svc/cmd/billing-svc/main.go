@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/iogrid/iogrid/coordinator/services/billing-svc/internal/config"
+	"github.com/iogrid/iogrid/coordinator/services/billing-svc/internal/grid"
 	"github.com/iogrid/iogrid/coordinator/services/billing-svc/internal/metering"
 	"github.com/iogrid/iogrid/coordinator/services/billing-svc/internal/offramp"
 	"github.com/iogrid/iogrid/coordinator/services/billing-svc/internal/offramp/moonpay"
@@ -130,12 +131,29 @@ func main() {
 	hr.AddProbe("db", db.PingProbe(pool))
 	hr.MarkReady()
 
+	// $GRID grid-store + session-meter (#597) + faucet (#595).
+	gridStore := grid.NewPostgresStore(pool)
+	gridMetrics := grid.NewPromMetrics()
+	gridDeps := &server.GridDeps{
+		Meter:          &grid.SessionMeter{St: gridStore, Metrics: gridMetrics},
+		Store:          gridStore,
+		Solana:         solSvc,
+		Logger:         logger.With(slog.String("subsystem", "grid")),
+		DevnetMode:     server.FaucetClusterFromEnv(),
+		FaucetAmount:   100_000_000_000, // 100 GRID
+		FaucetCooldown: 60 * time.Minute,
+	}
+	if gridDeps.DevnetMode {
+		logger.Info("$GRID devnet faucet ENABLED (IOGRID_CLUSTER=devnet)")
+	}
+
 	deps := server.Deps{
 		Store:   st,
 		Stripe:  stripeSvc,
 		Solana:  solSvc,
 		Tax:     taxGen,
 		OffRamp: offRampSvc,
+		Grid:    gridDeps,
 	}
 
 	if err := sharedserver.Run(ctx, sharedserver.Options{

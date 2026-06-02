@@ -895,3 +895,184 @@ jobs:
           else:
               print(f'::warning::Add-to-group HTTP {r.status_code}: {r.text[:300]}')
           PY
+
+      # ─── External Beta Review submission (issue #600) ──────────────────
+      #
+      # Refs CONTRIBUTING.md gotcha 26 — Apple Beta Review submission
+      # MISSING_REQUIRED_DATA root-cause investigation, summarised:
+      #
+      #   * The app info localization MUST have privacyPolicyUrl set
+      #     BEFORE the betaAppReviewDetails PATCH will persist
+      #     contactEmail / contactPhone / notes. Without it, PATCH
+      #     returns 200 but the field reads back as null.
+      #   * betaAppReviewDetails must include the FULL set of contact
+      #     fields in one PATCH — partial patches silently no-op.
+      #   * betaLicenseAgreement must be active for the app.
+      #
+      # The step below ensures (a) the privacyPolicyUrl is set on the
+      # en-US appInfoLocalization, (b) PATCHes the betaAppReviewDetails
+      # with the full attribute set, (c) verifies the fields read back,
+      # then (d) submits the build for Beta Review and polls until the
+      # review state advances out of WAITING_FOR_BETA_REVIEW.
+      - name: Submit build for external Beta Review (Closes #600)
+        if: ${{ env.HAS_APPLE_SECRETS == 'true' }}
+        env:
+          ASC_KEY_ID:    ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          RUN_NUMBER:    ${{ github.run_number }}
+        run: |
+          set -uo pipefail
+          export KEY_FILE=$HOME/private_keys/AuthKey_${ASC_KEY_ID}.p8
+          python3 - <<'PY'
+          import os, time, requests, jwt, sys, json
+          tok = jwt.encode(
+              {'iss': os.environ['ASC_ISSUER_ID'], 'iat': int(time.time()),
+               'exp': int(time.time())+1200, 'aud': 'appstoreconnect-v1'},
+              open(os.environ['KEY_FILE']).read(), algorithm='ES256',
+              headers={'kid': os.environ['ASC_KEY_ID']})
+          H = {'Authorization': f'Bearer {tok}', 'Content-Type': 'application/json'}
+          BASE = 'https://api.appstoreconnect.apple.com'
+          BUNDLE = 'io.iogrid.app'
+          RUN_NUMBER = os.environ['RUN_NUMBER']
+          EMAIL = 'emrahbaysal@gmail.com'
+          PRIVACY_URL = 'https://iogrid.org/legal/mobile-privacy'
+
+          app_id = requests.get(f'{BASE}/v1/apps?filter[bundleId]={BUNDLE}',
+                                headers=H, timeout=15).json()['data'][0]['id']
+          print(f'app_id={app_id}')
+
+          # ── (a) Ensure privacyPolicyUrl is set on en-US appInfoLocalization
+          # The "live" appInfo is whichever has state=READY_FOR_REVIEW (or
+          # PREPARE_FOR_SUBMISSION). Apple keeps two parallel appInfos for
+          # the currently-published version + the next draft; we patch the
+          # one with the most recent createdDate, which matches the build
+          # we're submitting Beta Review against.
+          app_infos = requests.get(
+              f'{BASE}/v1/apps/{app_id}/appInfos',
+              headers=H, timeout=15).json().get('data', [])
+          if not app_infos:
+              print('::error::no appInfo found — Apple should auto-create one'); sys.exit(1)
+          ai_id = sorted(app_infos, key=lambda x: x.get('attributes',{}).get('createdDate',''))[-1]['id']
+          locs = requests.get(
+              f'{BASE}/v1/appInfos/{ai_id}/appInfoLocalizations',
+              headers=H, timeout=15).json().get('data', [])
+          en = next((l for l in locs if l['attributes'].get('locale')=='en-US'), None)
+          if not en:
+              # Create the en-US localization
+              payload = {'data': {
+                  'type': 'appInfoLocalizations',
+                  'attributes': {
+                      'locale': 'en-US',
+                      'name': 'iogrid',
+                      'subtitle': 'Community VPN',
+                      'privacyPolicyUrl': PRIVACY_URL,
+                  },
+                  'relationships': {'appInfo': {'data': {'type': 'appInfos', 'id': ai_id}}},
+              }}
+              r = requests.post(f'{BASE}/v1/appInfoLocalizations',
+                                headers=H, json=payload, timeout=20)
+              print(f'POST appInfoLocalization en-US → HTTP {r.status_code}: {r.text[:300]}')
+          else:
+              if en['attributes'].get('privacyPolicyUrl') != PRIVACY_URL:
+                  payload = {'data': {
+                      'type': 'appInfoLocalizations',
+                      'id': en['id'],
+                      'attributes': {'privacyPolicyUrl': PRIVACY_URL},
+                  }}
+                  r = requests.patch(f"{BASE}/v1/appInfoLocalizations/{en['id']}",
+                                     headers=H, json=payload, timeout=20)
+                  print(f'PATCH privacyPolicyUrl → HTTP {r.status_code}: {r.text[:300]}')
+
+          # ── (b) PATCH betaAppReviewDetails with the full attribute set
+          rad = requests.get(f'{BASE}/v1/apps/{app_id}/betaAppReviewDetail',
+                             headers=H, timeout=15).json()
+          rad_id = rad.get('data', {}).get('id')
+          if not rad_id:
+              print('::error::no betaAppReviewDetail id (Apple should auto-create)'); sys.exit(1)
+          payload = {'data': {
+              'type': 'betaAppReviewDetails',
+              'id': rad_id,
+              'attributes': {
+                  'contactEmail': EMAIL,
+                  'contactFirstName': 'Emrah',
+                  'contactLastName': 'Baysal',
+                  'contactPhone': '+447700900000',
+                  'demoAccountRequired': False,
+                  'demoAccountName': '',
+                  'demoAccountPassword': '',
+                  'notes': 'iogrid is a community-powered VPN with residential exit IPs and a Mullvad-style anonymous account ID generated on first launch. No sign-in. Tap the big switch to test the connection state machine; pick a region or let the coordinator auto-select.',
+              },
+          }}
+          r = requests.patch(f'{BASE}/v1/betaAppReviewDetails/{rad_id}',
+                             headers=H, json=payload, timeout=20)
+          print(f'PATCH betaAppReviewDetails → HTTP {r.status_code}: {r.text[:300]}')
+
+          # ── (c) Verify fields read back. If they don't, the most likely
+          # cause is still the privacyPolicyUrl gate — log + exit 0
+          # (the next CI run will retry after the URL propagates).
+          rad2 = requests.get(f'{BASE}/v1/betaAppReviewDetails/{rad_id}',
+                              headers=H, timeout=15).json()
+          attrs = rad2.get('data', {}).get('attributes', {})
+          missing = [k for k in ('contactEmail', 'contactPhone', 'notes')
+                     if not attrs.get(k)]
+          if missing:
+              print(f'::warning::betaAppReviewDetails fields still null after PATCH: {missing}')
+              print(f'  current attrs: {json.dumps(attrs, indent=2)[:800]}')
+              print('  most likely cause: privacyPolicyUrl not yet propagated; next run will retry')
+              sys.exit(0)
+          print('  ✓ betaAppReviewDetails persists all required fields')
+
+          # ── (d) Find the just-uploaded build by version=RUN_NUMBER and
+          # wait for it to be PROCESSED before submitting (Beta Review
+          # needs processingState=VALID).
+          build_id = None
+          for attempt in range(40):  # up to ~13 min
+              builds = requests.get(
+                  f'{BASE}/v1/builds?filter[app]={app_id}&filter[version]={RUN_NUMBER}&limit=1',
+                  headers=H, timeout=15).json().get('data', [])
+              if builds:
+                  st = builds[0]['attributes'].get('processingState')
+                  print(f'  build {RUN_NUMBER} processingState={st}')
+                  if st == 'VALID':
+                      build_id = builds[0]['id']
+                      break
+              time.sleep(20)
+          if not build_id:
+              print('::warning::build not yet VALID — Beta Review submission deferred to next run')
+              sys.exit(0)
+
+          # Submit. Idempotency: if a submission already exists for this
+          # build, Apple returns 409 — treat as success.
+          payload = {'data': {
+              'type': 'betaAppReviewSubmissions',
+              'relationships': {'build': {'data': {'type': 'builds', 'id': build_id}}},
+          }}
+          r = requests.post(f'{BASE}/v1/betaAppReviewSubmissions',
+                            headers=H, json=payload, timeout=20)
+          if r.status_code == 201:
+              print(f'  ✓ Beta Review submission created for build {RUN_NUMBER}')
+          elif r.status_code == 409:
+              print(f'  Beta Review submission already exists for build {RUN_NUMBER} — no-op')
+          else:
+              print(f'::warning::POST betaAppReviewSubmissions HTTP {r.status_code}: {r.text[:600]}')
+              # do not fail the build — the rest of the artifacts have shipped
+              sys.exit(0)
+
+          # ── Poll the submission state for ~2 minutes (READY_FOR_BETA_SUBMISSION
+          # → IN_BETA_REVIEW transition is usually <60s). We don't wait
+          # for APPROVED — that takes Apple human-review time (hours).
+          subs = requests.get(
+              f"{BASE}/v1/builds/{build_id}/betaAppReviewSubmission",
+              headers=H, timeout=15).json().get('data', {})
+          if subs:
+              for _ in range(12):
+                  state = subs.get('attributes', {}).get('betaReviewState')
+                  print(f'  betaReviewState={state}')
+                  if state in ('IN_BETA_REVIEW', 'APPROVED'):
+                      break
+                  time.sleep(10)
+                  subs = requests.get(
+                      f"{BASE}/v1/builds/{build_id}/betaAppReviewSubmission",
+                      headers=H, timeout=15).json().get('data', {})
+          print('::notice::Beta Review submission posted — Apple human review pending')
+          PY

@@ -21,6 +21,7 @@ import (
 	vdb "github.com/iogrid/iogrid/coordinator/services/vpn-svc/internal/db"
 	"github.com/iogrid/iogrid/coordinator/services/vpn-svc/internal/earnings"
 	"github.com/iogrid/iogrid/coordinator/services/vpn-svc/internal/ice"
+	"github.com/iogrid/iogrid/coordinator/services/vpn-svc/internal/payment"
 	"github.com/iogrid/iogrid/coordinator/services/vpn-svc/internal/server"
 	"github.com/iogrid/iogrid/coordinator/services/vpn-svc/internal/store"
 	"github.com/iogrid/iogrid/coordinator/shared/db"
@@ -59,6 +60,7 @@ func main() {
 	// DATABASE_URL set → Postgres-backed store + embedded migrations.
 	// DATABASE_URL empty → in-memory store (unit tests, local dev).
 	var st store.Store
+	var escrowStore payment.EscrowStore
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL != "" {
 		pool, err := db.NewPool(ctx, db.Config{URL: databaseURL})
@@ -75,9 +77,11 @@ func main() {
 			os.Exit(1)
 		}
 		st = store.NewPostgres(pool)
+		escrowStore = store.NewPostgresEscrowStore(pool)
 		logger.Info("vpn store ready", slog.String("store", "postgres"))
 	} else {
 		st = store.NewMemory()
+		escrowStore = store.NewMemoryEscrowStore()
 		logger.Warn("vpn store ready", slog.String("store", "memory"),
 			slog.String("impact", "sessions are LOST on pod restart; set DATABASE_URL for prod"))
 	}
@@ -107,12 +111,44 @@ func main() {
 	// 60s positive cache). Unset = dev/smoke mode (unauthenticated,
 	// boot WARN logs).
 	var validator server.APIKeyValidator
-	if billingURL := os.Getenv("BILLING_SVC_URL"); billingURL != "" {
+	billingURL := os.Getenv("BILLING_SVC_URL")
+	if billingURL != "" {
 		validator = server.NewBillingValidator(billingURL, nil)
 		logger.Info("api key validation enabled", slog.String("billing_url", billingURL))
 	} else {
 		logger.Warn("api key validation DISABLED — set BILLING_SVC_URL to enable",
 			slog.String("impact", "every POST /v1/vpn/sessions is unauthenticated"))
+	}
+
+	// --- $GRID escrow (#596 / Track 5) -------------------------------------
+	// Enabled when GRID_TOKEN_MINT_ADDRESS is set. SOLANA_RPC_URL defaults
+	// to devnet; production sets it to a Helius-backed mainnet endpoint.
+	// When the mint env is unset the escrow stays nil and all payment
+	// routes return 503 (free-tier flow continues to work).
+	var escrowDeps *server.EscrowDeps
+	if mint := os.Getenv("GRID_TOKEN_MINT_ADDRESS"); mint != "" {
+		rpcURL := os.Getenv("SOLANA_RPC_URL")
+		if rpcURL == "" {
+			rpcURL = "https://api.devnet.solana.com"
+		}
+		tokenProg := os.Getenv("GRID_TOKEN_PROGRAM_ID") // optional
+		balances := payment.NewSolanaRPCBalance(rpcURL, mint, tokenProg)
+		paySvc := &payment.Service{
+			Store:    escrowStore,
+			Balances: balances,
+			Logger:   logger.With(slog.String("subsystem", "payment")),
+		}
+		escrowDeps = &server.EscrowDeps{
+			Svc:          paySvc,
+			SessionEnded: server.NewBillingForwarder(billingURL, logger),
+			Logger:       logger.With(slog.String("subsystem", "escrow")),
+		}
+		logger.Info("$GRID escrow enabled",
+			slog.String("mint", mint),
+			slog.String("solana_rpc", rpcURL))
+	} else {
+		logger.Warn("$GRID escrow DISABLED — set GRID_TOKEN_MINT_ADDRESS to enable",
+			slog.String("impact", "payment_authorization in session requests is ignored; /heartbeat returns 503"))
 	}
 
 	// --- Earnings batcher (#547) -------------------------------------------
@@ -155,7 +191,7 @@ func main() {
 		Logger:      logger,
 		Health:      hr,
 		Mount: func(r chi.Router) {
-			if err := server.Mount(r, st, logger, validator); err != nil {
+			if err := server.Mount(r, st, logger, validator, escrowDeps); err != nil {
 				logger.Error("server mount failed", slog.String("error", err.Error()))
 				os.Exit(1)
 			}

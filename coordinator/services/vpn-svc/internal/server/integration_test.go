@@ -24,7 +24,7 @@ func boot(t *testing.T) (*httptest.Server, store.Store) {
 	st := store.NewMemory()
 	r := chi.NewRouter()
 	logger := slog.Default()
-	if err := Mount(r, st, logger, nil); err != nil {
+	if err := Mount(r, st, logger, nil, nil); err != nil {
 		t.Fatalf("mount: %v", err)
 	}
 	srv := httptest.NewServer(r)
@@ -148,7 +148,7 @@ func bootWithValidator(t *testing.T, v APIKeyValidator) (*httptest.Server, store
 	st := store.NewMemory()
 	r := chi.NewRouter()
 	logger := slog.Default()
-	if err := Mount(r, st, logger, v); err != nil {
+	if err := Mount(r, st, logger, v, nil); err != nil {
 		t.Fatalf("mount: %v", err)
 	}
 	srv := httptest.NewServer(r)

@@ -93,6 +93,66 @@ func buildTransferChecked(cfg TransferConfig, sourceATA, destATA common.PublicKe
 	return ins
 }
 
+// GRIDAtomicTreasuryBalance returns the treasury ATA balance via a single
+// `getTokenAccountBalance` RPC call. Used by the settlement-worker
+// pre-flight + dashboards. Returns 0 + no error when the ATA does not
+// exist yet (e.g. treasury just-deployed before the first mint).
+func (s *Service) GRIDAtomicTreasuryBalance(ctx context.Context) (uint64, error) {
+	if !s.Enabled() {
+		return 0, errors.New("solana: treasury balance in stub mode")
+	}
+	if s.chain == nil {
+		return 0, errors.New("solana: chain client unset")
+	}
+	cfg := TransferConfig{
+		HotWallet:    s.wallet,
+		MintAddress:  common.PublicKeyFromString(s.cfg.GRIDTokenMint),
+		TokenProgram: s.tokenProgramID,
+	}
+	ata, err := findATA(s.wallet.PublicKey, cfg.MintAddress, cfg.TokenProgram)
+	if err != nil {
+		return 0, err
+	}
+	res, err := s.chain.rpc.GetTokenAccountBalance(ctx, ata.ToBase58())
+	if err != nil {
+		// blocto returns the well-known "could not find account" / "Invalid
+		// param: not a Token account" as a plain error; treat as zero.
+		msg := err.Error()
+		if isAccountNotFound(msg) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("solana: getTokenAccountBalance: %w", err)
+	}
+	return res.Amount, nil
+}
+
+func isAccountNotFound(s string) bool {
+	for _, sub := range []string{
+		"could not find account",
+		"Invalid param: not a Token account",
+		"AccountNotFound",
+	} {
+		if substring(s, sub) {
+			return true
+		}
+	}
+	return false
+}
+
+func substring(haystack, needle string) bool {
+	hlen := len(haystack)
+	nlen := len(needle)
+	if nlen == 0 || nlen > hlen {
+		return nlen == 0
+	}
+	for i := 0; i <= hlen-nlen; i++ {
+		if haystack[i:i+nlen] == needle {
+			return true
+		}
+	}
+	return false
+}
+
 // TransferGRID transfers `amount` lamports of $GRID from the hot wallet's
 // ATA to the recipient wallet's ATA, signed by the hot wallet.
 //

@@ -1,0 +1,153 @@
+name: diagnose-beta-review
+on:
+  workflow_dispatch:
+
+# Diagnostic workflow for issue #600 — Apple Beta Review submission
+# returns 200 on PATCH /v1/betaAppReviewDetails but the notes /
+# contactPhone / contactEmail attributes persist as null on readback.
+#
+# This workflow runs the four hypothesis-narrowing experiments listed in
+# the issue spec and prints the FULL ASC response body for each so we can
+# diff against the docs at
+# https://developer.apple.com/documentation/appstoreconnectapi/beta_testing
+# and pinpoint the actual misuse.
+#
+# Hypothesis matrix (from spec):
+#   H1) PATCH needs ALL fields in single request
+#   H2) review-details needs explicit POST-creation before PATCH
+#   H3) certain fields need email-verification
+#   H4) betaLicenseAgreement must be set first
+#
+# Bonus probe: App metadata's Privacy Policy URL — Apple silently rejects
+# Beta Review submission attempts when the App Store record has no
+# Privacy Policy URL set. The submit-200/readback-null pattern matches a
+# silent server-side validation reject under our hypothesis.
+jobs:
+  diagnose:
+    runs-on: macos-latest
+    timeout-minutes: 5
+    env:
+      ASC_KEY_ID:    ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      ASC_KEY:       ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe ASC for Beta Review state
+        run: |
+          python3 -m pip install --quiet --break-system-packages pyjwt cryptography requests
+          python3 - <<'PY'
+          import os, base64, time, jwt, requests, json, sys
+          key = base64.b64decode(os.environ['ASC_KEY'])
+          tok = jwt.encode(
+              {'iss': os.environ['ASC_ISSUER_ID'], 'iat': int(time.time()),
+               'exp': int(time.time()) + 1200, 'aud': 'appstoreconnect-v1'},
+              key, algorithm='ES256', headers={'kid': os.environ['ASC_KEY_ID']})
+          H = {'Authorization': f'Bearer {tok}', 'Content-Type': 'application/json'}
+          BASE = 'https://api.appstoreconnect.apple.com'
+          BUNDLE = 'io.iogrid.app'
+          EMAIL = 'emrahbaysal@gmail.com'
+
+          # 1) App lookup.
+          apps = requests.get(f'{BASE}/v1/apps?filter[bundleId]={BUNDLE}', headers=H, timeout=15).json()
+          if not apps.get('data'):
+              print('::error::app not found'); sys.exit(1)
+          app_id = apps['data'][0]['id']
+          print(f'app_id={app_id}')
+
+          # 2) Read App Info — does it have a Privacy Policy URL?
+          info = requests.get(
+              f'{BASE}/v1/apps/{app_id}?include=appInfos',
+              headers=H, timeout=15).json()
+          print('\n=== App.attributes ===')
+          print(json.dumps(info.get('data', {}).get('attributes', {}), indent=2)[:2000])
+          for inc in info.get('included', []):
+              if inc['type'] == 'appInfos':
+                  print('\n=== appInfo attrs ===')
+                  print(json.dumps(inc.get('attributes', {}), indent=2)[:1500])
+                  # check localisations
+                  ai_id = inc['id']
+                  locs = requests.get(
+                      f'{BASE}/v1/appInfos/{ai_id}/appInfoLocalizations',
+                      headers=H, timeout=15).json()
+                  print(f'\n=== appInfo {ai_id} localizations ===')
+                  for l in locs.get('data', []):
+                      a = l['attributes']
+                      print(f"  locale={a.get('locale')} privacyPolicyUrl={a.get('privacyPolicyUrl')!r} privacyPolicyText={(a.get('privacyPolicyText') or '')[:60]!r}")
+
+          # 3) Read betaAppReviewDetail — what's currently there?
+          rad = requests.get(f'{BASE}/v1/apps/{app_id}/betaAppReviewDetail',
+                             headers=H, timeout=15).json()
+          print('\n=== betaAppReviewDetail (BEFORE) ===')
+          print(json.dumps(rad, indent=2)[:2500])
+          rad_id = rad.get('data', {}).get('id')
+
+          # 4) Try the all-fields-in-one-request PATCH (H1) and READ BACK
+          if rad_id:
+              payload = {'data': {
+                  'type': 'betaAppReviewDetails',
+                  'id': rad_id,
+                  'attributes': {
+                      'contactEmail': EMAIL,
+                      'contactFirstName': 'Emrah',
+                      'contactLastName': 'Baysal',
+                      'contactPhone': '+447700900000',
+                      'demoAccountRequired': False,
+                      'demoAccountName': '',
+                      'demoAccountPassword': '',
+                      'notes': 'iogrid is a community VPN with anonymous account IDs. No sign-in. Tap the big switch to test the connection state machine. WireGuardKit data plane deferred to a follow-up (#576); UI flows + region picker + settings are fully testable.',
+                  },
+              }}
+              r = requests.patch(f'{BASE}/v1/betaAppReviewDetails/{rad_id}',
+                                 headers=H, json=payload, timeout=20)
+              print(f'\nPATCH all-fields → HTTP {r.status_code}')
+              print(f'  body: {r.text[:1500]}')
+              # READ BACK immediately
+              rad2 = requests.get(f'{BASE}/v1/betaAppReviewDetails/{rad_id}',
+                                  headers=H, timeout=15).json()
+              attrs = rad2.get('data', {}).get('attributes', {})
+              print(f'\n=== betaAppReviewDetail (AFTER PATCH) ===')
+              print(json.dumps(attrs, indent=2)[:1500])
+              # Field-by-field persistence check
+              for k in ('contactEmail', 'contactFirstName', 'contactLastName',
+                        'contactPhone', 'notes'):
+                  v = attrs.get(k)
+                  if v is None or v == '':
+                      print(f'::warning::field {k} DID NOT PERSIST (readback={v!r})')
+                  else:
+                      print(f'  ✓ {k}: persisted')
+
+          # 5) Try Beta Review submission and print FULL response body
+          # (truncation in the previous workflows hid the real error
+          # detail per the issue notes).
+          builds = requests.get(
+              f'{BASE}/v1/builds?filter[app]={app_id}&sort=-uploadedDate&limit=1',
+              headers=H, timeout=15).json()
+          if builds.get('data'):
+              bid = builds['data'][0]['id']
+              ver = builds['data'][0]['attributes'].get('version')
+              print(f'\nlatest build: id={bid} version={ver}')
+              payload = {'data': {
+                  'type': 'betaAppReviewSubmissions',
+                  'relationships': {'build': {'data': {'type': 'builds', 'id': bid}}},
+              }}
+              r = requests.post(f'{BASE}/v1/betaAppReviewSubmissions',
+                                headers=H, json=payload, timeout=20)
+              print(f'\nPOST betaAppReviewSubmissions → HTTP {r.status_code}')
+              print(f'  FULL BODY (no truncation): {r.text}')
+              # Inspect the Apple error envelope if 4xx
+              if r.status_code >= 400:
+                  try:
+                      doc = r.json()
+                      for e in doc.get('errors', []):
+                          print(f'    code={e.get("code")} title={e.get("title")}')
+                          print(f'    detail={e.get("detail")}')
+                          print(f'    source={e.get("source")}')
+                  except Exception:
+                      pass
+
+          # 6) Read betaLicenseAgreement (H4) — is it active?
+          bla = requests.get(f'{BASE}/v1/apps/{app_id}/betaLicenseAgreement',
+                             headers=H, timeout=15).json()
+          print('\n=== betaLicenseAgreement ===')
+          print(json.dumps(bla, indent=2)[:1500])
+          PY

@@ -13,14 +13,23 @@ import (
 // validator may be nil for dev / smoke mode — every POST /v1/vpn/sessions
 // is then accepted unauthenticated and the boot WARN log fires. Production
 // passes a BillingValidator pointed at billing-svc.
-func Mount(h chi.Router, st store.Store, logger *slog.Logger, validator APIKeyValidator) error {
+//
+// escrow may be nil — without it the $GRID payment authorization layer
+// (#596) is disabled and POST /v1/vpn/sessions/{id}/heartbeat / .../settle
+// return 503. When non-nil, the request-session handler also accepts an
+// optional payment_authorization field per the EPIC #581 LOCKED MODEL.
+func Mount(h chi.Router, st store.Store, logger *slog.Logger, validator APIKeyValidator, escrow *EscrowDeps) error {
 	h.Route("/v1/vpn", func(r chi.Router) {
 		// Session endpoints
-		r.Post("/sessions", NewRequestSession(st, logger).WithValidator(validator).Handle)
+		r.Post("/sessions", NewRequestSession(st, logger).WithValidator(validator).WithEscrow(escrow).Handle)
 		r.Get("/sessions/{sessionID}", NewGetSession(st, logger).Handle)
 		r.Put("/sessions/{sessionID}/confirm", NewConfirmCandidate(st, logger).Handle)
 		r.Post("/sessions/{sessionID}/refresh", NewRefreshSession(st, logger).Handle)
 		r.Post("/sessions/{sessionID}/terminate", NewTerminateSession(st, logger).Handle)
+
+		// $GRID payment escrow (#596 / Track 5) — disabled when escrow nil
+		r.Post("/sessions/{sessionID}/heartbeat", NewHeartbeat(escrow).Handle)
+		r.Post("/sessions/{sessionID}/settle", NewSettleSession(escrow).Handle)
 
 		// Provider lifecycle:
 		// - POST /providers/{id}/register — daemon's first call on startup,
@@ -71,7 +80,8 @@ func Mount(h chi.Router, st store.Store, logger *slog.Logger, validator APIKeyVa
 		r.Post("/sessions/{sessionID}/bind-customer-wg-key", NewBindCustomerWgKey(st, logger).Handle)
 	})
 
-	logger.Info("vpn service routes mounted")
+	logger.Info("vpn service routes mounted",
+		slog.Bool("escrow_enabled", escrow != nil && escrow.Svc != nil))
 	return nil
 }
 
@@ -80,4 +90,5 @@ func respondError(w http.ResponseWriter, code int, message string) {
 	w.WriteHeader(code)
 	w.Header().Set("Content-Type", "application/json")
 	// TODO: proper JSON error response format
+	_ = message
 }

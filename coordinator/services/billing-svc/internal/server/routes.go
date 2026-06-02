@@ -36,6 +36,9 @@ type Deps struct {
 	Solana  *solana.Service
 	Tax     *tax.Generator
 	OffRamp *offramp.Service
+	// Grid is the $GRID session-end + devnet faucet collaborator (Track 5
+	// / #595, #597). nil disables both routes.
+	Grid *GridDeps
 }
 
 // Mount attaches the billing-svc routes onto the shared chi router.
@@ -102,6 +105,13 @@ func Mount(d Deps) func(chi.Router) {
 		earnings := NewEarningsHandler(d.Store)
 		ePath, eh := billingv1connect.NewEarningsServiceHandler(earnings)
 		r.Mount(ePath, eh)
+
+		// $GRID — session-end (#597) + devnet faucet (#595). Mounted as
+		// flat /v1/grid/* + /v1/devnet/* (not nested under the /v1
+		// Route block above because the call sequence already
+		// established the sub-router; the helper attaches via the
+		// outer r).
+		mountGrid(r, d.Grid)
 	}
 }
 
