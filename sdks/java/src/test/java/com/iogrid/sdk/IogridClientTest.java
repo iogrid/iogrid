@@ -194,6 +194,79 @@ class IogridClientTest {
   }
 
   @Test
+  void requestMobileSessionPostsSnakeCaseAndParsesResponse() throws Exception {
+    server.enqueue(new MockResponse()
+        .setResponseCode(201)
+        .setHeader("Content-Type", "application/json")
+        .setBody("{"
+            + "\"session_id\":\"sess-1\","
+            + "\"peer_public_key\":\"peer-pubkey-b64\","
+            + "\"peer_endpoint\":\"203.0.113.7:51820\","
+            + "\"customer_inner_cidr\":\"10.244.7.4/32\","
+            + "\"allowed_ips\":\"0.0.0.0/0\","
+            + "\"dns_servers\":[\"1.1.1.1\",\"1.0.0.1\"],"
+            + "\"region\":\"eu-central\","
+            + "\"expires_at\":\"2026-06-04T00:00:00Z\","
+            + "\"quota_state\":\"QUOTA_STATE_HEALTHY\""
+            + "}"));
+
+    Types.RequestMobileSessionResponse r = client.requestMobileSession(
+        new Types.RequestMobileSessionRequest(
+            "11111111-2222-3333-4444-555555555555",
+            "auto",
+            "wg-pubkey-b64",
+            null,
+            null));
+
+    assertEquals("sess-1", r.sessionId());
+    assertEquals("203.0.113.7:51820", r.peerEndpoint());
+    assertEquals("10.244.7.4/32", r.customerInnerCidr());
+    assertEquals(List.of("1.1.1.1", "1.0.0.1"), r.dnsServers());
+    assertEquals(Types.QuotaState.QUOTA_STATE_HEALTHY, r.quotaState());
+    assertEquals(Instant.parse("2026-06-04T00:00:00Z"), r.expiresAt());
+
+    RecordedRequest req = server.takeRequest();
+    assertEquals("POST", req.getMethod());
+    assertEquals("/v1/vpn/sessions/mobile", req.getPath());
+    String sent = req.getBody().readUtf8();
+    // Wire MUST use snake_case (vpn-svc handler verbatim).
+    assertTrue(sent.contains("\"customer_id\""), sent);
+    assertTrue(sent.contains("\"client_public_key\""), sent);
+    assertTrue(sent.contains("\"region\":\"auto\""), sent);
+    // Optional fields with null values must NOT appear on the wire.
+    assertFalse(sent.contains("\"api_key\""), sent);
+    assertFalse(sent.contains("\"payment_authorization\""), sent);
+  }
+
+  @Test
+  void requestMobileSession503SurfacesIogridException() {
+    server.enqueue(new MockResponse()
+        .setResponseCode(503)
+        .setHeader("Content-Type", "application/json")
+        .setHeader("Retry-After", "15")
+        .setBody("{\"error\":\"no_peer_available\",\"detail\":\"no healthy peer\",\"region\":\"us-west\",\"retry_after_sec\":15}"));
+
+    IogridException ex = assertThrows(IogridException.class, () ->
+        client.requestMobileSession(new Types.RequestMobileSessionRequest(
+            "11111111-2222-3333-4444-555555555555",
+            null,
+            "wg-pubkey-b64",
+            null,
+            null)));
+    assertEquals(503, ex.status());
+  }
+
+  @Test
+  void requestMobileSessionRequiresCustomerIdAndKey() {
+    assertThrows(IllegalArgumentException.class, () ->
+        client.requestMobileSession(new Types.RequestMobileSessionRequest(
+            "", null, "wg", null, null)));
+    assertThrows(IllegalArgumentException.class, () ->
+        client.requestMobileSession(new Types.RequestMobileSessionRequest(
+            "cust", null, "", null, null)));
+  }
+
+  @Test
   void roundTripInstantSerialization() throws Exception {
     // Sanity check: Jackson + JavaTimeModule keep ISO-8601 timestamps.
     Types.WorkloadEvent ev = new Types.WorkloadEvent(

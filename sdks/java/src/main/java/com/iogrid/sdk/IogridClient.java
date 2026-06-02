@@ -199,6 +199,36 @@ public final class IogridClient implements AutoCloseable {
     return r == null || r.invoices() == null ? List.of() : r.invoices();
   }
 
+  // --- Mobile VPN session bring-up ---------------------------------------
+
+  /**
+   * Request a one-shot mobile-app VPN session via {@code POST
+   * /v1/vpn/sessions/mobile}. Returns the full WireGuard peer config
+   * so the iOS/Android PacketTunnelProvider can call
+   * {@code WireGuardAdapter.start} without a second round-trip.
+   *
+   * <p>Distinct from the legacy daemon-driven flow at {@code POST
+   * /v1/vpn/sessions}. On 503 the SDK throws an {@link IogridException}
+   * with {@code status == 503}; the server's {@code Retry-After} hint
+   * defaults to 15s.
+   *
+   * @throws IllegalArgumentException if {@code customerId} or
+   *     {@code clientPublicKey} is null/empty.
+   */
+  public Types.RequestMobileSessionResponse requestMobileSession(
+      Types.RequestMobileSessionRequest body) throws IOException {
+    if (body == null || body.customerId() == null || body.customerId().isEmpty()) {
+      throw new IllegalArgumentException(
+          "requestMobileSession: customerId is required");
+    }
+    if (body.clientPublicKey() == null || body.clientPublicKey().isEmpty()) {
+      throw new IllegalArgumentException(
+          "requestMobileSession: clientPublicKey is required");
+    }
+    return doJson("POST", "/v1/vpn/sessions/mobile", body, null,
+        Types.RequestMobileSessionResponse.class);
+  }
+
   // --- transport plumbing ------------------------------------------------
 
   private <T> T doJson(String method, String path, Object body, Object unusedQuery, Class<T> outType) throws IOException {

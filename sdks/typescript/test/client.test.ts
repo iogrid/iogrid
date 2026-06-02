@@ -162,6 +162,77 @@ describe('IogridClient', () => {
     expect(String(fetchFn.mock.calls[0]![0])).toBe('https://api.staging.iogrid.org/v1/workloads');
   });
 
+  it('requestMobileSession POSTs snake_case body and parses response', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(
+      jsonResponse(201, {
+        session_id: 'sess-1',
+        peer_public_key: 'peer-pubkey-b64',
+        peer_endpoint: '203.0.113.7:51820',
+        customer_inner_cidr: '10.244.7.4/32',
+        allowed_ips: '0.0.0.0/0',
+        dns_servers: ['1.1.1.1', '1.0.0.1'],
+        region: 'eu-central',
+        expires_at: '2026-06-04T00:00:00Z',
+        quota_state: 'QUOTA_STATE_HEALTHY',
+      })
+    );
+    const c = new IogridClient({ apiKey: 'iog_test', fetch: fetchFn });
+    const r = await c.requestMobileSession({
+      customer_id: '11111111-2222-3333-4444-555555555555',
+      region: 'auto',
+      client_public_key: 'wg-pubkey-b64',
+    });
+    expect(r.session_id).toBe('sess-1');
+    expect(r.peer_endpoint).toBe('203.0.113.7:51820');
+    expect(r.dns_servers).toEqual(['1.1.1.1', '1.0.0.1']);
+    expect(r.quota_state).toBe('QUOTA_STATE_HEALTHY');
+    const [url, init] = fetchFn.mock.calls[0]!;
+    expect(String(url)).toBe('https://api.iogrid.org/v1/vpn/sessions/mobile');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({
+      customer_id: '11111111-2222-3333-4444-555555555555',
+      region: 'auto',
+      client_public_key: 'wg-pubkey-b64',
+    });
+  });
+
+  it('requestMobileSession surfaces 503 with Retry-After as IogridError', async () => {
+    const body = JSON.stringify({
+      error: 'no_peer_available',
+      detail: 'no healthy peer in region — retry shortly',
+      region: 'us-west',
+      retry_after_sec: 15,
+    });
+    const fetchFn = vi.fn().mockResolvedValue(
+      new Response(body, {
+        status: 503,
+        headers: { 'Content-Type': 'application/json', 'Retry-After': '15' },
+      })
+    );
+    const c = new IogridClient({ apiKey: 'iog_test', fetch: fetchFn });
+    await expect(
+      c.requestMobileSession({
+        customer_id: '11111111-2222-3333-4444-555555555555',
+        client_public_key: 'wg-pubkey-b64',
+      })
+    ).rejects.toMatchObject({
+      name: 'IogridError',
+      status: 503,
+    });
+  });
+
+  it('requestMobileSession validates required fields client-side', async () => {
+    const fetchFn = vi.fn();
+    const c = new IogridClient({ apiKey: 'iog_test', fetch: fetchFn });
+    await expect(
+      c.requestMobileSession({ customer_id: '', client_public_key: 'wg' })
+    ).rejects.toThrowError(/customer_id is required/);
+    await expect(
+      c.requestMobileSession({ customer_id: 'x', client_public_key: '' })
+    ).rejects.toThrowError(/client_public_key is required/);
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
   it('sets User-Agent header', async () => {
     const fetchFn = vi.fn().mockResolvedValue(jsonResponse(200, { workloads: [] }));
     const c = new IogridClient({ apiKey: 'iog_test', fetch: fetchFn, userAgent: 'my-app/1.0' });

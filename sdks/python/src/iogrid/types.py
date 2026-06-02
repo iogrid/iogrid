@@ -200,6 +200,43 @@ class ListInvoicesResponse(TypedDict, total=False):
     nextPageToken: str
 
 
+QuotaState = Literal[
+    "QUOTA_STATE_UNSPECIFIED",
+    "QUOTA_STATE_HEALTHY",
+    "QUOTA_STATE_THROTTLED",
+    "QUOTA_STATE_EXHAUSTED",
+]
+
+
+class RequestMobileSessionRequest(TypedDict, total=False):
+    """Body for POST /v1/vpn/sessions/mobile.
+
+    NOTE: the VPN surface uses snake_case on the wire (distinct from the
+    workload / billing surfaces). Field names match the vpn-svc handler
+    verbatim.
+    """
+
+    customer_id: str
+    region: str
+    client_public_key: str
+    api_key: str
+    payment_authorization: object  # opaque to the SDK; Track 5 owns validation
+
+
+class RequestMobileSessionResponse(TypedDict, total=False):
+    """Response from POST /v1/vpn/sessions/mobile (snake_case wire)."""
+
+    session_id: str
+    peer_public_key: str
+    peer_endpoint: str
+    customer_inner_cidr: str
+    allowed_ips: str
+    dns_servers: list[str]
+    region: str
+    expires_at: str
+    quota_state: QuotaState
+
+
 class ErrorEnvelope(TypedDict, total=False):
     code: ErrorCode
     message: str
@@ -227,6 +264,9 @@ __all__ = [
     "ListUsageResponse",
     "ListWorkloadsResponse",
     "Money",
+    "QuotaState",
+    "RequestMobileSessionRequest",
+    "RequestMobileSessionResponse",
     "UsageRecord",
     "Workload",
     "WorkloadEvent",

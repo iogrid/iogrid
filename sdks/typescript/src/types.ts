@@ -193,6 +193,62 @@ export interface ListInvoicesResponse {
   nextPageToken?: string;
 }
 
+// --- Mobile VPN session bring-up (POST /v1/vpn/sessions/mobile) -----------
+//
+// Wire shapes for the mobile-app one-shot session endpoint. Returns the
+// full WireGuard peer config in a single round-trip so the iOS/Android
+// PacketTunnelProvider can call WireGuardAdapter.start without a second
+// hop. Distinct from the legacy daemon-driven flow at POST /v1/vpn/sessions.
+
+/** Quota gate signal echoed on every mobile response (#573). */
+export type QuotaState =
+  | 'QUOTA_STATE_UNSPECIFIED'
+  | 'QUOTA_STATE_HEALTHY'
+  | 'QUOTA_STATE_THROTTLED'
+  | 'QUOTA_STATE_EXHAUSTED';
+
+/**
+ * Request payload for POST /v1/vpn/sessions/mobile. NOTE: the VPN
+ * surface uses snake_case on the wire (distinct from the workload /
+ * billing surfaces which use camelCase) — the JSON keys match the
+ * vpn-svc handler verbatim.
+ */
+export interface RequestMobileSessionRequest {
+  /** Customer UUID — anchors the session row + quota counter. */
+  customer_id: string;
+  /** Region code or "auto" (default) for geo-nearest pick. */
+  region?: string;
+  /** Customer WireGuard public key (base64). */
+  client_public_key: string;
+  /** Optional API key — required only when the server enforces validation. */
+  api_key?: string;
+  /**
+   * Optional Track-5 payment authorization blob. Opaque to the SDK;
+   * vpn-svc persists it verbatim and validates downstream.
+   */
+  payment_authorization?: unknown;
+}
+
+/** Response from POST /v1/vpn/sessions/mobile (snake_case wire). */
+export interface RequestMobileSessionResponse {
+  session_id: string;
+  peer_public_key: string;
+  /** dotted-quad+port the mobile client passes to WireGuardKit. */
+  peer_endpoint: string;
+  /** customer-side inner CIDR (e.g. "10.244.7.4/32"). */
+  customer_inner_cidr: string;
+  /** allowed_ips on the WG peer (e.g. "0.0.0.0/0"). */
+  allowed_ips: string;
+  /** DNS resolvers to set on the tunnel interface. */
+  dns_servers: string[];
+  /** Resolved region (echoes back even when caller asked for "auto"). */
+  region: string;
+  /** RFC3339 timestamp when the session expires. */
+  expires_at: string;
+  /** Quota gate state for the mobile banner. */
+  quota_state: QuotaState | string;
+}
+
 /** Mirror of iogrid.common.v1.ErrorCode (only customer-relevant codes). */
 export type ErrorCode =
   | 'INVALID_ARGUMENT'
