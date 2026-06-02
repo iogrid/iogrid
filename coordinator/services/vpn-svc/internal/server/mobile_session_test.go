@@ -1,0 +1,339 @@
+package server
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+	pb "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/vpn/v1"
+	"github.com/iogrid/iogrid/coordinator/services/vpn-svc/internal/store"
+	"github.com/prometheus/client_golang/prometheus/testutil"
+)
+
+// --- test plumbing ---------------------------------------------------------
+//
+// MobileSessionRequests is a package-global CounterVec registered on the
+// default Prometheus registry via promauto, so we cannot swap in a fresh
+// registry per test without refactoring production code. Instead we read
+// the per-label counter value before and after each request and assert the
+// DELTA. This is functionally equivalent to a fresh-registry assertion (it
+// isolates each test's contribution to a given outcome label) and is the
+// canonical pattern for asserting on promauto globals.
+
+// outcomeCount returns the current value of
+// iogrid_vpn_svc_mobile_session_requests_total{outcome=<outcome>}.
+func outcomeCount(t *testing.T, outcome string) float64 {
+	t.Helper()
+	return testutil.ToFloat64(MobileSessionRequests.WithLabelValues(outcome))
+}
+
+// failingStore embeds a real memory store but forces AllocateInnerIP to
+// fail, exercising the handler's internal_error (500) path without needing
+// a live Postgres or a contrived schema-drift condition.
+type failingStore struct {
+	*store.Memory
+	allocErr error
+}
+
+func (f *failingStore) AllocateInnerIP(ctx context.Context, providerID, sessionID uuid.UUID) (string, error) {
+	if f.allocErr != nil {
+		return "", f.allocErr
+	}
+	return f.Memory.AllocateInnerIP(ctx, providerID, sessionID)
+}
+
+// mountMobile builds a vpn-svc test server around the supplied store +
+// optional validator. Returns the server URL.
+func mountMobile(t *testing.T, st store.Store, v APIKeyValidator) *httptest.Server {
+	t.Helper()
+	r := chi.NewRouter()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	if err := Mount(r, st, logger, v, nil); err != nil {
+		t.Fatalf("mount: %v", err)
+	}
+	srv := httptest.NewServer(r)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// seedReadyProvider seeds a healthy provider in `region` with a WG public
+// key + a fresh srflx ICE candidate so RequestMobileSession.lookupProvider
+// resolves a non-empty endpoint (required for the `created` path).
+func seedReadyProvider(t *testing.T, st store.Store, region string) uuid.UUID {
+	t.Helper()
+	ctx := context.Background()
+	providerID := uuid.New()
+	if err := st.RegisterProvider(ctx, &store.ProviderInfo{
+		ID:          providerID,
+		Region:      region,
+		Status:      "healthy",
+		LastSeenAt:  time.Now(),
+		WgPublicKey: "PROVIDERWGKEY=",
+	}); err != nil {
+		t.Fatalf("register provider: %v", err)
+	}
+	cands := []*pb.IceCandidate{
+		{
+			Foundation:         "1",
+			Transport:          "udp",
+			CandidateType:      "srflx",
+			ConnectionAddress:  "203.0.113.7",
+			ConnectionPort:     51820,
+			LatencyMs:          40,
+			DiscoveredAtUnixMs: time.Now().UnixMilli(),
+		},
+	}
+	if err := st.RegisterCandidates(ctx, providerID, cands); err != nil {
+		t.Fatalf("register candidates: %v", err)
+	}
+	return providerID
+}
+
+// postMobile fires a POST /v1/vpn/sessions/mobile with the given body and
+// returns the response + read body.
+func postMobile(t *testing.T, url string, body map[string]interface{}, hdr map[string]string) (*http.Response, []byte) {
+	t.Helper()
+	buf := &bytes.Buffer{}
+	_ = json.NewEncoder(buf).Encode(body)
+	req, _ := http.NewRequest("POST", url+"/v1/vpn/sessions/mobile", buf)
+	req.Header.Set("Content-Type", "application/json")
+	for k, v := range hdr {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST /sessions/mobile: %v", err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	return resp, b
+}
+
+// TestRequestMobileSession_OutcomeMetrics is the table-driven coverage for
+// RequestMobileSession.Handle: every response path is exercised, the HTTP
+// status is asserted, AND the MobileSessionRequests{outcome=...} counter is
+// asserted to increment by exactly one on the expected label (#605).
+func TestRequestMobileSession_OutcomeMetrics(t *testing.T) {
+	validKey := "iog_mobile_valid"
+	revokedKey := "iog_mobile_revoked"
+
+	tests := []struct {
+		name           string
+		validator      APIKeyValidator
+		failAlloc      bool
+		seedProvider   bool
+		body           map[string]interface{}
+		wantStatus     int
+		wantOutcome    string
+		wantRetryAfter bool
+	}{
+		{
+			name:         "created",
+			seedProvider: true,
+			body: map[string]interface{}{
+				"customer_id":       uuid.New().String(),
+				"client_public_key": "CLIENTPUBKEY1111AAAA2222BBBB=",
+				"region":            "us-east-1",
+			},
+			wantStatus:  http.StatusCreated,
+			wantOutcome: "created",
+		},
+		{
+			name:         "no_peer_503",
+			seedProvider: false, // no providers anywhere → picker ErrNoPeer
+			body: map[string]interface{}{
+				"customer_id":       uuid.New().String(),
+				"client_public_key": "CLIENTPUBKEY1111AAAA2222BBBB=",
+				"region":            "us-east-1",
+			},
+			wantStatus:     http.StatusServiceUnavailable,
+			wantOutcome:    "no_peer",
+			wantRetryAfter: true,
+		},
+		{
+			name: "bad_request_400_missing_client_public_key",
+			body: map[string]interface{}{
+				"customer_id": uuid.New().String(),
+				"region":      "us-east-1",
+				// client_public_key omitted
+			},
+			wantStatus:  http.StatusBadRequest,
+			wantOutcome: "bad_request",
+		},
+		{
+			name: "bad_request_400_bad_uuid",
+			body: map[string]interface{}{
+				"customer_id":       "not-a-uuid",
+				"client_public_key": "CLIENTPUBKEY1111AAAA2222BBBB=",
+				"region":            "us-east-1",
+			},
+			wantStatus:  http.StatusBadRequest,
+			wantOutcome: "bad_request",
+		},
+		{
+			name: "unauthorized_401_missing_key",
+			validator: &fakeValidator{
+				valid: map[string]struct{ ws, cust, tier string }{
+					validKey: {uuid.New().String(), uuid.New().String(), "SUBSCRIPTION_TIER_STARTER"},
+				},
+			},
+			body: map[string]interface{}{
+				"customer_id":       uuid.New().String(),
+				"client_public_key": "CLIENTPUBKEY1111AAAA2222BBBB=",
+				"region":            "us-east-1",
+				// api_key omitted → 401
+			},
+			wantStatus:  http.StatusUnauthorized,
+			wantOutcome: "unauthorized",
+		},
+		{
+			name: "unauthorized_401_revoked_key",
+			validator: &fakeValidator{
+				valid:    map[string]struct{ ws, cust, tier string }{validKey: {uuid.New().String(), uuid.New().String(), "SUBSCRIPTION_TIER_STARTER"}},
+				rejected: map[string]struct{}{revokedKey: {}},
+			},
+			body: map[string]interface{}{
+				"customer_id":       uuid.New().String(),
+				"client_public_key": "CLIENTPUBKEY1111AAAA2222BBBB=",
+				"region":            "us-east-1",
+				"api_key":           revokedKey,
+			},
+			wantStatus:  http.StatusUnauthorized,
+			wantOutcome: "unauthorized",
+		},
+		{
+			name:         "internal_error_500_alloc_fails",
+			seedProvider: true,
+			failAlloc:    true,
+			body: map[string]interface{}{
+				"customer_id":       uuid.New().String(),
+				"client_public_key": "CLIENTPUBKEY1111AAAA2222BBBB=",
+				"region":            "us-east-1",
+			},
+			wantStatus:  http.StatusInternalServerError,
+			wantOutcome: "internal_error",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mem := store.NewMemory().(*store.Memory)
+			var st store.Store = mem
+			if tc.failAlloc {
+				st = &failingStore{Memory: mem, allocErr: errors.New("inner-ip alloc deadlock")}
+			}
+			if tc.seedProvider {
+				seedReadyProvider(t, st, "us-east-1")
+			}
+			srv := mountMobile(t, st, tc.validator)
+
+			before := outcomeCount(t, tc.wantOutcome)
+			resp, body := postMobile(t, srv.URL, tc.body, nil)
+			after := outcomeCount(t, tc.wantOutcome)
+
+			if resp.StatusCode != tc.wantStatus {
+				t.Fatalf("status=%d, want %d (body=%s)", resp.StatusCode, tc.wantStatus, body)
+			}
+			if got := after - before; got != 1 {
+				t.Errorf("MobileSessionRequests{outcome=%q} delta=%v, want 1", tc.wantOutcome, got)
+			}
+			if tc.wantRetryAfter && resp.Header.Get("Retry-After") == "" {
+				t.Errorf("expected Retry-After header on 503, got none")
+			}
+		})
+	}
+}
+
+// TestRequestMobileSession_CreatedResponseShape asserts the success path
+// returns the complete WG peer config the PacketTunnelProvider needs in a
+// single round-trip (#588 / #605), so the `created` counter increment is
+// backed by a genuinely usable response.
+func TestRequestMobileSession_CreatedResponseShape(t *testing.T) {
+	mem := store.NewMemory().(*store.Memory)
+	providerID := seedReadyProvider(t, mem, "us-east-1")
+	srv := mountMobile(t, mem, nil)
+
+	before := outcomeCount(t, "created")
+	resp, body := postMobile(t, srv.URL, map[string]interface{}{
+		"customer_id":       uuid.New().String(),
+		"client_public_key": "CLIENTPUBKEY1111AAAA2222BBBB=",
+		"region":            "us-east-1",
+	}, nil)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status=%d body=%s, want 201", resp.StatusCode, body)
+	}
+	if got := outcomeCount(t, "created") - before; got != 1 {
+		t.Errorf("created counter delta=%v, want 1", got)
+	}
+
+	var out map[string]interface{}
+	if err := json.Unmarshal(body, &out); err != nil {
+		t.Fatalf("unmarshal: %v (body=%s)", err, body)
+	}
+	for _, k := range []string{
+		"session_id", "peer_public_key", "peer_endpoint",
+		"customer_inner_cidr", "allowed_ips", "dns_servers",
+		"expires_at", "region", "quota_state",
+	} {
+		if _, ok := out[k]; !ok {
+			t.Errorf("created response missing field %q (body=%s)", k, body)
+		}
+	}
+	if out["peer_public_key"] != "PROVIDERWGKEY=" {
+		t.Errorf("peer_public_key=%v, want PROVIDERWGKEY=", out["peer_public_key"])
+	}
+	if out["peer_endpoint"] != "203.0.113.7:51820" {
+		t.Errorf("peer_endpoint=%v, want 203.0.113.7:51820", out["peer_endpoint"])
+	}
+	if out["allowed_ips"] != "0.0.0.0/0" {
+		t.Errorf("allowed_ips=%v, want 0.0.0.0/0", out["allowed_ips"])
+	}
+
+	// The session row must exist + be bound to the seeded provider.
+	sessID, _ := uuid.Parse(out["session_id"].(string))
+	sess, err := mem.GetSession(context.Background(), sessID)
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+	if sess.CurrentProvider != providerID {
+		t.Errorf("session.CurrentProvider=%v, want %v", sess.CurrentProvider, providerID)
+	}
+}
+
+// TestRequestMobileSession_NoPeerWhenEndpointUnpublished covers the second
+// no_peer path: a provider IS selectable (picker succeeds) but has no fresh
+// ICE candidate, so lookupProvider fails and the handler must still record
+// the `no_peer` outcome + return 503 with Retry-After (#605). This guards
+// against a regression where the endpoint-lookup 503 path forgets to
+// increment the counter (it would silently never fire the 503 alert).
+func TestRequestMobileSession_NoPeerWhenEndpointUnpublished(t *testing.T) {
+	mem := store.NewMemory().(*store.Memory)
+	// Healthy provider but NO ICE candidates registered → pickEndpoint == "".
+	mem.SeedProvider(uuid.New(), "us-east-1", "healthy")
+	srv := mountMobile(t, mem, nil)
+
+	before := outcomeCount(t, "no_peer")
+	resp, body := postMobile(t, srv.URL, map[string]interface{}{
+		"customer_id":       uuid.New().String(),
+		"client_public_key": "CLIENTPUBKEY1111AAAA2222BBBB=",
+		"region":            "us-east-1",
+	}, nil)
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d body=%s, want 503", resp.StatusCode, body)
+	}
+	if got := outcomeCount(t, "no_peer") - before; got != 1 {
+		t.Errorf("no_peer counter delta=%v, want 1 (endpoint-unpublished 503 path must increment)", got)
+	}
+	if resp.Header.Get("Retry-After") == "" {
+		t.Errorf("endpoint-unpublished 503 must carry Retry-After header")
+	}
+}
