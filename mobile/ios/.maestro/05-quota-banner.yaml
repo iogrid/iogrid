@@ -11,9 +11,19 @@ appId: io.iogrid.app
 # v1 smoke: just assert the banner ISN'T showing on first launch. That's the
 # regression we'd catch — a code change that defaulted to showing the
 # "exhausted" banner before the server responded.
-- clearState
-- clearKeychain
-- launchApp
+# Single launchApp with inline clearState/clearKeychain. The pattern
+# `- clearState\n - clearKeychain\n - launchApp` was flaky on iOS sim
+# when the PREVIOUS flow used `launchApp: stopApp: true` (vcard's
+# 02-create-card.yaml warns: "Consecutive clearState + relaunch on
+# iOS sim is flaky — app comes up as black screen on second launch").
+# Iter 13 hit this exact pattern: flow 04's stopApp:true left the app
+# in a state where flow 05's clearState→launchApp re-entered with a
+# black screen, vpn-toggle invisible, assertion failed.
+# Consolidating into one command lets Maestro handle the sequencing
+# atomically.
+- launchApp:
+    clearState: true
+    clearKeychain: true
 
 - assertVisible:
     id: "vpn-toggle"
