@@ -51,7 +51,22 @@ SWIFT_VERSION        = '5.0'
 # dir, plus the WireGuardKit product as a XCSwiftPackageProductDependency
 # on the extension target. Idempotent — re-running this script after
 # the package ref exists is a no-op.
-WIREGUARDKIT_ENABLED          = true
+#
+# 2026-06-03 — Temporarily DISABLED. CI 26833832718 confirmed that
+# the libwg-go.a built by Go 1.23's c-archive mode emits undefined
+# references to cgo runtime symbols (_threadentry, _x_cgo_init)
+# that aren't resolved by the iOS-Simulator linker after 3
+# placement attempts (Plans A/B/C in CONTRIBUTING gotcha 31).
+#
+# This skip lets the simulator build succeed → Maestro v2 + v3
+# flows run → TestFlight upload completes → founder demos v2 UX
+# via internal-tester install. The tunnel toggle returns the
+# existing mocked OFF→CONNECTING→CONNECTED state (already what
+# the Maestro flows assert against).
+#
+# Re-enable once libwg-go.a symbols resolve (likely Go 1.21
+# downgrade or extldflags='-static').
+WIREGUARDKIT_ENABLED          = false
 WIREGUARDKIT_VENDOR_PATH      = '../vendor/wireguard-apple-swift6' # relative to ios/iogrid.xcodeproj
 WIREGUARDKIT_PRODUCT          = 'WireGuardKit'
 
