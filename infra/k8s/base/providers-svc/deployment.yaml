@@ -31,7 +31,7 @@ spec:
         # cache-identical. Treated as an opaque ISO-8601 string by the
         # deploy-bot — do not hand-edit unless you intend to roll the
         # pods. Refs #335.
-        kubectl.kubernetes.io/restartedAt: "2026-06-02T20:19:21Z"
+        kubectl.kubernetes.io/restartedAt: "2026-06-02T20:24:29Z"
         prometheus.io/port: "9090"
         prometheus.io/path: "/metrics"
     spec:
@@ -137,7 +137,7 @@ spec:
               mountPath: /tmp
       containers:
         - name: providers-svc
-          image: harbor.openova.io/iogrid/providers-svc@sha256:129393a6b3507728b423569263d9093ca7cef6ed6e38be8d9d30ca0c818cf4cb
+          image: harbor.openova.io/iogrid/providers-svc@sha256:0f28dc3411b0c931fbbd924b94b6d0aef0dfe724dfc944f139252f61c0de3558
           imagePullPolicy: Always
           ports:
             - name: http
