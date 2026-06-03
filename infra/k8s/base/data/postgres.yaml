@@ -24,7 +24,11 @@ spec:
     size: 50Gi
     storageClass: local-path
   monitoring:
-    enablePodMonitor: true
+    # false: the contabo-mkt k3s cluster has no Prometheus-Operator, so the
+    # PodMonitor CRD is absent — enablePodMonitor:true makes CNPG perpetually
+    # fail to reconcile the PodMonitor sub-resource. Re-enable only if/when a
+    # Prometheus Operator is installed (#637).
+    enablePodMonitor: false
   postgresql:
     parameters:
       max_connections: "400"

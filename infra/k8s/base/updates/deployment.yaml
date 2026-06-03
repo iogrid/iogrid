@@ -18,7 +18,11 @@ metadata:
     app.kubernetes.io/part-of: iogrid
     app.kubernetes.io/component: updates
 spec:
-  replicas: 2
+  # 0: the pinned updates-server image is not pullable from harbor (the
+  # update-manifest server was never published), so prod runs this scaled to 0
+  # and a declarative apply with replicas>0 yields ImagePullBackOff (#637
+  # incident). Restore to 2 once updates-server is built + pushed.
+  replicas: 0
   revisionHistoryLimit: 3
   strategy:
     type: RollingUpdate
