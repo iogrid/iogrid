@@ -891,7 +891,7 @@ Inhibition rules suppress lower-severity alerts when a page-tier alert is alread
 | `GET /status/uptime?service=<name>&days=90` | Per-service 90-day uptime ledger that feeds the calendar heatmap |
 | `POST /status/subscribe` | Email subscription registry (rate-limited per-IP) |
 
-Operator-curated incidents are managed via admin-token-gated mutations: `POST /status/incidents`, `POST /status/incidents/{id}/updates`. Incidents follow the StatusPage.io lifecycle (`investigating → identified → monitoring → resolved`) with four impact tiers (`none | minor | major | critical`). The runbook lives at [`RUNBOOK_STATUS.md`](./RUNBOOK_STATUS.md) (will fold into `RUNBOOKS.md` in the runbooks-fold PR per #337).
+Operator-curated incidents are managed via admin-token-gated mutations: `POST /status/incidents`, `POST /status/incidents/{id}/updates`. Incidents follow the StatusPage.io lifecycle (`investigating → identified → monitoring → resolved`) with four impact tiers (`none | minor | major | critical`). The status-page operations runbook lives in [`RUNBOOKS.md`](./RUNBOOKS.md).
 
 Storage is Postgres-backed (`incidents`, `incident_updates`, `status_subscriptions`, `uptime_samples` tables in the telemetry-svc CNPG database) with an in-memory fallback so the public `/status/*` endpoints stay responsive even when the DB is unavailable — a status page that itself looks broken is the worst possible UX during a real outage.
 
