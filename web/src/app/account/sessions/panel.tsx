@@ -145,13 +145,25 @@ export function SessionsPanel() {
   const refresh = React.useCallback(() => {
     setLoading(true);
     setErrored(false);
-    browserApi()
+    // Two sources, merged (#685 follow-up / TC-09 watch-item):
+    //  - identity-svc sessions via the BFF (daemon/API sessions);
+    //  - the web's own NextAuth session rows via the same-origin
+    //    route — guarantees the "this device" row always renders,
+    //    because NextAuth sessions never reach identity-svc.
+    const bff = browserApi()
       .get<ListSessionsResponse>("/api/v1/account/sessions")
-      .then((r) => setSessions(r.sessions ?? []))
+      .then((r) => r.sessions ?? [])
       .catch((e) => {
         setErrored(true);
         toast.error((e as Error).message);
-      })
+        return [] as Session[];
+      });
+    const web = fetch("/account/sessions/web-sessions", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : { sessions: [] }))
+      .then((r: ListSessionsResponse) => r.sessions ?? [])
+      .catch(() => [] as Session[]);
+    void Promise.all([bff, web])
+      .then(([a, b]) => setSessions([...a, ...b]))
       .finally(() => setLoading(false));
   }, []);
 
@@ -174,7 +186,21 @@ export function SessionsPanel() {
     }
     setRevoking(id);
     try {
-      await browserApi().del(`/api/v1/account/sessions/${encodeURIComponent(id)}`);
+      if ((s as { kind?: string }).kind === "web") {
+        // Web (NextAuth) rows revoke via the same-origin route — they
+        // don't exist in identity-svc, so the BFF path would 404.
+        const res = await fetch(
+          `/account/sessions/web-sessions?id=${encodeURIComponent(id)}`,
+          { method: "DELETE" },
+        );
+        if (!res.ok && res.status !== 204) {
+          throw new Error(`revoke failed (${res.status})`);
+        }
+      } else {
+        await browserApi().del(
+          `/api/v1/account/sessions/${encodeURIComponent(id)}`,
+        );
+      }
       toast.success("Session revoked.");
       refresh();
     } catch (e) {
