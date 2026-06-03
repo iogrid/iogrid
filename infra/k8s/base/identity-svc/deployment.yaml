@@ -104,6 +104,15 @@ spec:
             - secretRef:
                 name: identity-svc-secrets
                 optional: true
+            # CNPG Postgres connection — carries DATABASE_URL (+ DB_HOST/
+            # DB_NAME/DB_USER/DB_PASSWORD/DB_PORT). identity-svc's siblings
+            # (providers/vpn/billing) all reference their iogrid-<svc>-db
+            # the same way; identity-svc was missing it, so DATABASE_URL
+            # only existed as a hardcoded literal on the live pod — a
+            # declarative apply would have dropped it (#637 killer #2 / #640).
+            - secretRef:
+                name: iogrid-identity-db
+                optional: true
           resources:
             requests:
               cpu: 100m
