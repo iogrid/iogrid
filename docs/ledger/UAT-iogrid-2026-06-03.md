@@ -93,7 +93,7 @@ The tester is read-only on the product code; reported what was seen on screen; n
 |---|---|---|---|---|---|
 | 1 | [/customer/api-keys](https://iogrid.org/customer/api-keys) | Tap **Revoke** → **Revoke permanently** on `uat-test-key-2026-06-03` | The key is removed from the list | ❌ | [📷 created](evidence/auth-06-apikey-created.png) |
 
-- **Journey verdict:** ☒ **FAIL** — **Revoke is broken.** The key stays after reload. UI fires `DELETE /api/v1/customer/api-keys?…` → **405**; the correct `…/api-keys/<id>?…` route → **500** (`billing-svc.RevokeApiKey` path errors). Filed **[#676](https://github.com/iogrid/iogrid/issues/676) (P1 — a leaked key can't be killed)**. ⚠️ The `uat-test-key-2026-06-03` created in TC-04 **cannot be removed** because of this very bug — it remains on the workspace (plain customer key, no elevated rights); revoke it once #676 is fixed.
+- **Journey verdict:** ☒ **FAIL at walk time → ✅ FIXED + PROD-VERIFIED same day.** At walk time revoke was broken: bare **500** (empty body) on the correct `[id]` route. Root cause was NOT the backend — the web BFF proxy **crashed re-emitting 204 No Content** (`new Response("", {status:204})` throws), breaking **every** DELETE through the proxy. Fixed in **[PR #678](https://github.com/iogrid/iogrid/pull/678)** (merged) → **re-walked in prod: the same DELETE now returns 204** and the `uat-test-key-2026-06-03` is revoked. Residual (revoked keys still *listed* as active — the BFF shape dropped `revoked_at`) fixed in **[PR #680](https://github.com/iogrid/iogrid/pull/680)** (merged, deploying). [#676](https://github.com/iogrid/iogrid/issues/676) closed.
 
 ---
 
