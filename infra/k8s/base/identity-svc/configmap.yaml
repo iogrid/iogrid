@@ -22,5 +22,8 @@ data:
   # for #646). Web NextAuth already derives the apex callback from NEXTAUTH_URL.
   GOOGLE_REDIRECT_URL: "https://iogrid.org/api/auth/callback/google"
   BASE_URL: "https://api.iogrid.org"
-  ALLOWED_RETURN_HOSTS: "iogrid.org,app.iogrid.org"
+  # apex only — app.iogrid.org was dropped (301s to apex). Keeping it here would
+  # re-add the dropped host on a future GitOps apply (deploy envFroms this CM),
+  # which is exactly what #648 fixes. Matches the live patched value.
+  ALLOWED_RETURN_HOSTS: "iogrid.org"
   REDIS_URL: "redis://redis-client.iogrid.svc.cluster.local:6379/0"
