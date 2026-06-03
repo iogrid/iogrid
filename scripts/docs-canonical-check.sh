@@ -61,8 +61,15 @@ done
 
 # (4) Folded orphans must NOT reappear in flat docs/. If someone restores
 # one of these, the consolidation regressed.
+#
+# NOTE (2026-06-03): docs/TOKENOMICS.md and docs/MULTI_TENANT_MATRIX.md were
+# REMOVED from this blocklist — they are legitimately-reinstated canonical docs
+# (TOKENOMICS is referenced by contracts/tests/*, web staking.ts, mobile
+# ping-pay.ts, SOLANA-ADDRESSES; MULTI_TENANT_MATRIX by the AASA route +
+# BUSINESS-STRATEGY). They live in the flat docs/ dir by design now; the stale
+# blocklist was failing CI on every docs commit. The genuinely-folded strategy
+# orphans below stay enforced.
 orphans=(
-    "docs/TOKENOMICS.md"
     "docs/INCENTIVES.md"
     "docs/LEGAL.md"
     "docs/MARKET.md"
@@ -71,7 +78,6 @@ orphans=(
     "docs/SOLANA.md"
     "docs/TECH.md"
     "docs/DNS_TLS.md"
-    "docs/MULTI_TENANT_MATRIX.md"
     "docs/SECURITY-mTLS.md"
     "docs/RUNBOOK_STATUS.md"
     "docs/PHASE0-SETUP.md"
