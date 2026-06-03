@@ -80,7 +80,12 @@ spec:
         - GRANT ALL PRIVILEGES ON DATABASE telemetry TO telemetry_user;
   resources:
     requests:
-      cpu: 500m
+      # 200m (was 500m): actual steady-state usage is ~20m/instance; 200m is
+      # ~8x headroom for query/backup spikes. Reclaims 600m across the 2
+      # instances on a CPU-request-constrained single node (#664). Memory kept
+      # at 1Gi (conservative for Postgres shared_buffers + page cache; usage
+      # ~170Mi but DBs benefit from cache headroom). Limits unchanged.
+      cpu: 200m
       memory: 1Gi
     limits:
       cpu: 2000m
