@@ -11,7 +11,12 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: web
-  minReplicas: 1
+  # minReplicas MUST stay >=2: the Deployment rolls with maxUnavailable:1,
+  # which is only outage-free when a second replica keeps serving while one
+  # is replaced. min=1 + maxUnavailable:1 took iogrid.org down for ~6 min on
+  # 2026-06-04 when the image-reroll cron killed the sole pod and the node
+  # was at the kubelet pod cap, so the replacement sat Pending (#682).
+  minReplicas: 2
   maxReplicas: 10
   metrics:
     - type: Resource

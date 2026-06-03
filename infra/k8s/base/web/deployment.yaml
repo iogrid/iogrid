@@ -17,6 +17,12 @@ spec:
     # headroom — a surge-only strategy deadlocked the #677 web roll when the
     # HPA had scaled web to 4 and the node was out of memory + pod slots
     # (new pod Pending on "Insufficient memory / Too many pods").
+    #
+    # INVARIANT (#682, 2026-06-04 outage): maxUnavailable:1 is ONLY safe while
+    # the HPA's minReplicas stays >=2. With a single replica, an image roll
+    # kills the sole pod first; if the node is at the kubelet pod cap, the
+    # replacement sits Pending and iogrid.org serves 503 until a slot frees.
+    # Keep this in sync with infra/k8s/base/web/hpa.yaml.
     type: RollingUpdate
     rollingUpdate:
       maxSurge: 1
