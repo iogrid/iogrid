@@ -275,18 +275,24 @@ jobs:
                   print(f'  bundleIds HTTP {e.code}: {e.read().decode()[:200]}')
               return None
 
-          def _ensure_capability(bid, cap):
+          def _caps(bid):
+              # Read via the bundleId `include` — the bare
+              # /bundleIdCapabilities?limit= sub-resource 400s on this API.
               req = urllib.request.Request(
-                  f'https://api.appstoreconnect.apple.com/v1/bundleIds/{bid}/bundleIdCapabilities?limit=200',
+                  f'https://api.appstoreconnect.apple.com/v1/bundleIds/{bid}?include=bundleIdCapabilities',
                   headers=hdrs)
               try:
                   with urllib.request.urlopen(req) as r:
-                      have = {c.get('attributes', {}).get('capabilityType')
-                              for c in json.load(r).get('data', [])}
+                      data = json.load(r)
+                  return {c.get('attributes', {}).get('capabilityType')
+                          for c in data.get('included', [])
+                          if c.get('type') == 'bundleIdCapabilities'}
               except urllib.error.HTTPError as e:
-                  print(f'  caps list HTTP {e.code}: {e.read().decode()[:200]}'); have = set()
-              if cap in have:
-                  print(f'  capability {cap} already enabled'); return
+                  print(f'  caps read HTTP {e.code}: {e.read().decode()[:200]}'); return set()
+
+          def _ensure_capability(bid, cap):
+              if cap in _caps(bid):
+                  print(f'  capability {cap} already enabled'); return True
               body = json.dumps({'data': {
                   'type': 'bundleIdCapabilities',
                   'attributes': {'capabilityType': cap},
@@ -295,14 +301,25 @@ jobs:
                   'https://api.appstoreconnect.apple.com/v1/bundleIdCapabilities',
                   data=body, headers={**hdrs, 'Content-Type': 'application/json'}, method='POST')
               try:
-                  urllib.request.urlopen(creq).read(); print(f'  ENABLED capability {cap}')
+                  urllib.request.urlopen(creq).read(); print(f'  ENABLED capability {cap}'); return True
               except urllib.error.HTTPError as e:
-                  print(f'  enable {cap} HTTP {e.code}: {e.read().decode()[:300]}')
+                  if e.code == 409:  # already enabled / conflict — treat as enabled
+                      print(f'  enable {cap} HTTP 409 (already enabled)'); return True
+                  print(f'  enable {cap} HTTP {e.code}: {e.read().decode()[:300]}'); return False
 
           _app_bid = _bundle_id('io.iogrid.app')
           if _app_bid:
               print(f'=== ensuring Sign In with Apple on io.iogrid.app ({_app_bid}) ===')
-              _ensure_capability(_app_bid, 'APPLE_ID_AUTH')
+              ok = _ensure_capability(_app_bid, 'APPLE_ID_AUTH')
+              now = _caps(_app_bid)
+              print(f'  io.iogrid.app capabilities now: {sorted(now)}')
+              if 'APPLE_ID_AUTH' not in now:
+                  print('::warning::APPLE_ID_AUTH still not on the App ID — archive will fail; SIWA not enableable via API')
+              else:
+                  # Apple can lag between enabling a capability and reflecting
+                  # it in freshly-generated profiles — give it a moment before
+                  # sigh regenerates, else the new profile omits SIWA (#575).
+                  print('  waiting 30s for capability→profile propagation'); time.sleep(30)
           else:
               print('::warning::io.iogrid.app bundle ID not found via ASC API — cannot ensure SIWA capability; archive may fail')
 
