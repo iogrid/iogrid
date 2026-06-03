@@ -73,6 +73,17 @@ func (s *BillingAPIKeyStore) List(ctx context.Context, workspaceID uuid.UUID) ([
 	pbKeys := resp.Msg.GetApiKeys()
 	out := make([]APIKey, 0, len(pbKeys))
 	for _, pb := range pbKeys {
+		// billing-svc deliberately returns revoked rows (revoked_at set),
+		// but this surface feeds the UI's "Active keys" list — and the BFF
+		// shape doesn't carry revoked_at, so a revoked key would render
+		// indistinguishable from an active one. Worse: after a successful
+		// revoke the panel refreshes this list, so an unfiltered revoked
+		// row makes the revoke LOOK like it failed (#676 residual). Hide
+		// revoked rows here; a future "show revoked with badge" UI can
+		// thread revoked_at through instead.
+		if pb.GetRevokedAt() != nil {
+			continue
+		}
 		k, err := apiKeyFromProto(pb)
 		if err != nil {
 			// Skip malformed rows rather than failing the whole list.
