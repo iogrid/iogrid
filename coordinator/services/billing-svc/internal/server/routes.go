@@ -110,7 +110,7 @@ func Mount(d Deps) func(chi.Router) {
 		// /usage surface (#675; was CodeUnimplemented → web saw 501 and
 		// masked it as "$0.00"). Checkout/portal/invoices/cancel remain
 		// Unimplemented via the embedded stub until Stripe wiring lands.
-		subs := NewSubscriptionHandler(d.Store)
+		subs := NewSubscriptionHandler(d.Store, d.Stripe)
 		sPath, sh := billingv1connect.NewSubscriptionServiceHandler(subs)
 		r.Mount(sPath, sh)
 

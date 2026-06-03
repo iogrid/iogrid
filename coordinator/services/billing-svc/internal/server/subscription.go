@@ -14,30 +14,94 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	billingv1 "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/billing/v1"
 	"github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/billing/v1/billingv1connect"
 	commonv1 "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/common/v1"
 	"github.com/iogrid/iogrid/coordinator/services/billing-svc/internal/store"
+	"github.com/iogrid/iogrid/coordinator/services/billing-svc/internal/stripeapi"
 )
 
 // SubscriptionHandler implements billingv1connect.SubscriptionServiceHandler.
 type SubscriptionHandler struct {
 	billingv1connect.UnimplementedSubscriptionServiceHandler
 	Store *store.Store
+	// Stripe backs CreateCheckoutSession (#686). Optional — when nil
+	// the RPC returns CodeFailedPrecondition ("stripe disabled") so the
+	// caller surfaces a real error instead of the Unimplemented stub
+	// the web's ApiClient silently masks as an empty object.
+	Stripe *stripeapi.Service
 	// Now lets the test layer pin time; defaults to time.Now (UTC).
 	Now func() time.Time
 }
 
-// NewSubscriptionHandler wires the dependency.
-func NewSubscriptionHandler(s *store.Store) *SubscriptionHandler {
-	return &SubscriptionHandler{Store: s, Now: func() time.Time { return time.Now().UTC() }}
+// NewSubscriptionHandler wires the dependencies.
+func NewSubscriptionHandler(s *store.Store, stripe *stripeapi.Service) *SubscriptionHandler {
+	return &SubscriptionHandler{
+		Store:  s,
+		Stripe: stripe,
+		Now:    func() time.Time { return time.Now().UTC() },
+	}
+}
+
+// tierWireName maps the proto enum to the short tier key stripeapi uses
+// for its STRIPE_PRICE_<TIER> env lookup (same names the REST surface
+// accepts in parseTier's canonical forms).
+func tierWireName(t billingv1.SubscriptionTier) string {
+	switch t {
+	case billingv1.SubscriptionTier_SUBSCRIPTION_TIER_STARTER:
+		return "starter"
+	case billingv1.SubscriptionTier_SUBSCRIPTION_TIER_GROWTH:
+		return "growth"
+	case billingv1.SubscriptionTier_SUBSCRIPTION_TIER_ENTERPRISE:
+		return "enterprise"
+	case billingv1.SubscriptionTier_SUBSCRIPTION_TIER_PAYG:
+		return "payg"
+	default:
+		return ""
+	}
+}
+
+// CreateCheckoutSession binds the Connect-RPC to the same stripeapi
+// path billing-svc's REST surface uses (#686 — the RPC was the embedded
+// Unimplemented stub, so gateway-bff's /api/v1/vpn/upgrade returned
+// 501, the web ApiClient masked it as {}, and 'Choose Plus' navigated
+// the browser to the literal URL "undefined").
+func (h *SubscriptionHandler) CreateCheckoutSession(
+	ctx context.Context,
+	req *connect.Request[billingv1.CreateCheckoutSessionRequest],
+) (*connect.Response[billingv1.CreateCheckoutSessionResponse], error) {
+	wsRaw := req.Msg.GetWorkspaceId().GetValue()
+	workspaceID, err := uuid.Parse(wsRaw)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid workspace_id %q", wsRaw))
+	}
+	tier := tierWireName(req.Msg.GetDesiredTier())
+	if tier == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("desired_tier required"))
+	}
+	if req.Msg.GetSuccessUrl() == "" || req.Msg.GetCancelUrl() == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("success_url and cancel_url required"))
+	}
+	if h.Stripe == nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("stripe disabled: no payment backend configured"))
+	}
+	url, err := h.Stripe.CreateCheckoutSession(ctx, workspaceID, tier, req.Msg.GetSuccessUrl(), req.Msg.GetCancelUrl())
+	if err != nil {
+		if stripeapi.IsStripeDisabled(err) {
+			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+		}
+		return nil, connect.NewError(connect.CodeUnavailable, err)
+	}
+	return connect.NewResponse(&billingv1.CreateCheckoutSessionResponse{CheckoutUrl: url}), nil
 }
 
 // listUsageDefaultPageSize / Max bound the page; PageRequest.page_size 0

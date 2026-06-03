@@ -87,6 +87,15 @@ export function UpgradePanel() {
           cancel_url: `${window.location.origin}/vpn/upgrade`,
         },
       );
+      // #686: ApiClient translates 501-unimplemented into {} (the #300
+      // empty-state design) — fine for read surfaces, but here it sent
+      // the browser to the literal URL "undefined". An action endpoint
+      // must fail loudly when the payload is missing.
+      if (!res.checkoutUrl) {
+        throw new Error(
+          "Checkout isn't available yet — paid plans are coming online. Nothing was charged.",
+        );
+      }
       window.location.href = res.checkoutUrl;
     } catch (e) {
       toast.error((e as Error).message);
