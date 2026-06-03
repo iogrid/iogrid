@@ -121,6 +121,15 @@ processors:
     send_batch_max_size: {{ .BatchMaxSize }}
 
 exporters:
+  # debug is ALWAYS defined: each pipeline falls back to it when its real
+  # backend is disabled. With no backend configured at all the previous
+  # render produced an empty exporters block + empty pipeline exporter
+  # lists, which otelcol rejects ("no exporter configuration specified")
+  # — the sidecar crashlooped and the Pod never went Ready, taking
+  # /status (and everything else on telemetry-svc) down with it (#682
+  # fallout, found during the #674 live walk).
+  debug:
+    verbosity: basic
 {{- if .TempoEnabled }}
   otlp/tempo:
     endpoint: {{ .TempoEndpoint }}
@@ -188,15 +197,15 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, attributes/iogrid_tags, filter/drop_noisy, tail_sampling, batch]
-      exporters: [{{- if .TempoEnabled }}otlp/tempo{{- end }}]
+      exporters: [{{- if .TempoEnabled }}otlp/tempo{{- else }}debug{{- end }}]
     metrics:
       receivers: [otlp, prometheus]
       processors: [memory_limiter, attributes/iogrid_tags, batch]
-      exporters: [{{- if .MimirEnabled }}prometheusremotewrite/mimir{{- end }}]
+      exporters: [{{- if .MimirEnabled }}prometheusremotewrite/mimir{{- else }}debug{{- end }}]
     logs:
       receivers: [otlp]
       processors: [memory_limiter, attributes/iogrid_tags, batch]
-      exporters: [{{- if .LokiEnabled }}loki{{- end }}]
+      exporters: [{{- if .LokiEnabled }}loki{{- else }}debug{{- end }}]
   telemetry:
     metrics:
       address: 0.0.0.0:8888
