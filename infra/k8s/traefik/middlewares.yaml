@@ -1,0 +1,107 @@
+# Traefik Middlewares for iogrid routing — EXPORTED FROM LIVE prod 2026-06-03 (#637).
+#
+# These existed ONLY in the live cluster (applied out-of-band, never in git):
+# 5 of 6 were missing from version control entirely — the releases-gh-* set
+# drives the GitHub-fallback redirects for installer downloads, and
+# redirect-app-to-apex does the app.iogrid.org -> iogrid.org 301.
+# Captured here so the config survives a cluster rebuild.
+#
+# NOTE: deliberately NOT yet wired into base/kustomization (kept out of the
+# build) until the #637 off-prod routing reconciliation — wiring it changes
+# what `apply -k overlays/prod` produces, and the manifests must not be
+# applied to prod until off-prod-validated. Pairs with the IngressRoutes that
+# reference these middlewares (#637 killer #3 / routing layer).
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: cors-app-iogrid
+  namespace: iogrid
+spec:
+  headers:
+    accessControlAllowCredentials: true
+    accessControlAllowHeaders:
+    - content-type
+    - authorization
+    - x-iogrid-user-id
+    - connect-protocol-version
+    - connect-timeout-ms
+    - x-grpc-web
+    - x-user-agent
+    accessControlAllowMethods:
+    - GET
+    - POST
+    - PUT
+    - DELETE
+    - PATCH
+    - OPTIONS
+    accessControlAllowOriginListRegex:
+    - ^https://(app|releases|api)\.iogrid\.org$
+    accessControlExposeHeaders:
+    - grpc-status
+    - grpc-message
+    - grpc-status-details-bin
+    accessControlMaxAge: 600
+    addVaryHeader: true
+
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: redirect-app-to-apex
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/part-of: iogrid
+spec:
+  redirectRegex:
+    permanent: true
+    regex: ^https?://app\.iogrid\.org(/.*)?$
+    replacement: https://iogrid.org${1}
+
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: releases-gh-fallback
+  namespace: iogrid
+spec:
+  redirectRegex:
+    permanent: false
+    regex: ^https://releases\.iogrid\.org/.*$
+    replacement: https://github.com/iogrid/iogrid/releases/latest
+
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: releases-gh-redirect
+  namespace: iogrid
+spec:
+  redirectRegex:
+    permanent: false
+    regex: ^https://releases\.iogrid\.org/latest/iogrid-darwin-arm64\.pkg$
+    replacement: https://github.com/iogrid/iogrid/releases/download/v0.1.0-phase0/iogrid-0.1.0-arm64.pkg
+
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: releases-gh-redirect-amd64-pkg
+  namespace: iogrid
+spec:
+  redirectRegex:
+    permanent: false
+    regex: ^https://releases\.iogrid\.org/latest/iogrid-darwin-amd64\.pkg$
+    replacement: https://github.com/iogrid/iogrid/releases/download/v0.1.0-phase0/iogrid-0.1.0-amd64.pkg
+
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: releases-gh-redirect-win-msi
+  namespace: iogrid
+spec:
+  redirectRegex:
+    permanent: false
+    regex: ^https://releases\.iogrid\.org/latest/iogrid-windows-x64\.msi$
+    replacement: https://github.com/iogrid/iogrid/releases/download/v0.1.0-phase0/iogrid-0.1.0-x64.msi
