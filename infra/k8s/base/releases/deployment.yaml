@@ -34,7 +34,7 @@ spec:
         # main so the rolling update fires even when the image digest is
         # cache-identical. Mirror of the marketing-ci convention (#384).
         # Refs #392.
-        kubectl.kubernetes.io/restartedAt: "2026-05-23T19:43:14Z"
+        kubectl.kubernetes.io/restartedAt: "2026-06-03T10:27:55Z"
     spec:
       serviceAccountName: releases
       automountServiceAccountToken: false
@@ -55,7 +55,7 @@ spec:
           #   ghcr.io/iogrid/releases@sha256:<digest>
           # Same deploy-bot mechanic as marketing-ci (#384).
           # Refs #392.
-          image: harbor.openova.io/iogrid/releases:local
+          image: harbor.openova.io/iogrid/releases@sha256:689ff011751d236d219f6c1605f3568e4379c14f74d397baf7cfd4ca688489b9
           imagePullPolicy: Always
           ports:
             - name: http
