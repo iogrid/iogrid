@@ -15,7 +15,7 @@
 | Network | Solana (Token-2022 SPL) |
 | Decimals | `9` |
 | **Mainnet mint address** | **PRE-LAUNCH — not yet deployed.** See "Mint address contract" below. |
-| Devnet mint address | PRE-LAUNCH — not yet deployed. |
+| Devnet mint address | `BaQvWwb1wUGvWJXPEUbLEwPeeYMd4sKvp2S7obzTWorR` (Token-2022, 9 decimals) — see "Devnet" below. |
 
 The **9-decimal** convention (authoritative: `whitepaper.md` — "SPL Token-2022,
 9 decimals, hard cap 1B"; `initialize_mint` creates the mint with decimals=9;
@@ -49,6 +49,36 @@ Consumers MUST resolve the mint via indirection, never by hard-coding:
 the mainnet mint is published HERE first, then propagated to the env keys
 above through a coordinated cutover. Any future mint change (e.g. an upgrade)
 is a coordinated cutover, never a silent swap.
+
+## Devnet
+
+A **devnet** `$GRID` mint is deployed so the Ping integration's token half
+(balance reads + SPL-Approve `amount` math) is testable end-to-end **before**
+the mainnet launch. The devnet mint is disposable test infrastructure — it
+carries no economic meaning and is **not** the mainnet token. Refs #629.
+
+| Field | Value |
+|---|---|
+| Network | Solana **devnet** |
+| Mint address | `BaQvWwb1wUGvWJXPEUbLEwPeeYMd4sKvp2S7obzTWorR` |
+| Token program | `TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb` (**Token-2022**) |
+| Decimals | `9` (matches the canonical 9-decimal convention above) |
+| Freeze authority | `null` (non-negotiable transparency property, same as mainnet spec) |
+| Mint authority | devnet treasury `8EaS5sf4dT7SzEFNYKC1PD5C3PcKhPnEnHCYjSZ1hcpb` (retained for re-mint on devnet) |
+| Treasury ATA | `4u9JDrLVBkBL2vLx691egahEDrzNMaQxNZ6B3M334dM3` (1,000,000 $GRID test supply minted) |
+
+Devnet env wiring (clearly labeled, never replacing a mainnet value):
+
+| Consumer | Devnet default location |
+|---|---|
+| iogrid mobile (Expo) | `EXPO_PUBLIC_GRID_TOKEN_MINT` in `mobile/ios/.env.example`; app.json `extra.iogridTokenMintDevnet` |
+| web | commented devnet block in `web/.env.example` (`NEXT_PUBLIC_GRID_MINT_ADDRESS`) |
+| coordinator billing-svc | set `GRID_TOKEN_MINT_ADDRESS` to the devnet mint in staging only |
+
+> ⚠️ **Mainnet is still a founder decision.** The mainnet `$GRID` mint is an
+> outward-facing, irreversible financial action and is NOT created by this
+> devnet work. The "Mainnet mint address" / `extra.iogridTokenMint` keys stay
+> empty until the founder-gated mainnet deploy. See `docs/SOLANA-ADDRESSES.md`.
 
 ## Ping integration pointer
 

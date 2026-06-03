@@ -17,14 +17,14 @@ EPIC [#581](https://github.com/iogrid/iogrid/issues/581)).
 |---|---|---|
 | Cluster | `devnet` | active |
 | RPC | `https://api.devnet.solana.com` (or Helius free tier via `SOLANA_RPC_URL`) | |
-| Mint address (`GRID_TOKEN_MINT_ADDRESS`) | _filled in after first `seed-treasury.sh devnet` run_ | pending first deploy |
-| Token program | `TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA` (legacy SPL) | |
-| Decimals | `9` | |
-| Initial supply | `1_000_000_000` ($1e9$ $GRID, $1e18$ atomic) | |
-| Mint authority | treasury keypair (`~/.config/solana/grid-treasury.json` on operator workstation) | retained for re-mint until `LOCK_MINT_AUTHORITY=1` |
-| Freeze authority | `null` | non-negotiable |
-| Treasury pubkey | _from `solana-keygen pubkey` on the keypair above_ | pending first deploy |
-| Treasury ATA | _from `getOrCreateAssociatedTokenAccount(treasury, mint)`_ | pending first deploy |
+| Mint address (`GRID_TOKEN_MINT_ADDRESS`) | `BaQvWwb1wUGvWJXPEUbLEwPeeYMd4sKvp2S7obzTWorR` | **DEPLOYED 2026-06-03** (#629) |
+| Token program | `TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb` (**Token-2022**, matches canonical TOKENOMICS spec) | |
+| Decimals | `9` | verified `spl-token display` |
+| Initial supply | `1_000_000` $GRID test supply (`1e15` atomic) — devnet test float, NOT the 1B cap | |
+| Mint authority | devnet treasury `8EaS5sf4dT7SzEFNYKC1PD5C3PcKhPnEnHCYjSZ1hcpb` | retained for re-mint on devnet |
+| Freeze authority | `null` | non-negotiable — verified `(not set)` |
+| Treasury pubkey | `8EaS5sf4dT7SzEFNYKC1PD5C3PcKhPnEnHCYjSZ1hcpb` | |
+| Treasury ATA | `4u9JDrLVBkBL2vLx691egahEDrzNMaQxNZ6B3M334dM3` | 1,000,000 $GRID balance |
 | Metadata PDA | _from Metaplex `findMetadataPda(mint)`_ | pending first deploy |
 | Metadata URI | `https://iogrid.org/grid-token.json` | static |
 
@@ -53,7 +53,14 @@ mainnet deploy is a **separate followup with founder sign-off**.
 
 | Date | Cluster | Actor | Change | PR |
 |---|---|---|---|---|
-| _pending_ | devnet | _operator_ | initial mint deploy via `seed-treasury.sh` | _filed via #595 / Track 5 PR_ |
+| 2026-06-03 | devnet | hatiyildiz | initial Token-2022 mint `BaQvWwb1wUGvWJXPEUbLEwPeeYMd4sKvp2S7obzTWorR` via `spl-token create-token --program-2022 --decimals 9`; minted 1,000,000 $GRID test supply to treasury ATA so Ping integration is testable end-to-end | #629 |
+
+> **Note on tooling:** this devnet mint was created with `spl-token
+> create-token --program-2022` (Token-2022), matching the canonical
+> `docs/TOKENOMICS.md` spec, rather than the `seed-treasury.sh` /
+> `deploy.ts` legacy-SPL (Tokenkeg) path referenced below. Re-align
+> `deploy.ts` to Token-2022 + Metaplex Token-2022 metadata before any
+> mainnet deploy (follow-up).
 
 ## Cross-references
 
