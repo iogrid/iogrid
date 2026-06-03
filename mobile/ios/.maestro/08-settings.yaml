@@ -18,6 +18,17 @@ appId: io.iogrid.app
     id: "settings-row-account-wallet"
 - assertVisible:
     id: "settings-row-kill-switch"
+
+# The Sign out section is the LAST group on the screen — below the fold on
+# the CI simulator viewport (run 26903231905's failure screenshot shows the
+# screen ending at "Version 1.0.0"). assertVisible requires the element in
+# the viewport, so scroll to it first. This was the first-ever Maestro
+# execution's only failure (flows 01-07 passed); app rendering was correct.
+- scrollUntilVisible:
+    element:
+      id: "settings-sign-out"
+    direction: DOWN
+
 - assertVisible:
     id: "settings-sign-out"
 
