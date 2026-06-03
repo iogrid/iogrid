@@ -1,0 +1,15 @@
+---
+# workloads-svc runtime config (non-secret). Referenced via envFrom in the
+# Deployment. Captured from the live prod Deployment (2026-06-03, #640).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: workloads-svc-config
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: workloads-svc
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: workloads
+data:
+  FORWARDER_LISTEN_ADDR: ":9091"
+  WORKLOADS_SVC_PROVIDER_ENDPOINT: "workloads-svc.iogrid.svc.cluster.local:9091"

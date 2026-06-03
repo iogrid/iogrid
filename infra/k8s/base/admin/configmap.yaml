@@ -1,0 +1,19 @@
+---
+# admin runtime config (non-secret). Referenced via envFrom in the
+# Deployment. Values captured from the live prod admin Deployment
+# (2026-06-03, #640) — they previously lived only as hardcoded literal env
+# on the running Pod, so a declarative apply without this ConfigMap would
+# strip them. Secrets (if any) belong in admin-secrets, not here.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: admin-config
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: admin
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: admin
+data:
+  IOGRID_ADMIN_HOST: "admin.iogrid.org"
+  IOGRID_ADMIN_EMAILS: "emrah.baysal@openova.io,hatice.yildiz@openova.io"
+  AUTH_TRUST_HOST: "true"

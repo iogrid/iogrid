@@ -1,0 +1,20 @@
+---
+# proxy-gateway runtime config (NON-secret). Referenced via envFrom in the
+# Deployment. Captured from the live prod Deployment (2026-06-03, #640). The
+# secrets it also needs — DEV_API_KEYS, TLS_KEY_PATH — belong in the
+# proxy-gateway-secrets Secret (operator provided), NOT here.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: proxy-gateway-config
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: proxy-gateway
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: gateway
+data:
+  LISTEN_ADDR: ":8443"
+  TLS_CERT_PATH: "/etc/proxy-gateway/tls/tls.crt"
+  ANTIABUSE_SVC_URL: "http://antiabuse-svc.iogrid.svc.cluster.local:8080"
+  WORKLOADS_SVC_URL: "http://workloads-svc.iogrid.svc.cluster.local:8080"
+  BILLING_SVC_URL: "http://billing-svc.iogrid.svc.cluster.local:8080"

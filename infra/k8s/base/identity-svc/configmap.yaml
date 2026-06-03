@@ -1,0 +1,21 @@
+---
+# identity-svc runtime config (NON-secret). Referenced via envFrom in the
+# Deployment. Values captured from the live prod Deployment (2026-06-03,
+# #640) where they were hardcoded literal env. The SECRETS that identity-svc
+# also needs — GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, IOGRID_SERVICE_TOKEN,
+# DATABASE_URL, JWT_* — belong in the identity-svc-secrets Secret (operator
+# provided), NOT here.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: identity-svc-config
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: identity-svc
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: identity
+data:
+  GOOGLE_REDIRECT_URL: "https://app.iogrid.org/api/auth/callback/google"
+  BASE_URL: "https://api.iogrid.org"
+  ALLOWED_RETURN_HOSTS: "app.iogrid.org,iogrid.org"
+  REDIS_URL: "redis://redis-client.iogrid.svc.cluster.local:6379/0"
