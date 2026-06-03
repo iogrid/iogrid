@@ -139,7 +139,7 @@ The tester is read-only on the product code; reported what was seen on screen; n
 
 **jest suite (executed on this host):** `59 passed, 3 skipped, 0 failed` — covers `auth-gate`, `grid_balance`, `wallets`, `ping-pay` (24 incl. devnet).
 
-### Latest automated iOS walk — run [26903231905](https://github.com/iogrid/iogrid/actions/runs/26903231905) (first-ever Maestro execution, chain ran 3m43s)
+### Latest automated iOS walk — run [26904727684](https://github.com/iogrid/iogrid/actions/runs/26904727684) (chain ran 5m14s; 08 now passes, reached 09)
 
 | Maestro flow | Result | Evidence (real simulator captures) |
 |---|---|---|
@@ -150,10 +150,11 @@ The tester is read-only on the product code; reported what was seen on screen; n
 | 05-main-connecting | ✅ PASS | [📷 connecting](evidence-mobile/maestro-05-main-connecting.png) |
 | 06-main-connected | ✅ PASS | [📷 connected](evidence-mobile/maestro-06-main-connected.png) |
 | 07-region-picker | ✅ PASS | [📷 regions](evidence-mobile/maestro-07-region-picker.png) |
-| **08-settings** | ❌ **FAIL — test bug, not an app bug**: `assertVisible: settings-sign-out` without scrolling, but Sign out is the last group, below the CI viewport fold. The settings screen itself rendered correctly (Kill switch ON, DNS-leak ON, Split tunneling "Coming soon"). Fix: `scrollUntilVisible` added (`a4824d2`) — next run executes 08–10. | [📷 failure capture](evidence-mobile/maestro-08-settings-FAIL-below-fold.png) |
-| 09-topup · 10-mobile-session-live | ⛔ BLOCKED this run (chain aborted at 08); 09's tap target confirmed in-viewport on the 04 capture → expected to execute next run | — |
+| **08-settings** | ✅ **PASS** *(was last run's below-fold fail; scroll fix `a4824d2` cleared it)* | [📷 settings](evidence-mobile/maestro-08-settings.png) |
+| **09-topup** | ❌ **FAIL — test bug, not an app bug**: `assertVisible: topup-continue` without scrolling, but Continue sits below the payment-methods list (Apple Pay / Card / Bitcoin / USDC / Transfer $GRID), off the CI viewport fold. The Top up screen itself rendered correctly (Quick amounts +500/+2,500/+10,000 with +2,500 selected, all pay methods). Fix: `scrollUntilVisible` added (`b59a043`). | [📷 failure capture](evidence-mobile/maestro-09-topup-FAIL-below-fold.png) |
+| 10-mobile-session-live | ⛔ BLOCKED this run (chain aborted at 09) — executes once 09 scrolls | — |
 
-*(Iteration pattern, same as ping-cash: each run peels a real layer. Layer 1 was the sim build itself (#681); layer 2 the 08 below-fold assert; next run completes the chain.)*
+*(Iteration pattern, same as ping-cash: each run peels a real layer. Run 1 `26903231905`: sim-build fixed (#681) → 01–07 ran, 08 below-fold. Run 2 `26904727684`: 08 fixed → **01–08 PASS**, 09 below-fold. Run 3: 09 scroll fix → expects 01–09, then 10. **Every "failure" so far has been a CI-viewport test-assertion bug — the app screens all render correctly.**)*
 
 ### TC-20 — First-run onboarding → signed in with Apple
 
@@ -215,7 +216,7 @@ The tester is read-only on the product code; reported what was seen on screen; n
 | TC-06 | web (auth) | **Customer usage** | 🔴 FAIL ([#675](https://github.com/iogrid/iogrid/issues/675), P2) |
 | TC-07 | web (auth) | Workloads (submit + dispatch list) | 🔴 FAIL — submit 400s for every UI user ([#683](https://github.com/iogrid/iogrid/issues/683), P1, fix deploying); server-backed list shipped + live |
 | TC-08 | web (auth) | Wallet connect & bind | ⛔ BLOCKED (needs Phantom ext) |
-| TC-20–25 | iOS app | Onboarding / connect / region / settings / top-up / live | **EXECUTED on the CI simulator** (run 26903231905): flows 01–07 🟢 PASS w/ real captures; 08 🔴 test-bug (below-fold assert, fix `a4824d2`); 09–10 ⛔ next run. jest 59✓. Physical-device walk pending [#574](https://github.com/iogrid/iogrid/issues/574). |
+| TC-20–25 | iOS app | Onboarding / connect / region / settings / top-up / live | **EXECUTED on the CI simulator** (latest run 26904727684): flows **01–08 🟢 PASS** w/ real captures; 09 🔴 test-bug (below-fold assert, fix `b59a043`); 10 ⛔ next run. Every failure so far = CI-viewport assertion bug, never an app defect. jest 59✓. Physical-device walk pending [#574](https://github.com/iogrid/iogrid/issues/574). |
 | | | **Web walked:** 8 journeys — 5 PASS, 2 FAIL, 1 BLOCKED | |
 
 **Overall verdict:** 🔴 **FAIL** — Authentication, provider surfaces, customer billing/workloads-submit, and API-key **creation** work. But the authenticated **customer** surface has **two broken endpoints**: API-key **revoke** (P1, security-relevant — [#676](https://github.com/iogrid/iogrid/issues/676)) and **usage** (P2 — [#675](https://github.com/iogrid/iogrid/issues/675), also the only place to see historical workloads). These are real, only findable by signing in — exactly what the prior surface-only UAT missed. Mobile needs a real device walk once an external TestFlight build exists ([#574](https://github.com/iogrid/iogrid/issues/574)).
