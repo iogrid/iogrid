@@ -6,3 +6,4 @@ resources:
   - configmap.yaml
   - service.yaml
   - hpa.yaml
+  - networkpolicy.yaml
