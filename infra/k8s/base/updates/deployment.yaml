@@ -37,7 +37,7 @@ spec:
       annotations:
         # Bumped by updates-ci.yml on every push to main so the rolling
         # update fires even when the image digest is cache-identical.
-        kubectl.kubernetes.io/restartedAt: "2026-05-31T23:46:42Z"
+        kubectl.kubernetes.io/restartedAt: "2026-06-03T00:22:46Z"
     spec:
       serviceAccountName: updates
       automountServiceAccountToken: false
