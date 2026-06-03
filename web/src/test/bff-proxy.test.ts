@@ -109,6 +109,26 @@ describe("proxyToBff (#237)", () => {
     expect(outHeaders["x-iogrid-user-email"]).toBe("alice@example.com");
   });
 
+  it("re-emits a 204 No Content without crashing (DELETE success path, #676)", async () => {
+    // gateway-bff returns 204 on every successful DELETE (api-key revoke,
+    // wallet unbind, session revoke, account/workspace delete…). The WHATWG
+    // Response constructor THROWS if a 204 carries any body, even "" — which
+    // previously crashed the proxy into a bare 500 ("Revoke failed" despite
+    // backend success). This asserts the proxy passes the 204 through cleanly.
+    setSession({ id: "00000000-0000-0000-0000-0000000000cc" });
+    globalThis.fetch = (async () =>
+      // upstream 204 with an empty body, like a successful DELETE.
+      new Response(null, { status: 204 })) as typeof fetch;
+
+    const req = fakeReq(
+      "DELETE",
+      "/api/v1/customer/api-keys/36359fba-1241-4e1e-b066-e7b06df16541?workspace_id=e7745e37-357f-42a4-bc67-00850cdd8c66",
+    );
+    const resp = await proxyToBff(req);
+    expect(resp.status).toBe(204);
+    expect(await resp.text()).toBe("");
+  });
+
   it("merges session roles + extraRoles into X-Iogrid-User-Roles", async () => {
     setSession({
       id: "00000000-0000-0000-0000-0000000000bb",

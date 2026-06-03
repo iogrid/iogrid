@@ -212,7 +212,19 @@ export async function proxyToBff(
   const respHeaders = new Headers();
   const ct = upstream.headers.get("content-type");
   if (ct) respHeaders.set("content-type", ct);
-  return new Response(text, {
+  // Null-body statuses (204 No Content, 205, 304) MUST NOT carry a body —
+  // the WHATWG `Response` constructor THROWS "Invalid response status code
+  // 204" if given any body, even an empty string. gateway-bff returns 204 on
+  // every successful DELETE (api-key revoke, wallet unbind, session revoke,
+  // account/workspace/member delete…), so passing the buffered `text` ("")
+  // here crashed the route handler → Next.js emitted a bare 500. The client
+  // then showed "Revoke failed" even though the backend succeeded. Emit a
+  // null body for these statuses. (#676 — was broken for the whole DELETE class.)
+  const isNullBodyStatus =
+    upstream.status === 204 ||
+    upstream.status === 205 ||
+    upstream.status === 304;
+  return new Response(isNullBodyStatus ? null : text, {
     status: upstream.status,
     statusText: upstream.statusText,
     headers: respHeaders,
