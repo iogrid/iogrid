@@ -1,4 +1,5 @@
 import { auth, signIn } from "@/lib/auth";
+import { googleSignInEnabled } from "@/lib/google-oauth";
 import { PortalShell } from "@/components/layout/portal-shell";
 import { ACCOUNT_NAV } from "@/app/account/nav";
 import { ProfileCard } from "./profile-card";
@@ -43,6 +44,7 @@ export default async function AccountPage({
         signInWithGoogle={signInWithGoogle}
         signInWithEmail={signInWithEmail}
         callbackUrl={callbackUrl}
+        googleEnabled={googleSignInEnabled()}
       />
     );
   }
