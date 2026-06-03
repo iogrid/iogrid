@@ -19,7 +19,7 @@
 //   https://ping.cash/approve
 //     ?token=GRID
 //     &delegate=<vault pubkey>
-//     &amount=<atomic>            // $GRID has 6 decimals → N * 10^6
+//     &amount=<atomic>            // $GRID is 9 decimals → N * 10^9 (see GRID_DECIMALS)
 //     &memo=iogrid.v1:vpn:<region>:<days>
 //     &return_url=iogrid://vpn/activated
 //
