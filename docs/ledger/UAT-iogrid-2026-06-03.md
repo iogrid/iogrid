@@ -203,7 +203,7 @@ The tester is read-only on the product code; reported what was seen on screen; n
 > The chain then died at flow 05 with Maestro's "App crashed or stopped" — **no crash signature in
 > the sim log** (only normal `OS_REASON_SPRINGBOARD 0xfbfbfbfb` `stopApp:true` flow-boundary exits)
 > = the known launch-flake family (#575), **not a UI-overhaul defect**. Disambiguation rerun
-> [26916431232](https://github.com/iogrid/iogrid/actions/runs/26916431232) in flight → full-chain
+> [26918273935](https://github.com/iogrid/iogrid/actions/runs/26918273935) in flight → full-chain
 > verdict (09/10) lands there.
 
 | Maestro flow | Result (run 26914283867) | Evidence (real simulator captures, redesigned UI) |
@@ -212,7 +212,7 @@ The tester is read-only on the product code; reported what was seen on screen; n
 | 02-sign-in (Sign in with Apple → landed) | ✅ PASS | [📷 landed](evidence-mobile/maestro-02-sign-in-landed.png) |
 | 03-wallet-connect | ✅ PASS | [📷 wallet](evidence-mobile/maestro-03-wallet-connected.png) |
 | 04-main-disconnected (filled disc, semantic UNSECURED status, gear SVG) | ✅ PASS | [📷 home](evidence-mobile/maestro-04-main-disconnected.png) |
-| 05–10 | 🔁 launch-flake at 05 (#575 family, no crash signature) — rerun 26916431232 in flight | — |
+| 05–10 | 🔁 launch-flake at 05 (#575 family, no crash signature) — rerun 26918273935 in flight | — |
 
 ### Prior full-chain walk — run [26904727684](https://github.com/iogrid/iogrid/actions/runs/26904727684) (pre-overhaul UI; chain ran 5m14s; 08 passed, reached 09)
 
