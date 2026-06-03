@@ -20,6 +20,7 @@ import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 
+import { StatusDot } from '@/components/icons';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing, TypeScale } from '@/constants/theme';
@@ -78,6 +79,33 @@ export default function SignInWithAppleScreen() {
           ) : null}
         </View>
 
+        {/* Privacy assurances — fills the previously-dead middle with the
+            quiet-card language the home screen established (UX pass 2,
+            #684). Marketing-free statements of what the auth model
+            actually does; monochrome + single accent per the locked
+            design system. */}
+        <View style={styles.assuranceWrap}>
+          <View
+            style={[
+              styles.assuranceCard,
+              { backgroundColor: theme.backgroundElement, borderColor: theme.border },
+            ]}
+          >
+            {[
+              'No activity logs — ever',
+              'Apple hides your email from us',
+              'The VPN works without an account',
+            ].map((line) => (
+              <View key={line} style={styles.assuranceRow}>
+                <StatusDot size={6} color={theme.accent} />
+                <ThemedText style={[styles.assuranceText, { color: theme.textSecondary }]}>
+                  {line}
+                </ThemedText>
+              </View>
+            ))}
+          </View>
+        </View>
+
         <View style={styles.ctaWrap}>
           <Pressable
             testID="sign-in-with-apple-button"
@@ -97,7 +125,7 @@ export default function SignInWithAppleScreen() {
             ) : (
               <>
                 <ThemedText style={[styles.appleLogo, { color: theme.textInverse }]}>
-
+                  {''}
                 </ThemedText>
                 <ThemedText style={[styles.ctaLabel, { color: theme.textInverse }]}>
                   Sign in with Apple
@@ -140,6 +168,24 @@ const styles = StyleSheet.create({
   headline: { ...TypeScale.displayM },
   body: { ...TypeScale.bodyM },
   error: { ...TypeScale.bodyS, marginTop: Spacing.sm },
+  assuranceWrap: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.xl,
+  },
+  assuranceCard: {
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingVertical: Spacing.lg,
+    paddingHorizontal: Spacing.lg,
+    gap: Spacing.md,
+  },
+  assuranceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+  },
+  assuranceText: { ...TypeScale.bodyM },
   ctaWrap: {
     paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.lg,
