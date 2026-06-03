@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: iogrid
+# The 2 per-svc Secrets #637-killer-#2 / #640 needs, sealed from existing
+# cluster values via the live sealed-secrets-controller (kube-system). Sealed
+# for THIS prod cluster's controller key (decryptable only by prod).
+#
+# DELIBERATELY NOT referenced by base/kustomization yet — applying overlays/prod
+# is off-prod-gated (#637). These complete gate 1 (secrets provisioned) in-repo,
+# ready to wire during the off-prod reconciliation. Off-prod validation re-seals
+# with test values (a different cluster has a different controller key).
+resources:
+  - identity-svc-secrets.sealed.yaml
+  - proxy-gateway-secrets.sealed.yaml
