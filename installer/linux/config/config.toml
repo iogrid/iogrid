@@ -5,7 +5,7 @@
 # resolves it from $IOGRID_CONFIG (set in the systemd unit).
 #
 # Values shown here are the defaults documented in docs/TECH.md. The
-# onboarding wizard at app.iogrid.org/onboard/<token> writes the
+# onboarding wizard at iogrid.org/onboard/<token> writes the
 # user's choices into this file via the daemon's IPC bridge, so most
 # operators will never edit this directly.
 

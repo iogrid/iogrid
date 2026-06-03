@@ -143,7 +143,7 @@
                 <Component Id="OnboardShortcut" Guid="*">
                     <Shortcut Id="OnboardShortcutFile"
                               Name="Finish iogrid setup"
-                              Target="https://app.iogrid.org/onboard"
+                              Target="https://iogrid.org/onboard"
                               Description="Open the iogrid onboarding page in your browser"/>
                     <RemoveFolder Id="RemoveOnboardMenuDir" On="uninstall"/>
                     <RegistryValue
@@ -168,7 +168,7 @@
              The pair (request) subcommand is deferred to first run by the
              service itself; the launched browser will display a "waiting
              for pairing" page until the daemon registers its code. -->
-        <Property Id="ONBOARD_URL" Value="https://app.iogrid.org/onboard"/>
+        <Property Id="ONBOARD_URL" Value="https://iogrid.org/onboard"/>
         <CustomAction Id="OpenOnboardBrowser"
                       ExeCommand='[SystemFolder]cmd.exe /c start "" "[ONBOARD_URL]"'
                       Directory="INSTALLDIR"

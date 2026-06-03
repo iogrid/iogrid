@@ -126,7 +126,7 @@ fi
 # 5) Open the onboarding URL in the user's default browser. Using
 # `sudo -u` so the open(1) call lands in the user's GUI session, not
 # the installer's root session.
-ONBOARD_URL="${IOGRID_BASE_URL:-https://app.iogrid.org}/onboard/${PAIR_CODE:-}"
+ONBOARD_URL="${IOGRID_BASE_URL:-https://iogrid.org}/onboard/${PAIR_CODE:-}"
 if [ -n "$PAIR_CODE" ]; then
     /usr/bin/sudo -u "$USER_NAME" /usr/bin/open "$ONBOARD_URL" || \
         log "WARN: failed to open browser; user URL is $ONBOARD_URL"
