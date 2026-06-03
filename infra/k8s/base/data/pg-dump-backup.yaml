@@ -64,31 +64,30 @@ spec:
                   value: iogrid-pg-rw.iogrid.svc.cluster.local
                 - name: PGPORT
                   value: "5432"
+                # Superuser (postgres) so pg_dumpall covers EVERY per-service DB
+                # + globals/roles. The app user can't read identity/providers/
+                # billing tables (owned by per-service roles) — #642.
                 - name: PGUSER
                   valueFrom:
-                    secretKeyRef: { name: iogrid-pg-app, key: username }
+                    secretKeyRef: { name: iogrid-pg-superuser, key: username }
                 - name: PGPASSWORD
                   valueFrom:
-                    secretKeyRef: { name: iogrid-pg-app, key: password }
+                    secretKeyRef: { name: iogrid-pg-superuser, key: password }
               command: ["/bin/bash", "-c"]
               args:
                 - |
                   set -uo pipefail
                   ts="$(date -u +%Y%m%dT%H%M%SZ)"
-                  rc=0
-                  for db in iogrid identity providers workloads antiabuse billing telemetry; do
-                    out="/backups/${db}-${ts}.sql.gz"
-                    echo "dumping ${db} -> ${out}"
-                    if pg_dump --no-owner --no-privileges -d "$db" | gzip -c > "$out"; then
-                      echo "  ok $(du -h "$out" | cut -f1)"
-                    else
-                      echo "::warning:: dump of ${db} failed"; rm -f "$out"; rc=1
-                    fi
-                  done
+                  out="/backups/iogrid-pg-all-${ts}.sql.gz"
+                  echo "pg_dumpall (all DBs + globals/roles) -> ${out}"
+                  if pg_dumpall | gzip -c > "$out"; then
+                    echo "  ok $(du -h "$out" | cut -f1)"
+                  else
+                    echo "::error:: pg_dumpall failed"; rm -f "$out"; exit 1
+                  fi
                   echo "pruning dumps older than 7 days"
                   find /backups -name '*.sql.gz' -mtime +7 -delete 2>/dev/null || true
                   echo "current backups:"; ls -lh /backups/*.sql.gz 2>/dev/null | tail -20
-                  exit $rc
               volumeMounts:
                 - name: dumps
                   mountPath: /backups
