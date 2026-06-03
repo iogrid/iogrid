@@ -95,8 +95,9 @@ spec:
       # In-cluster MinIO (infra/k8s/base/data/minio-backup.yaml) — the Hetzner
       # object-storage creds don't exist (operator-gated, exhaustively proven),
       # so WAL archiving targets a self-managed in-cluster store instead.
-      # Verified live: ContinuousArchiving=True, base backup completed, 96
-      # objects in the bucket (#642). Flip back to Hetzner offsite for durable
+      # Verified live + independently accepted: ContinuousArchiving=True, base
+      # backup completed, WAL segments continuously archived to the bucket
+      # (#642). Flip back to Hetzner offsite for durable
       # DR once those creds land (same iogrid-pg-backup-s3 secret).
       endpointURL: http://minio.iogrid.svc.cluster.local:9000
       s3Credentials:
