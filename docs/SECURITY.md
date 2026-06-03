@@ -61,7 +61,7 @@ The platform follows the standard zero-trust five tenets:
    ┌────────────────────────────────────────────────────┐        │
    │  CORE MICROSERVICES (intra-mesh, SPIFFE required)  │        │
    │  identity / providers / workloads / antiabuse /    │        │
-   │  billing / telemetry                               │        │
+   │  billing / telemetry / vpn-svc                     │        │
    └────────────────┬───────────────────────────────────┘        │
                     │                                            │
                     ▼                                            │
@@ -102,6 +102,7 @@ Every iogrid microservice runs under a Kubernetes ServiceAccount whose name matc
 | antiabuse-svc    | `antiabuse-svc`   | `spiffe://iogrid/ns/iogrid/sa/antiabuse-svc`           |
 | billing-svc      | `billing-svc`     | `spiffe://iogrid/ns/iogrid/sa/billing-svc`             |
 | telemetry-svc    | `telemetry-svc`   | `spiffe://iogrid/ns/iogrid/sa/telemetry-svc`           |
+| vpn-svc          | `vpn-svc`         | `spiffe://iogrid/ns/iogrid/sa/vpn-svc`                 |
 | gateway-bff      | `gateway-bff`     | `spiffe://iogrid/ns/iogrid/sa/gateway-bff`             |
 | proxy-gateway    | `proxy-gateway`   | `spiffe://iogrid/ns/iogrid/sa/proxy-gateway`           |
 | vpn-gateway      | `vpn-gateway`     | `spiffe://iogrid/ns/iogrid/sa/vpn-gateway`             |
@@ -292,7 +293,7 @@ The full user-facing identity model (User → Identifier, magic-link, Google OAu
 
 ### 5.2 Session management
 
-- Short-lived access JWT (15 min, RS256). Public key published at `https://app.iogrid.org/.well-known/jwks.json`.
+- Short-lived access JWT (15 min, RS256). Public key published at `https://iogrid.org/.well-known/jwks.json` (the apex serves the app; `app.iogrid.org` was dropped — EPIC #422).
 - Refresh token (30 d, opaque, server-side rotation on use).
 - `ListSessions` + `RevokeSession` RPCs (shipped PR #336): user sees every active session with IP/UA, can revoke any except their current one.
 - Step-up auth (re-auth within 5 min) required for payout changes, identity merging, wallet binding, account deletion.

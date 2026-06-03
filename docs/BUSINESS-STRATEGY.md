@@ -363,6 +363,16 @@ LTV target:
 
 Founder intent: providers benefit from token value appreciation as the network grows, aligning their incentives with iogrid's long-term success. The deflationary mechanism is designed so that long-term holders capture upside without active trading.
 
+> **Status (2026-06-03):** the $GRID **mainnet mint is NOT deployed** (founder
+> decision; the mainnet address is TBD/empty) — everything in this section
+> describes the **designed** token economics, not a live mainnet token. A
+> **devnet** mint exists for integration testing
+> (`BaQvWwb1wUGvWJXPEUbLEwPeeYMd4sKvp2S7obzTWorR`, **SPL Token-2022, 9
+> decimals**, freeze-authority null — see [`SOLANA-ADDRESSES.md`](./SOLANA-ADDRESSES.md)).
+> Until mainnet TGE, provider payouts in practice settle in fiat (Stripe);
+> the $GRID columns in the competitive tables above describe the intended
+> end state.
+
 ### 4.1 $GRID vs $CASH — token positioning
 
 **$GRID and $CASH are two distinct tokens, issued by two distinct legal entities, with non-overlapping utility.** They are **NOT merged**, **NOT cross-equity**, and **NOT renamed forms of each other**. The fact that Sociable Cash is the preferred off-ramp partner for $GRID providers does NOT change this separation — Cash is a tenant-neutral rail, iogrid is one tenant among many.
@@ -471,9 +481,9 @@ Tier-1 CEX listings (Binance Spot, Coinbase, Kraken) are tracked as aspirational
 | Parameter | Value | Rationale |
 |-----------|-------|-----------|
 | **Symbol** | `$GRID` | Short, memorable, evokes the project name |
-| **Network** | Solana (SPL token) | Sub-second finality, ~$0.0005 per tx, deepest non-EVM DEX liquidity, no per-action gas surprises for providers |
+| **Network** | Solana (SPL **Token-2022**) | Sub-second finality, ~$0.0005 per tx, deepest non-EVM DEX liquidity, no per-action gas surprises for providers. Token-2022 for transfer-hook / metadata extensions. |
 | **Initial supply** | 1,000,000,000 (1 billion) | Standard supply for SPL ecosystem tokens |
-| **Decimals** | 9 (Solana SPL standard) | |
+| **Decimals** | **9** (Solana SPL standard) | |
 | **Emission curve** | Halving every 2 years | Bitcoin-style scarcity baked into the protocol |
 | **Year-1 emission** | 50 million $GRID (5% of supply) | Bootstrap providers + ecosystem |
 | **Year-10 cumulative** | ~485M emitted (~48.5% of supply) | Provider rewards pool exhausted; only burns remove tokens thereafter |

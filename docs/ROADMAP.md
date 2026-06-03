@@ -26,10 +26,10 @@
 - Cross-platform installers (only Mac via SSH for now)
 
 **Engineering deliverables:**
-- `coordinator/` — minimal Go service: WebSocket-based provider registry, SOCKS5 customer entry on `proxy.iogrid.org:443`, single-tenant config
-- `daemon/` — Go binary cross-compiled `darwin/arm64` and `linux/amd64`. Provides outbound TCP via WireGuard tunnel + sandboxed.
-- `infra/k8s/` — coordinator Deployment, Service, Ingress, ConfigMap, DB CR (CNPG)
-- `docs/PROVIDER_INSTALL.md` — Mac install instructions
+- `coordinator/` — Go microservices (identity-svc, providers-svc, workloads-svc, antiabuse-svc, proxy-gateway, gateway-bff) over Connect-Go + a long-lived provider transport; SOCKS5 customer entry on `proxy.iogrid.org:443`
+- `daemon/` — **Rust** single static binary cross-compiled `darwin/arm64` and `linux/amd64`. Provides outbound TCP via WireGuard tunnel + sandboxed relay.
+- `infra/k8s/` — coordinator Deployments, Services, Gateway API routes, ConfigMaps, DB CR (CloudNativePG `iogrid-pg`). Note: manifests are **not Flux-wired yet** — live deploy via `scripts/reroll-iogrid-deployments.sh` (image-only).
+- Provider Mac install instructions (folded into the install runbooks under `docs/runbooks/`)
 
 **Success criteria:**
 - vCard LinkedIn enrichment calls succeed via iogrid bandwidth, return title + company + photo
