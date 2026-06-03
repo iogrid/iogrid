@@ -74,6 +74,11 @@ export default defineConfig({
             process.env.AUTH_SECRET ??
             "ci-placeholder-auth-secret-do-not-use-in-prod",
           NEXTAUTH_URL: "http://localhost:3000",
+          // auth.js (NextAuth v5) rejects requests whose Host isn't trusted
+          // unless this is set — without it the E2E run floods with
+          // `UntrustedHost: Host must be trusted` and the auth/session-backed
+          // specs fail (#671). localhost dev/CI is a trusted host.
+          AUTH_TRUST_HOST: "true",
           // NextAuth nodemailer provider expects the *_HOST/_PORT family.
           EMAIL_SERVER_HOST: process.env.EMAIL_SERVER_HOST ?? "localhost",
           EMAIL_SERVER_PORT: process.env.EMAIL_SERVER_PORT ?? "1025",

@@ -19,17 +19,14 @@ test.describe("/account — magic-link sign-in surface", () => {
     await page.goto("/account", { waitUntil: "domcontentloaded" });
   });
 
-  test("renders sign-in heading + Google + email form", async ({ page }) => {
+  test("renders sign-in heading + magic-link form (Google gated by config)", async ({
+    page,
+  }) => {
     await expect(
       page.getByRole("heading", { name: /sign in to iogrid/i }),
     ).toBeVisible();
 
-    // Google CTA (Server Action <form>)
-    await expect(
-      page.getByRole("button", { name: /continue with google/i }),
-    ).toBeVisible();
-
-    // Magic-link form: email input + submit button
+    // Magic-link form: the always-available auth path — email input + submit.
     const email = page.getByLabel("Email");
     await expect(email).toBeVisible();
     await expect(email).toHaveAttribute("type", "email");
@@ -38,6 +35,26 @@ test.describe("/account — magic-link sign-in surface", () => {
     await expect(
       page.getByRole("button", { name: /send magic link/i }),
     ).toBeVisible();
+
+    // Google CTA is gated on a real OAuth client (#653 / #646): when
+    // GOOGLE_CLIENT_ID is unset or the `phase0-placeholder` seed — which is
+    // the case in CI — `googleSignInEnabled()` is false and the button is
+    // intentionally hidden. Assert its visibility MATCHES the config rather
+    // than hard-requiring presence (the unconditional assert broke the E2E
+    // gate, #671).
+    const clientId = process.env.GOOGLE_CLIENT_ID ?? "";
+    const googleEnabled =
+      clientId.length > 0 &&
+      !clientId.toLowerCase().includes("phase0-placeholder") &&
+      clientId.toLowerCase() !== "placeholder";
+    const googleButton = page.getByRole("button", {
+      name: /continue with google/i,
+    });
+    if (googleEnabled) {
+      await expect(googleButton).toBeVisible();
+    } else {
+      await expect(googleButton).toHaveCount(0);
+    }
   });
 
   test("keyboard nav — every form control is reachable by Tab", async ({
