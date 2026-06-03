@@ -20,6 +20,10 @@ spec:
   instances: 2
   imageName: ghcr.io/cloudnative-pg/postgresql:16.4
   primaryUpdateStrategy: unsupervised
+  # Superuser secret (iogrid-pg-superuser) so the pg_dump stop-gap CronJob can
+  # pg_dumpall every per-service DB + roles (the app user can't — per-svc tables
+  # are owned by per-svc roles). #642. Patched live 2026-06-03.
+  enableSuperuserAccess: true
   storage:
     size: 50Gi
     storageClass: local-path
