@@ -27,8 +27,14 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
 # Services that ship via the `infra(<svc>): deploy …@sha256:… after CI …`
-# auto-deploy markers on the default branch.
-SERVICES=(web gateway-bff billing-svc identity-svc providers-svc vpn-svc)
+# auto-deploy markers on the default branch. This list MUST stay in sync with
+# the set of services whose CI emits those markers — a marker-emitting service
+# left off this list silently stays stale (the exact #636 failure). Audited
+# 2026-06-03 against `git log | grep 'infra(<svc>): deploy'` ∩ live Deployments.
+SERVICES=(
+  web gateway-bff billing-svc identity-svc providers-svc vpn-svc
+  workloads-svc vpn-gateway telemetry-svc proxy-gateway build-gateway antiabuse-svc
+)
 
 changed=0
 for svc in "${SERVICES[@]}"; do
