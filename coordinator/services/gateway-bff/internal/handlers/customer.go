@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/iogrid/iogrid/coordinator/services/gateway-bff/internal/auth"
 	"github.com/iogrid/iogrid/coordinator/services/gateway-bff/internal/clients"
@@ -187,29 +189,43 @@ func (a *API) SubmitWorkload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "unauthenticated", "valid Bearer token required")
 		return
 	}
+	// The web client sends proto3-JSON (enum-as-STRING, e.g.
+	// "WORKLOAD_TYPE_BANDWIDTH", camelCase keys). Decoding the proto with
+	// stdlib encoding/json fails on the enum string ("cannot unmarshal
+	// string into ... WorkloadType") — every UI submission 400'd. Decode
+	// the envelope, then protojson the workload (the #630/#633 rule:
+	// protojson on BOTH directions of any proto the web touches). #683.
 	var body struct {
-		Workload *workloadsv1.Workload `json:"workload"`
+		Workload json.RawMessage `json:"workload"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
 		return
 	}
-	if body.Workload == nil {
+	if len(body.Workload) == 0 || string(body.Workload) == "null" {
 		writeError(w, http.StatusBadRequest, "bad_request", "workload required")
 		return
 	}
+	workload := &workloadsv1.Workload{}
+	if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(body.Workload, workload); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "workload: "+err.Error())
+		return
+	}
 	// Stamp a workload id if the caller didn't.
-	if body.Workload.Id == nil || body.Workload.Id.Value == "" {
-		body.Workload.Id = &commonv1.UUID{Value: uuid.NewString()}
+	if workload.Id == nil || workload.Id.Value == "" {
+		workload.Id = &commonv1.UUID{Value: uuid.NewString()}
 	}
 	resp, err := a.Clients.Workloads.SubmitWorkload(r.Context(), &workloadsv1.SubmitWorkloadRequest{
-		Workload: body.Workload,
+		Workload: workload,
 	})
 	if err != nil {
 		writeUpstreamError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, resp)
+	// proto3-JSON out too: stdlib would emit snake_case ("workload_id"),
+	// and the panel reads `res.workloadId` — the row showed "(pending)"
+	// forever even when the submit succeeded.
+	writeProtoJSON(w, http.StatusCreated, resp)
 }
 
 // ListWorkloads returns the workspace's submitted workloads so the
