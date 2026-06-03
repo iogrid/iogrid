@@ -106,7 +106,7 @@ export function WalletCard({
         testID={`${testID}-balance`}
         style={[styles.balance, { color: theme.text }]}
       >
-        {balanceGrid != null ? `${formatGrid(balanceGrid)} $GRID` : '— $GRID'}
+        {balanceGrid != null ? `${formatGrid(balanceGrid)} $GRID` : '0 $GRID'}
       </ThemedText>
 
       {usdEquivalent != null && balanceGrid != null ? (

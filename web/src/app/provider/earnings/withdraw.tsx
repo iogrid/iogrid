@@ -222,6 +222,14 @@ export function WithdrawDrawer({
               : "",
         },
       );
+      // #686-class guard: ApiClient translates 501-unimplemented into {}
+      // (the #300 read-surface design) — an action endpoint must never
+      // navigate the browser to the literal URL "undefined".
+      if (!res.redirect_url) {
+        throw new Error(
+          "The off-ramp isn't available yet — no redirect was issued and nothing was withdrawn.",
+        );
+      }
       rememberOffRamp({
         requestId: res.request_id,
         providerName,

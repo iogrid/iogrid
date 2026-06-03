@@ -56,8 +56,8 @@ interface MethodOption {
 
 const PAYMENT_METHODS: MethodOption[] = [
   { id: 'apple_pay', label: 'Apple Pay', hint: 'One-tap', emoji: '' },
-  { id: 'card', label: 'Card', hint: 'Stripe via ping' },
-  { id: 'bitcoin', label: 'Bitcoin', hint: 'via ping' },
+  { id: 'card', label: 'Card', hint: 'Stripe via Ping' },
+  { id: 'bitcoin', label: 'Bitcoin', hint: 'via Ping' },
   { id: 'usdc', label: 'USDC', hint: 'Solana on-chain' },
   { id: 'transfer', label: 'Transfer $GRID', hint: 'From another wallet' },
 ];
@@ -202,7 +202,7 @@ export default function TopUpScreen() {
             <ThemedText style={[styles.balanceValue, { color: theme.text }]}>
               {currentBalance != null
                 ? `${currentBalance} $GRID  ≈  $${(currentBalance / 100).toFixed(2)}`
-                : '— $GRID'}
+                : '0 $GRID'}
             </ThemedText>
           </View>
 

@@ -361,7 +361,7 @@ export default function MainScreen() {
               </ThemedText>
             </View>
             <ThemedText style={[styles.walletBalance, { color: theme.text }]}>
-              — $GRID
+              0 $GRID
             </ThemedText>
             <ThemedText style={[styles.walletSubtle, { color: theme.textSecondary }]}>
               Connect a wallet to start
