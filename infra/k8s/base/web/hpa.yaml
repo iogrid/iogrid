@@ -17,7 +17,13 @@ spec:
   # 2026-06-04 when the image-reroll cron killed the sole pod and the node
   # was at the kubelet pod cap, so the replacement sat Pending (#682).
   minReplicas: 2
-  maxReplicas: 10
+  # maxReplicas right-sized 10→3 (2026-06-04): on the single saturated
+  # node (#682) 10 replicas can never schedule, and the flaky
+  # metrics-server kept inflating web to 5–6 replicas at ~11% real CPU,
+  # squatting scarce pod slots and starving fleet rollouts. 3 allows a
+  # genuine burst replica while staying schedulable. Revisit when node 2
+  # lands.
+  maxReplicas: 3
   metrics:
     - type: Resource
       resource:
