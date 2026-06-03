@@ -290,6 +290,30 @@ jobs:
               except urllib.error.HTTPError as e:
                   print(f'  caps read HTTP {e.code}: {e.read().decode()[:200]}'); return set()
 
+          def _find_capability_id(bid, cap):
+              # The include=bundleIdCapabilities GET can OMIT a stuck/pending
+              # record; the related-resource endpoint lists them with their ids.
+              req = urllib.request.Request(
+                  f'https://api.appstoreconnect.apple.com/v1/bundleIds/{bid}/bundleIdCapabilities?limit=50',
+                  headers=hdrs)
+              try:
+                  with urllib.request.urlopen(req) as r:
+                      for c in json.load(r).get('data', []):
+                          if c.get('attributes', {}).get('capabilityType') == cap:
+                              return c.get('id')
+              except urllib.error.HTTPError as e:
+                  print(f'  find {cap} id HTTP {e.code}: {e.read().decode()[:300]}')
+              return None
+
+          def _delete_capability(cid):
+              dreq = urllib.request.Request(
+                  f'https://api.appstoreconnect.apple.com/v1/bundleIdCapabilities/{cid}',
+                  headers=hdrs, method='DELETE')
+              try:
+                  urllib.request.urlopen(dreq).read(); print(f'  DELETED stuck capability {cid}'); return True
+              except urllib.error.HTTPError as e:
+                  print(f'  delete {cid} HTTP {e.code}: {e.read().decode()[:300]}'); return False
+
           def _ensure_capability(bid, cap, extra_rels=None):
               if cap in _caps(bid):
                   print(f'  capability {cap} already enabled'); return True
@@ -300,15 +324,30 @@ jobs:
                   'type': 'bundleIdCapabilities',
                   'attributes': {'capabilityType': cap},
                   'relationships': rels}}).encode()
-              creq = urllib.request.Request(
-                  'https://api.appstoreconnect.apple.com/v1/bundleIdCapabilities',
-                  data=body, headers={**hdrs, 'Content-Type': 'application/json'}, method='POST')
+              def _post():
+                  creq = urllib.request.Request(
+                      'https://api.appstoreconnect.apple.com/v1/bundleIdCapabilities',
+                      data=body, headers={**hdrs, 'Content-Type': 'application/json'}, method='POST')
+                  return urllib.request.urlopen(creq).read()
               try:
-                  urllib.request.urlopen(creq).read(); print(f'  ENABLED capability {cap}'); return True
+                  _post(); print(f'  ENABLED capability {cap}'); return True
               except urllib.error.HTTPError as e:
-                  if e.code == 409:  # already enabled / conflict — treat as enabled
-                      print(f'  enable {cap} HTTP 409 (already enabled)'); return True
-                  print(f'  enable {cap} HTTP {e.code}: {e.read().decode()[:500]}'); return False
+                  body_txt = e.read().decode()[:600]
+                  if e.code == 409:
+                      # 409 but the active-capability GET omits it ⇒ a stuck/
+                      # pending APPLE_ID_AUTH record. Find + DELETE it (scoped to
+                      # THIS bundle's capability, not /v1/betaTesters), re-POST
+                      # fresh with the appConsentBundleId relationship (#638).
+                      print(f'  enable {cap} HTTP 409: {body_txt}')
+                      cid = _find_capability_id(bid, cap)
+                      if cid and _delete_capability(cid):
+                          time.sleep(10)
+                          try:
+                              _post(); print(f'  ENABLED {cap} after delete+recreate'); return True
+                          except urllib.error.HTTPError as e2:
+                              print(f'  re-enable {cap} HTTP {e2.code}: {e2.read().decode()[:400]}'); return False
+                      print(f'  could not resolve stuck {cap} (id={cid})'); return False
+                  print(f'  enable {cap} HTTP {e.code}: {body_txt}'); return False
 
           _app_bid = _bundle_id('io.iogrid.app')
           siwa_flag = os.path.join(os.environ.get('RUNNER_TEMP', '/tmp'), 'siwa_enabled')
