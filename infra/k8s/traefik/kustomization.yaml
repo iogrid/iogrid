@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: iogrid
+# The working Traefik routing layer for iogrid, captured from live prod
+# 2026-06-03 (#637 killer #3). This packages the routing resources into a
+# valid kustomize unit so it is ready to wire into base during the #637
+# off-prod routing reconciliation.
+#
+# DELIBERATELY NOT yet referenced by base/kustomization.yaml — wiring it
+# changes what `apply -k overlays/prod` produces, and the manifests must not
+# be applied to prod until off-prod-validated. The build currently ships the
+# inert Gateway-API HTTPRoute path (cilium Gateway PROGRAMMED=Unknown).
+resources:
+  - ingressroutes.yaml
+  - middlewares.yaml
+  - certificates.yaml
+  - ingressroutetcp-proxy-passthrough.yaml
+  - serverstransport-long-lived.yaml
