@@ -4,4 +4,3 @@ resources:
   - serviceaccount.yaml
   - deployment.yaml
   - service.yaml
-  - networkpolicy.yaml

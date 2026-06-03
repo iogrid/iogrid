@@ -5,7 +5,6 @@ resources:
   - deployment.yaml
   - service.yaml
   - hpa.yaml
-  - networkpolicy.yaml
   - configmap.yaml
   - alertmanager-config.yaml
   - grafana-dashboards-kustomization.yaml

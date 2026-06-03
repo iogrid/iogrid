@@ -1,14 +1,3 @@
----
-# Redis Cluster — 6-node (3 primary + 3 replica), used for:
-#  - identity-svc session cache
-#  - providers-svc hot provider state
-#  - workloads-svc dispatch rendezvous keys
-#  - antiabuse-svc hot blocklists / rate-limit counters
-#  - proxy-gateway session stickiness
-#
-# Headless service + StatefulSet manifest (no operator dependency in the
-# base manifests — overlays may swap for the Bitnami chart or the Redis
-# Operator on environments that ship those).
 apiVersion: v1
 kind: Service
 metadata:
@@ -24,12 +13,12 @@ spec:
   selector:
     app.kubernetes.io/name: redis
   ports:
-    - name: client
-      port: 6379
-      targetPort: 6379
-    - name: gossip
-      port: 16379
-      targetPort: 16379
+  - name: client
+    port: 6379
+    targetPort: 6379
+  - name: gossip
+    port: 16379
+    targetPort: 16379
 ---
 apiVersion: v1
 kind: Service
@@ -45,9 +34,9 @@ spec:
   selector:
     app.kubernetes.io/name: redis
   ports:
-    - name: client
-      port: 6379
-      targetPort: 6379
+  - name: client
+    port: 6379
+    targetPort: 6379
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -58,21 +47,35 @@ metadata:
     app.kubernetes.io/name: redis
     app.kubernetes.io/part-of: iogrid
 data:
-  redis.conf: |
-    cluster-enabled yes
+  redis.conf: 'cluster-enabled yes
+
     cluster-require-full-coverage no
+
     cluster-node-timeout 15000
+
     cluster-config-file /data/nodes.conf
+
     cluster-migration-barrier 1
+
     appendonly yes
+
     protected-mode no
+
     bind 0.0.0.0
+
     port 6379
+
     maxmemory-policy allkeys-lru
+
     maxmemory 512mb
+
     save 900 1
+
     save 300 10
+
     save 60 10000
+
+    '
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -85,10 +88,6 @@ metadata:
     app.kubernetes.io/component: cache
 spec:
   serviceName: redis
-  # Phase-0 single-node cluster — 1 Redis instance (no cluster mode).
-  # Production target is 6 nodes (3 primary + 3 replica) for HA; bump
-  # back to 6 + flip cluster-config-file ConfigMap when the cluster
-  # has ≥3 worker nodes.
   replicas: 1
   podManagementPolicy: OrderedReady
   selector:
@@ -110,108 +109,71 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
-        - name: redis
-          image: redis:7.4-alpine
-          imagePullPolicy: IfNotPresent
-          command:
-            - redis-server
-            - /etc/redis/redis.conf
-          ports:
-            - name: client
-              containerPort: 6379
-            - name: gossip
-              containerPort: 16379
-          resources:
-            requests:
-              cpu: 100m
-              memory: 256Mi
-            limits:
-              cpu: 500m
-              memory: 768Mi
-          livenessProbe:
-            tcpSocket:
-              port: client
-            initialDelaySeconds: 15
-            periodSeconds: 10
-          readinessProbe:
-            exec:
-              command:
-                - redis-cli
-                - ping
-            initialDelaySeconds: 5
-            periodSeconds: 5
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: false
-            capabilities:
-              drop:
-                - ALL
-          volumeMounts:
-            - name: data
-              mountPath: /data
-            - name: config
-              mountPath: /etc/redis
-              readOnly: true
-      volumes:
+      - name: redis
+        image: redis:7.4-alpine
+        imagePullPolicy: IfNotPresent
+        command:
+        - redis-server
+        - /etc/redis/redis.conf
+        ports:
+        - name: client
+          containerPort: 6379
+        - name: gossip
+          containerPort: 16379
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 768Mi
+        livenessProbe:
+          tcpSocket:
+            port: client
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: data
+          mountPath: /data
         - name: config
-          configMap:
-            name: redis-config
-            items:
-              - key: redis.conf
-                path: redis.conf
+          mountPath: /etc/redis
+          readOnly: true
+      volumes:
+      - name: config
+        configMap:
+          name: redis-config
+          items:
+          - key: redis.conf
+            path: redis.conf
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 100
-              podAffinityTerm:
-                labelSelector:
-                  matchLabels:
-                    app.kubernetes.io/name: redis
-                topologyKey: kubernetes.io/hostname
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: redis
+              topologyKey: kubernetes.io/hostname
   volumeClaimTemplates:
-    - metadata:
-        name: data
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 10Gi
-        storageClassName: local-path
----
-# NetworkPolicy for redis pods — accept from iogrid microservices only.
-# Kept as L3/L4 defense-in-depth alongside ../data/ciliumnetworkpolicy.yaml
-# (issue #35 — Cilium SPIFFE-style service mTLS).
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: redis-allow
-  namespace: iogrid
-spec:
-  podSelector:
-    matchLabels:
-      app.kubernetes.io/name: redis
-  policyTypes:
-    - Ingress
-    - Egress
-  ingress:
-    - from:
-        - podSelector:
-            matchLabels:
-              app.kubernetes.io/part-of: iogrid
-      ports:
-        - protocol: TCP
-          port: 6379
-        - protocol: TCP
-          port: 16379
-  egress:
-    # Intra-cluster gossip (16379) and client (6379) between redis pods.
-    - to:
-        - podSelector:
-            matchLabels:
-              app.kubernetes.io/name: redis
-      ports:
-        - protocol: TCP
-          port: 6379
-        - protocol: TCP
-          port: 16379
+  - metadata:
+      name: data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 10Gi
+      storageClassName: local-path
