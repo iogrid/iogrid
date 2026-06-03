@@ -18,11 +18,12 @@ metadata:
     app.kubernetes.io/part-of: iogrid
     app.kubernetes.io/component: updates
 spec:
-  # 0: the pinned updates-server image is not pullable from harbor (the
-  # update-manifest server was never published), so prod runs this scaled to 0
-  # and a declarative apply with replicas>0 yields ImagePullBackOff (#637
-  # incident). Restore to 2 once updates-server is built + pushed.
-  replicas: 0
+  # updates-server IS published by updates-ci.yml (it pins a fresh digest on
+  # every push to main), so steady-state intent is to run. Prod is momentarily
+  # scaled to 0 from the 2026-06-03 incident recovery (the then-pinned digest
+  # was transiently ImagePullBackOff); a future off-prod-validated apply (#637)
+  # restores it with the current CI-pinned image.
+  replicas: 2
   revisionHistoryLimit: 3
   strategy:
     type: RollingUpdate
