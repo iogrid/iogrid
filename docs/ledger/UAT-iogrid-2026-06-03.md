@@ -132,11 +132,27 @@ The tester is read-only on the product code; reported what was seen on screen; n
 
 ---
 
-## B. iOS VPN app — journeys (jest executed; device steps via Maestro-in-CI, not walked on this host)
+## B. iOS VPN app — journeys (EXECUTED on the CI iOS simulator via Maestro)
 
-> **Honesty note:** this is a Linux host with **no iOS simulator** and **no external TestFlight build** ([#574](https://github.com/iogrid/iogrid/issues/574)), so I did **not** tap through a physical device. What IS real: the **jest suite executed this session** (below), and the app ships **11 Maestro device-flows** that run in `mobile-ios-ci` against a booted simulator. Each case maps to its real Maestro flow + testIDs; device execution is marked ☐ NOT WALKED (this host) with the CI flow that covers it.
+> **UPDATE 2026-06-04 — the mobile flows now EXECUTE** (the ping-cash pattern). Every prior `mobile-ios-ci` run died at the simulator build (`auth.ts` `require('buffer')`, [#681](https://github.com/iogrid/iogrid/issues/681) — fixed `f774e03`), so Maestro had never actually run. With the fix, run [**26903231905**](https://github.com/iogrid/iogrid/actions/runs/26903231905) executed the flow chain on a booted iOS simulator — real per-flow results + real simulator screenshots below. A physical-device walk (real Apple-ID sign-in, real WG tunnel, TestFlight install) still awaits an external build ([#574](https://github.com/iogrid/iogrid/issues/574)).
 
-**jest suite (executed 2026-06-03 on this host):** `59 passed, 3 skipped, 0 failed` — covers `auth-gate`, `grid_balance`, `wallets`, `ping-pay` (24 incl. devnet).
+**jest suite (executed on this host):** `59 passed, 3 skipped, 0 failed` — covers `auth-gate`, `grid_balance`, `wallets`, `ping-pay` (24 incl. devnet).
+
+### Latest automated iOS walk — run [26903231905](https://github.com/iogrid/iogrid/actions/runs/26903231905) (first-ever Maestro execution, chain ran 3m43s)
+
+| Maestro flow | Result | Evidence (real simulator captures) |
+|---|---|---|
+| 01-onboarding (Welcome → carousel → privacy) | ✅ PASS | [📷 welcome](evidence-mobile/maestro-01-onboarding-welcome.png) · [📷 privacy](evidence-mobile/maestro-01-onboarding-privacy.png) |
+| 02-sign-in (Sign in with Apple → landed) | ✅ PASS | [📷 landed](evidence-mobile/maestro-02-sign-in-landed.png) |
+| 03-wallet-connect | ✅ PASS | [📷 wallet](evidence-mobile/maestro-03-wallet-connected.png) |
+| 04-main-disconnected ("Tap to connect", Region Best (auto), $GRID wallet card + Top up) | ✅ PASS | [📷 home](evidence-mobile/maestro-04-main-disconnected.png) |
+| 05-main-connecting | ✅ PASS | [📷 connecting](evidence-mobile/maestro-05-main-connecting.png) |
+| 06-main-connected | ✅ PASS | [📷 connected](evidence-mobile/maestro-06-main-connected.png) |
+| 07-region-picker | ✅ PASS | [📷 regions](evidence-mobile/maestro-07-region-picker.png) |
+| **08-settings** | ❌ **FAIL — test bug, not an app bug**: `assertVisible: settings-sign-out` without scrolling, but Sign out is the last group, below the CI viewport fold. The settings screen itself rendered correctly (Kill switch ON, DNS-leak ON, Split tunneling "Coming soon"). Fix: `scrollUntilVisible` added (`a4824d2`) — next run executes 08–10. | [📷 failure capture](evidence-mobile/maestro-08-settings-FAIL-below-fold.png) |
+| 09-topup · 10-mobile-session-live | ⛔ BLOCKED this run (chain aborted at 08); 09's tap target confirmed in-viewport on the 04 capture → expected to execute next run | — |
+
+*(Iteration pattern, same as ping-cash: each run peels a real layer. Layer 1 was the sim build itself (#681); layer 2 the 08 below-fold assert; next run completes the chain.)*
 
 ### TC-20 — First-run onboarding → signed in with Apple
 
@@ -198,7 +214,7 @@ The tester is read-only on the product code; reported what was seen on screen; n
 | TC-06 | web (auth) | **Customer usage** | 🔴 FAIL ([#675](https://github.com/iogrid/iogrid/issues/675), P2) |
 | TC-07 | web (auth) | Workloads (submit + session list) | 🟢 PASS (works as designed; #677 closed invalid) |
 | TC-08 | web (auth) | Wallet connect & bind | ⛔ BLOCKED (needs Phantom ext) |
-| TC-20–25 | iOS app | Onboarding / connect / region / settings / top-up / live | ☐ NOT WALKED on this host — covered by Maestro `01–10` in CI; jest 59✓ |
+| TC-20–25 | iOS app | Onboarding / connect / region / settings / top-up / live | **EXECUTED on the CI simulator** (run 26903231905): flows 01–07 🟢 PASS w/ real captures; 08 🔴 test-bug (below-fold assert, fix `a4824d2`); 09–10 ⛔ next run. jest 59✓. Physical-device walk pending [#574](https://github.com/iogrid/iogrid/issues/574). |
 | | | **Web walked:** 8 journeys — 5 PASS, 2 FAIL, 1 BLOCKED | |
 
 **Overall verdict:** 🔴 **FAIL** — Authentication, provider surfaces, customer billing/workloads-submit, and API-key **creation** work. But the authenticated **customer** surface has **two broken endpoints**: API-key **revoke** (P1, security-relevant — [#676](https://github.com/iogrid/iogrid/issues/676)) and **usage** (P2 — [#675](https://github.com/iogrid/iogrid/issues/675), also the only place to see historical workloads). These are real, only findable by signing in — exactly what the prior surface-only UAT missed. Mobile needs a real device walk once an external TestFlight build exists ([#574](https://github.com/iogrid/iogrid/issues/574)).
