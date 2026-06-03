@@ -6,23 +6,22 @@ import { PageHero } from "@/components/marketing/page-hero";
 export const metadata: Metadata = {
   title: "Status",
   description:
-    "iogrid operational status. Live posture lives at status.iogrid.org.",
+    "iogrid operational status — live API health check and incident updates.",
 };
 
 /**
  * Status landing — folded from marketing/app/status/page.tsx into
  * web/'s design system during EPIC #422 Phase 3.
  *
- * The full live status dashboard (60-second polling against
- * telemetry-svc /status/posture) lives at the dedicated
- * status.iogrid.org subdomain — that subdomain has its own static
- * deploy and its own HTTPRoute (`gateways/httproute-status.yaml`),
- * unaffected by Phase 3. This /status route on the apex serves as a
- * SEO-discoverable landing that points users at the live dashboard.
- *
- * If we ever want the live dashboard inline at iogrid.org/status,
- * the StatusPageClient component can be ported from marketing/
- * (was a client-side island polling /status/posture).
+ * NOTE (#668, 2026-06-03): this page previously linked to a dedicated
+ * `status.iogrid.org` subdomain dashboard, but that subdomain was never
+ * actually served — its routing is a Gateway-API HTTPRoute
+ * (`gateways/httproute-status.yaml`) which is inert because the cluster
+ * routes via Traefik, and no status backend was deployed, so the link
+ * dead-ended at a raw `404 page not found`. Until a real status dashboard
+ * ships (port the StatusPageClient polling island from marketing/, or stand
+ * up the subdomain behind a Traefik IngressRoute + backend), this page links
+ * only to surfaces that actually resolve: the live API health check.
  */
 export default function StatusPage() {
   return (
@@ -32,8 +31,8 @@ export default function StatusPage() {
         title="System status."
         subtitle={
           <>
-            Live operational posture, SLO budgets, incident history, and 90-day
-            uptime per service. Updated every 60 seconds from telemetry-svc.
+            Live API health and incident updates. A full per-service uptime
+            dashboard is on the way.
           </>
         }
       />
@@ -41,21 +40,19 @@ export default function StatusPage() {
       <section className="border-b border-border">
         <div className="mx-auto max-w-3xl px-6 py-16">
           <p className="text-base leading-relaxed text-muted-foreground">
-            The live status dashboard is hosted at{" "}
-            <Link
-              href="https://status.iogrid.org"
-              className="text-foreground underline-offset-2 hover:underline"
-            >
-              status.iogrid.org
-            </Link>
-            . It is intentionally served from a dedicated subdomain so the
-            status page stays reachable when the app itself is degraded.
+            You can check the live health of the iogrid API directly at the
+            health endpoint, which reports{" "}
+            <code className="rounded bg-muted px-1.5 py-0.5 text-sm">
+              {`{"status":"ok"}`}
+            </code>{" "}
+            when the platform is serving. A full dashboard with SLO budgets,
+            incident history, and 90-day per-service uptime is in progress.
           </p>
           <Link
-            href="https://status.iogrid.org"
+            href="https://api.iogrid.org/healthz"
             className="mt-8 inline-flex items-center gap-2 rounded-md bg-primary px-5 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
-            Go to status dashboard
+            Check live API health
           </Link>
         </div>
       </section>
