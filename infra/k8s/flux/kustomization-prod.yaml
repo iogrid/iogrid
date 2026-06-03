@@ -1,14 +1,33 @@
 ---
 # Reference copy. Authoritative version in iogrid/iogrid-ops.
+#
+# 🔴 SUSPENDED — DO NOT UNSUSPEND / DO NOT COPY-AND-RECONCILE UNTIL #637's
+# off-prod validation passes. Reconciling overlays/prod onto the live
+# contabo-mkt cluster CRASHLOOPS the stack (caused a multi-service prod
+# incident 2026-06-03). Outstanding gates before this is safe to unsuspend:
+#   1. Per-svc SECRETS provisioned (identity-svc-secrets GOOGLE_CLIENT_ID/
+#      SECRET + IOGRID_SERVICE_TOKEN; proxy-gateway-secrets DEV_API_KEYS) —
+#      else identity-svc/proxy-gateway lose env on apply → crashloop. (#640)
+#   2. Working Traefik routing wired into the build (infra/k8s/traefik/ is
+#      captured + packaged but NOT yet referenced by base) — else the build
+#      ships only the INERT Gateway-API HTTPRoutes (cilium Gateway
+#      unprogrammed) and a from-scratch reconcile has no working routing.
+#   3. overlays/prod RUNTIME-validated on an OFF-PROD replica (kubectl
+#      diff/--dry-run=server are NOT sufficient — they pass while the apply
+#      still breaks; the schema layer is already 99/99 green).
+# Until ALL THREE land, deploy via scripts/reroll-iogrid-deployments.sh
+# (image-only). prune is false for safe first-adoption (avoid pruning the
+# out-of-band IngressRoutes/secrets Flux doesn't yet own).
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
   name: iogrid-prod
   namespace: flux-system
 spec:
+  suspend: true  # 🔴 see header — off-prod validation gate (#637)
   interval: 5m
   path: ./infra/k8s/overlays/prod
-  prune: true
+  prune: false  # false until first adoption is validated off-prod (#637)
   wait: true
   timeout: 10m
   sourceRef:
