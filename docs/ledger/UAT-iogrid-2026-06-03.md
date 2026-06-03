@@ -134,16 +134,16 @@ The tester is read-only on the product code; reported what was seen on screen; n
 
 ---
 
-### TC-09 — Account: sessions + identifiers (recovery surfaces)  🔴 *(enrichment walk, 2026-06-04)*
+### TC-09 — Account: sessions + identifiers (recovery surfaces)  🟡 *(re-walk 2026-06-04 after #685 fix deployed)*
 
 - **Goal:** *"As a user I review which devices are signed in and which emails can recover my account."*
 
 | # | Screen | What you do | What you must see | Result | Evidence |
 |---|---|---|---|---|---|
 | 1 | [/account/sessions](https://iogrid.org/account/sessions) | Open **Sessions** | The signed-in sessions list — at minimum **this** browser session ("this device") | ⚠️ | [📷 sessions](evidence/auth-14-account-sessions.png) |
-| 2 | [/account/identifiers](https://iogrid.org/account/identifiers) | Open **Identifiers** | The signed-in email (`emrah.baysal@openova.io`) listed as a verified identifier + an Add flow | ❌ | [📷 identifiers](evidence/auth-15-identifiers-empty.png) |
+| 2 | [/account/identifiers](https://iogrid.org/account/identifiers) | Open **Identifiers** | The signed-in email (`emrah.baysal@openova.io`) listed as a verified identifier + an Add flow | ✅ | [📷 identifiers FIXED](evidence-web/685-identifiers-fixed.png) |
 
-- **Journey verdict:** ☒ **FAIL** — Step 1 renders but says "No other active sessions" **without listing the current session** (no "this device" row — the standard Google/GitHub pattern; the endpoint returns 200, so this is a UI completeness gap, noted as a watch-item). Step 2 is broken outright: `GET /api/v1/account/identifiers` → **404**, masked as **"No identifiers bound"** — told to a user who just signed in with that very email (and whose **profile page displays it**), and the Add control the copy promises doesn't render. Filed **[#685](https://github.com/iogrid/iogrid/issues/685) (P2)** — the failure-masking-as-empty-state pattern again.
+- **Journey verdict:** ☑ **PASS (step 2) / ⚠️ watch-item (step 1)** — Step 2 **fixed and prod-re-walked 2026-06-04**: fresh magic-link sign-in → `/account/identifiers` lists **`emrah.baysal@openova.io` — Magic-link email, Verified** + its Remove button ([#685](https://github.com/iogrid/iogrid/issues/685) full chain `7f26da1`: NextAuth `events.signIn` → BFF `POST /me/identifiers` → `IdentityService.EnsureIdentifier`, idempotent — existing accounts heal on next login). Original defect for the record: the endpoint probe mis-read as 404 (wrong path); the real root cause was that NextAuth authenticates outside identity-svc so **no identifier row was ever created** — masked by the "No identifiers bound" empty state. Step 1's missing "this device" row remains a UI completeness watch-item (endpoint 200).
 
 ---
 
@@ -273,17 +273,17 @@ The tester is read-only on the product code; reported what was seen on screen; n
 | TC-02 | web (auth) | Provider dashboard + nav | 🟢 PASS |
 | TC-03 | web (auth) | Customer workspace + billing | 🟢 PASS |
 | TC-04 | web (auth) | Mint API key | 🟢 PASS |
-| TC-05 | web (auth) | **Revoke API key** | 🔴 FAIL ([#676](https://github.com/iogrid/iogrid/issues/676), P1) |
-| TC-06 | web (auth) | **Customer usage** | 🔴 FAIL ([#675](https://github.com/iogrid/iogrid/issues/675), P2) |
+| TC-05 | web (auth) | **Revoke API key** | 🟢 **PASS (after fix)** — revoke prod-verified by the worker mesh (test key revoked; [#676](https://github.com/iogrid/iogrid/issues/676) closed, PRs #678/#680) |
+| TC-06 | web (auth) | **Customer usage** | 🟢 **PASS (after fix, re-walked 2026-06-04)** — metering UI renders: Bytes/Cost/Records summary + type filter + honest empty state, was 501 ([#675](https://github.com/iogrid/iogrid/issues/675) closed, PR #679) |
 | TC-07 | web (auth) | Workloads (submit + dispatch list) | 🟢 **PASS (after fix, prod-verified)** — UI submit → 201 → server list row → **survives reload** ([📷](evidence/auth-13-workload-submit-persisted.png)); was 2-layer-broken ([#683](https://github.com/iogrid/iogrid/issues/683) closed) |
 | TC-08 | web (auth) | Wallet connect & bind | ⛔ BLOCKED (needs Phantom ext) |
-| TC-09 | web (auth) | Sessions + identifiers (recovery) | 🔴 FAIL — identifiers 404 masked as empty ([#685](https://github.com/iogrid/iogrid/issues/685)); sessions missing "this device" row |
+| TC-09 | web (auth) | Sessions + identifiers (recovery) | 🟡 **PASS after fix (identifiers), re-walked 2026-06-04** — `/account/identifiers` lists the signed-in email, Verified ([#685](https://github.com/iogrid/iogrid/issues/685) `7f26da1` prod-verified, [📷](evidence-web/685-identifiers-fixed.png)); sessions "this device" row still a watch-item |
 | TC-10 | web (auth) | Notification prefs round-trip | 🟢 PASS — toggle→save→persists→restored |
 | TC-11 | web (auth) | Sign out | 🟢 PASS — session destroyed, gate re-engages |
 | TC-20–25 | iOS app | Onboarding / connect / region / settings / top-up / live | **EXECUTED on the CI simulator** (latest run 26904727684): flows **01–08 🟢 PASS** w/ real captures; 09 🔴 test-bug (below-fold assert, fix `b59a043`); 10 ⛔ next run. Every failure so far = CI-viewport assertion bug, never an app defect. jest 59✓. Physical-device walk pending [#574](https://github.com/iogrid/iogrid/issues/574). |
-| | | **Web walked:** 8 journeys — 5 PASS, 2 FAIL, 1 BLOCKED | |
+| | | **Web walked:** 11 journeys — **9 PASS** (4 after same-day fix), 1 watch-item (sessions row), 1 BLOCKED (Phantom) | |
 
-**Overall verdict:** 🔴 **FAIL** — Authentication, provider surfaces, customer billing/workloads-submit, and API-key **creation** work. But the authenticated **customer** surface has **two broken endpoints**: API-key **revoke** (P1, security-relevant — [#676](https://github.com/iogrid/iogrid/issues/676)) and **usage** (P2 — [#675](https://github.com/iogrid/iogrid/issues/675), also the only place to see historical workloads). These are real, only findable by signing in — exactly what the prior surface-only UAT missed. Mobile needs a real device walk once an external TestFlight build exists ([#574](https://github.com/iogrid/iogrid/issues/574)).
+**Overall verdict (updated 2026-06-04):** 🟢 **PASS with watch-items** — every defect this UAT surfaced has been **fixed and prod-re-verified the same day**: workloads submit ([#683](https://github.com/iogrid/iogrid/issues/683)), API-key revoke ([#676](https://github.com/iogrid/iogrid/issues/676)), customer usage ([#675](https://github.com/iogrid/iogrid/issues/675)), identifiers registration ([#685](https://github.com/iogrid/iogrid/issues/685)). The UAT-fix-rewalk loop (find → file → fix → redeploy → re-walk live) closed 4 prod defects in one cycle. Remaining: sessions "this device" row (UI completeness), wallet bind (needs Phantom ext), mobile physical-device walk pending TestFlight ([#574](https://github.com/iogrid/iogrid/issues/574)).
 
 ---
 
