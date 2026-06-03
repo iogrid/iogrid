@@ -132,7 +132,7 @@ func seedSessionRow(t *testing.T, ctx context.Context, p *Postgres, providerID, 
 		Region:          "us-east-1",
 		PrimaryProvider: providerID,
 		CurrentProvider: providerID,
-		State:           pb.VpnSessionState_ACTIVE,
+		State:           pb.VpnSessionState_VPN_SESSION_STATE_ACTIVE,
 		CreatedAt:       time.Now().UTC(),
 		LastActivityAt:  time.Now().UTC(),
 	})

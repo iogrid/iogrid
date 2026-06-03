@@ -6,67 +6,67 @@ option go_package = "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/vpn
 
 // RFC 8445 ICE Candidate representation
 message IceCandidate {
-  string foundation = 1;              // ICE foundation (RFC 8445 §5.1.1)
-  uint32 component = 2;               // Always 1 for RTP (we use 1 for tunnel)
-  string transport = 3;               // "udp" (only supported)
-  uint32 priority = 4;                // ICE candidate priority formula
-  string connection_address = 5;      // IP address (IPv4 or IPv6)
-  uint32 connection_port = 6;         // UDP port
-  string candidate_type = 7;          // "host", "srflx" (server reflexive), "prflx" (peer reflexive), "relay"
-  string related_address = 8;         // For reflexive: the mapped address (optional)
-  uint32 related_port = 9;            // For reflexive: the mapped port (optional)
+  string foundation = 1; // ICE foundation (RFC 8445 §5.1.1)
+  uint32 component = 2; // Always 1 for RTP (we use 1 for tunnel)
+  string transport = 3; // "udp" (only supported)
+  uint32 priority = 4; // ICE candidate priority formula
+  string connection_address = 5; // IP address (IPv4 or IPv6)
+  uint32 connection_port = 6; // UDP port
+  string candidate_type = 7; // "host", "srflx" (server reflexive), "prflx" (peer reflexive), "relay"
+  string related_address = 8; // For reflexive: the mapped address (optional)
+  uint32 related_port = 9; // For reflexive: the mapped port (optional)
 
   // Custom fields for iogrid
-  int64 discovered_at_unix_ms = 10;   // Timestamp when this candidate was discovered
-  uint32 latency_ms = 11;             // Measured latency (p2p connectivity check result)
-  bool is_preferred = 12;             // Whether customer chose this as best candidate
+  int64 discovered_at_unix_ms = 10; // Timestamp when this candidate was discovered
+  uint32 latency_ms = 11; // Measured latency (p2p connectivity check result)
+  bool is_preferred = 12; // Whether customer chose this as best candidate
 }
 
 // Request for VPN session (customer → coordinator)
 message RequestVpnSession {
-  string customer_id = 1;             // Customer UUID
-  string api_key_hash = 2;            // SHA256(api_key) for validation
-  string region = 3;                  // "us-east", "eu-west", etc.
-  repeated string exclude_provider_ids = 4;  // Failed providers to skip (retry logic)
+  string customer_id = 1; // Customer UUID
+  string api_key_hash = 2; // SHA256(api_key) for validation
+  string region = 3; // "us-east", "eu-west", etc.
+  repeated string exclude_provider_ids = 4; // Failed providers to skip (retry logic)
 }
 
 // Provider assignment response (coordinator → customer)
 message VpnSessionAssignment {
-  string session_id = 1;              // Unique session identifier
-  string provider_id = 2;             // Provider UUID
-  string provider_wg_public_key = 3;  // Base64-encoded WireGuard public key
-  repeated IceCandidate candidates = 4;      // ICE candidates (host, srflx, relay)
-  string derp_relay_fallback = 5;     // IP:port of DERP relay (fallback only)
-  int64 created_at_unix_ms = 6;       // Session creation timestamp
-  int32 session_ttl_seconds = 7;      // Session lifetime (24hr typical)
+  string session_id = 1; // Unique session identifier
+  string provider_id = 2; // Provider UUID
+  string provider_wg_public_key = 3; // Base64-encoded WireGuard public key
+  repeated IceCandidate candidates = 4; // ICE candidates (host, srflx, relay)
+  string derp_relay_fallback = 5; // IP:port of DERP relay (fallback only)
+  int64 created_at_unix_ms = 6; // Session creation timestamp
+  int32 session_ttl_seconds = 7; // Session lifetime (24hr typical)
 }
 
 // Provider registers ICE candidates (provider → coordinator)
 message RegisterIceCandidates {
-  string provider_id = 1;             // Provider UUID
-  repeated IceCandidate candidates = 2;     // All candidates (host + reflexive + relay)
-  int64 registered_at_unix_ms = 3;    // Timestamp of registration
+  string provider_id = 1; // Provider UUID
+  repeated IceCandidate candidates = 2; // All candidates (host + reflexive + relay)
+  int64 registered_at_unix_ms = 3; // Timestamp of registration
 }
 
 // Customer confirms working candidate (customer → coordinator)
 message ConfirmWorkingCandidate {
-  string session_id = 1;              // Which session
-  string provider_id = 2;             // Which provider
-  IceCandidate chosen_candidate = 3;  // The candidate that worked
-  string customer_wg_public_key = 4;  // Customer's WireGuard public key (base64)
-  uint32 latency_ms = 5;              // Measured latency to this candidate
-  int64 confirmed_at_unix_ms = 6;     // Confirmation timestamp
+  string session_id = 1; // Which session
+  string provider_id = 2; // Which provider
+  IceCandidate chosen_candidate = 3; // The candidate that worked
+  string customer_wg_public_key = 4; // Customer's WireGuard public key (base64)
+  uint32 latency_ms = 5; // Measured latency to this candidate
+  int64 confirmed_at_unix_ms = 6; // Confirmation timestamp
 }
 
 // Session state transitions
 enum VpnSessionState {
   VPN_SESSION_STATE_UNSPECIFIED = 0;
-  CREATING = 1;                       // Session created, awaiting ICE check
-  ESTABLISHING = 2;                   // ICE found candidate, WireGuard handshaking
-  ACTIVE = 3;                         // Tunnel operational, traffic flowing
-  ROAMING = 4;                        // IP change detected, re-checking ICE
-  FAILING_OVER = 5;                   // Primary provider dead, switching to secondary
-  TERMINATING = 6;                    // Graceful shutdown in progress
+  VPN_SESSION_STATE_CREATING = 1; // Session created, awaiting ICE check
+  VPN_SESSION_STATE_ESTABLISHING = 2; // ICE found candidate, WireGuard handshaking
+  VPN_SESSION_STATE_ACTIVE = 3; // Tunnel operational, traffic flowing
+  VPN_SESSION_STATE_ROAMING = 4; // IP change detected, re-checking ICE
+  VPN_SESSION_STATE_FAILING_OVER = 5; // Primary provider dead, switching to secondary
+  VPN_SESSION_STATE_TERMINATING = 6; // Graceful shutdown in progress
 }
 
 // Session health snapshot (coordinator → monitoring)
@@ -76,11 +76,11 @@ message VpnSessionSnapshot {
   string provider_id = 3;
   string region = 4;
   VpnSessionState state = 5;
-  uint32 latency_ms = 6;              // Current latency to provider
-  uint64 bytes_in = 7;                // Traffic received
-  uint64 bytes_out = 8;               // Traffic sent
-  int64 roaming_events = 9;           // Number of IP changes detected
-  int64 failover_count = 10;          // Number of provider switches
+  uint32 latency_ms = 6; // Current latency to provider
+  uint64 bytes_in = 7; // Traffic received
+  uint64 bytes_out = 8; // Traffic sent
+  int64 roaming_events = 9; // Number of IP changes detected
+  int64 failover_count = 10; // Number of provider switches
   int64 created_at_unix_ms = 11;
   int64 last_activity_unix_ms = 12;
 }

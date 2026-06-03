@@ -100,7 +100,7 @@ func (m *Memory) TerminateSession(ctx context.Context, sessionID uuid.UUID, exit
 	now := time.Now()
 	session.TerminatedAt = &now
 	session.ExitReason = exitReason
-	session.State = pb.VpnSessionState_TERMINATING
+	session.State = pb.VpnSessionState_VPN_SESSION_STATE_TERMINATING
 	return nil
 }
 
@@ -186,7 +186,7 @@ func (m *Memory) CleanupStaleSessions(ctx context.Context, staleAfter time.Durat
 			now := time.Now()
 			session.TerminatedAt = &now
 			session.ExitReason = "stale_heartbeat"
-			session.State = pb.VpnSessionState_TERMINATING
+			session.State = pb.VpnSessionState_VPN_SESSION_STATE_TERMINATING
 			cleaned++
 		}
 	}
@@ -547,7 +547,7 @@ func (m *Memory) TriggerFailover(ctx context.Context, sessionID uuid.UUID, curre
 	}
 	session.CurrentProvider = altProvider
 	session.FailoverCount++
-	session.State = pb.VpnSessionState_FAILING_OVER
+	session.State = pb.VpnSessionState_VPN_SESSION_STATE_FAILING_OVER
 	session.LastActivityAt = time.Now()
 	return nil
 }

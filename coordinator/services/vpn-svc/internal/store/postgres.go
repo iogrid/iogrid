@@ -510,7 +510,7 @@ func (p *Postgres) TriggerFailover(ctx context.Context, sessionID uuid.UUID, cur
 		    state = $2, last_activity_at = NOW()
 		WHERE id = $3
 	`
-	_, err := p.pool.Exec(ctx, query, altProvider, pb.VpnSessionState_FAILING_OVER.String(), sessionID)
+	_, err := p.pool.Exec(ctx, query, altProvider, pb.VpnSessionState_VPN_SESSION_STATE_FAILING_OVER.String(), sessionID)
 	return err
 }
 
@@ -706,7 +706,15 @@ func (p *Postgres) scanSession(row interface {
 	session.ExitReason = exitReason.String
 	stateVal, ok := pb.VpnSessionState_value[stateStr]
 	if !ok {
-		stateVal = int32(pb.VpnSessionState_VPN_SESSION_STATE_UNSPECIFIED)
+		// Legacy rows: enum values were stored un-prefixed ("ACTIVE",
+		// "FAILING_OVER") before the buf-lint rename added the
+		// VPN_SESSION_STATE_ prefix (bbc8fd0 follow-up). New writes
+		// store the prefixed .String(); accept both so existing
+		// sessions keep their state across the deploy.
+		stateVal, ok = pb.VpnSessionState_value["VPN_SESSION_STATE_"+stateStr]
+		if !ok {
+			stateVal = int32(pb.VpnSessionState_VPN_SESSION_STATE_UNSPECIFIED)
+		}
 	}
 	session.State = pb.VpnSessionState(stateVal)
 	return session, nil

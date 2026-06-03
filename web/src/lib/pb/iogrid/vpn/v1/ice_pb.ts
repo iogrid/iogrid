@@ -15,59 +15,59 @@ export enum VpnSessionState {
   /**
    * @generated from enum value: VPN_SESSION_STATE_UNSPECIFIED = 0;
    */
-  VPN_SESSION_STATE_UNSPECIFIED = 0,
+  UNSPECIFIED = 0,
 
   /**
    * Session created, awaiting ICE check
    *
-   * @generated from enum value: CREATING = 1;
+   * @generated from enum value: VPN_SESSION_STATE_CREATING = 1;
    */
   CREATING = 1,
 
   /**
    * ICE found candidate, WireGuard handshaking
    *
-   * @generated from enum value: ESTABLISHING = 2;
+   * @generated from enum value: VPN_SESSION_STATE_ESTABLISHING = 2;
    */
   ESTABLISHING = 2,
 
   /**
    * Tunnel operational, traffic flowing
    *
-   * @generated from enum value: ACTIVE = 3;
+   * @generated from enum value: VPN_SESSION_STATE_ACTIVE = 3;
    */
   ACTIVE = 3,
 
   /**
    * IP change detected, re-checking ICE
    *
-   * @generated from enum value: ROAMING = 4;
+   * @generated from enum value: VPN_SESSION_STATE_ROAMING = 4;
    */
   ROAMING = 4,
 
   /**
    * Primary provider dead, switching to secondary
    *
-   * @generated from enum value: FAILING_OVER = 5;
+   * @generated from enum value: VPN_SESSION_STATE_FAILING_OVER = 5;
    */
   FAILING_OVER = 5,
 
   /**
    * Graceful shutdown in progress
    *
-   * @generated from enum value: TERMINATING = 6;
+   * @generated from enum value: VPN_SESSION_STATE_TERMINATING = 6;
    */
   TERMINATING = 6,
 }
 // Retrieve enum metadata with: proto3.getEnumType(VpnSessionState)
 proto3.util.setEnumType(VpnSessionState, "iogrid.vpn.v1.VpnSessionState", [
   { no: 0, name: "VPN_SESSION_STATE_UNSPECIFIED" },
-  { no: 1, name: "CREATING" },
-  { no: 2, name: "ESTABLISHING" },
-  { no: 3, name: "ACTIVE" },
-  { no: 4, name: "ROAMING" },
-  { no: 5, name: "FAILING_OVER" },
-  { no: 6, name: "TERMINATING" },
+  { no: 1, name: "VPN_SESSION_STATE_CREATING" },
+  { no: 2, name: "VPN_SESSION_STATE_ESTABLISHING" },
+  { no: 3, name: "VPN_SESSION_STATE_ACTIVE" },
+  { no: 4, name: "VPN_SESSION_STATE_ROAMING" },
+  { no: 5, name: "VPN_SESSION_STATE_FAILING_OVER" },
+  { no: 6, name: "VPN_SESSION_STATE_TERMINATING" },
 ]);
 
 /**
@@ -522,7 +522,7 @@ export class VpnSessionSnapshot extends Message<VpnSessionSnapshot> {
   /**
    * @generated from field: iogrid.vpn.v1.VpnSessionState state = 5;
    */
-  state = VpnSessionState.VPN_SESSION_STATE_UNSPECIFIED;
+  state = VpnSessionState.UNSPECIFIED;
 
   /**
    * Current latency to provider

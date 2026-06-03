@@ -251,7 +251,7 @@ func (h *RequestSession) Handle(w http.ResponseWriter, r *http.Request) {
 		Region:          chosenRegion,
 		PrimaryProvider: providerID,
 		CurrentProvider: providerID,
-		State:           pb.VpnSessionState_CREATING,
+		State:           pb.VpnSessionState_VPN_SESSION_STATE_CREATING,
 		CreatedAt:       time.Now(),
 		LastActivityAt:  time.Now(),
 	}
@@ -412,7 +412,7 @@ func (h *ConfirmCandidate) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.st.UpdateSessionState(r.Context(), sessionID, pb.VpnSessionState_ESTABLISHING); err != nil {
+	if err := h.st.UpdateSessionState(r.Context(), sessionID, pb.VpnSessionState_VPN_SESSION_STATE_ESTABLISHING); err != nil {
 		h.logger.Error("update state failed", slog.String("error", err.Error()))
 	}
 
@@ -1389,7 +1389,7 @@ func (h *RequestMobileSession) Handle(w http.ResponseWriter, r *http.Request) {
 		Region:          chosenRegion,
 		PrimaryProvider: providerID,
 		CurrentProvider: providerID,
-		State:           pb.VpnSessionState_CREATING,
+		State:           pb.VpnSessionState_VPN_SESSION_STATE_CREATING,
 		CreatedAt:       time.Now(),
 		LastActivityAt:  time.Now(),
 		// Persist the in-memory copy of the peer config too so the

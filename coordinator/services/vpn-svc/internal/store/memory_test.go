@@ -23,7 +23,7 @@ func TestMemoryStore_SessionLifecycle(t *testing.T) {
 		Region:          "us-east-1",
 		PrimaryProvider: primaryProvider,
 		CurrentProvider: primaryProvider,
-		State:           pb.VpnSessionState_CREATING,
+		State:           pb.VpnSessionState_VPN_SESSION_STATE_CREATING,
 		CreatedAt:       time.Now(),
 		LastActivityAt:  time.Now(),
 	}
@@ -43,12 +43,12 @@ func TestMemoryStore_SessionLifecycle(t *testing.T) {
 	}
 
 	// Update state
-	if err := st.UpdateSessionState(ctx, sessionID, pb.VpnSessionState_ACTIVE); err != nil {
+	if err := st.UpdateSessionState(ctx, sessionID, pb.VpnSessionState_VPN_SESSION_STATE_ACTIVE); err != nil {
 		t.Fatalf("UpdateSessionState failed: %v", err)
 	}
 
 	got, _ = st.GetSession(ctx, sessionID)
-	if got.State != pb.VpnSessionState_ACTIVE {
+	if got.State != pb.VpnSessionState_VPN_SESSION_STATE_ACTIVE {
 		t.Errorf("expected state ACTIVE, got %v", got.State)
 	}
 
@@ -145,7 +145,7 @@ func TestMemoryStore_TriggerFailover(t *testing.T) {
 		Region:          "us-east-1",
 		PrimaryProvider: primaryProv,
 		CurrentProvider: primaryProv,
-		State:           pb.VpnSessionState_ACTIVE,
+		State:           pb.VpnSessionState_VPN_SESSION_STATE_ACTIVE,
 		CreatedAt:       time.Now(),
 		LastActivityAt:  time.Now(),
 	}
@@ -163,7 +163,7 @@ func TestMemoryStore_TriggerFailover(t *testing.T) {
 	if got.FailoverCount != 1 {
 		t.Errorf("expected FailoverCount=1, got %d", got.FailoverCount)
 	}
-	if got.State != pb.VpnSessionState_FAILING_OVER {
+	if got.State != pb.VpnSessionState_VPN_SESSION_STATE_FAILING_OVER {
 		t.Errorf("expected state FAILING_OVER, got %v", got.State)
 	}
 }
