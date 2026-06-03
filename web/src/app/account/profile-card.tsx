@@ -12,6 +12,21 @@ export function ProfileCard({
   email: string;
   image: string | null;
 }) {
+  // Magic-link users have no display name. Cold "Unnamed account" + a "?"
+  // avatar read like an error state (UAT TC-11 polish note) — derive a warm
+  // default from the email local-part instead: "emrah.baysal" → "Emrah Baysal".
+  const derivedName =
+    name ||
+    (email
+      ? email
+          .split("@")[0]
+          .split(/[._-]+/)
+          .filter(Boolean)
+          .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+          .join(" ")
+      : "");
+  const initial =
+    (derivedName || email || "").trim().charAt(0).toUpperCase() || "•";
   return (
     <div className="space-y-4 rounded-md border border-border bg-card p-6 dark:border-border">
       <div className="flex items-center gap-4">
@@ -24,11 +39,11 @@ export function ProfileCard({
           />
         ) : (
           <div className="flex h-14 w-14 items-center justify-center rounded-full bg-muted text-xl font-semibold dark:bg-muted">
-            {name.slice(0, 1).toUpperCase() || "?"}
+            {initial}
           </div>
         )}
         <div className="min-w-0 flex-1">
-          <p className="text-lg font-semibold">{name || "Unnamed account"}</p>
+          <p className="text-lg font-semibold">{derivedName || "Welcome"}</p>
           <p className="text-sm text-muted-foreground">{email}</p>
         </div>
         <Button
