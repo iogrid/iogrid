@@ -11,10 +11,18 @@ export function SignInPanel({
   signInWithGoogle,
   signInWithEmail,
   callbackUrl,
+  googleEnabled = true,
 }: {
   signInWithGoogle: () => Promise<void>;
   signInWithEmail: (data: FormData) => Promise<void>;
   callbackUrl?: string;
+  /**
+   * Whether Google OAuth is actually configured (real client id, not the
+   * phase0 placeholder). Decided server-side; when false we hide the
+   * "Continue with Google" button so users only see the working
+   * magic-link path instead of a Google `invalid_client` error page.
+   */
+  googleEnabled?: boolean;
 }) {
   return (
     <main className="mx-auto max-w-md px-6 py-16">
@@ -24,16 +32,18 @@ export function SignInPanel({
       <h1 className="mt-6 text-3xl font-bold">Sign in to iogrid</h1>
       <p className="mt-2 text-sm text-muted-foreground dark:text-muted-foreground">
         One account for both providing and consuming compute. Sign in with
-        Google or email — your role (provider / customer / both) is chosen
-        after first login.
+        {googleEnabled ? " Google or email" : " email"} — your role (provider /
+        customer / both) is chosen after first login.
       </p>
 
       <div className="mt-8 space-y-3">
-        <form action={signInWithGoogle}>
-          <Button type="submit" variant="outline" className="w-full">
-            Continue with Google
-          </Button>
-        </form>
+        {googleEnabled ? (
+          <form action={signInWithGoogle}>
+            <Button type="submit" variant="outline" className="w-full">
+              Continue with Google
+            </Button>
+          </form>
+        ) : null}
         <form action={signInWithEmail} className="space-y-2">
           <Input
             type="email"
