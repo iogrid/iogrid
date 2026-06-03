@@ -57,7 +57,7 @@ The tester is read-only on the product code; reported what was seen on screen; n
 | 3 | [/provider/audit](https://iogrid.org/provider/audit) | Open **Transparency** (per-byte audit) | Transparency feed page renders | ✅ | [📷 audit](evidence/auth-10-provider-audit.png) |
 | 4 | [/provider/staking](https://iogrid.org/provider/staking) | Open **Staking** | Staking view renders | ✅ | [📷 staking](evidence/auth-11-provider-staking.png) |
 
-- **Journey verdict:** ☑ **PASS** — Provider surfaces render correctly for a real signed-in user with the genuine "no daemon paired" empty state. Endpoint probe: overview/earnings/schedule **200**. *(Caveat: `GET /api/v1/provide/audit/stream` returned 404 — an SSE-stream endpoint; the audit page itself renders, so noted as a watch-item, not a journey failure.)*
+- **Journey verdict:** ☑ **PASS** — Provider surfaces render correctly for a real signed-in user with the genuine "no daemon paired" empty state. Endpoint probe: overview/earnings/schedule **200**. *(The raw-probe 404 on `GET /api/v1/provide/audit/stream` turned out to be **by design** — `404 code=no_provider` for unpaired callers; the page suppresses its EventSource until ownership resolves, #313. See the resolved watch-item below.)*
 
 ---
 
@@ -215,7 +215,7 @@ The tester is read-only on the product code; reported what was seen on screen; n
 
 > Withdrawn: `/customer/workloads` GET 405 ([#677](https://github.com/iogrid/iogrid/issues/677)) — closed invalid; the UI never GETs that route (POST-only by design), so it was a probe artifact, not a user-facing failure.
 
-> Watch-item (not yet a ticket): `GET /api/v1/provide/audit/stream` → 404 (SSE endpoint; the audit page renders, so confirm whether the live stream is expected to be wired).
+> Watch-item RESOLVED (not a defect): `GET /api/v1/provide/audit/stream` → 404 is **by design** — gateway-bff returns `404 code=no_provider` for callers with no paired provider (this tester's state), and the audit page deliberately suppresses its EventSource until provider ownership resolves (#313). The raw probe bypassed that guard; a paired provider would stream normally.
 
 ---
 
