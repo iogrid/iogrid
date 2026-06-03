@@ -1,5 +1,9 @@
 # Pre-PR-#445 Live Cluster State (2026-05-23 06:20Z)
 
+> 🗄️ Historical — captured 2026-05-23; transient pre-merge baseline snapshot,
+> does NOT reflect current state (the #445–#451 merge train + many later
+> deploys have since landed). For current state see `docs/ledger/TRACKER.md`.
+
 > Captured before the 7-PR merge train (#445–#451) lands so post-merge
 > walks can compare against this baseline. **What** to expect when the
 > founder runs the operator walk after merge. Date-stamped per §11.
