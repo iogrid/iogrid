@@ -1,0 +1,42 @@
+# Routing TLS Certificates (cert-manager) — EXPORTED FROM LIVE prod 2026-06-03 (#637).
+#
+# These backed the captured IngressRoutes' TLS but existed ONLY in-cluster
+# (missing from version control): iogrid-tls (app/api/proxy.iogrid.org) +
+# iogrid-releases-tls (releases/updates.iogrid.org). cert-manager re-issues
+# from these specs via the letsencrypt-prod ClusterIssuer.
+#
+# NOTE: kept OUT of the build until the #637 off-prod routing reconciliation
+# (pairs with traefik/ingressroutes.yaml + middlewares.yaml). The repo already
+# has base/certs/certificates.yaml for iogrid-org-tls; these complete the set.
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: iogrid-releases-tls
+  namespace: iogrid
+spec:
+  commonName: releases.iogrid.org
+  dnsNames:
+  - releases.iogrid.org
+  - updates.iogrid.org
+  issuerRef:
+    kind: ClusterIssuer
+    name: letsencrypt-prod
+  secretName: iogrid-releases-tls
+
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: iogrid-tls
+  namespace: iogrid
+spec:
+  commonName: app.iogrid.org
+  dnsNames:
+  - app.iogrid.org
+  - api.iogrid.org
+  - proxy.iogrid.org
+  issuerRef:
+    kind: ClusterIssuer
+    name: letsencrypt-prod
+  secretName: iogrid-tls
