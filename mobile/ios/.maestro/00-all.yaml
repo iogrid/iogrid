@@ -25,13 +25,49 @@ appId: io.iogrid.app
 #   - No `- back` (gotcha 23) — flows cold-restart instead
 #   - No regex-poisoned text assertions on Pressable+Text (gotcha 21+21b)
 #     — prefer testID assertions for tappable rows
-- runFlow: 01-onboarding.yaml
-- runFlow: 02-sign-in.yaml
-- runFlow: 03-wallet-connect.yaml
-- runFlow: 04-main-disconnected.yaml
-- runFlow: 05-main-connecting.yaml
-- runFlow: 06-main-connected.yaml
-- runFlow: 07-region-picker.yaml
-- runFlow: 08-settings.yaml
-- runFlow: 09-topup.yaml
-- runFlow: 10-mobile-session-live.yaml
+#   - Each subflow is wrapped in `retry` (maxRetries: 2): every flow
+#     begins with its own launchApp, and the simulator relaunch is the
+#     #575-family flake point — runs 26914283867 + 26918273935 both died
+#     mid-chain ("App crashed or stopped", NO crash signature in the sim
+#     log) at DIFFERENT flows. A retry re-runs just the flaky subflow
+#     (app state persists across relaunch) instead of killing the chain.
+- retry:
+    maxRetries: 2
+    commands:
+      - runFlow: 01-onboarding.yaml
+- retry:
+    maxRetries: 2
+    commands:
+      - runFlow: 02-sign-in.yaml
+- retry:
+    maxRetries: 2
+    commands:
+      - runFlow: 03-wallet-connect.yaml
+- retry:
+    maxRetries: 2
+    commands:
+      - runFlow: 04-main-disconnected.yaml
+- retry:
+    maxRetries: 2
+    commands:
+      - runFlow: 05-main-connecting.yaml
+- retry:
+    maxRetries: 2
+    commands:
+      - runFlow: 06-main-connected.yaml
+- retry:
+    maxRetries: 2
+    commands:
+      - runFlow: 07-region-picker.yaml
+- retry:
+    maxRetries: 2
+    commands:
+      - runFlow: 08-settings.yaml
+- retry:
+    maxRetries: 2
+    commands:
+      - runFlow: 09-topup.yaml
+- retry:
+    maxRetries: 2
+    commands:
+      - runFlow: 10-mobile-session-live.yaml

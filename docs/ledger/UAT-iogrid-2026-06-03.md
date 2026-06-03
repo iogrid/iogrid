@@ -195,24 +195,24 @@ The tester is read-only on the product code; reported what was seen on screen; n
 
 **jest suite (executed on this host):** `59 passed, 3 skipped, 0 failed` — covers `auth-gate`, `grid_balance`, `wallets`, `ping-pay` (24 incl. devnet).
 
-### Latest automated iOS walk — run [26914283867](https://github.com/iogrid/iogrid/actions/runs/26914283867) (**REDESIGNED UI** — UX-overhaul pass 1 `692b078` on the simulator)
+### Latest automated iOS walk — run [26918273935](https://github.com/iogrid/iogrid/actions/runs/26918273935) (**UX pass 1+2+2b** on the simulator)
 
-> Flows **01–04 PASS on the redesigned UI** — the captures below now show UX pass 1 live: SVG mesh
-> onboarding (green live-route into the "you" node), drawn SVG gear (was a literal `⚙` char),
-> filled connect disc + rest shadow, letterspaced semantic status (red **UNSECURED CONNECTION**).
-> The chain then died at flow 05 with Maestro's "App crashed or stopped" — **no crash signature in
-> the sim log** (only normal `OS_REASON_SPRINGBOARD 0xfbfbfbfb` `stopApp:true` flow-boundary exits)
-> = the known launch-flake family (#575), **not a UI-overhaul defect**. Disambiguation rerun
-> [26918273935](https://github.com/iogrid/iogrid/actions/runs/26918273935) in flight → full-chain
-> verdict (09/10) lands there.
+> Flows **01–03 PASS on the pass-2 UI** — captures show the shipped refinements: the SIWA button now
+> carries the real Apple glyph, the sign-in screen's dead middle holds the **privacy-assurance card**
+> (No activity logs — ever · Apple hides your email from us · The VPN works without an account), and
+> the privacy screen reads as one centered composition. Death at flow 04 with Maestro's generic
+> "App crashed or stopped" — again **no crash signature** (no Jetsam/OOM/SIGABRT in the sim log;
+> normal flow-boundary exits only). Pattern: 2/2 post-overhaul chains died at DIFFERENT flows
+> (05, then 04) = the #575 relaunch-flake hitting mid-chain, where ONE flaky `launchApp` killed the
+> whole run. **Hardening shipped**: every subflow in `00-all.yaml` is now wrapped in Maestro
+> `retry (maxRetries: 2)` — a flaky relaunch re-runs just that subflow. Next run carries it.
 
-| Maestro flow | Result (run 26914283867) | Evidence (real simulator captures, redesigned UI) |
+| Maestro flow | Result (run 26918273935) | Evidence (real simulator captures, pass-2 UI) |
 |---|---|---|
-| 01-onboarding (Welcome → carousel → privacy) | ✅ PASS | [📷 welcome (SVG mesh)](evidence-mobile/maestro-01-onboarding-welcome.png) · [📷 privacy](evidence-mobile/maestro-01-onboarding-privacy.png) |
-| 02-sign-in (Sign in with Apple → landed) | ✅ PASS | [📷 landed](evidence-mobile/maestro-02-sign-in-landed.png) |
+| 01-onboarding (Welcome → carousel → privacy) | ✅ PASS | [📷 welcome (SVG mesh)](evidence-mobile/maestro-01-onboarding-welcome.png) · [📷 privacy (centered composition)](evidence-mobile/maestro-01-onboarding-privacy.png) |
+| 02-sign-in ( glyph + privacy-assurance card) | ✅ PASS | [📷 landed](evidence-mobile/maestro-02-sign-in-landed.png) |
 | 03-wallet-connect | ✅ PASS | [📷 wallet](evidence-mobile/maestro-03-wallet-connected.png) |
-| 04-main-disconnected (filled disc, semantic UNSECURED status, gear SVG) | ✅ PASS | [📷 home](evidence-mobile/maestro-04-main-disconnected.png) |
-| 05–10 | 🔁 launch-flake at 05 (#575 family, no crash signature) — rerun 26918273935 in flight | — |
+| 04–10 | 🔁 relaunch-flake at 04 (#575 family, no crash signature) — retry-hardened chain re-runs next push | — |
 
 ### Prior full-chain walk — run [26904727684](https://github.com/iogrid/iogrid/actions/runs/26904727684) (pre-overhaul UI; chain ran 5m14s; 08 passed, reached 09)
 
