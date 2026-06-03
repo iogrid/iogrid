@@ -18,12 +18,12 @@ metadata:
     app.kubernetes.io/part-of: iogrid
     app.kubernetes.io/component: updates
 spec:
-  # updates-server IS published by updates-ci.yml (it pins a fresh digest on
-  # every push to main), so steady-state intent is to run. Prod is momentarily
-  # scaled to 0 from the 2026-06-03 incident recovery (the then-pinned digest
-  # was transiently ImagePullBackOff); a future off-prod-validated apply (#637)
-  # restores it with the current CI-pinned image.
-  replicas: 2
+  # 0 to MATCH LIVE (#637): prod runs updates scaled to 0 since the 2026-06-03
+  # incident recovery (its then-pinned digest was ImagePullBackOff). Pinned to 0
+  # here so a Flux reconcile is a no-op on replicas — it must NOT scale this back
+  # up onto a broken image. Bump to the intended count (2) once updates-server's
+  # image is confirmed pullable, in the same PR that fixes it.
+  replicas: 0
   revisionHistoryLimit: 3
   strategy:
     type: RollingUpdate
