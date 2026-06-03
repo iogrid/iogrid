@@ -317,6 +317,7 @@ jobs:
 
           _app_bid = _bundle_id('io.iogrid.app')
           siwa_flag = os.path.join(os.environ.get('RUNNER_TEMP', '/tmp'), 'siwa_enabled')
+          assoc_flag = os.path.join(os.environ.get('RUNNER_TEMP', '/tmp'), 'assoc_enabled')
           if _app_bid:
               print(f'=== ensuring Sign In with Apple on io.iogrid.app ({_app_bid}) ===')
               # APPLE_ID_AUTH requires a capabilitySetting, NOT a relationship —
@@ -341,9 +342,28 @@ jobs:
               else:
                   with open(siwa_flag, 'w') as f: f.write('0')
                   print('::warning::APPLE_ID_AUTH still absent after appConsentBundleId attempt — entitlement will be stripped to ship internal beta (#638)')
+
+              # Direction-B Universal Links (#629 item 5): enable ASSOCIATED_DOMAINS
+              # so the associatedDomains entitlement (applinks:iogrid.org) is valid
+              # in the profile. Same ASC-API capability pattern proven for
+              # APPLE_ID_AUTH above; ASSOCIATED_DOMAINS is a simple capability (no
+              # capabilitySetting required). Conditional-strip below removes the
+              # entitlement if this fails, so the build still delivers.
+              print(f'=== ensuring Associated Domains on io.iogrid.app ({_app_bid}) ===')
+              assoc_ok = _ensure_capability(_app_bid, 'ASSOCIATED_DOMAINS')
+              if assoc_ok:
+                  time.sleep(15)
+              assoc_now = _caps(_app_bid)
+              if 'ASSOCIATED_DOMAINS' in assoc_now:
+                  with open(assoc_flag, 'w') as f: f.write('1')
+                  print('  ASSOCIATED_DOMAINS confirmed — keeping associatedDomains entitlement')
+              else:
+                  with open(assoc_flag, 'w') as f: f.write('0')
+                  print('::warning::ASSOCIATED_DOMAINS not confirmed — associatedDomains entitlement will be stripped (#629)')
           else:
               with open(siwa_flag, 'w') as f: f.write('0')
-              print('::warning::io.iogrid.app bundle ID not found via ASC API — cannot ensure SIWA; entitlement will be stripped')
+              with open(assoc_flag, 'w') as f: f.write('0')
+              print('::warning::io.iogrid.app bundle ID not found via ASC API — cannot ensure SIWA/AssociatedDomains; entitlements will be stripped')
 
           # Purge existing provisioning profiles for both the main app
           # and the PacketTunnelProvider extension — they're bound to
@@ -911,6 +931,18 @@ jobs:
           else
             echo "::warning::$ENT not found — cannot strip applesignin; archive may fail"
             ls -la ios/iogrid/ 2>/dev/null || true
+          fi
+          # Associated Domains (#629 item 5) — keep if ASSOCIATED_DOMAINS confirmed
+          # on the App ID, else strip com.apple.developer.associated-domains so
+          # entitlements ⊆ profile (the build still delivers without Universal
+          # Links; the iogrid:// custom scheme path is unaffected).
+          ASSOC="$(cat "$RUNNER_TEMP/assoc_enabled" 2>/dev/null || echo 0)"
+          if [ "$ASSOC" = "1" ]; then
+            echo "ASSOCIATED_DOMAINS confirmed — keeping associated-domains entitlement (Direction-B Universal Links)"
+          elif [ -f "$ENT" ]; then
+            echo "::warning::ASSOCIATED_DOMAINS not confirmed — stripping associated-domains (#629)"
+            /usr/libexec/PlistBuddy -c "Delete :com.apple.developer.associated-domains" "$ENT" 2>/dev/null \
+              || plutil -remove com.apple.developer.associated-domains "$ENT" 2>/dev/null || true
           fi
 
       - name: Build and archive (manual signing, fresh profile)

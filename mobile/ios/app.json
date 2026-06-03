@@ -22,7 +22,10 @@
         "com.apple.developer.networking.networkextension": [
           "packet-tunnel-provider"
         ]
-      }
+      },
+      "associatedDomains": [
+        "applinks:iogrid.org"
+      ]
     },
     "android": {
       "package": "io.iogrid.app",
