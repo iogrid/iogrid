@@ -13,7 +13,9 @@ Refs [iogrid/iogrid#595](https://github.com/iogrid/iogrid/issues/595) (Track 5
 | Initial supply | `1_000_000_000` ($1e9$ tokens, $1e18$ atomic units) |
 | Mint authority | treasury keypair (devnet) → Squads multisig (mainnet) |
 | Freeze authority | `null` (never freezable — explicit transparency property) |
-| Token program | legacy SPL Token (`Tokenkeg…`) — same wire format as Token-2022 for TransferChecked / BurnChecked, simpler for devnet and Jupiter compatibility |
+| Token program | **SPL Token-2022** (`TokenzQd…`). The shipped settlement path (`billing-svc/internal/solana/transfer.go`) is built for Token-2022 `TransferChecked` / `BurnChecked`. ⚠ `deploy.ts` / `seed-treasury.sh` still create the devnet mint with the **legacy** SPL program (`TOKEN_PROGRAM_ID`) — a known code drift, flagged for follow-up. |
+| Devnet mint | `BaQvWwb1wUGvWJXPEUbLEwPeeYMd4sKvp2S7obzTWorR` |
+| Mainnet mint | **NOT deployed** (deferred — see below) |
 | Metadata URI | `https://iogrid.org/grid-token.json` |
 | Pricing | `0.001 GRID / GB` of VPN traffic |
 | Provider share | `85 %` of consumed GRID per session |

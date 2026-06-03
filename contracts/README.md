@@ -20,13 +20,14 @@ program-to-program CPI dependency, which keeps each program independently audita
 
 ## Build
 
-Requires Anchor CLI 0.31+. Easiest install:
+Requires Anchor CLI 0.31.1 (the version CI pins in `contracts-ci.yml` and
+`Anchor.toml`). Easiest install:
 
 ```bash
 cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
-avm install 0.31.0
-avm use 0.31.0
-anchor --version   # anchor-cli 0.31.0
+avm install 0.31.1
+avm use 0.31.1
+anchor --version   # anchor-cli 0.31.1
 ```
 
 Then from this directory:
@@ -141,7 +142,7 @@ Pre-audit checklist:
 
 `.github/workflows/contracts-ci.yml` runs on every push that touches `contracts/`:
 
-1. Installs Solana CLI + Anchor CLI 0.31.0
+1. Installs Solana CLI + Anchor CLI 0.31.1
 2. Caches Cargo registry + `target/` between runs
 3. `anchor build` (build all 5 programs)
 4. `anchor test --skip-deploy` (runs ts-mocha against the local validator)

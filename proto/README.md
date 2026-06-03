@@ -16,12 +16,13 @@ proto/
 ├── buf.yaml              # module + lint + breaking-change config
 ├── buf.gen.yaml          # codegen plugin pipeline (Go, TS, [Rust via tonic])
 └── iogrid/
-    ├── common/v1/        UUID, Money, Region, WorkloadType, ErrorCode, ErrorDetail, PageRequest/Response, TimeWindow
-    ├── identity/v1/      User, Identifier, JWT claims, AuthService (Google OAuth + magic-link + step-up)
-    ├── providers/v1/     Provider registration, scheduling state machine, transparency dashboard
-    ├── workloads/v1/     Customer workload submission + coordinator→daemon dispatch bidi stream
-    ├── antiabuse/v1/     Pre-flight filters (URL / Domain / Container Image checks) mirrored daemon-side
-    └── billing/v1/       Stripe-backed subscriptions + Stripe Connect payouts
+    ├── common/v1/        UUID, Money, Region, WorkloadType, ErrorCode, ErrorDetail, PageRequest/Response, TimeWindow (types.proto, errors.proto)
+    ├── identity/v1/      User, Identifier, JWT claims, AuthService (magic-link + Google OAuth + step-up), Workspace (auth.proto, identity.proto, workspace.proto)
+    ├── providers/v1/     Provider registration, scheduling state machine, transparency dashboard (registration.proto, scheduling.proto, dashboard.proto)
+    ├── workloads/v1/     Customer workload submission + coordinator→daemon dispatch bidi stream (submit.proto, dispatch.proto)
+    ├── antiabuse/v1/     Pre-flight filters (URL / Domain / Container Image checks) mirrored daemon-side (filters.proto)
+    ├── billing/v1/       API keys, earnings, subscription/top-up, prepaid $GRID + Stripe + payouts (api_keys.proto, earnings.proto, subscription.proto, payout.proto)
+    └── vpn/v1/           Consumer VPN: session control, region catalogue, WireGuard peer config, ICE (session.proto, regions.proto, wireguard.proto, ice.proto)
 ```
 
 Every service file follows the same shape:
@@ -41,7 +42,11 @@ Every service file follows the same shape:
 | Connect-Go service bindings | `coordinator/internal/pb/iogrid/<area>/v1/<area>v1connect/*.connect.go` | `buf.build/connectrpc/go` |
 | TypeScript protobuf messages | `web/src/lib/pb/iogrid/<area>/v1/*_pb.ts` | `buf.build/bufbuild/es` |
 | Connect-Web TS service bindings | `web/src/lib/pb/iogrid/<area>/v1/*_connect.ts` | `buf.build/connectrpc/es` |
-| Rust tonic bindings (planned) | `daemon/crates/transport/src/pb/` | tonic-build via cargo build script (see below) |
+| Rust tonic bindings | generated into Cargo `OUT_DIR` (e.g. `iogrid.workloads.v1.rs`) | tonic-build via `daemon/crates/transport/build.rs` (see below) |
+
+> The four `buf.gen.yaml` remote plugins emit the Go + TS outputs only; the
+> Rust bindings are produced separately by the daemon's `build.rs` (next
+> section) and are **not** committed (they live in `target/`).
 
 All generated outputs are committed to git — CI regenerates on every PR
 touching `proto/` and fails if the regen produces a diff.
@@ -52,30 +57,12 @@ The Rust daemon uses tonic's build-script flow rather than buf-managed
 remote plugins, because tonic-build embeds the `.proto` parser in the Cargo
 build and matches the daemon's no-network-at-build-time requirement.
 
-`daemon/crates/transport/build.rs` will (when the Rust crate is added):
-
-```rust
-fn main() {
-    tonic_build::configure()
-        .build_server(false)
-        .build_client(true)
-        .compile_protos(
-            &[
-                "../../../proto/iogrid/common/v1/types.proto",
-                "../../../proto/iogrid/identity/v1/auth.proto",
-                "../../../proto/iogrid/providers/v1/scheduling.proto",
-                "../../../proto/iogrid/workloads/v1/dispatch.proto",
-                "../../../proto/iogrid/antiabuse/v1/filters.proto",
-            ],
-            &["../../../proto"],
-        )
-        .expect("compile_protos failed");
-}
-```
-
-The Rust crate scaffold lands in Track 5; for now this README documents the
-intent and the proto files are already shaped to be tonic-friendly (no
-buf-only extensions, no `optional` fields, no `Any`).
+`daemon/crates/transport/build.rs` compiles the dispatch / scheduling / submit
+/ common protos with `tonic_build::configure()` into the Cargo `OUT_DIR`
+(`iogrid.workloads.v1.rs`, `iogrid.providers.v1.rs`, …), generating both the
+client and server stubs the daemon's coordinator transport consumes. The proto
+files are shaped to stay tonic-friendly (no buf-only extensions, no `optional`
+fields, no `Any`); see `build.rs` for the authoritative file list.
 
 ---
 

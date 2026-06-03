@@ -124,8 +124,9 @@ All routes return JSON. `LISTEN_ADDR` defaults to `:8080`.
 
 ## Customer flow (end-to-end)
 
-1. **Sign-up.** Customer goes to `app.iogrid.org/vpn`, creates an
-   account (Google OAuth or magic-link). `identity-svc` creates the user.
+1. **Sign-up.** Customer goes to `iogrid.org/vpn`, creates an account
+   (web: magic-link, or Google once configured; mobile: Apple sign-in).
+   `identity-svc` creates the user.
 2. **Tier choice.** Customer picks Free / Plus / Pro. Plus / Pro pays via
    Stripe Checkout. `billing-svc` records the subscription.
 3. **Config download.** Customer picks a platform; the BFF calls

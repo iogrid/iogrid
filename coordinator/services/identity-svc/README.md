@@ -3,13 +3,16 @@
 The iogrid coordinator microservice that owns user accounts, sign-in
 flows, and JWT issuance for the entire control plane.
 
-Two sign-in paths only — passwords are never stored:
+Passwordless only — passwords are never stored. The web management plane's
+primary path is **magic link**; **Google OAuth** is supported but hidden in
+the UI until `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` are configured.
+(Mobile apps sign in with Apple — handled in the mobile client, not here.)
 
-1. **Google OAuth** (authorization-code + PKCE). We pull `sub`, `email`,
+1. **Magic link** via Stalwart SMTP at `mail.openova.io`. One-shot,
+   10-minute, SHA-256-hashed at rest. Rate-limited per-email + per-IP.
+2. **Google OAuth** (authorization-code + PKCE). We pull `sub`, `email`,
    `email_verified`, `hd`, plus the full verified-emails list via the
    People API. Verified secondaries enable auto-merge.
-2. **Magic link** via Stalwart SMTP at `mail.openova.io`. One-shot,
-   10-minute, SHA-256-hashed at rest. Rate-limited per-email + per-IP.
 
 When Google's verified secondaries match an existing magic-link
 identifier we **auto-merge silently** and audit the merge. See
@@ -141,8 +144,13 @@ SMTP_STARTTLS=true
 SMTP_USERNAME=                             # blank for internal Stalwart route
 SMTP_PASSWORD=
 
-ALLOWED_RETURN_HOSTS=iogrid.org,app.iogrid.org   # open-redirect allowlist
+ALLOWED_RETURN_HOSTS=iogrid.org                  # open-redirect allowlist
 ```
+
+> `app.iogrid.org` has been dropped in favour of the `iogrid.org` apex
+> (301-redirected). The code's compiled-in default for
+> `ALLOWED_RETURN_HOSTS` still lists `app.iogrid.org` — see PR notes
+> for the follow-up to drop it.
 
 ## Local development
 

@@ -1,4 +1,14 @@
-# gitops — Phase 0 Flux bootstrap
+# gitops — Phase 0 Flux bootstrap (historical / NOT the live deploy path)
+
+> ## 🔴 iogrid is NOT Flux-wired today
+>
+> This directory captures the **original Phase 0 Flux-bootstrap intent**. It is
+> **not** how iogrid prod is deployed today. The Flux Kustomizations are
+> **suspended** and a wholesale apply of `infra/k8s/base` / `overlays/prod`
+> **crashloops the stack** (multi-service prod incident 2026-06-03 — see #636 /
+> #637 and `infra/k8s/flux/README.md`). The ONLY safe deploy is
+> `scripts/reroll-iogrid-deployments.sh` (image-only). Treat the bootstrap
+> recipe below as historical context, not a runbook to execute against prod.
 
 This directory contains the **Phase 0 unblock** Flux manifests for getting
 the iogrid coordinator services running on the openova-io mothership
@@ -49,7 +59,7 @@ non-secret cluster-side variables. Create it once:
 kubectl -n flux-system create configmap iogrid-flux-vars \
   --from-literal=PUBLIC_API_BASE=https://api.iogrid.org \
   --from-literal=PUBLIC_PROXY_BASE=https://proxy.iogrid.org \
-  --from-literal=PUBLIC_APP_BASE=https://app.iogrid.org \
+  --from-literal=PUBLIC_APP_BASE=https://iogrid.org \
   --from-literal=MOTHERSHIP_REGION=hz-fsn1
 ```
 
