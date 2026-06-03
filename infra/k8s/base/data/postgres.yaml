@@ -13,11 +13,15 @@ metadata:
     app.kubernetes.io/part-of: iogrid
     app.kubernetes.io/component: database
 spec:
-  # 2, not 3: the contabo-mkt cluster has headroom for a primary + 1 replica
-  # only; instances:3 left the 3rd CNPG pod Pending and a declarative apply
-  # mutated the live cluster 2->3 (prod incident 2026-06-03, #637). Bump back to
-  # 3 only after the cluster gains node headroom.
-  instances: 2
+  # 1, not 2 (2026-06-04, #682): on a SINGLE node a standby replica adds
+  # near-zero availability — node loss takes both instances, and the only
+  # residual cover (pod-crash failover) is not worth 1 pod slot + 1Gi of
+  # requests while the node sits at the kubelet pod cap with two product
+  # surfaces parked. Point-in-time recovery still comes from the pg_dump
+  # CronJob (#642). Bump back to 2 (or 3) THE DAY node 2 lands.
+  # History: instances:3 left the 3rd pod Pending and a declarative apply
+  # mutated live 2->3 (prod incident 2026-06-03, #637).
+  instances: 1
   imageName: ghcr.io/cloudnative-pg/postgresql:16.4
   primaryUpdateStrategy: unsupervised
   # Superuser secret (iogrid-pg-superuser) so the pg_dump stop-gap CronJob can
