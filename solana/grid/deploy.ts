@@ -49,7 +49,7 @@ import {
   getOrCreateAssociatedTokenAccount,
   mintTo,
   getMint,
-  TOKEN_PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID,
   AuthorityType,
   setAuthority,
 } from '@solana/spl-token';
@@ -69,6 +69,12 @@ import {
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+
+// $GRID is an SPL **Token-2022** mint (canonical per docs/TOKENOMICS.md + the
+// devnet mint, created with `--program-2022`). Every spl-token call below must
+// carry this program id, or it defaults to the legacy Tokenkeg program and
+// fails / creates the wrong token (Refs #629, #659).
+const GRID_TOKEN_PROGRAM = TOKEN_2022_PROGRAM_ID;
 
 const DECIMALS = 9;
 const TOTAL_SUPPLY_TOKENS = 1_000_000_000n; // 1B $GRID
@@ -139,7 +145,7 @@ async function main() {
   let mintPk: PublicKey;
   if (process.env.GRID_MINT_ADDRESS) {
     mintPk = new PublicKey(process.env.GRID_MINT_ADDRESS);
-    const info = await getMint(conn, mintPk);
+    const info = await getMint(conn, mintPk, undefined, GRID_TOKEN_PROGRAM);
     console.log(
       `re-using existing mint ${mintPk.toBase58()} decimals=${info.decimals} supply=${info.supply}`,
     );
@@ -151,6 +157,9 @@ async function main() {
       treasury.publicKey, // mint authority
       null, // freeze authority NULL — per TOKENOMICS, holders can never be frozen
       DECIMALS,
+      undefined, // keypair (auto-generated)
+      undefined, // confirmOptions
+      GRID_TOKEN_PROGRAM, // SPL Token-2022
     );
     console.log(`mint created: ${mintPk.toBase58()}`);
   }
@@ -161,14 +170,18 @@ async function main() {
     treasury,
     mintPk,
     treasury.publicKey,
+    false, // allowOwnerOffCurve
+    undefined, // commitment
+    undefined, // confirmOptions
+    GRID_TOKEN_PROGRAM, // SPL Token-2022
   );
   console.log(`treasury ATA: ${treasuryAta.address.toBase58()}`);
 
-  const currentMint = await getMint(conn, mintPk);
+  const currentMint = await getMint(conn, mintPk, undefined, GRID_TOKEN_PROGRAM);
   if (currentMint.supply === 0n) {
     const atomic = TOTAL_SUPPLY_TOKENS * 10n ** BigInt(DECIMALS); // 10^18
     console.log(`minting initial supply ${TOTAL_SUPPLY_TOKENS} $GRID (atomic=${atomic}) …`);
-    await mintTo(conn, treasury, mintPk, treasuryAta.address, treasury, atomic);
+    await mintTo(conn, treasury, mintPk, treasuryAta.address, treasury, atomic, [], undefined, GRID_TOKEN_PROGRAM);
     console.log('initial supply minted.');
   } else {
     console.log(`mint supply already ${currentMint.supply}; skipping mintTo`);
@@ -218,13 +231,13 @@ async function main() {
   //    LOCK_MINT_AUTHORITY=1.
   if (process.env.LOCK_MINT_AUTHORITY === '1') {
     console.log('locking mint authority (setting to null) — supply is now final');
-    await setAuthority(conn, treasury, mintPk, treasury, AuthorityType.MintTokens, null);
+    await setAuthority(conn, treasury, mintPk, treasury, AuthorityType.MintTokens, null, [], undefined, GRID_TOKEN_PROGRAM);
   } else {
     console.log('mint authority retained on treasury (set LOCK_MINT_AUTHORITY=1 to null it)');
   }
 
   // 5) Final report.
-  const finalMint = await getMint(conn, mintPk);
+  const finalMint = await getMint(conn, mintPk, undefined, GRID_TOKEN_PROGRAM);
   const out = {
     cluster: cli.cluster,
     rpc: endpoint,
@@ -236,7 +249,7 @@ async function main() {
     freeze_authority: finalMint.freezeAuthority?.toBase58() ?? null,
     treasury: treasury.publicKey.toBase58(),
     treasury_ata: treasuryAta.address.toBase58(),
-    token_program: TOKEN_PROGRAM_ID.toBase58(),
+    token_program: GRID_TOKEN_PROGRAM.toBase58(),
     metadata_program: String(MPL_TOKEN_METADATA_PROGRAM_ID),
     metadata_pda: String(metadataPda),
     token_name: TOKEN_NAME,
