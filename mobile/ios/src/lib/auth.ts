@@ -287,10 +287,27 @@ function base64UrlDecode(s: string): string {
   const padded = s.replace(/-/g, '+').replace(/_/g, '/');
   const pad = padded.length % 4;
   const full = pad ? padded + '='.repeat(4 - pad) : padded;
-  // React Native polyfills atob via JSC; in Hermes 0.74+ it's available.
-  // We use Buffer if present, atob otherwise.
+  // Hermes 0.74+ (Expo SDK 54) provides atob natively — the fast path.
   if (typeof atob === 'function') return atob(full);
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { Buffer } = require('buffer');
-  return Buffer.from(full, 'base64').toString('binary');
+  // Pure-JS fallback. Do NOT `require('buffer')` here: Metro resolves
+  // require() statically even behind a runtime guard, and `buffer` is not
+  // a dependency — that import broke the iOS Simulator build and blocked
+  // the entire Maestro UAT gate (#681).
+  const ALPHA =
+    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  const clean = full.replace(/=+$/, '');
+  let out = '';
+  let bits = 0;
+  let acc = 0;
+  for (const c of clean) {
+    const v = ALPHA.indexOf(c);
+    if (v === -1) continue;
+    acc = (acc << 6) | v;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      out += String.fromCharCode((acc >> bits) & 0xff);
+    }
+  }
+  return out;
 }
