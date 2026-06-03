@@ -441,6 +441,52 @@ SELECT provider_id, SUM(cost_cents)::bigint
 	return out, grand, nil
 }
 
+// ListUsageEvents returns a workspace's usage_event rows inside the
+// half-open window [start, end), newest first, plus the page's cost
+// subtotal in cents. typePrefix filters workload_type by prefix so the
+// BANDWIDTH filter also matches the metering consumer's BANDWIDTH_VPN
+// variant; "" means all types. Backs SubscriptionService.ListUsage (#675)
+// — the customer /usage surface that returned 501 until this landed.
+func (s *Store) ListUsageEvents(
+	ctx context.Context,
+	workspaceID uuid.UUID,
+	start, end time.Time,
+	typePrefix string,
+	limit, offset int,
+) ([]UsageEvent, int64, error) {
+	const q = `
+SELECT id, workspace_id, provider_id, workload_id, workload_type,
+       quantity, cost_cents, currency, recorded_at
+  FROM usage_event
+ WHERE workspace_id = $1
+   AND recorded_at >= $2 AND recorded_at < $3
+   AND ($4 = '' OR workload_type LIKE $4 || '%')
+ ORDER BY recorded_at DESC
+ LIMIT $5 OFFSET $6`
+	rows, err := s.pool.Query(ctx, q, workspaceID, start, end, typePrefix, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	var out []UsageEvent
+	var subtotalCents int64
+	for rows.Next() {
+		var e UsageEvent
+		if err := rows.Scan(
+			&e.ID, &e.WorkspaceID, &e.ProviderID, &e.WorkloadID, &e.WorkloadType,
+			&e.Quantity, &e.CostCents, &e.Currency, &e.RecordedAt,
+		); err != nil {
+			return nil, 0, err
+		}
+		subtotalCents += e.CostCents
+		out = append(out, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	return out, subtotalCents, nil
+}
+
 // ── Solana payout + burn rows ───────────────────────────────────────
 
 // SolanaPayout records a $GRID distribution to a provider wallet.
