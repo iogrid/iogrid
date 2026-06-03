@@ -81,6 +81,10 @@ jobs:
           # dry-runs can't resolve the SealedSecret kind→resource mapping.
           kubectl apply -f https://raw.githubusercontent.com/bitnami-labs/sealed-secrets/v0.27.1/helm/sealed-secrets/crds/bitnami.com_sealedsecrets.yaml || \
             kubectl apply -f https://github.com/bitnami-labs/sealed-secrets/releases/download/v0.27.1/controller.yaml || true
+          # Traefik CRDs (IngressRoute / IngressRouteTCP / Middleware /
+          # ServersTransport) — base now ships the working Traefik routing layer
+          # (infra/k8s/traefik, #637), so the dry-runs need these kind mappings.
+          kubectl apply -f https://raw.githubusercontent.com/traefik/traefik/v3.1/docs/content/reference/dynamic-configuration/kubernetes-crd-definition-v1.yml || true
           # Wait briefly for API discovery to refresh
           sleep 5
           kubectl api-resources | grep -E "(tlsroutes|certificates|clusters.postgresql|kustomizations.kustomize.toolkit|prometheusrules|servicemonitors)" || true
