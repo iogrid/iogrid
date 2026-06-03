@@ -76,19 +76,22 @@ func TestRelay_BidirectionalForward(t *testing.T) {
 	// stats counter firing (the forward() returns after the write,
 	// THEN Add runs). Poll instead of asserting once — race-free
 	// without slowing the test on the happy path.
+	wantBytes := uint64(len("hello bob") + len("hi alice"))
 	if err := waitFor(time.Second, func() bool {
-		_, fwd, _, _ := r.StatsSnapshot()
-		return fwd == 2
+		_, fwd, _, bytes := r.StatsSnapshot()
+		// Poll BOTH counters: the frames Add and the bytes Add are
+		// separate atomics with no ordering between them, so frames
+		// can read 2 while the second byte-count Add hasn't landed —
+		// CI hit exactly that as "BytesForwarded = 8, want 17" (#687).
+		return fwd == 2 && bytes == wantBytes
 	}); err != nil {
-		_, fwd, _, _ := r.StatsSnapshot()
-		t.Errorf("FramesForwarded never reached 2 (last=%d): %v", fwd, err)
+		_, fwd, _, bytes := r.StatsSnapshot()
+		t.Errorf("forward counters never settled (frames=%d want 2, bytes=%d want %d): %v",
+			fwd, bytes, wantBytes, err)
 	}
-	_, _, dropped, bytes := r.StatsSnapshot()
+	_, _, dropped, _ := r.StatsSnapshot()
 	if dropped != 0 {
 		t.Errorf("FramesDropped = %d, want 0", dropped)
-	}
-	if bytes != uint64(len("hello bob")+len("hi alice")) {
-		t.Errorf("BytesForwarded = %d, want %d", bytes, len("hello bob")+len("hi alice"))
 	}
 
 	aliceCli.Close()
