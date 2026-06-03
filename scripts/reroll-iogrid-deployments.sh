@@ -40,10 +40,14 @@ SERVICES=(
 changed=0
 for svc in "${SERVICES[@]}"; do
   # Latest gitops-declared digest = the most recent deploy marker for this svc.
+  # `|| true`: under `set -euo pipefail` an empty grep (a service with no harbor
+  # deploy marker yet, e.g. admin before its first harbor build) returns non-zero
+  # and would abort the whole script — skipping every later service — instead of
+  # falling through to the graceful "no deploy marker" skip below.
   gitops_img="$(git log origin/main --oneline -200 2>/dev/null \
     | grep -iE "infra.${svc}.* deploy " \
     | head -1 \
-    | grep -oE "harbor.openova.io/iogrid/${svc}@sha256:[a-f0-9]+")"
+    | grep -oE "harbor.openova.io/iogrid/${svc}@sha256:[a-f0-9]+" || true)"
   if [[ -z "$gitops_img" ]]; then
     echo "skip  ${svc}: no deploy marker found"
     continue
