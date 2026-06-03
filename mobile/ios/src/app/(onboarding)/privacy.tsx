@@ -55,8 +55,12 @@ export default function PrivacyScreen() {
           </View>
         </View>
 
-        {/* ── Promise checklist card ───────────────────────────── */}
-        <View style={styles.checklistWrap}>
+        {/* ── Centered group: checklist card + copy ────────────────
+            One flex container so the card and the headline read as a
+            single composition (UX pass 2, #684 — previously the card
+            floated alone mid-screen with a dead zone above the
+            bottom-anchored copy). */}
+        <View style={styles.centerGroup}>
           <View
             style={[
               styles.checklist,
@@ -81,17 +85,16 @@ export default function PrivacyScreen() {
               </View>
             ))}
           </View>
-        </View>
 
-        {/* ── Copy ─────────────────────────────────────────────── */}
-        <View style={styles.copy}>
-          <ThemedText style={[styles.headline, { color: theme.text }]}>
-            Privacy by default.
-          </ThemedText>
-          <ThemedText style={[styles.body, { color: theme.textSecondary }]}>
-            iogrid never stores traffic logs. Apple knows your ID; iogrid only
-            sees a salted hash. We can't link your IP back to your account.
-          </ThemedText>
+          <View style={styles.copy}>
+            <ThemedText style={[styles.headline, { color: theme.text }]}>
+              Privacy by default.
+            </ThemedText>
+            <ThemedText style={[styles.body, { color: theme.textSecondary }]}>
+              iogrid never stores traffic logs. Apple knows your ID; iogrid only
+              sees a salted hash. We can't link your IP back to your account.
+            </ThemedText>
+          </View>
         </View>
 
         {/* ── Sign in with Apple CTA ───────────────────────────── */}
@@ -108,7 +111,7 @@ export default function PrivacyScreen() {
             accessibilityRole="button"
           >
             <ThemedText style={[styles.appleLogo, { color: theme.textInverse }]}>
-
+              {''}
             </ThemedText>
             <ThemedText style={[styles.ctaLabel, { color: theme.textInverse }]}>
               Sign in with Apple
@@ -146,15 +149,16 @@ const styles = StyleSheet.create({
   dotActive: {
     width: 24,
   },
-  checklistWrap: {
+  centerGroup: {
     flex: 1,
     paddingHorizontal: Spacing.xl,
-    alignItems: 'center',
     justifyContent: 'center',
+    gap: Spacing.xxl,
   },
   checklist: {
     width: '100%',
     maxWidth: 320,
+    alignSelf: 'center',
     padding: Spacing.xl,
     borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
@@ -182,9 +186,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   copy: {
-    paddingHorizontal: Spacing.xl,
     gap: Spacing.md,
-    marginBottom: Spacing.xl,
   },
   headline: {
     ...TypeScale.displayM,
