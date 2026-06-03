@@ -144,11 +144,14 @@ export default function MainScreen() {
       // `waitToSettleTimeoutMs:0` does NOT suppress that internal
       // wait. A 3000ms hold expired ~1.3s before the assert began
       // (observed: tap-press 20:02:23.6, tap-COMPLETED 20:02:27.9,
-      // assert-RUNNING 20:02:27.9 — hold long gone). 8000ms keeps
-      // CONNECTING observable through the full tap+assert window with
-      // comfortable margin, and reads fine for a real failed connect.
+      // assert-RUNNING 20:02:27.9 — hold long gone). 8000ms held on
+      // normal runners but FLAKED on a slow rerun runner (run
+      // 26910040116 attempt 2: tap+settle ate the whole hold and flow
+      // 05's 5000ms poll expired). 12000ms restores the margin on the
+      // slowest observed runners and still reads fine for a real
+      // failed connect.
       const elapsed = Date.now() - minVisibleStart;
-      const remaining = 8000 - elapsed;
+      const remaining = 12000 - elapsed;
       if (remaining > 0) {
         await new Promise((resolve) => setTimeout(resolve, remaining));
       }
