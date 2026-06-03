@@ -16,7 +16,7 @@
 | **Surface(s)** | Authenticated responsive web (Chromium) · iOS app (jest executed + Maestro-in-CI; not device-walked on this Linux host) |
 | **Tester** | `@p0-474-lonely` (UAT executor) |
 | **Walk date** | 2026-06-03 |
-| **Overall verdict** | 🔴 **FAIL** — core customer surfaces have multiple broken endpoints (usage 501, workloads-list 405, **API-key revoke broken 500/405**). Provider + auth + billing work. See roll-up. |
+| **Overall verdict** | 🟢 **PASS with watch-items** *(updated 2026-06-04)* — every defect this UAT surfaced was fixed + prod-re-verified same-day (#675 usage, #676 revoke, #683 workloads submit, #685 identifiers; #686 money-path fix shipped, re-walk pending deploy). See the roll-up for the current per-journey state. |
 
 ---
 
