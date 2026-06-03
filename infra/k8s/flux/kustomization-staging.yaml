@@ -1,14 +1,22 @@
 ---
 # Reference copy. Authoritative version in iogrid/iogrid-ops.
+#
+# 🔴 SUSPENDED — same off-prod gate as iogrid-prod (#637). NOTE: this
+# targetNamespace is `iogrid` (the PROD namespace), so reconciling
+# overlays/staging here would mutate PROD, not an isolated staging env — it
+# shares the same base and would crashloop identically on the unprovisioned
+# secret-half. Do not unsuspend until #637's 3 gates clear (secrets #640,
+# routing wiring, off-prod RUNTIME validation). See kustomization-prod.yaml.
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
   name: iogrid-staging
   namespace: flux-system
 spec:
+  suspend: true  # 🔴 see header — off-prod validation gate (#637)
   interval: 5m
   path: ./infra/k8s/overlays/staging
-  prune: true
+  prune: false  # false until first adoption is validated off-prod (#637)
   wait: true
   timeout: 10m
   sourceRef:
