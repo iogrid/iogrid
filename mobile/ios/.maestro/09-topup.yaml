@@ -21,12 +21,25 @@ appId: io.iogrid.app
     id: "topup-chip-10000"
 - assertVisible:
     id: "topup-method-apple_pay"
-- assertVisible:
-    id: "topup-continue"
 
 - tapOn:
     id: "topup-chip-2500"
+
+# Continue sits below the payment-methods list — off the CI viewport fold
+# (run 26904727684 failure capture shows the screen ending mid-methods at
+# "Transfer $GRID"). Same below-fold class as 08-settings: scroll to it
+# before asserting/tapping. The Top up screen itself renders correctly.
+- scrollUntilVisible:
+    element:
+      id: "topup-method-card"
+    direction: DOWN
 - tapOn:
     id: "topup-method-card"
+- scrollUntilVisible:
+    element:
+      id: "topup-continue"
+    direction: DOWN
+- assertVisible:
+    id: "topup-continue"
 
 - takeScreenshot: 09-topup
