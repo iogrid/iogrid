@@ -1,14 +1,16 @@
 # billing-svc
 
-Bounded context: customer subscriptions (Stripe), provider payouts (Stripe Connect cash tier + Solana $GRID token tier), metering aggregation, quarterly 1099 generation.
+Bounded context: prepaid **$GRID** session settlement (the core billing model — customers pre-fund a $GRID balance with a capped grace window), Stripe top-up / subscription checkout, provider payouts (Stripe Connect cash tier + Solana $GRID token tier), metering aggregation, quarterly 1099 generation.
 
-See `docs/BUSINESS-STRATEGY.md` §4 (Currency model — $GRID + fiat hybrid) for the deflationary $GRID flow and `docs/ARCHITECTURE.md` §"Coordinator" for the architectural placement.
+$GRID is an SPL **Token-2022** mint with **9 decimals** (never 6). The mainnet mint is **not deployed**; devnet mint is `BaQvWwb1wUGvWJXPEUbLEwPeeYMd4sKvp2S7obzTWorR`. See `docs/BUSINESS-STRATEGY.md` §4 (Currency model) and `docs/ARCHITECTURE.md` §"Coordinator" for placement.
 
 ## What's wired
 
 | Subsystem | Status | File |
 |-----------|--------|------|
-| Stripe Checkout (customer subscriptions) | Production-ready | `internal/stripeapi/stripe.go` |
+| $GRID session-settlement meter (`/v1/grid/session-end`, `/v1/grid/balance`) | Wired | `internal/grid/session_meter.go`, `internal/server/grid_handlers.go` |
+| $GRID settlement-worker cron (batched SPL `TransferChecked` per provider wallet) | Wired (PENDING rows until mint deployed) | `internal/grid/settlement_cron.go` |
+| Stripe Checkout (customer subscriptions / top-up) | Production-ready | `internal/stripeapi/stripe.go` |
 | Stripe Customer Portal | Production-ready | `internal/stripeapi/stripe.go` |
 | Stripe webhook router (`checkout.session.completed`, `customer.subscription.*`, `invoice.payment_*`) | Production-ready | `internal/stripeapi/stripe.go` |
 | Stripe Connect Express onboarding | Production-ready | `internal/stripeapi/stripe.go` |
@@ -42,7 +44,7 @@ See `docs/BUSINESS-STRATEGY.md` §4 (Currency model — $GRID + fiat hybrid) for
 | `STRIPE_PRICE_STARTER` | no* | — | Stripe Price id for the Starter plan |
 | `STRIPE_PRICE_GROWTH` | no* | — | Stripe Price id for the Growth plan |
 | `STRIPE_PRICE_ENTERPRISE` | no* | — | Stripe Price id for Enterprise |
-| `WEB_BASE_URL` | no | `https://app.iogrid.org` | Used to construct return URLs |
+| `WEB_BASE_URL` | no | `https://app.iogrid.org` † | Used to construct return URLs |
 | `SOLANA_RPC_URL` | no | `https://mainnet.helius-rpc.com` | Helius / Triton RPC |
 | `SOLANA_HOT_WALLET_KEYPAIR_PATH` | no | — | JSON array of 64 ints (Solana CLI format); mounted as a k8s secret |
 | `GRID_TOKEN_MINT_ADDRESS` | no | — | Empty during Phase 0/1; Solana subsystem boots in stub mode |
@@ -52,6 +54,8 @@ See `docs/BUSINESS-STRATEGY.md` §4 (Currency model — $GRID + fiat hybrid) for
 | `DAILY_PAYOUT_CRON` | no | `5 0 * * *` | Reserved — cron is wired in the k8s CronJob, not the binary loop |
 
 \* Required only when running Stripe-touching code paths. The service degrades cleanly with 503 when a key is missing rather than crashing on boot.
+
+† The `app.iogrid.org` subdomain has been **dropped** in favour of the `iogrid.org` apex (301-redirected). Set `WEB_BASE_URL=https://iogrid.org` in new environments; the compiled-in default still points at the old subdomain (code follow-up flagged in the PR).
 
 ## Stripe setup runbook
 
@@ -66,7 +70,7 @@ See `docs/BUSINESS-STRATEGY.md` §4 (Currency model — $GRID + fiat hybrid) for
    - `invoice.payment_failed`
    Copy the signing secret into `STRIPE_WEBHOOK_SECRET`.
 4. **Stripe Connect.** Stripe Dashboard → Connect → enable *Express* accounts. The `transfers` capability is requested per-account at onboarding, no platform-level config required beyond enabling Connect.
-5. **Smoke test.** `curl -X POST https://api.iogrid.org/billing/v1/subscriptions/<ws-uuid>/checkout -d '{"tier":"STARTER","success_url":"https://app.iogrid.org/billing/ok","cancel_url":"https://app.iogrid.org/billing/no"}'` — expect a `checkout_url` Stripe Checkout link.
+5. **Smoke test.** `curl -X POST https://api.iogrid.org/billing/v1/subscriptions/<ws-uuid>/checkout -d '{"tier":"STARTER","success_url":"https://iogrid.org/billing/ok","cancel_url":"https://iogrid.org/billing/no"}'` — expect a `checkout_url` Stripe Checkout link.
 
 ## Solana hot-wallet provisioning checklist
 

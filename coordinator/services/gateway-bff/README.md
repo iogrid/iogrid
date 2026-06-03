@@ -119,8 +119,9 @@ bounded under churn.
 ## CORS
 
 - `Access-Control-Allow-Origin`: echoed from the request when the
-  request's `Origin` is in `CORS_ALLOWED_ORIGINS` (defaults to
-  `https://app.iogrid.org,https://iogrid.org`). No wildcards.
+  request's `Origin` is in `CORS_ALLOWED_ORIGINS` (compiled-in default
+  still lists `https://app.iogrid.org,https://iogrid.org`; `app.iogrid.org`
+  is being dropped in favour of the `iogrid.org` apex). No wildcards.
 - `Access-Control-Allow-Credentials`: `true`.
 - Allowed methods: GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS.
 - Allowed headers: Authorization, Content-Type, X-Requested-With,
@@ -138,6 +139,7 @@ bounded under churn.
 | `WORKLOADS_SVC_URL`       | `http://workloads-svc:8080`                                   | Connect URL for workloads-svc.                         |
 | `ANTIABUSE_SVC_URL`       | `http://antiabuse-svc:8080`                                   | Connect URL for antiabuse-svc.                         |
 | `BILLING_SVC_URL`         | `http://billing-svc:8080`                                     | Connect URL for billing-svc.                           |
+| `VPN_GATEWAY_URL`         | `http://vpn-gateway:8080`                                     | Control-plane URL for vpn-gateway (consumer VPN).      |
 | `DOWNSTREAM_TIMEOUT`      | `10s`                                                         | Per-call timeout for every Connect client.             |
 | `DOWNSTREAM_RETRIES`      | `2`                                                           | Retries on transient (Unavailable / DeadlineExceeded). |
 | `JWKS_URL`                | `http://identity-svc:8080/v1/.well-known/jwks.json`           | Identity-svc JWKS endpoint.                            |

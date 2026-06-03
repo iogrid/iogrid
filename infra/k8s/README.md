@@ -1,5 +1,23 @@
 # infra/k8s — Kubernetes manifests
 
+> ## 🔴 iogrid is NOT Flux-wired, and `overlays/prod` is NOT a safe live apply
+>
+> The reference Flux Kustomizations (`infra/k8s/flux/`) are **`suspend: true`**.
+> Reconciling / `kubectl apply -k overlays/prod` onto the live cluster
+> **crashloops the stack** — it caused a multi-service prod incident on
+> 2026-06-03 (identity / providers / vpn / proxy-gateway CrashLoopBackOff +
+> `iogrid.org` 502) because the manifests have drifted from the working prod
+> runtime and depend on secrets/routing not yet consolidated (see #636/#637
+> and `infra/k8s/flux/README.md`). `kubectl diff` / `--dry-run=server` are
+> **NOT** sufficient validation — they pass while the apply still breaks.
+>
+> **The ONLY safe deploy today is `scripts/reroll-iogrid-deployments.sh`**,
+> which re-rolls the running Deployments to the image digests pinned in gitops
+> (image-only, namespace-scoped). The Kustomize overlays below remain the
+> source of truth for workload *shape* and are exercised off-prod by CI
+> (`k8s-validate.yml`), but are not applied to prod wholesale until the
+> unsuspend gates in `flux/README.md` clear.
+
 Kustomize layout that targets three environments from one shared base.
 
 ```
@@ -25,7 +43,8 @@ infra/k8s/
 |---|---|---|
 | **kind / local dev** | `kubectl apply -k infra/k8s/overlays/dev` | kind (kindnet, no operators) |
 | **staging** | `kubectl apply -k infra/k8s/overlays/staging` | full operator stack (see below) |
-| **prod** | `kubectl apply -k infra/k8s/overlays/prod` | full operator stack (see below) |
+| **prod (live)** | `scripts/reroll-iogrid-deployments.sh` (image-only) | running prod cluster |
+| **prod (full kustomize apply)** | 🔴 **not safe — see banner above (crashloops prod)** | gated on #637 unsuspend criteria |
 
 ### Why `kubectl apply -k infra/k8s/base` is intentionally not supported
 
@@ -121,6 +140,23 @@ helm install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
 
 Once the operators are healthy, `kubectl apply -k infra/k8s/overlays/staging`
 (or `prod`) applies the full base + the environment-specific patches.
+
+## Data / backups (iogrid-pg)
+
+The prod Postgres is a CloudNativePG `Cluster` (`base/data/postgres.yaml`).
+It does **continuous WAL archiving + PITR** to an **in-cluster MinIO**
+(`base/data/minio-backup.yaml`), via the `barmanObjectStore` stanza pointed
+at `s3://iogrid-backups/cnpg/iogrid-pg` on `minio.iogrid.svc.cluster.local:9000`
+(creds in the `iogrid-pg-backup-s3` SealedSecret). A logical `pg_dump` CronJob
+(`base/data/pg-dump-backup.yaml`) runs as a belt-and-braces stop-gap (#642).
+
+## Network policies
+
+Default-deny NetworkPolicies were **removed** — they are not applied in the
+base. The one NetworkPolicy that remains is a **scoped allow** for `vpn-svc`
+(`base/vpn-svc/networkpolicy.yaml`, `vpn-svc-allow`), permitting ingress from
+gateway-bff / providers-svc / proxy-gateway / web and egress to Postgres /
+NATS / DNS / Traefik / monitoring / billing-svc.
 
 ## CI validation
 

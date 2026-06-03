@@ -13,12 +13,22 @@ Flux Kustomization once the dispatch chain is stable.
 
 ## What's in here
 
+These are the **live Traefik IngressRoutes/Middlewares/Certs captured from the
+working prod runtime on 2026-06-03** (the routing intent `base` references when
+the Flux unsuspend gates clear — see `infra/k8s/flux/README.md`).
+
 | File | Purpose |
 |---|---|
 | `serverstransport-long-lived.yaml` | Disables Traefik→backend idle-conn / read / write timeouts so Connect-RPC bidi streams (`WorkloadDispatchService.Dispatch`) can stay open for the lifetime of a paired daemon (minutes-to-hours). Also enables h2 PING keepalive on the Traefik→backend leg. #271 |
-| `ingressroute-workloads.yaml` | `api.iogrid.org/iogrid.workloads.v1*` → `workloads-svc:8080` (h2c). References the long-lived `ServersTransport` and sets `responseForwarding.flushInterval: 100ms` so server-sent frames (CoordinatorHello, Assignment, TunnelData) reach the daemon within ~100ms instead of being buffered to Traefik's default 1s mark. |
+| `ingressroutes.yaml` | All HTTP IngressRoutes. Highlights: `api.iogrid.org` → `gateway-bff` (with per-prefix routes to identity-svc / providers-svc / vpn-svc / workloads-svc, the last referencing the long-lived `ServersTransport` for the daemon dispatch stream); `iogrid.org` / `www.iogrid.org` apex → `web`; `admin.iogrid.org` → the **separate `admin` Service**; `releases.iogrid.org` → installer redirects; and `app.iogrid.org` → a `redirect-app-to-apex` middleware that **301s the dropped `app` subdomain to the `iogrid.org` apex**. |
+| `middlewares.yaml` | CORS + the `redirect-app-to-apex` redirect + the `releases-*` installer redirects referenced by `ingressroutes.yaml`. |
+| `certificates.yaml` | cert-manager `Certificate` objects for the iogrid hostnames. |
 | `ingressroutetcp-proxy-passthrough.yaml` | `proxy.iogrid.org:443` → `proxy-gateway:443` (TLS passthrough, NOT termination). proxy-gateway speaks SOCKS5-over-TLS; Traefik must NOT terminate TLS at the edge or the SOCKS5 framing gets parsed as HTTP and the customer connection hangs. The Cilium Gateway form of the same intent already lives in `infra/k8s/gateways/tlsroute-proxy.yaml`; this IngressRouteTCP is the live Traefik materialisation until the mothership cuts over. #350 |
-| `ingressroute-admin.yaml` | `admin.iogrid.org` → `web:3000` (same Service that backs `app.iogrid.org`). Post-#383-revert re-scope of the original PR #365: instead of standing up a separate `admin/` Next.js app, the admin surface is just a second Host header that routes into the same `web` Service. The host split still gives us cookie-scope isolation + a clean SSO surface; the host-aware gate lives in `web/src/middleware.ts` (non-admin on admin.* bounces to app.*; any user on app.iogrid.org/admin/* 307-redirects to admin.iogrid.org/admin/*). #407 |
+
+> **Domain model (canonical):** `iogrid.org` is the apex; `app.iogrid.org` has
+> been **dropped** and 301-redirects to the apex; `admin.iogrid.org` is a
+> **separate** Next.js app (its own `admin` Deployment + Service), NOT a Host
+> alias of `web`.
 
 ## Why these exist (issue #271)
 

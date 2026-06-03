@@ -6,7 +6,7 @@ Comprehensive toolkit for testing, monitoring, and benchmarking the iogrid SOCKS
 
 ```bash
 # Set your API key
-export IOGRID_API_KEY='iog_c9a6fbb02c9d31efb1039242f11b58af577b0bc71981e85a5d5d44491d10a6c7'
+export IOGRID_API_KEY='iog_<your-api-key>'
 
 # Build tools
 make build
@@ -18,7 +18,17 @@ make build
 ./get-ip -ipversion ipv4
 ```
 
+> Do NOT commit a real API key in this file. Export it from your shell or
+> a secret store; the examples below use the `iog_<your-api-key>`
+> placeholder.
+
 ## Tools Overview
+
+> This directory currently ships two tools: the `get-ip` Go binary and
+> `speed-test.sh`. The `monitor-provider.sh` and `cleanup-pipeline.sh`
+> sections below describe operator helpers that are NOT checked in here —
+> treat them as a runbook reference, not as files you can run from
+> `tools/proxy/`.
 
 ### 1. `get-ip` — Retrieve Provider's Public IP
 
@@ -236,8 +246,8 @@ cd tools/proxy
 # Build get-ip binary
 go build -o get-ip get-ip.go
 
-# Make scripts executable
-chmod +x speed-test.sh monitor-provider.sh cleanup-pipeline.sh
+# Make the script executable
+chmod +x speed-test.sh
 
 # Verify builds
 ls -lh get-ip speed-test.sh
@@ -259,7 +269,7 @@ ln -s $(pwd)/speed-test.sh ~/.local/bin/iogrid-speed-test
 
 | Variable | Purpose | Example |
 |---|---|---|
-| `IOGRID_API_KEY` | Authentication for proxy | `iog_c9a6fbb02...` |
+| `IOGRID_API_KEY` | Authentication for proxy | `iog_<your-api-key>` |
 | `IOGRID_PROXY_HOST` | Proxy hostname | `proxy.iogrid.org` |
 | `IOGRID_PROXY_PORT` | Proxy port | `443` |
 | `VERBOSE` | Enable debug logging | `1` |
