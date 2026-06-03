@@ -26,6 +26,7 @@ import { router, useFocusEffect } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { ConnectButton, type ConnectState } from '@/components/connect-button';
+import { GearIcon } from '@/components/icons';
 import {
   ConnectionStatus,
   DEFAULT_CONNECTING_STEPS,
@@ -243,10 +244,11 @@ export default function MainScreen() {
             hitSlop={12}
             accessibilityLabel="Open settings"
             accessibilityRole="button"
+            style={({ pressed }) => (pressed ? { opacity: 0.6 } : null)}
           >
-            <ThemedText style={[styles.settingsIcon, { color: theme.textSecondary }]}>
-              ⚙
-            </ThemedText>
+            {/* Drawn SVG gear — the literal `⚙` character it replaces was
+                emoji-grade chrome (#684). */}
+            <GearIcon size={22} color={theme.textSecondary} />
           </Pressable>
         </View>
 

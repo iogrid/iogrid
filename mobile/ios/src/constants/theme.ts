@@ -89,9 +89,13 @@ export const Colors = {
     errorDim: palette.errorRedDim,
 
     // Connect button states
-    ringOff: palette.gray300,
+    ringOff: palette.gray400,
     ringConnecting: palette.gray700, // sweep arc color
     ringConnected: palette.accentGreen,
+    // Disc fills behind the ring — give the control body so it reads as
+    // a button, not a hollow outline (#684 Mullvad-quality pass).
+    connectFill: palette.gray100,
+    connectFillConnected: 'rgba(52, 199, 89, 0.10)',
   },
   dark: {
     // Surfaces — Mullvad uses a near-black not pure black, for OLED comfort
@@ -122,9 +126,12 @@ export const Colors = {
     errorDim: palette.errorRedDim,
 
     // Connect button states
-    ringOff: palette.gray700,
+    ringOff: palette.gray600,
     ringConnecting: palette.gray400,
     ringConnected: palette.accentGreen,
+    // Disc fills behind the ring (see light-scheme note).
+    connectFill: palette.gray800,
+    connectFillConnected: 'rgba(52, 199, 89, 0.16)',
   },
 } as const;
 

@@ -12,6 +12,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 
+import { MeshIllustration } from '@/components/mesh-illustration';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing, TypeScale } from '@/constants/theme';
@@ -47,39 +48,18 @@ export default function WelcomeScreen() {
           </Pressable>
         </View>
 
-        {/* ── Illustration block (ASCII peer-mesh stylization) ── */}
+        {/* ── Illustration — designed SVG mesh (replaces the emoji-house
+            + ASCII-connector cluster, #684): three provider homes, dashed
+            available routes, the live route in the single accent. ── */}
         <View style={styles.illustration}>
-          <View
-            style={[
-              styles.peerCluster,
-              { backgroundColor: theme.backgroundElement, borderColor: theme.border },
-            ]}
-          >
-            <View style={styles.peerRow}>
-              <Peer label="🏠" theme={theme} />
-              <Peer label="🏠" theme={theme} />
-              <Peer label="🏠" theme={theme} />
-            </View>
-            <ThemedText style={[styles.connector, { color: theme.textTertiary }]}>
-              │  │  │
-            </ThemedText>
-            <ThemedText style={[styles.connector, { color: theme.textTertiary }]}>
-              ╲ │ ╱
-            </ThemedText>
-            <ThemedText style={[styles.connector, { color: theme.textTertiary }]}>
-              ▼
-            </ThemedText>
-            <View
-              style={[
-                styles.youNode,
-                { backgroundColor: theme.background, borderColor: theme.text },
-              ]}
-            >
-              <ThemedText style={[styles.youLabel, { color: theme.text }]}>
-                you
-              </ThemedText>
-            </View>
-          </View>
+          <MeshIllustration
+            width={280}
+            line={theme.borderStrong}
+            nodeFill={theme.backgroundElement}
+            nodeBorder={theme.border}
+            ink={theme.text}
+            accent={theme.accent}
+          />
         </View>
 
         {/* ── Copy ─────────────────────────────────────────────── */}
@@ -117,24 +97,6 @@ export default function WelcomeScreen() {
   );
 }
 
-interface PeerProps {
-  label: string;
-  theme: ReturnType<typeof useTheme>;
-}
-
-function Peer({ label, theme }: PeerProps) {
-  return (
-    <View
-      style={[
-        styles.peerNode,
-        { backgroundColor: theme.background, borderColor: theme.borderStrong },
-      ]}
-    >
-      <ThemedText style={styles.peerLabel}>{label}</ThemedText>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   root: { flex: 1 },
   safe: { flex: 1 },
@@ -166,47 +128,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: Spacing.xl,
-  },
-  peerCluster: {
-    alignItems: 'center',
-    paddingVertical: Spacing.xl,
-    paddingHorizontal: Spacing.xxl,
-    borderRadius: 24,
-    borderWidth: StyleSheet.hairlineWidth,
-    gap: Spacing.sm,
-  },
-  peerRow: {
-    flexDirection: 'row',
-    gap: Spacing.md,
-    marginBottom: Spacing.sm,
-  },
-  peerNode: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    borderWidth: StyleSheet.hairlineWidth,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  peerLabel: {
-    fontSize: 24,
-  },
-  connector: {
-    ...TypeScale.monoM,
-    letterSpacing: 4,
-  },
-  youNode: {
-    width: 80,
-    height: 56,
-    borderRadius: 28,
-    borderWidth: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: Spacing.sm,
-  },
-  youLabel: {
-    ...TypeScale.bodyL,
-    fontWeight: '600',
   },
   copy: {
     paddingHorizontal: Spacing.xl,

@@ -68,13 +68,22 @@ export default function RootLayout() {
       <AuthGate />
       <Stack>
         <Stack.Screen name="index" options={{ headerShown: false }} />
-        <Stack.Screen name="regions" options={{ title: 'Region' }} />
-        <Stack.Screen name="settings" options={{ title: 'Settings' }} />
+        {/* regions/settings/topup render their OWN in-screen headers
+            (back/Done + title). The native Stack header on top of those
+            produced a DOUBLE header — and leaked the previous route's
+            name as the back label ("< index") because index hides its
+            header but keeps its route title. headerShown:false kills
+            both defects (#684; visible in the run-2 Maestro captures). */}
+        <Stack.Screen name="regions" options={{ headerShown: false }} />
+        <Stack.Screen name="settings" options={{ headerShown: false }} />
         <Stack.Screen
           name="(onboarding)"
           options={{ headerShown: false, gestureEnabled: false }}
         />
-        <Stack.Screen name="topup" options={{ title: 'Top up', presentation: 'modal' }} />
+        <Stack.Screen
+          name="topup"
+          options={{ headerShown: false, presentation: 'modal' }}
+        />
       </Stack>
     </ThemeProvider>
   );

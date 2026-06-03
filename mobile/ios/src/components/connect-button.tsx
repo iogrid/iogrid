@@ -134,6 +134,14 @@ export function ConnectButton({ state, onPress, innerLabel, disabled }: Props) {
         style={({ pressed }) => [
           styles.pressable,
           { width: size, height: size, borderRadius: size / 2 },
+          // The disc: a filled body so the control reads as a BUTTON, not
+          // a hollow outline (#684). Connected gets a green-tinted fill +
+          // a soft glow — the Mullvad "secured" moment.
+          {
+            backgroundColor:
+              state === 'connected' ? theme.connectFillConnected : theme.connectFill,
+          },
+          state === 'connected' ? [styles.glow, { shadowColor: theme.accent }] : styles.restShadow,
           pressed && !disabled && state !== 'connecting' ? styles.pressed : null,
         ]}
       >
@@ -195,16 +203,28 @@ export function ConnectButton({ state, onPress, innerLabel, disabled }: Props) {
         </View>
       </Pressable>
 
-      {/* External status label — all-caps, letter-spaced (Mullvad pattern) */}
+      {/* External status label — all-caps, letter-spaced, SEMANTICALLY
+          colored (the Mullvad pattern the gray-only label was missing,
+          #684): unsecured reads red, secured reads green. */}
       <ThemedText
         testID="status-label"
-        style={[styles.statusLabel, { color: theme.textSecondary }]}
+        style={[
+          styles.statusLabel,
+          {
+            color:
+              state === 'off'
+                ? theme.error
+                : state === 'connecting'
+                  ? theme.textSecondary
+                  : theme.accent,
+          },
+        ]}
       >
         {state === 'off'
-          ? 'DISCONNECTED'
+          ? 'UNSECURED CONNECTION'
           : state === 'connecting'
-            ? 'CONNECTING…'
-            : 'CONNECTED'}
+            ? 'CREATING SECURE CONNECTION…'
+            : 'SECURE CONNECTION'}
       </ThemedText>
     </ThemedView>
   );
@@ -222,8 +242,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   pressed: {
-    opacity: 0.85,
-    transform: [{ scale: 0.98 }],
+    opacity: 0.9,
+    transform: [{ scale: 0.96 }],
+  },
+  // Resting elevation — the disc floats slightly off the canvas.
+  restShadow: {
+    shadowColor: '#000000',
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
+  },
+  // The secured-state glow: a soft halo in the accent hue.
+  glow: {
+    shadowOpacity: 0.45,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 10,
   },
   innerLabelWrap: {
     alignItems: 'center',
