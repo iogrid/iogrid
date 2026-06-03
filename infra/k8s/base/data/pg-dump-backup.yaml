@@ -1,0 +1,98 @@
+---
+# Stop-gap logical backups for iogrid-pg (#642). The CNPG barmanObjectStore
+# WAL archiving is down (missing Hetzner creds → ContinuousArchiving=False, no
+# PITR). Until those creds land, this CronJob gives us SOMETHING: scheduled
+# pg_dump of every per-service database to a local PVC, with 7-day retention.
+# Additive + read-only on the DB — safe to apply standalone (NOT the gated
+# overlays/prod apply). Logical dumps ≠ PITR, but ≫ the current zero backups.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: iogrid-pg-dump
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: iogrid-pg-dump
+    app.kubernetes.io/part-of: iogrid
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: iogrid-pg-dump
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: iogrid-pg-dump
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: backup
+spec:
+  schedule: "0 */6 * * *"   # every 6h
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 1800
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: iogrid-pg-dump
+            app.kubernetes.io/part-of: iogrid
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 26          # postgres uid in the CNPG image
+            runAsGroup: 26
+            fsGroup: 26
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: pg-dump
+              image: ghcr.io/cloudnative-pg/postgresql:16.4
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              env:
+                - name: PGHOST
+                  value: iogrid-pg-rw.iogrid.svc.cluster.local
+                - name: PGPORT
+                  value: "5432"
+                - name: PGUSER
+                  valueFrom:
+                    secretKeyRef: { name: iogrid-pg-app, key: username }
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef: { name: iogrid-pg-app, key: password }
+              command: ["/bin/bash", "-c"]
+              args:
+                - |
+                  set -uo pipefail
+                  ts="$(date -u +%Y%m%dT%H%M%SZ)"
+                  rc=0
+                  for db in iogrid identity providers workloads antiabuse billing telemetry; do
+                    out="/backups/${db}-${ts}.sql.gz"
+                    echo "dumping ${db} -> ${out}"
+                    if pg_dump --no-owner --no-privileges -d "$db" | gzip -c > "$out"; then
+                      echo "  ok $(du -h "$out" | cut -f1)"
+                    else
+                      echo "::warning:: dump of ${db} failed"; rm -f "$out"; rc=1
+                    fi
+                  done
+                  echo "pruning dumps older than 7 days"
+                  find /backups -name '*.sql.gz' -mtime +7 -delete 2>/dev/null || true
+                  echo "current backups:"; ls -lh /backups/*.sql.gz 2>/dev/null | tail -20
+                  exit $rc
+              volumeMounts:
+                - name: dumps
+                  mountPath: /backups
+          volumes:
+            - name: dumps
+              persistentVolumeClaim:
+                claimName: iogrid-pg-dump

@@ -4,3 +4,4 @@ resources:
   - postgres.yaml
   - redis.yaml
   - nats.yaml
+  - pg-dump-backup.yaml
