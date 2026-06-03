@@ -43,6 +43,7 @@
     },
     "plugins": [
       "expo-router",
+      "expo-apple-authentication",
       "./plugins/with-network-extension.ts",
       [
         "expo-splash-screen",
