@@ -39,14 +39,14 @@ const PILLARS = [
   },
   {
     h: "Observability",
-    body: "Grafana Alloy + Loki + Mimir + Tempo. OTel traces follow every request from edge ingress through to provider. Audit events stream into NATS JetStream (per-byte ledger). Public transparency report at docs.iogrid.org/transparency rolls quarterly.",
+    body: "Grafana Alloy + Loki + Mimir + Tempo. OTel traces follow every request from edge ingress through to provider. Audit events stream into NATS JetStream (per-byte ledger). Public transparency report at iogrid.org/transparency rolls quarterly.",
   },
 ];
 
 const DISCLOSURE = [
   {
     h: "Responsible disclosure",
-    body: "Email security@iogrid.org. PGP key fingerprint: published at docs.iogrid.org/security/pgp. We acknowledge in 24h, triage in 72h, patch coordinated-disclosure within 90 days. Bounty: $500 (low) to $25k (RCE) per the published rubric.",
+    body: "Email security@iogrid.org. PGP key fingerprint: published at iogrid.org/security. We acknowledge in 24h, triage in 72h, patch coordinated-disclosure within 90 days. Bounty: $500 (low) to $25k (RCE) per the published rubric.",
   },
   {
     h: "Out-of-scope",
