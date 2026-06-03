@@ -61,8 +61,9 @@ export default function ConnectWalletScreen() {
             Connect a wallet
           </ThemedText>
           <ThemedText style={[styles.body, { color: theme.textSecondary }]}>
-            iogrid pays providers in $GRID tokens. Connect Phantom or Ping
-            to top up your balance, or skip and connect later from Settings.
+            iogrid pays providers in $GRID tokens. Connect Phantom to hold
+            your $GRID balance — or skip and connect later from Settings.
+            When you buy VPN, you can pay instantly with Ping.
           </ThemedText>
         </View>
 
