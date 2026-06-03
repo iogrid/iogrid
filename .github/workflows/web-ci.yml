@@ -121,6 +121,11 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=web
           cache-to: type=gha,scope=web,mode=max
+          # Real Apple Team ID baked into the AASA at build time (#629). Falls
+          # back to PLACEHOLDER_TEAMID (Dockerfile default) if the secret is
+          # unset, so the build never breaks.
+          build-args: |
+            NEXT_PUBLIC_APPLE_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}
 
   deploy:
     # CD bump: rewrite infra/k8s/base/web/deployment.yaml to pin the freshly

@@ -13,6 +13,12 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
+# Apple Developer Team ID for the AASA (Universal Links / Ping Direction-B,
+# #629). NEXT_PUBLIC_* must be present at build time — next bakes it into the
+# AASA route's APP_ID. Defaults to PLACEHOLDER_TEAMID when unset (dev builds);
+# web-ci passes the real value from the APPLE_TEAM_ID secret as a build-arg.
+ARG NEXT_PUBLIC_APPLE_TEAM_ID=PLACEHOLDER_TEAMID
+ENV NEXT_PUBLIC_APPLE_TEAM_ID=$NEXT_PUBLIC_APPLE_TEAM_ID
 RUN pnpm build
 
 # ---------- runtime ----------
