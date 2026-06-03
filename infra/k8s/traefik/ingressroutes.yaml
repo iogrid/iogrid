@@ -1,0 +1,316 @@
+# Traefik IngressRoutes for iogrid routing — EXPORTED FROM LIVE prod 2026-06-03 (#637).
+#
+# The WORKING routing layer. The previous per-host orphaned files
+# (ingressroute-*.yaml, now removed) were stale (8 routes vs 16 live, missing
+# api.iogrid.org->gateway-bff, app.iogrid.org, auth/identity, releases). This
+# is the accurate capture from live. References the Middlewares in
+# middlewares.yaml + the cert-manager TLS secrets (iogrid-tls / iogrid-org-tls
+# / iogrid-releases-tls).
+#
+# NOTE: deliberately NOT yet wired into base/kustomization until the #637
+# off-prod routing reconciliation (wiring changes apply output; manifests must
+# not be applied to prod until off-prod-validated). The build currently ships
+# the inert Gateway-API HTTPRoute path (cilium Gateway unprogrammed).
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: admin-iogrid-org
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/part-of: iogrid
+spec:
+  entryPoints:
+  - websecure
+  routes:
+  - kind: Rule
+    match: Host(`admin.iogrid.org`)
+    priority: 100
+    services:
+    - name: admin
+      port: 3000
+  tls:
+    secretName: iogrid-org-tls
+
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: api-iogrid-org
+  namespace: iogrid
+spec:
+  entryPoints:
+  - websecure
+  routes:
+  - kind: Rule
+    match: Host(`api.iogrid.org`)
+    middlewares:
+    - name: cors-app-iogrid
+    services:
+    - name: gateway-bff
+      port: 8080
+  tls:
+    secretName: iogrid-tls
+
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: api-iogrid-org-auth
+  namespace: iogrid
+spec:
+  entryPoints:
+  - websecure
+  routes:
+  - kind: Rule
+    match: Host(`api.iogrid.org`) && PathPrefix(`/v1/auth`)
+    middlewares:
+    - name: cors-app-iogrid
+    priority: 100
+    services:
+    - name: identity-svc
+      port: 8080
+  tls:
+    secretName: iogrid-tls
+
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: api-iogrid-org-identity
+  namespace: iogrid
+spec:
+  entryPoints:
+  - websecure
+  routes:
+  - kind: Rule
+    match: Host(`api.iogrid.org`) && PathPrefix(`/iogrid.identity.v1`)
+    middlewares:
+    - name: cors-app-iogrid
+    priority: 100
+    services:
+    - name: identity-svc
+      port: 8080
+  tls:
+    secretName: iogrid-tls
+
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: api-iogrid-org-providers
+  namespace: iogrid
+spec:
+  entryPoints:
+  - websecure
+  routes:
+  - kind: Rule
+    match: Host(`api.iogrid.org`) && PathPrefix(`/iogrid.providers.v1`)
+    middlewares:
+    - name: cors-app-iogrid
+    priority: 100
+    services:
+    - name: providers-svc
+      port: 8080
+      responseForwarding:
+        flushInterval: 100ms
+      scheme: h2c
+      serversTransport: long-lived-bidi
+  - kind: Rule
+    match: Host(`api.iogrid.org`) && PathPrefix(`/api/v1/providers`)
+    middlewares:
+    - name: cors-app-iogrid
+    priority: 100
+    services:
+    - name: providers-svc
+      port: 8080
+      responseForwarding:
+        flushInterval: 100ms
+      scheme: h2c
+      serversTransport: long-lived-bidi
+  tls:
+    secretName: iogrid-tls
+
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: api-iogrid-org-vpn
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/component: vpn-svc
+    app.kubernetes.io/part-of: iogrid
+spec:
+  entryPoints:
+  - websecure
+  routes:
+  - kind: Rule
+    match: Host(`api.iogrid.org`) && PathPrefix(`/v1/vpn`)
+    middlewares:
+    - name: cors-app-iogrid
+    priority: 100
+    services:
+    - name: vpn-svc
+      port: 8080
+      responseForwarding:
+        flushInterval: 100ms
+      scheme: h2c
+      serversTransport: long-lived-bidi
+  tls:
+    secretName: iogrid-tls
+
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: api-iogrid-org-workloads
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/part-of: iogrid
+spec:
+  entryPoints:
+  - websecure
+  routes:
+  - kind: Rule
+    match: Host(`api.iogrid.org`) && PathPrefix(`/iogrid.workloads.v1`)
+    middlewares:
+    - name: cors-app-iogrid
+    priority: 100
+    services:
+    - name: workloads-svc
+      port: 8080
+      responseForwarding:
+        flushInterval: 100ms
+      scheme: h2c
+      serversTransport: long-lived-bidi
+  tls:
+    secretName: iogrid-tls
+
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: app-iogrid-org
+  namespace: iogrid
+spec:
+  entryPoints:
+  - websecure
+  routes:
+  - kind: Rule
+    match: Host(`app.iogrid.org`)
+    services:
+    - name: web
+      port: 3000
+  tls:
+    secretName: iogrid-tls
+
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: app-iogrid-org-redirect
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/part-of: iogrid
+spec:
+  entryPoints:
+  - websecure
+  - web
+  routes:
+  - kind: Rule
+    match: Host(`app.iogrid.org`)
+    middlewares:
+    - name: redirect-app-to-apex
+    priority: 200
+    services:
+    - name: web
+      port: 3000
+  tls:
+    secretName: iogrid-org-tls
+
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: iogrid-org-apex
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/part-of: iogrid
+spec:
+  entryPoints:
+  - websecure
+  routes:
+  - kind: Rule
+    match: Host(`iogrid.org`) || Host(`www.iogrid.org`)
+    priority: 100
+    services:
+    - name: web
+      port: 3000
+  tls:
+    secretName: iogrid-org-tls
+
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: iogrid-releases
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/part-of: iogrid
+spec:
+  entryPoints:
+  - websecure
+  routes:
+  - kind: Rule
+    match: Host(`releases.iogrid.org`)
+    priority: 100
+    services:
+    - name: releases
+      port: 8080
+  tls:
+    secretName: iogrid-org-tls
+
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: releases-iogrid-org
+  namespace: iogrid
+spec:
+  entryPoints:
+  - websecure
+  routes:
+  - kind: Rule
+    match: Host(`releases.iogrid.org`) && Path(`/latest/iogrid-darwin-arm64.pkg`)
+    middlewares:
+    - name: releases-gh-redirect
+    priority: 200
+    services:
+    - name: web
+      port: 3000
+  - kind: Rule
+    match: Host(`releases.iogrid.org`) && Path(`/latest/iogrid-darwin-amd64.pkg`)
+    middlewares:
+    - name: releases-gh-redirect-amd64-pkg
+    priority: 200
+    services:
+    - name: web
+      port: 3000
+  - kind: Rule
+    match: Host(`releases.iogrid.org`) && Path(`/latest/iogrid-windows-x64.msi`)
+    middlewares:
+    - name: releases-gh-redirect-win-msi
+    priority: 200
+    services:
+    - name: web
+      port: 3000
+  - kind: Rule
+    match: Host(`releases.iogrid.org`)
+    middlewares:
+    - name: releases-gh-fallback
+    priority: 100
+    services:
+    - name: web
+      port: 3000
+  tls:
+    secretName: iogrid-releases-tls
