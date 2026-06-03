@@ -1,6 +1,6 @@
 # Phase 0 customer demo — vCard LinkedIn enrichment
 
-This is the runnable companion to [`docs/PHASE0_FIRST_CUSTOMER.md`](../../docs/PHASE0_FIRST_CUSTOMER.md)
+This is the runnable companion to [`docs/PHASE0_FIRST_CUSTOMER.md`](../../docs/archive/2026-05-21-phase0-first-customer.md)
 and the canonical example of iogrid's first internal customer per
 [`docs/ROADMAP.md`](../../docs/ROADMAP.md) Phase 0.
 
@@ -224,6 +224,6 @@ JSON results back to a webhook (default `https://vcard-api.dynolabs.io/v1/enrich
 - For the marketing-facing customer success story see the
   [iogrid landing page customers section](../../marketing/app/page.tsx).
 - For the full Phase 0 onboarding walkthrough see
-  [`docs/PHASE0_FIRST_CUSTOMER.md`](../../docs/PHASE0_FIRST_CUSTOMER.md).
+  [`docs/PHASE0_FIRST_CUSTOMER.md`](../../docs/archive/2026-05-21-phase0-first-customer.md).
 - For the proxy workload docs see
   [docs.iogrid.org/workloads/proxy](../../docs-site/src/content/docs/workloads/proxy.mdx).

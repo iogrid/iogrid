@@ -143,14 +143,14 @@ of the Phase 0 blocker need separate work:
   `infra/k8s/gateways/*.yaml` manifests get translated to Traefik
   `IngressRoute`/`IngressRouteTCP`, or (b) the mothership finishes the
   Traefik → Cilium Gateway migration. This is mothership-side work; see
-  the Layer 3 section of [`docs/PHASE0-UNBLOCK.md`](../docs/PHASE0-UNBLOCK.md).
+  the Layer 3 section of [`docs/PHASE0-UNBLOCK.md`](../docs/archive/2026-05-21-phase0-unblock.md).
 
 - **Layer 1** (Mac daemon not installed) — solved by
   [`installer/macos/install-iogridd.sh`](../installer/macos/install-iogridd.sh).
   Run that AFTER Layers 2 and 3 are green, so the daemon has a working
   coordinator to pair against.
 
-See [`docs/PHASE0-UNBLOCK.md`](../docs/PHASE0-UNBLOCK.md) for the full
+See [`docs/PHASE0-UNBLOCK.md`](../docs/archive/2026-05-21-phase0-unblock.md) for the full
 step-by-step runbook.
 
 ---

@@ -1,7 +1,7 @@
 # Lessons learned
 
 > **WHAT:** Operator field notes — one file per topic, written after a non-trivial incident or insight.
-> **AUTHORITY:** Not canon; experiential. Promote a lesson to [`../PRINCIPLES.md`](../PRINCIPLES.md) (when written) once it's been confirmed across 2+ incidents.
+> **AUTHORITY:** Not canon; experiential. Promote a lesson to the project engineering principles (see `CLAUDE.md` at the repo root) (when written) once it's been confirmed across 2+ incidents.
 
 ## How to add a lesson
 

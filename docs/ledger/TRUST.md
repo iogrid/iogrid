@@ -2,7 +2,7 @@
 
 > **WHAT:** Verification ledger for every claimed-done item.
 > **AUTHORITY:** LIVE state, cron-refreshed alongside [`TRACKER.md`](./TRACKER.md). Authoritative answer to "is X actually verified-on-a-fresh-prov?"
-> **POINTER:** Engineering principles + anti-pattern catalog → [`../PRINCIPLES.md`](../PRINCIPLES.md) (when written) or repo-level [`../../CLAUDE.md`](../../CLAUDE.md) §3.
+> **POINTER:** Engineering principles + anti-pattern catalog → the project engineering principles (see `CLAUDE.md` at the repo root) (when written) or repo-level [`../../CLAUDE.md`](../../CLAUDE.md) §3.
 
 Every claimed-done item is in one of four states:
 
