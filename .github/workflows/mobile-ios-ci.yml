@@ -928,12 +928,21 @@ jobs:
         # (bundle-id mismatch → code-sign failure).
         run: |
           cd ios
+          # LIBRARY_SEARCH_PATHS: the WireGuardKitGo target links `-lwg-go`, but
+          # the wg-go build step only PLACES the iphonesimulator libwg-go.a (in
+          # sim-build's products dir). The device (iphoneos) variant is built at
+          # $RUNNER_TEMP/wg-go-iphoneos/libwg-go.a but was never on the archive
+          # linker's search path → `ld: library 'wg-go' not found` → ARCHIVE
+          # FAILED (#575). Add the absolute device dir to LIBRARY_SEARCH_PATHS so
+          # the PacketTunnelProvider extension links. Absolute path (not the
+          # cwd-relative form that failed as Plan C for the sim build).
           xcodebuild archive \
             -workspace *.xcworkspace \
             -scheme "${{ steps.scheme.outputs.scheme }}" \
             -configuration Release \
             -destination "generic/platform=iOS" \
-            -archivePath $RUNNER_TEMP/app.xcarchive
+            -archivePath $RUNNER_TEMP/app.xcarchive \
+            LIBRARY_SEARCH_PATHS="\$(inherited) $RUNNER_TEMP/wg-go-iphoneos"
 
       - name: Export IPA (manual zip from archive)
         # Xcode 26 on macos-latest broke `xcodebuild -exportArchive`.
