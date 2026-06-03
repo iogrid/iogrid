@@ -67,13 +67,35 @@ export function WorkloadsPanel() {
   const onSubmit = async () => {
     setSubmitting(true);
     try {
+      // The Workload proto requires exactly ONE typed payload (oneof
+      // bandwidth|docker|gpu|ios_build). The previous flat
+      // {type, category, destination} shape never matched the contract —
+      // protojson silently dropped the unknown fields and workloads-svc
+      // rejected the empty oneof ("exactly one of ... must be set"), so
+      // every UI submission failed (#683, layer 2). Build the typed
+      // payload from the form fields per selected type.
+      const url =
+        destination && !/^https?:\/\//.test(destination)
+          ? `https://${destination}`
+          : destination;
+      const payload =
+        type === "WORKLOAD_TYPE_BANDWIDTH"
+          ? { bandwidth: { targetUrl: url || "", category } }
+          : type === "WORKLOAD_TYPE_DOCKER"
+            ? { docker: { image: destination } }
+            : type === "WORKLOAD_TYPE_GPU"
+              ? { gpu: { image: destination } }
+              : { iosBuild: { sourceTarballS3Key: destination } };
       const res = await browserApi().post<{ workloadId?: UUIDValue }>(
         "/api/v1/customer/workloads",
         {
           workload: {
             type,
-            category,
-            destination: destination || undefined,
+            // Stamp the workspace so the workload lands in (and lists from)
+            // this workspace — the live probe showed it persisting with an
+            // empty workspaceId otherwise, invisible to the filtered list.
+            ...(wsId ? { workspaceId: { value: wsId } } : {}),
+            ...payload,
           },
         },
       );
