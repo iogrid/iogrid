@@ -2,7 +2,7 @@
  * bff-proxy — same-origin Next.js Route Handler → gateway-bff bridge.
  *
  * Why this exists (issue #237):
- *   Browser fetches from `app.iogrid.org` to `api.iogrid.org/api/v1/*`
+ *   Browser fetches from `iogrid.org` (apex) to `api.iogrid.org/api/v1/*`
  *   were returning HTTP 401 because the web uses NextAuth (cookies)
  *   and gateway-bff requires an identity-svc Bearer JWT — no bridge.
  *

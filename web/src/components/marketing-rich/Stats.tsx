@@ -1,5 +1,5 @@
 // Static placeholder stats. Phase 1+ will fetch from coordinator API at build time
-// (revalidate=300) or render live via a separate edge endpoint at app.iogrid.org.
+// (revalidate=300) or render live via a separate edge endpoint at iogrid.org.
 
 const stats: Array<{ label: string; value: string; note?: string }> = [
   { label: "Active providers", value: "—", note: "live counter Phase 1" },

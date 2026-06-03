@@ -11,7 +11,7 @@
 #
 # Env knobs (all optional):
 #   $env:IOGRID_VERSION       pin release; default = "latest"
-#   $env:IOGRID_BASE_URL      onboarding host (default app.iogrid.org)
+#   $env:IOGRID_BASE_URL      onboarding host (default iogrid.org)
 #   $env:IOGRID_RELEASE_URL   binary CDN (default releases.iogrid.org)
 #   $env:IOGRID_NO_DOCKER=1   skip Docker install
 #   $env:IOGRID_NO_OPEN=1     don't auto-launch browser
@@ -32,7 +32,7 @@ $ErrorActionPreference = 'Stop'
 # ---------------------------------------------------------------------------
 
 $Script:IOGRID_VERSION     = if ($env:IOGRID_VERSION)     { $env:IOGRID_VERSION }     else { 'latest' }
-$Script:IOGRID_BASE_URL    = if ($env:IOGRID_BASE_URL)    { $env:IOGRID_BASE_URL }    else { 'https://app.iogrid.org' }
+$Script:IOGRID_BASE_URL    = if ($env:IOGRID_BASE_URL)    { $env:IOGRID_BASE_URL }    else { 'https://iogrid.org' }
 $Script:IOGRID_RELEASE_URL = if ($env:IOGRID_RELEASE_URL) { $env:IOGRID_RELEASE_URL } else { 'https://releases.iogrid.org' }
 $Script:IOGRID_NO_DOCKER   = if ($env:IOGRID_NO_DOCKER)   { [bool][int]$env:IOGRID_NO_DOCKER } else { $false }
 $Script:IOGRID_NO_OPEN     = if ($env:IOGRID_NO_OPEN)     { [bool][int]$env:IOGRID_NO_OPEN }   else { $false }
