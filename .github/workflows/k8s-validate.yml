@@ -76,6 +76,11 @@ jobs:
           # Cilium CRDs (CiliumNetworkPolicy) — needed for issue #35 SPIFFE
           # mutual-auth policies to resolve kind→resource mappings.
           kubectl apply --server-side -f https://raw.githubusercontent.com/cilium/cilium/v1.16.3/pkg/k8s/apis/cilium.io/client/crds/v2/ciliumnetworkpolicies.yaml || true
+          # SealedSecret CRD (bitnami) — base now ships SealedSecrets for the
+          # per-svc + backup-store creds (#640, #642); without this CRD the
+          # dry-runs can't resolve the SealedSecret kind→resource mapping.
+          kubectl apply -f https://raw.githubusercontent.com/bitnami-labs/sealed-secrets/v0.27.1/helm/sealed-secrets/crds/bitnami.com_sealedsecrets.yaml || \
+            kubectl apply -f https://github.com/bitnami-labs/sealed-secrets/releases/download/v0.27.1/controller.yaml || true
           # Wait briefly for API discovery to refresh
           sleep 5
           kubectl api-resources | grep -E "(tlsroutes|certificates|clusters.postgresql|kustomizations.kustomize.toolkit|prometheusrules|servicemonitors)" || true
