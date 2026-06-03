@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { MarketingShell } from "@/components/marketing/marketing-shell";
 import { PageHero } from "@/components/marketing/page-hero";
+import { StatusPageClient } from "./status-page-client";
 
 export const metadata: Metadata = {
   title: "Status",
@@ -13,15 +14,13 @@ export const metadata: Metadata = {
  * Status landing — folded from marketing/app/status/page.tsx into
  * web/'s design system during EPIC #422 Phase 3.
  *
- * NOTE (#668, 2026-06-03): this page previously linked to a dedicated
- * `status.iogrid.org` subdomain dashboard, but that subdomain was never
- * actually served — its routing is a Gateway-API HTTPRoute
- * (`gateways/httproute-status.yaml`) which is inert because the cluster
- * routes via Traefik, and no status backend was deployed, so the link
- * dead-ended at a raw `404 page not found`. Until a real status dashboard
- * ships (port the StatusPageClient polling island from marketing/, or stand
- * up the subdomain behind a Traefik IngressRoute + backend), this page links
- * only to surfaces that actually resolve: the live API health check.
+ * #674 (2026-06-04): the real dashboard. The StatusPageClient island
+ * polls /status/feed (same-origin route handler → gateway-bff public
+ * /status/posture proxy → telemetry-svc's posture generator) and
+ * renders overall posture, per-service SLO budgets, and incidents.
+ * The previous version of this page only linked the raw healthz
+ * endpoint (see #668 for why the status.iogrid.org subdomain was
+ * abandoned in favour of this apex page).
  */
 export default function StatusPage() {
   return (
@@ -31,26 +30,25 @@ export default function StatusPage() {
         title="System status."
         subtitle={
           <>
-            Live API health and incident updates. A full per-service uptime
-            dashboard is on the way.
+            Live per-service posture, SLO budgets, and incident history —
+            straight from the telemetry plane.
           </>
         }
       />
 
       <section className="border-b border-border">
         <div className="mx-auto max-w-3xl px-6 py-16">
-          <p className="text-base leading-relaxed text-muted-foreground">
-            You can check the live health of the iogrid API directly at the
-            health endpoint, which reports{" "}
+          <StatusPageClient />
+          <p className="mt-10 text-sm leading-relaxed text-muted-foreground">
+            Prefer raw signals? The API health endpoint reports{" "}
             <code className="rounded bg-muted px-1.5 py-0.5 text-sm">
               {`{"status":"ok"}`}
             </code>{" "}
-            when the platform is serving. A full dashboard with SLO budgets,
-            incident history, and 90-day per-service uptime is in progress.
+            when the platform is serving.
           </p>
           <Link
             href="https://api.iogrid.org/healthz"
-            className="mt-8 inline-flex items-center gap-2 rounded-md bg-primary px-5 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            className="mt-4 inline-flex items-center gap-2 rounded-md border border-border px-4 py-2 text-sm font-medium transition-colors hover:bg-muted"
           >
             Check live API health
           </Link>

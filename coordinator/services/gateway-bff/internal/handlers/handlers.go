@@ -80,6 +80,10 @@ type API struct {
 	// GET /api/v1/customer/billing/balance responds 503 so the web
 	// surface renders an explicit "balance unavailable" banner (#632/#417).
 	BillingSvcBaseURL string
+	// TelemetrySvcURL backs the public /status/posture + /status/uptime
+	// proxy feeding the iogrid.org/status dashboard (#674). Optional —
+	// when empty those endpoints respond 503 unavailable.
+	TelemetrySvcURL string
 }
 
 // New constructs an API. logger defaults to slog.Default(). store

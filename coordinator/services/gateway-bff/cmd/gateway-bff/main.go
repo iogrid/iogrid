@@ -135,6 +135,7 @@ func main() {
 		Transparency:             transparencyStore,
 		TransparencyPublishToken: os.Getenv("TRANSPARENCY_PUBLISH_TOKEN"),
 		BillingSvcBaseURL:        cfg.BillingSvcURL,
+		TelemetrySvcURL:          cfg.TelemetrySvcURL,
 	}
 
 	if err := sharedserver.Run(ctx, sharedserver.Options{

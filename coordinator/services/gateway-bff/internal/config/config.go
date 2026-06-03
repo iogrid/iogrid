@@ -36,6 +36,9 @@ type Config struct {
 	// The BFF proxies the per-platform config download request to this
 	// endpoint via /v1/config/render.
 	VPNGatewayURL    string `env:"VPN_GATEWAY_URL"    envDefault:"http://vpn-gateway:8080"`
+	// TelemetrySvcURL backs the public /status/* proxy (posture + uptime
+	// feeds for the iogrid.org/status dashboard, #674).
+	TelemetrySvcURL  string `env:"TELEMETRY_SVC_URL"  envDefault:"http://telemetry-svc:8080"`
 
 	// Downstream timeouts ------------------------------------------------
 

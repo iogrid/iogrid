@@ -62,6 +62,9 @@ type Deps struct {
 	// customer prepaid-balance handler (#632). When empty the
 	// /api/v1/customer/billing/balance route returns 503.
 	BillingSvcBaseURL string
+	// TelemetrySvcURL backs the public /status/posture + /status/uptime
+	// proxy (#674). When empty those routes return 503.
+	TelemetrySvcURL string
 }
 
 // Mount builds the routes from the supplied Deps. Pass the returned
@@ -82,6 +85,7 @@ func Mount(deps Deps) func(chi.Router) {
 	api.Workspaces = deps.Workspaces
 	api.OffRamp = deps.OffRamp
 	api.BillingSvcBaseURL = deps.BillingSvcBaseURL
+	api.TelemetrySvcURL = deps.TelemetrySvcURL
 	// Phase 0: default to an in-memory customer-onboard store so
 	// POST /api/v1/onboard/customer works end-to-end without further
 	// wiring. Phase 1 swaps this for the identity-svc-backed impl.
@@ -102,6 +106,12 @@ func Mount(deps Deps) func(chi.Router) {
 			r.Get("/", api.ListTransparencyReports)
 			r.Get("/{year}/{quarter}", api.GetTransparencyReport)
 		})
+
+		// Public status-page feeds (#674) — unauthenticated by design: a
+		// status page must answer while sign-in (or anything else) is
+		// down. Read-only proxies onto telemetry-svc's pinned paths.
+		r.Get("/status/posture", api.StatusPosture)
+		r.Get("/status/uptime", api.StatusUptime)
 
 		r.Route("/api/v1", func(r chi.Router) {
 			if len(deps.Config.CORSAllowedOrigins) > 0 {
