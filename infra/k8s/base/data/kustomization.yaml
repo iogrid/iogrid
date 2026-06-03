@@ -6,3 +6,5 @@ resources:
   - nats.yaml
   - pg-dump-backup.yaml
   - minio-backup.yaml
+  - iogrid-pg-backup-s3.sealed.yaml
+  - iogrid-minio-root.sealed.yaml

@@ -1,0 +1,21 @@
+---
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
+metadata:
+  annotations:
+    sealedsecrets.bitnami.com/namespace-wide: "true"
+  creationTimestamp: null
+  name: iogrid-pg-backup-s3
+  namespace: iogrid
+spec:
+  encryptedData:
+    ACCESS_KEY_ID: AgAnjTjTbOPX+ULhXmeI2nvef4JIXgFiqVgjoNsK0sQ1lx51MmzigtiM1j73WF5a9uyRQXmo4Nt2zpdMbKPJfEmgLHXIW0NTRnXOO4PPBd+41GjhydkSnDwDcIUw1d+ASPmF0E1wr7cW1KolkzD3Xr7i7enOD4R+tGtp5fJSbr/tqoyr1v0qdSecyzu3tAIgxXTYgo9Lv4Fmta5lzpn0wbUvImvTi37L/hax4d03IiAx+EwMciA3lHXMB9hPqlj+MJzPcBcu86pu7JDc4ztO3qSx93p9MHchVE0axarlLJA9z4ZdMeIjwPm6vKS7ojQsBb/lyrOEZyQkDr16hn8vNG2K7DXODUWPcrrBfkXIg6pAuYxpW/FBR4L8wrEPZw4+CiqfBlZqVe9JQCbvhGc3mD9FdhoAfQRoVWDdkhWsrATxRVr22ouFqqN5y5Jhulyg2Dgbu2sZdTeWbuw5oQTmZUkrzi0UCDWd6RwkQ106ILBwSQ+UM8qq05CYSdJhiFNhrMq4jkjcv+Jw7XtdP//eoucEeDDTt8kQaNee9TRD08augJOeB845P2Ps4u3DDBUJo5T0b1XLuUuu9d1vXqP91NjnT70A/pHX2BFXJfTl5Y0PxkCLFOyqGz/mbSpogarvsdxakAP1D0zoOWmBI68CZqa3DBI+udtnQ+8yhpN3t4swpcRJ6kNIaoa+BaNfu2FV0etSK785DY8OqhlEEvHL8HT2qFPW
+    SECRET_ACCESS_KEY: AgAFCPrCJTHlyNBvnQolBKliP23PtyN6vlbC/Pm/im5QPVByXOYoYnp9AbrPgYqBlopBgciritwXVYZttRtGRVR4RImT5XpaEQoRVgl/yJsC8JrR9v+canoC0VMelEZYRNlDYNkjWoIvVkLByQvUbPwbuR+kGf/9luyePA1s/6qEEyNJHrAR0CyH+Z8ljC5Taj4HhSTds5uOVqavIAtuZpvkvWpX/IxVONrXFkqTeilNhnLY5c0NyDkEJBxD4+Xd7b21f6kpB/GBLe45V8wGKmMzqsU+ptkpw4JvjlnHPRsCWzQTF0k97bTPYhMCBfDJweUd0w/w3iyO9hATme0sVL3ielh7BilHusM78hxahnw27t47kp+hFat8P1cbwHeCRPRAlxkIHCz//Mzz1wE3ef6G02Iq3y0NRJigNn10DdGWwbBDIROgIOvyoHrieIfq2+0is+wVHFE4bwZ870ZLImEftbOOiuXizY5MoKrHtVgeN8nm9GXnGwWq1UN/C20r/alap+qxLvz1DssPt1qVkIqMoD1gJFr846q9ObKXH5VuNaPBNBQiZG+wLdSycga4L/VPZCD7Qo55fwBHPnQn9cgChpp5NwTNQYBgJy+cgYsPXdhphZYmpTua690UkxdFc2omaM9MMiWjf6zc7IrJ8jPxLKCBtE7zYLJiA9PC5I9p92W1pcp1R0rafDA98nJnXN5AryKY9Jj3+ZIFnRp+LRgdxWWj32HCeOgq2IcI/7ERpQp+aRbuCznl
+  template:
+    metadata:
+      annotations:
+        sealedsecrets.bitnami.com/namespace-wide: "true"
+      creationTimestamp: null
+      name: iogrid-pg-backup-s3
+      namespace: iogrid
+    type: Opaque

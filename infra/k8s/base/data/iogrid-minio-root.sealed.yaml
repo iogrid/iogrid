@@ -1,0 +1,21 @@
+---
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
+metadata:
+  annotations:
+    sealedsecrets.bitnami.com/namespace-wide: "true"
+  creationTimestamp: null
+  name: iogrid-minio-root
+  namespace: iogrid
+spec:
+  encryptedData:
+    MINIO_ROOT_PASSWORD: AgAQxNtap250i0sBkEZ4sjxqJD4GMRUL8qBv7F+EpUEjEJ+uTVXY7Uqkv9U3Z7ZsU5IFkrZij2nMw2TxE3y8AXpac7J12LkppztcJIH0ayYxqpzZSzezRc1kfmZls6mBTltwUvJGKb8PpECk8Agj+i4FiqtyRy8kxkS8Yn4NvgYAUDGr3CZe/9KelTa6da7ucrhhcdlPTJlIseqmfTABqLZpt8z+OcbbslpIUIcbVv5UiuLkNl7eyBJbv3cEVpVMkfyaCq7RUlD2ytQ+M/r/64DBmMCDXd2Yt+XFLYxs96nLq7Wx/ufrIhZmSMyGNOcFKSHtrjYPk+nGNVSF6KGaMpo+KJ0due00MvNnlYIQ4sRV+g7u5qOgVAt+krlN0olmjb//XG8GnyKrC+37TjohGmXNk2K9aK40NVvOci2yYhB/1fWjKjIK5X+VK5rAK9vus/2FKrnpsnTj8PPBBljGu5b5z9IKSiIe1ebs5G2Zgs9xBrOmZ0zCeyA4hdNrkkiS7h2wylOSexS8ZgZKO8cYL6rmcRUJ/oTnZ+WcpcaX7Uf52gK+YV1e8Q/9d0pL1j2HATt1a2fdvA2ur06bhymVMd19jovP99iH+CfkCXfSVm1sDs51o0bcNiW0m4ew2zDG3JEPUhNtzAyakL9wdgYFDN/U+3/VwkYb1YnVWUY+GpRcxz/rs3Iyzlmqi+UEz8Mmn6BAmwTUbAZAXBLHHpmtEJaNjT4cla71SUGfYORdQsj3e1CuHL0ySbdy
+    MINIO_ROOT_USER: AgA5DGderEu3tIGU+zWOMo7C++e/VEFKbbzLjc3Ov8oa9QpfpKIxL/Ss76jHXlO815gjmNgnADaJ7f2vUrdyToOtej62YyzxRUYY27BYgTOmC/2o4Dq8HeSqbttM1Vdc3Q9J3eg9g1z/ySdtmR3KUpGWGKzk+/lI4WSGqUzgCKDjNVxb9/oARLcMeA+8qp78Nr9Dc0FTD5du4h4dEkVWrVIzSg2lvs7T8LQDhWQpQXU9H0215QKOK+MRMIonnRo14J+r638bBa84rqtM5qiN5QXqJZpoqgJJcss18nkp9NCYVM3MSJmFm5zDm5S291YR3EM1FS2Tghd09BxBP+IjoY1F/pzmZ8HaFj2pedc2ojIrlObP4NAS6T3FRtY2SHSu/97fkBH6Sy1TGAnoyOE44a7Ckw1h2sEnWlDrXoahDLcbclB7OQ2nIC19hv9lKr12yA/K93qfKHkSeexsqF8zy9mhjt3SF9aaOS+XznLtZXsR34m56TDZSd2daOoEMQvTFdNUxuGbytxj5HA3J+f99IIjKbX1OZj5PoKADtCStKU6Pr0XhLqJq/tmAaFmaeMTncJwWav5Mlk7d8SeGnJ/96xtkkq2+DnhJ58A+g2Gh71uXr1exa6tOvoX/aiQ5HEB/D4L1gHFHrBracHpOJgyUMmTROqlHMxT2XTbH8e1vhAwPC5ykhTZCc5LSuA97iWWHBrMWCwkDlBTmVb3H1+Cq5y2Js0y
+  template:
+    metadata:
+      annotations:
+        sealedsecrets.bitnami.com/namespace-wide: "true"
+      creationTimestamp: null
+      name: iogrid-minio-root
+      namespace: iogrid
+    type: Opaque
