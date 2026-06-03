@@ -1,32 +1,25 @@
-// Ping Wallet (openova-group) adapter.
+// Ping Wallet adapter — ⚠️ DEPRECATED / DO NOT EXTEND (#629).
 //
-// Ping does not publish an "external wallet connect" protocol yet —
-// the ping mobile app uses scheme `cash://` internally for its own
-// routes (verified against /home/openova/repos/ping/apps/mobile/app.json).
-// Track 2 of EPIC #581 documents the deeplink CONTRACT that the ping
-// app must honor for the iogrid bind to work:
+// @deprecated The `ping://wallet/connect` "external wallet connect" protocol
+// below was a SELF-INVENTED contract — Ping never published or agreed to it
+// (Ping's own app uses `cash://` internally). Ping's PUBLISHED integration
+// contract (ping-cash:docs/coordination/iogrid-ping-integration.md, ADR 0028/
+// 0029) is NOT a "connect a wallet" model at all: it is a per-payment
+// **Universal-Link handoff** — iogrid opens `https://ping.cash/approve?…`,
+// Ping's Privy-MPC wallet signs an SPL Approve (delegate), and bounces back to
+// `iogrid://vpn/activated?ok=1&signature=<sig>`. That canonical flow lives in
+// `./ping-pay.ts` (buildVpnApproveUrl + parseVpnReturn + verifyApprovalBestEffort).
 //
-//   Request:  ping://wallet/connect?
-//               app=iogrid
-//               &redirect=iogrid://wallet-callback
-//               &challenge=<urlencoded "iogrid:bind:<nonce>:<ts>">
-//   Response: iogrid://wallet-callback?
-//               source=ping
-//               &address=<base58 ed25519 pubkey>
-//               &signature=<base58 ed25519 signature of the challenge>
+// There is therefore no "Ping wallet" to connect — Ping is the payment rail,
+// invoked per transaction via Universal Link, not a wallet bound to the iogrid
+// account. This adapter remains only so the existing wallet-registry / connect-
+// wallet UI keeps compiling; it should be REMOVED once the connect-wallet screen
+// is realigned to drop the Ping-connect option (Phantom stays — it's a real
+// connectable wallet for $GRID balance / SIWS). Tracked on #629.
 //
-// Implementing this on the ping side is tracked in a follow-up issue
-// against the openova-io/ping repo. Until ping ships the receiver, the
-// adapter still launches the deeplink — if ping isn't installed we
-// surface "Get Ping" via the App Store; if ping IS installed but does
-// not implement the route yet, the user sees a wallet app that does
-// nothing useful, which is acceptable v1 because the founder hasn't
-// merged ping's outbound side either.
-//
-// The verification half is identical to Phantom — same SIWS-style
-// ed25519 signature over the same bind challenge — so the server side
-// (internal/wallet/solana_sig_verify.go) treats the two interchangeably
-// and only the `wallet_provider` enum value differs in the bind row.
+// The legacy request/response shape (kept for reference until removal):
+//   Request:  ping://wallet/connect?app=iogrid&redirect=iogrid://wallet-callback&challenge=<…>
+//   Response: iogrid://wallet-callback?source=ping&address=<pubkey>&signature=<sig>
 
 import * as Linking from 'expo-linking';
 
