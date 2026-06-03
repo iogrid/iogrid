@@ -64,7 +64,9 @@
       "eas": {
         "projectId": "TBD-set-via-eas-init"
       },
-      "coordinatorURL": "https://api.iogrid.org"
+      "coordinatorURL": "https://api.iogrid.org",
+      "iogridTokenMintDevnet": "BaQvWwb1wUGvWJXPEUbLEwPeeYMd4sKvp2S7obzTWorR",
+      "iogridTokenMint": ""
     }
   }
 }
