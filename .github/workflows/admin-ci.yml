@@ -138,7 +138,11 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         working-directory: deploy-bump
         env:
-          IMAGE: ghcr.io/iogrid/admin@${{ steps.build.outputs.digest }}
+          # Cluster pulls from harbor (#473); write the HARBOR path so the
+          # deploy marker matches the reroll cron's grep + the manifest points
+          # at the registry the node actually pulls (was ghcr.io → admin ran a
+          # :local placeholder, never auto-deployed; #663). Same content digest.
+          IMAGE: harbor.openova.io/iogrid/admin@${{ steps.build.outputs.digest }}
           COMMIT_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
@@ -171,7 +175,7 @@ jobs:
             echo "no manifest changes — image digest unchanged"
             exit 0
           fi
-          git commit -m "infra(admin): deploy ${IMAGE#ghcr.io/iogrid/admin@} after CI ${COMMIT_SHA:0:12}"
+          git commit -m "infra(admin): deploy ${IMAGE} after CI ${COMMIT_SHA:0:12}"
           for i in 1 2 3 4 5; do
             if git push origin main; then
               echo "push succeeded on attempt $i"
