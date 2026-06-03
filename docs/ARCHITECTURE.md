@@ -72,11 +72,11 @@ iogrid is a single coordinated platform with pluggable workload modules. The sam
 | **Provider daemon** | Rust (stable) | tokio async, single static binary | Smallest binary, lowest RAM/CPU footprint, no GC pauses, memory-safe. ~5 MB statically linked, ~30 MB peak RSS for the supervisor process. |
 | **Coordinator microservices** | Go 1.25+ | grpc-go + connect-go, k8s-native | Matches OpenOva stack patterns, fastest iteration loop, excellent observability ecosystem. |
 | **Management plane** | TypeScript 5.x + Next.js 15 | React Server Components + Edge runtime | Server-first rendering, SEO, instant hot reload. shadcn/ui on Radix primitives, Tailwind 4. |
-| **Data plane** | Postgres 16 (CNPG) + Redis 7 + NATS JetStream | k8s | Postgres-per-service for strong isolation. Redis for hot session/routing state. NATS for cross-service events. |
-| **Object storage** | S3-compatible (Hetzner Object Storage initially) | | Build artifacts, audit log archives. |
+| **Data plane** | Postgres (CloudNativePG, the `iogrid-pg` cluster) + Redis + NATS JetStream | k8s | Postgres-per-service (logical) for isolation; continuous WAL archiving + PITR to an **in-cluster MinIO** today (offsite Hetzner is a follow-up). Redis for hot session/routing state. NATS for cross-service events. |
+| **Object storage** | S3-compatible (in-cluster MinIO; Hetzner Object Storage as a later offsite target) | | Build artifacts, audit log archives, Postgres backups. |
 | **Observability** | OpenTelemetry + Grafana + Loki + Tempo | k8s | Existing OpenOva mothership stack — federated in. |
 | **Service mesh** | Cilium (existing) | k8s | mTLS via SPIFFE-style identities, network policy isolation per microservice. |
-| **CI/CD** | GitHub Actions → ghcr.io + harbor.openova.io (dual-push) → Flux GitOps | k8s | SHA-pinned image deploys. ghcr.io is the public source of truth; `harbor.openova.io/iogrid` is the in-cluster mirror the cluster actually pulls from (bypasses per-package ACLs). The 6h `harbor-mirror-verify` cron catches silent dual-push regressions. See [`runbooks/2026-05-24-harbor-mirror-bypass.md`](./runbooks/2026-05-24-harbor-mirror-bypass.md). |
+| **CI/CD** | GitHub Actions → ghcr.io + harbor.openova.io (dual-push) → `scripts/reroll-iogrid-deployments.sh` (image-only roll) | k8s | SHA-pinned image deploys. ghcr.io is the public source of truth; `harbor.openova.io/iogrid` is the in-cluster mirror the cluster actually pulls from (bypasses per-package ACLs). The 6h `harbor-mirror-verify` cron catches silent dual-push regressions. **iogrid is NOT Flux-wired yet** — the reference Flux Kustomizations are suspended because the committed manifests drifted from working prod; the only safe live deploy is the image-only reroll script. An off-prod runtime-validation gate runs green in CI. See [`runbooks/2026-05-24-harbor-mirror-bypass.md`](./runbooks/2026-05-24-harbor-mirror-bypass.md). |
 
 ---
 
@@ -192,6 +192,8 @@ Each microservice is a separate Go module. Communication via gRPC (internal) + N
 | **gateway-bff** | Web BFF | Backend-for-Frontend for the management plane: aggregates calls across services, handles real-time SSE/WebSocket streams to web clients |
 | **proxy-gateway** | Customer-facing proxy | SOCKS5/HTTP CONNECT entry on `proxy.iogrid.org:443`, TLS termination, dispatches to providers via providers-svc |
 | **build-gateway** | Customer-facing iOS-CI | Receives build jobs, schedules to Mac providers, manages S3 artifact bucket |
+| **vpn-svc** | VPN sessions | Consumer-VPN session bring-up (incl. `POST /v1/vpn/sessions/mobile`), per-session inner-IP allocation, quota/entitlement |
+| **vpn-gateway** | Customer-facing VPN | VPN data-plane ingress; consumes from the same opted-in residential provider pool |
 
 ### 3.2 Why separate services rather than monolith
 
@@ -228,12 +230,12 @@ proto/
 │   └── common/v1/{types.proto, errors.proto}
 ```
 
-Buf lints + breaking-change detection runs in CI. Generated Go bindings to `coordinator/internal/pb/`, TypeScript bindings to `web/lib/pb/`, Rust bindings to `daemon/crates/transport/src/pb/`.
+Buf lints + breaking-change detection runs in CI. Generated Go bindings to `coordinator/internal/pb/`, TypeScript bindings to `web/src/lib/pb/`, Rust bindings to `daemon/crates/transport/src/pb/`.
 
 ### 3.6 Federated deployment plan
 
-- **Initial (Phase 0–1):** single coordinator deployment on existing mothership k8s. All microservices in `iogrid` namespace. Cilium ClusterMesh not needed (single region).
-- **Mid (Phase 2):** migration to dedicated OpenOva instance (larger Contabo box or AWS/Hetzner cluster). All k8s manifests in `iogrid/iogrid-ops` repo, Flux-managed. Zero-downtime migration via dual-coordinator phase (old + new accept traffic, providers reconnect to new, old decommissioned).
+- **Initial (Phase 0–1):** single coordinator deployment on existing mothership k8s. All microservices in `iogrid` namespace. Cilium ClusterMesh not needed (single region). K8s manifests live in this repo under `infra/k8s/`; they are **not Flux-reconciled yet** (reference Kustomizations suspended), so deploys roll via `scripts/reroll-iogrid-deployments.sh` (image-only) until the manifests are reconciled back to working prod.
+- **Mid (Phase 2):** migration to dedicated OpenOva instance (larger Contabo box or AWS/Hetzner cluster), at which point the manifests are wired into Flux GitOps. Zero-downtime migration via dual-coordinator phase (old + new accept traffic, providers reconnect to new, old decommissioned).
 - **Long-term (Phase 3):** multi-region coordinator (US-East, EU-West, APAC) for latency. Cilium ClusterMesh across regions. Eventually-consistent provider registry replicated cross-region (CRDT or similar). Customer chooses region for proxy traffic (some workloads — geo-targeting — explicitly route by destination region anyway).
 
 ---
@@ -244,7 +246,7 @@ Buf lints + breaking-change detection runs in CI. Generated Go bindings to `coor
 
 ### 4.1 Audience split
 
-The web management plane serves **two distinct user types** through a single Next.js app, route-segmented:
+The user-facing web management plane serves provider, customer, account, and consumer-VPN surfaces through a single Next.js app on the **apex `iogrid.org`**, route-segmented:
 
 | Route prefix | Audience | Surface |
 |--------------|----------|---------|
@@ -252,9 +254,12 @@ The web management plane serves **two distinct user types** through a single Nex
 | `/customer/*` | B2B customers | API keys, usage metrics, billing, audit logs, support |
 | `/account/*` | Both | Identity management (linked emails / OAuth providers), preferences |
 | `/vpn/*` | Consumer VPN | Download links, account upgrade, server selection (for paid Plus/Pro tiers) |
-| `/admin/*` | iogrid staff | Abuse review, customer KYC, financial ops |
 
-Single sign-in flow (Google OAuth or magic-link) → user lands on context-appropriate dashboard based on their primary role. Role-switching available in nav (a provider who is also a customer can toggle).
+iogrid **staff/admin tooling** (abuse review, customer KYC, financial ops) lives in a **separate, independent admin app** served from `admin.iogrid.org` — its own codebase, Deployment, CI, and auth session. The admin app never renders provider/customer surfaces, and the user app never renders admin surfaces; the same human needs two distinct sessions.
+
+Sign-in is email **magic-link** (working) plus **Google OAuth** (the button is hidden until a real OAuth client is configured). The user lands on a context-appropriate dashboard based on their primary role. Role-switching is available in nav (a provider who is also a customer can toggle).
+
+> **Note on `app.iogrid.org`:** the `app.` subdomain was **dropped** (EPIC #422). It now 301-redirects to the apex; the product app serves `iogrid.org` directly. Do not treat `app.iogrid.org` as a live surface.
 
 ### 4.2 Stack
 
@@ -308,10 +313,12 @@ User (canonical, immutable)
        └── created_at, last_used_at
 ```
 
-Auth NEVER stores passwords. Two paths only:
+Auth NEVER stores passwords. The web paths:
 
-1. **Google OAuth** — standard authorization-code flow. We pull `email`, `email_verified`, `name`, `picture`, `sub`. Additionally, Google's `id_token` may include `hd` (hosted domain — for Google Workspace users) which feeds enterprise routing.
-2. **Magic link** — user types email; we send a single-use, 10-minute, signed token via Stalwart SMTP. They click → authenticated. Same as Notion, Vercel, Linear.
+1. **Magic link** (working today) — user types email; we send a single-use, 10-minute, signed token via Stalwart SMTP. They click → authenticated. Same as Notion, Vercel, Linear.
+2. **Google OAuth** — standard authorization-code flow. We pull `email`, `email_verified`, `name`, `picture`, `sub`. Additionally, Google's `id_token` may include `hd` (hosted domain — for Google Workspace users) which feeds enterprise routing. **The Google sign-in button is hidden in the UI until a real OAuth client is configured** — magic-link is the live path until then.
+
+On **mobile (iOS)**, the path is **Sign in with Apple** (native ASAuthorization), which mints/links a `kind=apple` identifier through the same identity-svc.
 
 ### 5.2 Account merging — auto when safe
 
@@ -623,17 +630,19 @@ End-state decisions are locked. This section explains *why* each piece is the wa
 
 ### 10.2 DNS record set
 
-All 8 records point at the mothership LB IP `45.151.123.50`. TTL 300 s so we can flip to a dedicated LB IP without operational pain.
+All records point at the mothership LB IP `45.151.123.50`. TTL 300 s so we can flip to a dedicated LB IP without operational pain. The exact record set is whatever `infra/dynadot/iogrid-org-records.json` declares (the source of truth) — the table below is illustrative.
 
 | Hostname               | Type | Value           | Backend                                          |
 |------------------------|------|-----------------|--------------------------------------------------|
-| `iogrid.org`           | A    | 45.151.123.50   | marketing-site                                   |
-| `www.iogrid.org`       | A    | 45.151.123.50   | marketing-site                                   |
+| `iogrid.org`           | A    | 45.151.123.50   | web (Next.js) :3000 — the apex serves the app    |
+| `www.iogrid.org`       | A    | 45.151.123.50   | web (Next.js) :3000                              |
 | `api.iogrid.org`       | A    | 45.151.123.50   | gateway-bff :8080                                |
-| `app.iogrid.org`       | A    | 45.151.123.50   | web (Next.js) :3000                              |
+| `admin.iogrid.org`     | A    | 45.151.123.50   | admin app (separate Next.js Deployment) :3000    |
+| `app.iogrid.org`       | A    | 45.151.123.50   | **301 → apex** (subdomain dropped, EPIC #422; kept during the cert grace window) |
 | `proxy.iogrid.org`     | A    | 45.151.123.50   | proxy-gateway :443 (TLS passthrough)             |
 | `build.iogrid.org`     | A    | 45.151.123.50   | build-gateway :8080                              |
-| `docs.iogrid.org`      | A    | 45.151.123.50   | docs-site (placeholder)                          |
+| `releases.iogrid.org`  | A    | 45.151.123.50   | desktop-installer release artifacts              |
+| `updates.iogrid.org`   | A    | 45.151.123.50   | daemon auto-update feed                          |
 | `status.iogrid.org`    | A    | 45.151.123.50   | gateway-bff :8080 (URLRewrite to `/status`)      |
 
 Source of truth: [`infra/dynadot/iogrid-org-records.json`](../infra/dynadot/iogrid-org-records.json).
@@ -681,7 +690,7 @@ The ClusterIssuer `letsencrypt-prod` is shared with the OpenOva tenant on the mo
 
 [`infra/k8s/certificates/iogrid-org-cert.yaml`](../infra/k8s/certificates/iogrid-org-cert.yaml) declares two `Certificate` objects:
 
-- `iogrid-org-tls` — SAN list of all TLS-terminated hostnames (apex + www + 5 subdomains), ECDSA P-256, 90 d duration, 30 d renewBefore. Stored as `Secret/iogrid-org-tls` in the `iogrid` namespace.
+- `iogrid-org-tls` — SAN list of all TLS-terminated hostnames (apex + www + the api/admin/build/status subdomains, plus app during its redirect grace window), ECDSA P-256, 90 d duration, 30 d renewBefore. Stored as `Secret/iogrid-org-tls` in the `iogrid` namespace.
 - `iogrid-proxy-tls` — separate single-SAN cert for `proxy.iogrid.org`. Even though that listener does TLS passthrough, we still hold a public cert so the Gateway can do hostname-based SNI routing and so future direct-terminate experiments are one annotation flip away.
 
 #### Renewal
@@ -710,23 +719,20 @@ Common failures:
 
 ### 10.6 Gateway API routing
 
-[`infra/k8s/gateways/gateway.yaml`](../infra/k8s/gateways/gateway.yaml) declares one Gateway (`iogrid-gateway`) with:
+[`infra/k8s/gateways/gateway.yaml`](../infra/k8s/gateways/gateway.yaml) declares one Gateway (`iogrid-gateway`) with HTTP listeners on port 80 (ACME + http→https redirect), per-hostname HTTPS listeners on port 443 presenting the matching cert from `iogrid-org-tls`, and one TLS-Passthrough listener for `proxy.iogrid.org`.
 
-- Two HTTP listeners (`http`, `http-apex`) on port 80 for ACME + http→https redirect.
-- Seven HTTPS listeners on port 443 (`https-www`, `https-www-www`, `https-app`, `https-api`, `https-build`, `https-docs`, `https-status`), each pinned to a hostname and presenting the matching cert from `iogrid-org-tls`.
-- One TLS Passthrough listener (`tls-proxy`) on port 443 for `proxy.iogrid.org`.
+Each HTTPRoute targets a listener via `parentRefs[].sectionName`:
 
-Each HTTPRoute targets the listener via `parentRefs[].sectionName`:
+| Route file                        | Backend service        | Notes                                          |
+|-----------------------------------|------------------------|------------------------------------------------|
+| `httproute-apex-www.yaml`         | web :3000              | Apex `iogrid.org` + www serve the Next.js app  |
+| `httproute-app.yaml`              | (redirect)             | `app.iogrid.org` → 301 apex (subdomain dropped)|
+| `httproute-api.yaml`              | gateway-bff :8080      | REST + gRPC-web BFF                             |
+| `httproute-build.yaml`            | build-gateway :8080    | iOS-build orchestrator                         |
+| `httproute-status.yaml`           | gateway-bff :8080      | URLRewrite to /status                          |
+| `tlsroute-proxy.yaml`             | proxy-gateway :443     | TLS passthrough                                |
 
-| Route file                        | sectionName    | Backend service        | Notes                              |
-|-----------------------------------|----------------|------------------------|------------------------------------|
-| `httproute-apex-www.yaml`         | https-www      | marketing-site :80     | Apex + www, plus http→https redir  |
-| `httproute-app.yaml`              | https-app      | web :3000              | Next.js mgmt plane                 |
-| `httproute-api.yaml`              | https-api      | gateway-bff :8080      | REST + gRPC-web BFF                |
-| `httproute-build.yaml`            | https-build    | build-gateway :8080    | iOS-build orchestrator             |
-| `httproute-docs.yaml`             | https-docs     | docs-site :80          | Static docs (placeholder)          |
-| `httproute-status.yaml`           | https-status   | gateway-bff :8080      | URLRewrite to /status              |
-| `tlsroute-proxy.yaml`             | tls-proxy      | proxy-gateway :443     | TLS passthrough                    |
+`admin.iogrid.org` routes to the independent admin Deployment via its own HTTPRoute.
 
 #### Transitional Traefik bridge
 
@@ -752,7 +758,7 @@ kubectl -n iogrid wait --for=condition=Ready cert/iogrid-org-tls --timeout=10m
 kubectl -n iogrid wait --for=condition=Ready cert/iogrid-proxy-tls --timeout=10m
 
 # 4. Sanity
-curl -sI https://app.iogrid.org/ | head -5
+curl -sI https://iogrid.org/ | head -5
 curl -sI https://api.iogrid.org/ | head -5
 ```
 
@@ -760,7 +766,7 @@ curl -sI https://api.iogrid.org/ | head -5
 
 - **DNSSEC:** not enabled today. Dynadot supports it; we add it once the registrar→authoritative key-handover is automated. Tracked as a follow-up.
 - **CAA records:** not yet set. Add `iogrid.org CAA 0 issue "letsencrypt.org"` once cert issuance is steady-state to prevent rogue CA misissuance.
-- **HSTS preload:** cert pinning is enabled per host via the future Cilium L7 policy. HSTS headers are set by the marketing-site and web services, not at the Gateway.
+- **HSTS preload:** cert pinning is enabled per host via the future Cilium L7 policy. HSTS headers are set by the web app, not at the Gateway.
 - **Per-region anycast:** single-region today (Hetzner Nuremberg via Contabo VPS). Multi-region rolls in once the second mothership exists.
 
 ---
@@ -783,8 +789,8 @@ What this runs:
 3. Checks if Tart is installed (only if user opts into iOS-build later); if not, `brew install cirruslabs/cli/tart` (installs Homebrew first if needed).
 4. Downloads signed daemon binary (Sparkle-style auto-update on subsequent runs).
 5. Installs daemon as a LaunchAgent (auto-start on login, runs as user not root).
-6. Opens browser to `https://app.iogrid.org/onboard/<token>` with a one-time pairing token.
-7. User signs in with Google → daemon pairs → user sees first dashboard.
+6. Opens browser to `https://iogrid.org/onboard/<token>` with a one-time pairing token.
+7. User signs in (email magic-link; Google OAuth once configured) → daemon pairs → user sees first dashboard.
 
 Time from `curl` to "your PC is earning": ~2 minutes (mostly Docker Desktop download).
 
@@ -812,7 +818,7 @@ curl -fsSL https://iogrid.org/install/linux | sudo sh
 
 ### 11.4 What grandma sees
 
-She doesn't run `curl`. She visits **iogrid.org**, clicks "Install for Mac" / "Install for Windows" — a **signed installer** (`.dmg` / `.msi` / `.deb` / `.rpm`) downloads. Double-click. Click "Continue" 3 times. Browser opens. Sign in with Google. Done.
+She doesn't run `curl`. She visits **iogrid.org**, clicks "Install for Mac" / "Install for Windows" — a **signed installer** (`.dmg` / `.msi` / `.deb` / `.rpm`) downloads. Double-click. Click "Continue" 3 times. Browser opens. Sign in with an emailed magic link. Done.
 
 The `curl | sh` is for developers / power users who prefer terminal. Same end state.
 
@@ -877,7 +883,7 @@ Inhibition rules suppress lower-severity alerts when a page-tier alert is alread
 
 ### 12.6 Public status page
 
-`status.iogrid.org` is the customer-facing rollup. Served as a static export from `marketing/app/status/` (Next.js, Tailwind) and consumes three public, world-readable JSON endpoints on `telemetry-svc`:
+`status.iogrid.org` is the customer-facing rollup. Served from the web app's `web/src/app/status/` route (Next.js, Tailwind) and consumes three public, world-readable JSON endpoints on `telemetry-svc`:
 
 | Endpoint | Purpose |
 |----------|---------|
@@ -892,7 +898,7 @@ Storage is Postgres-backed (`incidents`, `incident_updates`, `status_subscriptio
 The page polls `/status/posture` every 60 seconds and degrades gracefully:
 
 - If `/status/posture` is unreachable, the page shows a "stale data" pill and keeps rendering the last good payload.
-- If telemetry-svc has been unreachable since first load, the page falls back to a baseline frame from `marketing/content/status/incidents-static.json` — operators edit that file as a backstop during a status-svc outage.
+- If telemetry-svc has been unreachable since first load, the page falls back to a baseline frame from a static `incidents-static.json` bundled with the web app — operators edit that file as a backstop during a status-svc outage.
 
 ### 12.7 Grafana dashboard provisioning
 

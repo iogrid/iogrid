@@ -1,9 +1,9 @@
 # iogrid design system
 
 > **Authority**: canonical. This document supersedes every prior visual-design
-> sketch (none merged). For repo-wide engineering rules see
-> [`docs/PRINCIPLES.md`](./PRINCIPLES.md) and the user-global
-> `~/.claude/CLAUDE.md`.
+> sketch (none merged). For repo-wide engineering rules see the
+> "Engineering principles" section of the [root `README.md`](../README.md)
+> and the project [`CLAUDE.md`](../CLAUDE.md).
 
 The iogrid surface adopts a **Linear / Notion / Vercel** aesthetic:
 restrained palette, single sans typeface, whitespace as the primary

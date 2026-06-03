@@ -4,10 +4,25 @@
 > `ping-cash/ping-cash:docs/coordination/iogrid-ping-integration.md`
 > (the "multi-tenant matrix" + "bidirectional handshake" sections).
 > Ping cross-references this path; keep the two in sync. The `$GRID`
-> on-chain identity is governed by [`TOKENOMICS.md`](./TOKENOMICS.md);
+> on-chain identity is governed by [`BUSINESS-STRATEGY.md` §4 (Currency
+> model — $GRID + fiat hybrid)](./BUSINESS-STRATEGY.md#4-currency-model--grid--fiat-hybrid);
 > this file governs the **tenant routing shape** that sits on top of it.
 >
 > iogrid-side conformance is tracked in issue **#629**.
+
+> ### ⚠️ Transport correction (2026-06-03)
+> An earlier draft of this matrix described the Ping handshake over a
+> self-invented `ping://` / `iogrid://` **custom-scheme** contract. That
+> contract is **SUPERSEDED**. Ping's published spec uses Apple
+> **Universal Links** (`https://ping.cash/approve`) plus an on-chain **SPL
+> Approve** signature — the same shape the shipped mobile code uses
+> (`mobile/ios/src/lib/wallets/ping-pay.ts`, `PING_APPROVE_URL =
+> 'https://ping.cash/approve'`). The sections below have been reconciled to
+> the Universal-Link transport. The `return_url` on the inbound→tenant leg
+> may still be a custom scheme (the tenant app is already foregrounded by
+> the OS), but the **launch into Ping is a Universal Link, not a custom
+> scheme**. Ping's C-8 signature-verification spec is still pending on
+> Ping's side.
 
 ## What "multi-tenant" means here
 
@@ -29,11 +44,11 @@ team chose this over 'buy with $GRID directly'"*.
 
 ## Tenant matrix
 
-| Tenant             | Billed token | `return_url` scheme | Mint source of truth                              | Status                          |
-| ------------------ | ------------ | ------------------- | ------------------------------------------------- | ------------------------------- |
-| **iogrid** (VPN)   | `$GRID`      | `iogrid://`         | [`TOKENOMICS.md`](./TOKENOMICS.md) (pre-launch)   | **first tenant — shipping**     |
-| AcmeMesh (compute) | `$ACME`      | `acme://`           | AcmeMesh-owned (allowlist add)                    | template only — not onboarded   |
-| `$X` (future)      | `$X`         | scheme via ADR amd. | tenant-owned                                      | template only — not onboarded   |
+| Tenant             | Billed token | `return_url` scheme | Mint source of truth                                                  | Status                          |
+| ------------------ | ------------ | ------------------- | -------------------------------------------------------------------- | ------------------------------- |
+| **iogrid** (VPN)   | `$GRID`      | `iogrid://`         | [`SOLANA-ADDRESSES.md`](./SOLANA-ADDRESSES.md) — devnet mint live, mainnet TBD | **first tenant — shipping**     |
+| AcmeMesh (compute) | `$ACME`      | `acme://`           | AcmeMesh-owned (allowlist add)                                       | template only — not onboarded   |
+| `$X` (future)      | `$X`         | scheme via ADR amd. | tenant-owned                                                         | template only — not onboarded   |
 
 Adding a tenant is **additive**: a new row here + a new scheme on Ping's
 `ALLOWED_RETURN_URL_SCHEMES` allowlist + the tenant's own AASA (for
@@ -166,9 +181,13 @@ comments + the "What remains blocked" section below.
   iogrid Foundation holds an Apple Developer account. Until then iOS will
   associate the domain but reject the (non-existent) app. Blocked on real
   Apple credentials, NOT on code.
-- **`$GRID` mint** — pre-launch per [`TOKENOMICS.md`](./TOKENOMICS.md);
-  the `delegate`/`token` params in Direction A resolve via env indirection
-  (`EXPO_PUBLIC_GRID_TOKEN_MINT`), never hard-coded.
+- **`$GRID` mainnet mint** — NOT deployed (founder decision; mainnet
+  address TBD). A **devnet** mint exists
+  (`BaQvWwb1wUGvWJXPEUbLEwPeeYMd4sKvp2S7obzTWorR`, Token-2022, 9 decimals)
+  per [`SOLANA-ADDRESSES.md`](./SOLANA-ADDRESSES.md). The `delegate`/`token`
+  params in Direction A resolve via env indirection
+  (`EXPO_PUBLIC_GRID_TOKEN_MINT`), never hard-coded — so the Universal-Link
+  flow targets devnet until mainnet TGE.
 - **C-8 signature-verification spec** — Ping has not yet defined the
   canonical path (RPC `getTransaction` poll vs. wallet-service webhook).
   Blocked on Ping.

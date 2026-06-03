@@ -79,8 +79,11 @@ the VPN. v2 ships:
   account-recovery flow to forget. Anonymous Mullvad-style account number is still
   generated and recoverable on Settings.
 - **$GRID payments via Phantom and Ping wallets** — Plus / Pro tiers can be paid
-  in $GRID over Solana. Phantom and Ping mobile wallets are bound to the account
-  via deep-link signature challenge; Stripe remains the fiat fallback.
+  in $GRID over Solana. Phantom binds via deep-link signature challenge; Ping
+  approval rides Apple **Universal Links** (`https://ping.cash/approve`) + an SPL
+  Approve signature. Stripe remains the fiat fallback. (Note: the $GRID **mainnet
+  mint is not deployed yet** — devnet only — so token payments are devnet/testnet
+  until TGE.)
 - **Real WireGuard data plane** — vendored WireGuardKit drives a
   `NEPacketTunnelProvider` extension. The main app never sees decrypted traffic;
   the tunnel runs in its own process with App Group IPC for status.
@@ -118,14 +121,18 @@ iogrid/
 ├── coordinator/    Go microservices — k8s-native control plane.
 │                   identity-svc, providers-svc, workloads-svc, antiabuse-svc,
 │                   billing-svc, telemetry-svc, gateway-bff, proxy-gateway,
-│                   build-gateway.
+│                   build-gateway, vpn-svc, vpn-gateway.
 ├── web/            Next.js 15 management plane — providers + customers + VPN.
-│                   TypeScript, shadcn/ui, Tailwind 4, real-time SSE.
-├── mobile/ios/     Expo SDK 56 React Native consumer VPN app — Sign in with
-│                   Apple, $GRID via Phantom/Ping, native PacketTunnelProvider
-│                   with vendored WireGuardKit, Maestro smoke gate.
+│                   The apex iogrid.org serves this single app (route-segmented
+│                   /provide, /customer, /account, /vpn). TypeScript, shadcn/ui,
+│                   Tailwind 4, real-time SSE.
+├── mobile/ios/     Expo React Native consumer VPN app — Sign in with Apple,
+│                   $GRID via Phantom/Ping, native PacketTunnelProvider with
+│                   vendored WireGuardKit, Maestro smoke gate. On TestFlight.
 ├── proto/          Buf-managed protobuf schemas for all services.
-├── infra/k8s/      Flux-managed k8s manifests (deployed on OpenOva ecosystem).
+├── infra/k8s/      k8s manifests (NOT Flux-wired yet — reference Kustomizations
+│                   suspended). Live deploy = scripts/reroll-iogrid-deployments.sh
+│                   (image-only).
 └── docs/           Architecture, roadmap, tech specs, incentive model, legal.
 ```
 

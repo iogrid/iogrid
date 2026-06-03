@@ -17,6 +17,13 @@ This is the founder/operator runbook for getting `billing-svc` out of stub mode 
 > **Phase 0 = devnet only.** No real money moves. The mainnet TGE (Token Generation Event) is end-state work tracked in [EPIC #87](https://github.com/iogrid/iogrid/issues/87) and described in [BUSINESS-STRATEGY.md §4 (Currency model — $GRID + fiat hybrid)](./BUSINESS-STRATEGY.md#4-currency-model--grid--fiat-hybrid).
 >
 > Mainnet wiring will replace the single-sig hot-wallet keypair below with a [Squads Protocol](https://squads.so) 2-of-3 multisig — see `coordinator/services/billing-svc/internal/solana/multisig.go`.
+>
+> **Current state (2026-06-03):** the devnet $GRID mint already exists —
+> `BaQvWwb1wUGvWJXPEUbLEwPeeYMd4sKvp2S7obzTWorR` (Token-2022, **9 decimals**,
+> freeze-authority null), recorded in [`SOLANA-ADDRESSES.md`](./SOLANA-ADDRESSES.md).
+> The **mainnet mint is NOT deployed** (founder decision; the mainnet address is
+> TBD/empty). The steps below are the reproducible procedure for re-minting a
+> fresh devnet token from scratch.
 
 ### 1.1 What this runbook gives you
 
@@ -157,7 +164,7 @@ kubectl -n iogrid exec deploy/billing-svc -- ls -l /var/run/solana
 
 **Step 7 — bind providers to the devnet wallet.** For Phase 0 we don't run real payouts on devnet — but providers should still see their wallet address in the dashboard. `identity-svc` exposes a Solana wallet-bind endpoint (Sign-In-With-Solana). The web UI is tracked in EPIC #87.
 
-If you want to exercise the swap path end-to-end on devnet, fund a few provider pubkeys with airdropped SOL, bind them via the wallet-connect button on `app.iogrid.org`, then insert a synthetic `usage_event` row so the cron has something to distribute against:
+If you want to exercise the swap path end-to-end on devnet, fund a few provider pubkeys with airdropped SOL, bind them via the wallet-connect button on `iogrid.org` (the apex serves the app — `app.iogrid.org` was dropped per EPIC #422), then insert a synthetic `usage_event` row so the cron has something to distribute against:
 
 ```sql
 -- Connect to the iogrid Postgres (kubectl port-forward svc/iogrid-pg-rw 5432).
@@ -203,7 +210,7 @@ The Go layer needs **no code changes** between devnet and mainnet — the entire
 
 > Source: previously `docs/RUNBOOK_STATUS.md` (merged here on 2026-05-21).
 
-The public status page lives at **status.iogrid.org** (served by the marketing site under `/status/`). Its data plane is the **telemetry-svc** microservice running in the iogrid coordinator namespace. This runbook explains how to operate it during an outage.
+The public status page lives at **status.iogrid.org** (served by the web app's `/status/` route). Its data plane is the **telemetry-svc** microservice running in the iogrid coordinator namespace. This runbook explains how to operate it during an outage.
 
 > If you're reading this on the bastion and you need to act fast — the four commands you most likely want are in the [TL;DR cheat sheet](#27-tldr) at the bottom.
 
@@ -212,7 +219,7 @@ The public status page lives at **status.iogrid.org** (served by the marketing s
 ```
   ┌─────────────────────┐                       ┌──────────────────────┐
   │ status.iogrid.org   │   GET /status/posture │ telemetry-svc        │
-  │ (static export, NX) │ ────────────────────▶ │  /status             │
+  │ (web app /status)   │ ────────────────────▶ │  /status             │
   │                     │                       │  /status/posture     │
   │  ↻ every 60s        │   GET /status/uptime  │  /status/uptime      │
   └─────────────────────┘ ◀──────────────────── │  /status/subscribe   │
@@ -357,7 +364,7 @@ WHERE LOWER(email) = LOWER('user@example.com') AND verified = false;
 
 ### 2.6 When the status page itself is broken
 
-The static export under `marketing/out/status/` includes a baseline "all systems operational" frame compiled from `marketing/content/status/incidents-static.json`. If `/status/posture` is unreachable, the page falls back to that frame and shows a "stale data" pill.
+The web app's `/status/` route ships a baseline "all systems operational" frame compiled from a bundled `incidents-static.json`. If `/status/posture` is unreachable, the page falls back to that frame and shows a "stale data" pill.
 
 If the page itself is broken (white screen) — verify:
 
