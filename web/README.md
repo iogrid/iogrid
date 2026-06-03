@@ -4,21 +4,24 @@ Next.js 15 App Router management plane. TypeScript 5 strict, Tailwind 4,
 NextAuth.js v5 (Google + magic-link email), TanStack Query, React Hook Form
 + Zod, Vitest + Playwright + Storybook.
 
-## Routes
+All routes live under the **iogrid.org apex**. The old `app.iogrid.org`
+subdomain is retired (301 → apex); the operator console is a **separate
+app** at `admin.iogrid.org` and is no longer part of this codebase.
 
-| Path                | Purpose                                              | Auth |
-| ------------------- | ---------------------------------------------------- | ---- |
-| `/`                 | Landing — brand + nav                                | no   |
-| `/account`          | Sign-in / sign-up                                    | no   |
-| `/account/wallets`  | Solana wallet bindings (SIWS handshake)              | yes  |
-| `/provide`          | Provider dashboard (nodes, payouts)                  | yes  |
-| `/provide/staking`  | $GRID staking + locked positions                     | yes  |
-| `/customer`         | Customer dashboard (workloads, billing)              | yes  |
-| `/vpn`              | Daemon download (macOS / Linux / Windows)            | no   |
-| `/admin`            | Operator console (gated by `admin` role)             | yes  |
-| `/burn`             | Public $GRID burn dashboard                          | no   |
+| Path                 | Purpose                                              | Auth |
+| -------------------- | ---------------------------------------------------- | ---- |
+| `/`                  | Landing — brand + nav                                | no   |
+| `/account`           | Account hub (sign-in, profile, sessions)             | no   |
+| `/account/wallets`   | Solana wallet bindings (SIWS handshake)              | yes  |
+| `/provider`          | Provider dashboard (earnings, schedule, audit)       | yes  |
+| `/provider/staking`  | $GRID staking + locked positions                     | yes  |
+| `/customer`          | Customer dashboard (workloads, billing)              | yes  |
+| `/install`           | Daemon installer landing (curl-pipe + double-click)  | no   |
+| `/vpn`               | Daemon download (macOS / Linux / Windows)            | no   |
+| `/token` · `/burn`   | $GRID token + public burn dashboard                  | no   |
 
-`/provide`, `/customer`, `/admin` are gated by `src/middleware.ts`. The
+`/provider` and `/customer` are gated by `src/middleware.ts`
+(`PROTECTED_PREFIXES`); unauthenticated hits redirect to `/account`. The
 merged-identity contract — single user = both provider and customer —
 lives in the coordinator; the JWT only carries the user id.
 
@@ -33,9 +36,11 @@ Wallet Standard (Backpack, Glow, etc.).
 Configuration:
 
 - `NEXT_PUBLIC_SOLANA_RPC_URL` — RPC endpoint (default mainnet-beta).
-- `NEXT_PUBLIC_GRID_MINT_ADDRESS` — SPL mint for $GRID. Defaults to a
-  placeholder so the build compiles before TGE; the balance widget
-  reports zero until a real mint is configured.
+- `NEXT_PUBLIC_GRID_MINT_ADDRESS` — SPL Token-2022 mint for $GRID
+  (**9 decimals**). The **mainnet mint is not yet deployed**; the default
+  is a pre-TGE placeholder so the build compiles and the balance widget
+  reports zero until a real mint is configured. The devnet mint is
+  `BaQvWwb1wUGvWJXPEUbLEwPeeYMd4sKvp2S7obzTWorR`.
 
 See `docs/BUSINESS-STRATEGY.md` §4 (Currency model — $GRID + fiat hybrid) for the full token + staking + burn model.
 
