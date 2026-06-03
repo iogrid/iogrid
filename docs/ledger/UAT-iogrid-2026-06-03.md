@@ -109,14 +109,15 @@ The tester is read-only on the product code; reported what was seen on screen; n
 
 ---
 
-### TC-07 — Customer: workloads (submit + dispatch list)  🔴
+### TC-07 — Customer: workloads (submit + dispatch list)  🟢 (after fix)
 
 | # | Screen | What you do | What you must see | Result | Evidence |
 |---|---|---|---|---|---|
 | 1 | [/customer/workloads](https://iogrid.org/customer/workloads) | Open **Workloads** | Submit form (Type/Category/Destination) + "Recent dispatches" | ✅ | [📷 workloads](evidence/auth-07-customer-workloads.png) |
-| 2 | Workloads | Fill Type=Bandwidth, Destination=`uat-test.example.com`, tap **Submit workload** | The workload is accepted and appears in the dispatch list | ❌ | — |
+| 2 | Workloads | Fill Type=Bandwidth, Destination=`uat-final.example.com`, tap **Submit workload** | The workload is accepted (201) and appears in the dispatch list | ✅ *(after fix)* | [📷 persisted](evidence/auth-13-workload-submit-persisted.png) |
+| 3 | Workloads | Full page reload | The dispatched row **persists** (server-backed, not browser-local) | ✅ *(after fix)* | [📷 persisted](evidence/auth-13-workload-submit-persisted.png) |
 
-- **Journey verdict:** ☒ **FAIL** — **Submission is broken for every UI user**: the POST returns `400 — json: cannot unmarshal string into Go struct field Workload.workload.type` (web sends proto3-JSON enum-as-string; gateway-bff decoded with stdlib `encoding/json` — the #630/#633 bug class on the request side). The panel's optimistic local rows had **masked** this — it showed "(pending)" entries from client state while every real POST failed. Filed **[#683](https://github.com/iogrid/iogrid/issues/683) (P1)**, fix shipped `e6a708b` (protojson both directions — the response also emitted `workload_id` where the panel reads `workloadId`), deploying; re-walk on deploy. **List half:** initially filed as [#677](https://github.com/iogrid/iogrid/issues/677) (closed-invalid as "POST-only by design"), but the server-backed list was built anyway and is **live** (`GET /customer/workloads` now 401-wired, was 405; the panel fetches the workspace's dispatches on mount) — submissions no longer vanish on refresh once #683 lands.
+- **Journey verdict:** ☑ **PASS (after a 2-layer fix, prod-verified same day)** — At walk time the submit was **broken for every UI user**: layer 1 — `400` enum-unmarshal (web sends proto3-JSON enum-as-string; gateway-bff decoded with stdlib `encoding/json`, the #630/#633 class) fixed in `e6a708b` (protojson both directions); layer 2 — the panel sent flat `{type,category,destination}` but the proto requires the typed `oneof` payload, fixed in `8462d8a` (typed payload + `workspaceId` stamp). **Re-walked in prod:** form submit → **201** → server-backed row (`Bandwidth (residential) · rejected · just now`) → **survives reload**. The `rejected` status is the dispatcher's legitimate no-eligible-provider decision (no bandwidth daemons paired yet). The optimistic local rows that had masked the breakage are gone — the list is the server's truth. [#683](https://github.com/iogrid/iogrid/issues/683) closed; the list half (originally [#677](https://github.com/iogrid/iogrid/issues/677)) is live (`GET` 401-wired, was 405).
 
 ---
 
@@ -214,7 +215,7 @@ The tester is read-only on the product code; reported what was seen on screen; n
 | TC-04 | web (auth) | Mint API key | 🟢 PASS |
 | TC-05 | web (auth) | **Revoke API key** | 🔴 FAIL ([#676](https://github.com/iogrid/iogrid/issues/676), P1) |
 | TC-06 | web (auth) | **Customer usage** | 🔴 FAIL ([#675](https://github.com/iogrid/iogrid/issues/675), P2) |
-| TC-07 | web (auth) | Workloads (submit + dispatch list) | 🔴 FAIL — submit 400s for every UI user ([#683](https://github.com/iogrid/iogrid/issues/683), P1, fix deploying); server-backed list shipped + live |
+| TC-07 | web (auth) | Workloads (submit + dispatch list) | 🟢 **PASS (after fix, prod-verified)** — UI submit → 201 → server list row → **survives reload** ([📷](evidence/auth-13-workload-submit-persisted.png)); was 2-layer-broken ([#683](https://github.com/iogrid/iogrid/issues/683) closed) |
 | TC-08 | web (auth) | Wallet connect & bind | ⛔ BLOCKED (needs Phantom ext) |
 | TC-20–25 | iOS app | Onboarding / connect / region / settings / top-up / live | **EXECUTED on the CI simulator** (latest run 26904727684): flows **01–08 🟢 PASS** w/ real captures; 09 🔴 test-bug (below-fold assert, fix `b59a043`); 10 ⛔ next run. Every failure so far = CI-viewport assertion bug, never an app defect. jest 59✓. Physical-device walk pending [#574](https://github.com/iogrid/iogrid/issues/574). |
 | | | **Web walked:** 8 journeys — 5 PASS, 2 FAIL, 1 BLOCKED | |
