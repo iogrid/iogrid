@@ -125,9 +125,23 @@ web/test-results/
 web/storybook-static/
 web/*.tsbuildinfo
 
-# Local Playwright/Claude artefacts (bastion-only)
+# Local Playwright/Claude artefacts (bastion-only) — session screenshots,
+# walk-evidence dumps and ad-hoc captures are NOT product assets. DoD
+# evidence belongs in GitHub issue comments, not the repo tree. Product
+# assets already committed under mobile/ios/assets/ etc. stay tracked.
 .claude/
 .playwright-mcp/
 bastion.key
 bastion.pub
+# Loose-root screenshot dumps (e.g. account-notifications-631-live.png)
+/account-*.png
+/*.png
+# Blanket: no new PNG screenshots anywhere (already-tracked product
+# assets are unaffected; this only stops fresh captures re-accumulating).
 *.png
+*.jpg
+*.jpeg
+*.log
+*.tmp
+*.orig
+*.bak
