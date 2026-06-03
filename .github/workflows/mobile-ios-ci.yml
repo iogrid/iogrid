@@ -865,6 +865,31 @@ jobs:
       # `exit $MAESTRO_EXIT`).
       # ───────────────────────────────────────────────────────────
 
+      - name: Strip Sign In with Apple entitlement (#575 — SIWA not API-enableable; ship internal beta)
+        # The "iogrid App Store" profile cannot include Sign In with Apple:
+        # APPLE_ID_AUTH is NOT enableable on the io.iogrid.app App ID via the
+        # ASC API — the bundleIdCapabilities POST returns 409 yet the
+        # capability never appears (verified: the cert step logs
+        # "capabilities now: [APP_GROUPS, IN_APP_PURCHASE, NETWORK_EXTENSIONS,
+        # PERSONAL_VPN]"). So the com.apple.developer.applesignin entitlement
+        # (injected by expo-apple-authentication) has no matching profile
+        # capability and the archive fails "doesn't include ... applesignin".
+        # Strip it so entitlements ⊆ profile and the build uploads to
+        # TestFlight. TEMPORARY (#575): the internal-beta build ships WITHOUT
+        # Apple sign-in (magic-link + Google still work); re-add once SIWA is
+        # enabled on the App ID via the Developer portal UI (not API-doable).
+        run: |
+          ENT="ios/iogrid/iogrid.entitlements"
+          if [ -f "$ENT" ]; then
+            echo "=== entitlements BEFORE strip ==="; plutil -p "$ENT" 2>/dev/null || cat "$ENT"
+            /usr/libexec/PlistBuddy -c "Delete :com.apple.developer.applesignin" "$ENT" 2>/dev/null \
+              || plutil -remove com.apple.developer.applesignin "$ENT" 2>/dev/null || true
+            echo "=== entitlements AFTER strip ==="; plutil -p "$ENT" 2>/dev/null || cat "$ENT"
+          else
+            echo "::warning::$ENT not found — cannot strip applesignin; archive may fail"
+            ls -la ios/iogrid/ 2>/dev/null || true
+          fi
+
       - name: Build and archive (manual signing, fresh profile)
         # MANUAL signing using the App Store profiles fastlane sigh
         # installed for BOTH bundle IDs (main + PacketTunnelProvider
