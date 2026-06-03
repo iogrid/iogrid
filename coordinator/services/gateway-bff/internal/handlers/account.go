@@ -177,6 +177,47 @@ func (a *API) ListSessions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+// EnsureMyIdentifier idempotently registers an identifier on the caller's
+// own account — the web's NextAuth signIn event calls this so magic-link
+// sign-ins finally materialize as identifier rows (#685: users signed in
+// via magic link saw "No identifiers bound" because nothing in that path
+// ever told identity-svc about the email).
+//
+//	POST /api/v1/me/identifiers  {kind:"IDENTIFIER_KIND_MAGIC_LINK", verified_email:"a@b.c"}
+//	  -> 200 {identifier, created}
+func (a *API) EnsureMyIdentifier(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.FromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "valid Bearer token required")
+		return
+	}
+	var body struct {
+		Kind          string `json:"kind"`
+		VerifiedEmail string `json:"verified_email"`
+		Subject       string `json:"subject"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	kind := identityv1.IdentifierKind(identityv1.IdentifierKind_value[body.Kind])
+	if kind == identityv1.IdentifierKind_IDENTIFIER_KIND_UNSPECIFIED {
+		writeError(w, http.StatusBadRequest, "bad_request", "kind required (e.g. IDENTIFIER_KIND_MAGIC_LINK)")
+		return
+	}
+	resp, err := a.Clients.Identity.EnsureIdentifier(r.Context(), &identityv1.EnsureIdentifierRequest{
+		UserId:        &commonv1.UUID{Value: claims.UserID().String()},
+		Kind:          kind,
+		VerifiedEmail: body.VerifiedEmail,
+		Subject:       body.Subject,
+	})
+	if err != nil {
+		writeUpstreamError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
 // RemoveMyIdentifier unbinds a single identifier from the caller's own
 // account. The identifier id is the path parameter; the user id comes
 // from the bearer token so a caller cannot scrub another user's

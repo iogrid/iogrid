@@ -27,6 +27,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -150,6 +151,75 @@ func (h *IdentityHandler) RemoveIdentifier(
 	}
 	return connect.NewResponse(&identityv1.RemoveIdentifierResponse{
 		Remaining: identifiersToProto(remaining),
+	}), nil
+}
+
+// EnsureIdentifier idempotently binds an identifier to the caller's own
+// account. This is the registration half the web's NextAuth magic-link
+// flow was missing (#685): web sign-in authenticates outside identity-svc
+// (AuthService.CompleteMagicLink is not in that path), so magic-link users
+// existed with zero identifier rows — /account/identifiers told signed-in
+// users "No identifiers bound". gateway-bff calls this from NextAuth's
+// signIn event; re-calls are no-ops (created=false), so existing accounts
+// heal on their next sign-in.
+func (h *IdentityHandler) EnsureIdentifier(
+	ctx context.Context,
+	req *connect.Request[identityv1.EnsureIdentifierRequest],
+) (*connect.Response[identityv1.EnsureIdentifierResponse], error) {
+	authedID, ok := authmw.AuthedUser(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing bearer token"))
+	}
+	userID, err := parseProtoUUID(req.Msg.GetUserId())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if userID != authedID {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("user_id does not match caller"))
+	}
+	kind := identifierKindFromProto(req.Msg.GetKind())
+	if kind == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("kind required"))
+	}
+	email := strings.ToLower(strings.TrimSpace(req.Msg.GetVerifiedEmail()))
+	subject := strings.TrimSpace(req.Msg.GetSubject())
+	if email == "" && subject == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("verified_email or subject required"))
+	}
+	if h.Store == nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("identity-svc: store not configured"))
+	}
+
+	// Idempotency: OAuth kinds match on subject; magic-link matches on the
+	// (case-insensitive) email.
+	existing, err := h.Store.ListIdentifiersForUserByKind(ctx, nil, userID, kind)
+	if err != nil {
+		return nil, mapStoreError(err)
+	}
+	for i := range existing {
+		e := existing[i]
+		if (subject != "" && e.Subject == subject) ||
+			(subject == "" && strings.EqualFold(e.Email, email)) {
+			return connect.NewResponse(&identityv1.EnsureIdentifierResponse{
+				Identifier: identifiersToProto([]store.Identifier{e})[0],
+				Created:    false,
+			}), nil
+		}
+	}
+
+	ident := &store.Identifier{
+		UserID:   userID,
+		Kind:     kind,
+		Subject:  subject,
+		Email:    email,
+		Verified: true, // magic-link: inbox control proven by clicking the link
+	}
+	if err := h.Store.CreateIdentifier(ctx, nil, ident); err != nil {
+		return nil, mapStoreError(err)
+	}
+	return connect.NewResponse(&identityv1.EnsureIdentifierResponse{
+		Identifier: identifiersToProto([]store.Identifier{*ident})[0],
+		Created:    true,
 	}), nil
 }
 
@@ -465,6 +535,25 @@ func identifiersToJSON(in []store.Identifier) []map[string]any {
 		})
 	}
 	return out
+}
+
+// identifierKindFromProto is the inverse of identifierKindToProto. Returns
+// "" for unspecified/unknown so callers can reject with InvalidArgument.
+func identifierKindFromProto(k identityv1.IdentifierKind) store.IdentifierKind {
+	switch k {
+	case identityv1.IdentifierKind_IDENTIFIER_KIND_GOOGLE:
+		return store.KindGoogle
+	case identityv1.IdentifierKind_IDENTIFIER_KIND_MAGIC_LINK:
+		return store.KindMagicLink
+	case identityv1.IdentifierKind_IDENTIFIER_KIND_APPLE:
+		return store.KindApple
+	case identityv1.IdentifierKind_IDENTIFIER_KIND_GITHUB:
+		return store.KindGitHub
+	case identityv1.IdentifierKind_IDENTIFIER_KIND_SOLANA:
+		return store.KindSolana
+	default:
+		return ""
+	}
 }
 
 func identifierKindToProto(k store.IdentifierKind) identityv1.IdentifierKind {

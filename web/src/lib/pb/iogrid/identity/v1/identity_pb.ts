@@ -670,6 +670,120 @@ export class DeleteUserResponse extends Message<DeleteUserResponse> {
 }
 
 /**
+ * EnsureIdentifierRequest idempotently binds an identifier to a user. The
+ * web's NextAuth magic-link flow authenticates OUTSIDE identity-svc
+ * (AuthService.CompleteMagicLink is not in that path), so without this call
+ * a magic-link user exists with ZERO identifier rows — /account/identifiers
+ * told signed-in users "No identifiers bound" and RemoveIdentifier's
+ * keep-one-verified safety had nothing to protect (#685). gateway-bff calls
+ * this on the service-token path from NextAuth's signIn event; existing
+ * accounts heal on their next sign-in.
+ *
+ * @generated from message iogrid.identity.v1.EnsureIdentifierRequest
+ */
+export class EnsureIdentifierRequest extends Message<EnsureIdentifierRequest> {
+  /**
+   * @generated from field: iogrid.common.v1.UUID user_id = 1;
+   */
+  userId?: UUID;
+
+  /**
+   * @generated from field: iogrid.identity.v1.IdentifierKind kind = 2;
+   */
+  kind = IdentifierKind.UNSPECIFIED;
+
+  /**
+   * Verified BY CONSTRUCTION for the magic-link path — the user proved
+   * inbox control by clicking the link.
+   *
+   * @generated from field: string verified_email = 3;
+   */
+  verifiedEmail = "";
+
+  /**
+   * OAuth subject when kind is an OAuth provider; empty for magic-link.
+   *
+   * @generated from field: string subject = 4;
+   */
+  subject = "";
+
+  constructor(data?: PartialMessage<EnsureIdentifierRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "iogrid.identity.v1.EnsureIdentifierRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "user_id", kind: "message", T: UUID },
+    { no: 2, name: "kind", kind: "enum", T: proto3.getEnumType(IdentifierKind) },
+    { no: 3, name: "verified_email", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 4, name: "subject", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): EnsureIdentifierRequest {
+    return new EnsureIdentifierRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): EnsureIdentifierRequest {
+    return new EnsureIdentifierRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): EnsureIdentifierRequest {
+    return new EnsureIdentifierRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: EnsureIdentifierRequest | PlainMessage<EnsureIdentifierRequest> | undefined, b: EnsureIdentifierRequest | PlainMessage<EnsureIdentifierRequest> | undefined): boolean {
+    return proto3.util.equals(EnsureIdentifierRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message iogrid.identity.v1.EnsureIdentifierResponse
+ */
+export class EnsureIdentifierResponse extends Message<EnsureIdentifierResponse> {
+  /**
+   * @generated from field: iogrid.identity.v1.Identifier identifier = 1;
+   */
+  identifier?: Identifier;
+
+  /**
+   * True when the call created a new row (false = already existed).
+   *
+   * @generated from field: bool created = 2;
+   */
+  created = false;
+
+  constructor(data?: PartialMessage<EnsureIdentifierResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "iogrid.identity.v1.EnsureIdentifierResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "identifier", kind: "message", T: Identifier },
+    { no: 2, name: "created", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): EnsureIdentifierResponse {
+    return new EnsureIdentifierResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): EnsureIdentifierResponse {
+    return new EnsureIdentifierResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): EnsureIdentifierResponse {
+    return new EnsureIdentifierResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: EnsureIdentifierResponse | PlainMessage<EnsureIdentifierResponse> | undefined, b: EnsureIdentifierResponse | PlainMessage<EnsureIdentifierResponse> | undefined): boolean {
+    return proto3.util.equals(EnsureIdentifierResponse, a, b);
+  }
+}
+
+/**
  * RemoveIdentifierRequest unbinds a single non-Solana identifier (Google,
  * magic-link email, future Apple/GitHub) from the user. Solana wallets are
  * removed via AuthService.UnbindWallet so the SIWS-specific audit trail is

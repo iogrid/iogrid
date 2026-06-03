@@ -51,6 +51,9 @@ const (
 	// IdentityServiceMergeIdentitiesProcedure is the fully-qualified name of the IdentityService's
 	// MergeIdentities RPC.
 	IdentityServiceMergeIdentitiesProcedure = "/iogrid.identity.v1.IdentityService/MergeIdentities"
+	// IdentityServiceEnsureIdentifierProcedure is the fully-qualified name of the IdentityService's
+	// EnsureIdentifier RPC.
+	IdentityServiceEnsureIdentifierProcedure = "/iogrid.identity.v1.IdentityService/EnsureIdentifier"
 	// IdentityServiceRemoveIdentifierProcedure is the fully-qualified name of the IdentityService's
 	// RemoveIdentifier RPC.
 	IdentityServiceRemoveIdentifierProcedure = "/iogrid.identity.v1.IdentityService/RemoveIdentifier"
@@ -67,6 +70,7 @@ var (
 	identityServiceUpdateUserMethodDescriptor       = identityServiceServiceDescriptor.Methods().ByName("UpdateUser")
 	identityServiceDeleteUserMethodDescriptor       = identityServiceServiceDescriptor.Methods().ByName("DeleteUser")
 	identityServiceMergeIdentitiesMethodDescriptor  = identityServiceServiceDescriptor.Methods().ByName("MergeIdentities")
+	identityServiceEnsureIdentifierMethodDescriptor = identityServiceServiceDescriptor.Methods().ByName("EnsureIdentifier")
 	identityServiceRemoveIdentifierMethodDescriptor = identityServiceServiceDescriptor.Methods().ByName("RemoveIdentifier")
 	identityServiceDeleteAccountMethodDescriptor    = identityServiceServiceDescriptor.Methods().ByName("DeleteAccount")
 )
@@ -78,6 +82,9 @@ type IdentityServiceClient interface {
 	UpdateUser(context.Context, *connect.Request[v1.UpdateUserRequest]) (*connect.Response[v1.UpdateUserResponse], error)
 	DeleteUser(context.Context, *connect.Request[v1.DeleteUserRequest]) (*connect.Response[v1.DeleteUserResponse], error)
 	MergeIdentities(context.Context, *connect.Request[v1.MergeIdentitiesRequest]) (*connect.Response[v1.MergeIdentitiesResponse], error)
+	// EnsureIdentifier idempotently binds an identifier (web magic-link
+	// registration path — see the request message doc, #685).
+	EnsureIdentifier(context.Context, *connect.Request[v1.EnsureIdentifierRequest]) (*connect.Response[v1.EnsureIdentifierResponse], error)
 	// RemoveIdentifier unbinds a single identifier from the caller's
 	// account; the server enforces "at least one verified identifier
 	// remains" so the account stays recoverable.
@@ -127,6 +134,12 @@ func NewIdentityServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(identityServiceMergeIdentitiesMethodDescriptor),
 			connect.WithClientOptions(opts...),
 		),
+		ensureIdentifier: connect.NewClient[v1.EnsureIdentifierRequest, v1.EnsureIdentifierResponse](
+			httpClient,
+			baseURL+IdentityServiceEnsureIdentifierProcedure,
+			connect.WithSchema(identityServiceEnsureIdentifierMethodDescriptor),
+			connect.WithClientOptions(opts...),
+		),
 		removeIdentifier: connect.NewClient[v1.RemoveIdentifierRequest, v1.RemoveIdentifierResponse](
 			httpClient,
 			baseURL+IdentityServiceRemoveIdentifierProcedure,
@@ -149,6 +162,7 @@ type identityServiceClient struct {
 	updateUser       *connect.Client[v1.UpdateUserRequest, v1.UpdateUserResponse]
 	deleteUser       *connect.Client[v1.DeleteUserRequest, v1.DeleteUserResponse]
 	mergeIdentities  *connect.Client[v1.MergeIdentitiesRequest, v1.MergeIdentitiesResponse]
+	ensureIdentifier *connect.Client[v1.EnsureIdentifierRequest, v1.EnsureIdentifierResponse]
 	removeIdentifier *connect.Client[v1.RemoveIdentifierRequest, v1.RemoveIdentifierResponse]
 	deleteAccount    *connect.Client[v1.DeleteAccountRequest, v1.DeleteAccountResponse]
 }
@@ -178,6 +192,11 @@ func (c *identityServiceClient) MergeIdentities(ctx context.Context, req *connec
 	return c.mergeIdentities.CallUnary(ctx, req)
 }
 
+// EnsureIdentifier calls iogrid.identity.v1.IdentityService.EnsureIdentifier.
+func (c *identityServiceClient) EnsureIdentifier(ctx context.Context, req *connect.Request[v1.EnsureIdentifierRequest]) (*connect.Response[v1.EnsureIdentifierResponse], error) {
+	return c.ensureIdentifier.CallUnary(ctx, req)
+}
+
 // RemoveIdentifier calls iogrid.identity.v1.IdentityService.RemoveIdentifier.
 func (c *identityServiceClient) RemoveIdentifier(ctx context.Context, req *connect.Request[v1.RemoveIdentifierRequest]) (*connect.Response[v1.RemoveIdentifierResponse], error) {
 	return c.removeIdentifier.CallUnary(ctx, req)
@@ -195,6 +214,9 @@ type IdentityServiceHandler interface {
 	UpdateUser(context.Context, *connect.Request[v1.UpdateUserRequest]) (*connect.Response[v1.UpdateUserResponse], error)
 	DeleteUser(context.Context, *connect.Request[v1.DeleteUserRequest]) (*connect.Response[v1.DeleteUserResponse], error)
 	MergeIdentities(context.Context, *connect.Request[v1.MergeIdentitiesRequest]) (*connect.Response[v1.MergeIdentitiesResponse], error)
+	// EnsureIdentifier idempotently binds an identifier (web magic-link
+	// registration path — see the request message doc, #685).
+	EnsureIdentifier(context.Context, *connect.Request[v1.EnsureIdentifierRequest]) (*connect.Response[v1.EnsureIdentifierResponse], error)
 	// RemoveIdentifier unbinds a single identifier from the caller's
 	// account; the server enforces "at least one verified identifier
 	// remains" so the account stays recoverable.
@@ -240,6 +262,12 @@ func NewIdentityServiceHandler(svc IdentityServiceHandler, opts ...connect.Handl
 		connect.WithSchema(identityServiceMergeIdentitiesMethodDescriptor),
 		connect.WithHandlerOptions(opts...),
 	)
+	identityServiceEnsureIdentifierHandler := connect.NewUnaryHandler(
+		IdentityServiceEnsureIdentifierProcedure,
+		svc.EnsureIdentifier,
+		connect.WithSchema(identityServiceEnsureIdentifierMethodDescriptor),
+		connect.WithHandlerOptions(opts...),
+	)
 	identityServiceRemoveIdentifierHandler := connect.NewUnaryHandler(
 		IdentityServiceRemoveIdentifierProcedure,
 		svc.RemoveIdentifier,
@@ -264,6 +292,8 @@ func NewIdentityServiceHandler(svc IdentityServiceHandler, opts ...connect.Handl
 			identityServiceDeleteUserHandler.ServeHTTP(w, r)
 		case IdentityServiceMergeIdentitiesProcedure:
 			identityServiceMergeIdentitiesHandler.ServeHTTP(w, r)
+		case IdentityServiceEnsureIdentifierProcedure:
+			identityServiceEnsureIdentifierHandler.ServeHTTP(w, r)
 		case IdentityServiceRemoveIdentifierProcedure:
 			identityServiceRemoveIdentifierHandler.ServeHTTP(w, r)
 		case IdentityServiceDeleteAccountProcedure:
@@ -295,6 +325,10 @@ func (UnimplementedIdentityServiceHandler) DeleteUser(context.Context, *connect.
 
 func (UnimplementedIdentityServiceHandler) MergeIdentities(context.Context, *connect.Request[v1.MergeIdentitiesRequest]) (*connect.Response[v1.MergeIdentitiesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iogrid.identity.v1.IdentityService.MergeIdentities is not implemented"))
+}
+
+func (UnimplementedIdentityServiceHandler) EnsureIdentifier(context.Context, *connect.Request[v1.EnsureIdentifierRequest]) (*connect.Response[v1.EnsureIdentifierResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iogrid.identity.v1.IdentityService.EnsureIdentifier is not implemented"))
 }
 
 func (UnimplementedIdentityServiceHandler) RemoveIdentifier(context.Context, *connect.Request[v1.RemoveIdentifierRequest]) (*connect.Response[v1.RemoveIdentifierResponse], error) {

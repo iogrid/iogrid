@@ -49,6 +49,17 @@ func (m *mockIdentity) RemoveIdentifier(ctx context.Context, req *identityv1.Rem
 	}
 	return m.removeIdentifier(ctx, req)
 }
+func (m *mockIdentity) EnsureIdentifier(ctx context.Context, req *identityv1.EnsureIdentifierRequest) (*identityv1.EnsureIdentifierResponse, error) {
+	return &identityv1.EnsureIdentifierResponse{
+		Identifier: &identityv1.Identifier{
+			UserId:        req.GetUserId(),
+			Kind:          req.GetKind(),
+			VerifiedEmail: req.GetVerifiedEmail(),
+			Subject:       req.GetSubject(),
+		},
+		Created: true,
+	}, nil
+}
 func (m *mockIdentity) DeleteAccount(ctx context.Context, req *identityv1.DeleteAccountRequest) (*identityv1.DeleteAccountResponse, error) {
 	if m.deleteAccount == nil {
 		return &identityv1.DeleteAccountResponse{}, nil

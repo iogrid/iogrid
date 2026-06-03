@@ -143,6 +143,29 @@ message DeleteUserRequest {
 }
 message DeleteUserResponse {}
 
+// EnsureIdentifierRequest idempotently binds an identifier to a user. The
+// web's NextAuth magic-link flow authenticates OUTSIDE identity-svc
+// (AuthService.CompleteMagicLink is not in that path), so without this call
+// a magic-link user exists with ZERO identifier rows — /account/identifiers
+// told signed-in users "No identifiers bound" and RemoveIdentifier's
+// keep-one-verified safety had nothing to protect (#685). gateway-bff calls
+// this on the service-token path from NextAuth's signIn event; existing
+// accounts heal on their next sign-in.
+message EnsureIdentifierRequest {
+  iogrid.common.v1.UUID user_id = 1;
+  IdentifierKind kind = 2;
+  // Verified BY CONSTRUCTION for the magic-link path — the user proved
+  // inbox control by clicking the link.
+  string verified_email = 3;
+  // OAuth subject when kind is an OAuth provider; empty for magic-link.
+  string subject = 4;
+}
+message EnsureIdentifierResponse {
+  Identifier identifier = 1;
+  // True when the call created a new row (false = already existed).
+  bool created = 2;
+}
+
 // RemoveIdentifierRequest unbinds a single non-Solana identifier (Google,
 // magic-link email, future Apple/GitHub) from the user. Solana wallets are
 // removed via AuthService.UnbindWallet so the SIWS-specific audit trail is
@@ -202,6 +225,10 @@ service IdentityService {
   rpc UpdateUser(UpdateUserRequest) returns (UpdateUserResponse);
   rpc DeleteUser(DeleteUserRequest) returns (DeleteUserResponse);
   rpc MergeIdentities(MergeIdentitiesRequest) returns (MergeIdentitiesResponse);
+
+  // EnsureIdentifier idempotently binds an identifier (web magic-link
+  // registration path — see the request message doc, #685).
+  rpc EnsureIdentifier(EnsureIdentifierRequest) returns (EnsureIdentifierResponse);
 
   // RemoveIdentifier unbinds a single identifier from the caller's
   // account; the server enforces "at least one verified identifier

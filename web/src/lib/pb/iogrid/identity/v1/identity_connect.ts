@@ -7,7 +7,7 @@
 /* eslint-disable */
 // @ts-nocheck
 
-import { DeleteAccountRequest, DeleteAccountResponse, DeleteUserRequest, DeleteUserResponse, GetUserRequest, GetUserResponse, ListUsersRequest, ListUsersResponse, MergeIdentitiesRequest, MergeIdentitiesResponse, RemoveIdentifierRequest, RemoveIdentifierResponse, UpdateUserRequest, UpdateUserResponse } from "./identity_pbjs";
+import { DeleteAccountRequest, DeleteAccountResponse, DeleteUserRequest, DeleteUserResponse, EnsureIdentifierRequest, EnsureIdentifierResponse, GetUserRequest, GetUserResponse, ListUsersRequest, ListUsersResponse, MergeIdentitiesRequest, MergeIdentitiesResponse, RemoveIdentifierRequest, RemoveIdentifierResponse, UpdateUserRequest, UpdateUserResponse } from "./identity_pbjs";
 import { MethodKind } from "@bufbuild/protobuf";
 
 /**
@@ -63,6 +63,18 @@ export const IdentityService = {
       name: "MergeIdentities",
       I: MergeIdentitiesRequest,
       O: MergeIdentitiesResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * EnsureIdentifier idempotently binds an identifier (web magic-link
+     * registration path — see the request message doc, #685).
+     *
+     * @generated from rpc iogrid.identity.v1.IdentityService.EnsureIdentifier
+     */
+    ensureIdentifier: {
+      name: "EnsureIdentifier",
+      I: EnsureIdentifierRequest,
+      O: EnsureIdentifierResponse,
       kind: MethodKind.Unary,
     },
     /**

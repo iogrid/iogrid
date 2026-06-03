@@ -126,6 +126,7 @@ func Mount(deps Deps) func(chi.Router) {
 			// (closes #197). DELETE /me/identifiers/{id} unbinds one
 			// identifier without orphaning the account (closes #196).
 			r.Delete("/me", api.DeleteMyAccount)
+			r.Post("/me/identifiers", api.EnsureMyIdentifier)
 			r.Delete("/me/identifiers/{id}", api.RemoveMyIdentifier)
 			// PUT /me/preferred-landing-role — EPIC #422 /welcome
 			// picker. JSON forward to identity-svc's chi route via the

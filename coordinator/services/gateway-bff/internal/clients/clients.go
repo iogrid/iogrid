@@ -38,6 +38,7 @@ import (
 type IdentityClient interface {
 	GetUser(ctx context.Context, req *identityv1.GetUserRequest) (*identityv1.GetUserResponse, error)
 	UpdateUser(ctx context.Context, req *identityv1.UpdateUserRequest) (*identityv1.UpdateUserResponse, error)
+	EnsureIdentifier(ctx context.Context, req *identityv1.EnsureIdentifierRequest) (*identityv1.EnsureIdentifierResponse, error)
 	RemoveIdentifier(ctx context.Context, req *identityv1.RemoveIdentifierRequest) (*identityv1.RemoveIdentifierResponse, error)
 	DeleteAccount(ctx context.Context, req *identityv1.DeleteAccountRequest) (*identityv1.DeleteAccountResponse, error)
 }
@@ -283,6 +284,16 @@ func (a *identityAdapter) GetUser(ctx context.Context, req *identityv1.GetUserRe
 func (a *identityAdapter) UpdateUser(ctx context.Context, req *identityv1.UpdateUserRequest) (*identityv1.UpdateUserResponse, error) {
 	return retry(ctx, a.retries, func(ctx context.Context) (*identityv1.UpdateUserResponse, error) {
 		r, err := a.c.UpdateUser(ctx, connect.NewRequest(req))
+		if err != nil {
+			return nil, err
+		}
+		return r.Msg, nil
+	})
+}
+
+func (a *identityAdapter) EnsureIdentifier(ctx context.Context, req *identityv1.EnsureIdentifierRequest) (*identityv1.EnsureIdentifierResponse, error) {
+	return retry(ctx, a.retries, func(ctx context.Context) (*identityv1.EnsureIdentifierResponse, error) {
+		r, err := a.c.EnsureIdentifier(ctx, connect.NewRequest(req))
 		if err != nil {
 			return nil, err
 		}
