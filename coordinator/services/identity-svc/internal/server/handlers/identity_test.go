@@ -184,3 +184,78 @@ func TestIdentityHandler_DeleteAccount_RequiresStepUp(t *testing.T) {
 		t.Fatalf("expected 403 (step_up_required), got %d body=%s", w.Code, w.Body.String())
 	}
 }
+
+// --- EnsureIdentifier (#685) ---------------------------------------------
+//
+// Connect-layer contract tests for the idempotent registration RPC the
+// web's NextAuth signIn event calls (via gateway-bff). The happy-path +
+// idempotency branches need a real store and live in
+// ensure_identifier_integration_test.go; these pin the auth + input
+// validation boundary.
+
+func TestIdentityHandler_EnsureIdentifier_RequiresBearer(t *testing.T) {
+	h := NewIdentityHandler(nil)
+	_, err := h.EnsureIdentifier(context.Background(), connect.NewRequest(&identityv1.EnsureIdentifierRequest{
+		UserId:        &commonv1.UUID{Value: uuid.New().String()},
+		Kind:          identityv1.IdentifierKind_IDENTIFIER_KIND_MAGIC_LINK,
+		VerifiedEmail: "a@b.c",
+	}))
+	if got := connect.CodeOf(err); got != connect.CodeUnauthenticated {
+		t.Fatalf("expected CodeUnauthenticated, got %v (err=%v)", got, err)
+	}
+}
+
+func TestIdentityHandler_EnsureIdentifier_RejectsCrossUser(t *testing.T) {
+	h := NewIdentityHandler(nil)
+	ctx := authmw.WithAuthedUser(context.Background(), uuid.New())
+	_, err := h.EnsureIdentifier(ctx, connect.NewRequest(&identityv1.EnsureIdentifierRequest{
+		UserId:        &commonv1.UUID{Value: uuid.New().String()}, // != caller
+		Kind:          identityv1.IdentifierKind_IDENTIFIER_KIND_MAGIC_LINK,
+		VerifiedEmail: "a@b.c",
+	}))
+	if got := connect.CodeOf(err); got != connect.CodePermissionDenied {
+		t.Fatalf("expected CodePermissionDenied, got %v (err=%v)", got, err)
+	}
+}
+
+func TestIdentityHandler_EnsureIdentifier_RejectsUnspecifiedKind(t *testing.T) {
+	h := NewIdentityHandler(nil)
+	caller := uuid.New()
+	ctx := authmw.WithAuthedUser(context.Background(), caller)
+	_, err := h.EnsureIdentifier(ctx, connect.NewRequest(&identityv1.EnsureIdentifierRequest{
+		UserId:        &commonv1.UUID{Value: caller.String()},
+		Kind:          identityv1.IdentifierKind_IDENTIFIER_KIND_UNSPECIFIED,
+		VerifiedEmail: "a@b.c",
+	}))
+	if got := connect.CodeOf(err); got != connect.CodeInvalidArgument {
+		t.Fatalf("expected CodeInvalidArgument, got %v (err=%v)", got, err)
+	}
+}
+
+func TestIdentityHandler_EnsureIdentifier_RequiresEmailOrSubject(t *testing.T) {
+	h := NewIdentityHandler(nil)
+	caller := uuid.New()
+	ctx := authmw.WithAuthedUser(context.Background(), caller)
+	_, err := h.EnsureIdentifier(ctx, connect.NewRequest(&identityv1.EnsureIdentifierRequest{
+		UserId:        &commonv1.UUID{Value: caller.String()},
+		Kind:          identityv1.IdentifierKind_IDENTIFIER_KIND_MAGIC_LINK,
+		VerifiedEmail: "   ", // whitespace-only must not count
+	}))
+	if got := connect.CodeOf(err); got != connect.CodeInvalidArgument {
+		t.Fatalf("expected CodeInvalidArgument, got %v (err=%v)", got, err)
+	}
+}
+
+func TestIdentityHandler_EnsureIdentifier_NilStoreReturnsInternal(t *testing.T) {
+	h := NewIdentityHandler(nil)
+	caller := uuid.New()
+	ctx := authmw.WithAuthedUser(context.Background(), caller)
+	_, err := h.EnsureIdentifier(ctx, connect.NewRequest(&identityv1.EnsureIdentifierRequest{
+		UserId:        &commonv1.UUID{Value: caller.String()},
+		Kind:          identityv1.IdentifierKind_IDENTIFIER_KIND_MAGIC_LINK,
+		VerifiedEmail: "a@b.c",
+	}))
+	if got := connect.CodeOf(err); got != connect.CodeInternal {
+		t.Fatalf("expected CodeInternal, got %v (err=%v)", got, err)
+	}
+}
