@@ -61,6 +61,13 @@ jobs:
       - name: Install dependencies
         run: npm install --legacy-peer-deps
 
+      - name: Run unit tests (jest)
+        # Fail fast on JS/TS unit regressions BEFORE the ~30min native build.
+        # #629: CI previously ran zero jest, so the ping-pay parseBuyVpnRequest
+        # regression (stale expo-linking mock) shipped silently. ts-jest + jest
+        # are devDependencies installed above.
+        run: npx jest --config jest.config.js --ci 2>&1 | tail -60
+
       - name: Generate native iOS project
         run: npx expo prebuild --platform ios --no-install --clean
 

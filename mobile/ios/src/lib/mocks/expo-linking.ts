@@ -61,14 +61,26 @@ export function parse(url: string): {
     scheme = schemeMatch[1];
     rest = schemeMatch[2];
   }
+  // Authority (host) = chars after `scheme://` up to the first '/' or '?'.
+  // Real expo-linking sits on NSURLComponents, which exposes `.host`; the
+  // Direction-B return_url allowlist check (parseBuyVpnRequest, #629) relies
+  // on it, so the mock must extract it too (previously hardcoded null → the
+  // valid-request test failed).
+  let hostname: string | null = null;
+  let afterHost = rest;
+  const hostMatch = rest.match(/^([^/?]*)(.*)$/);
+  if (hostMatch) {
+    hostname = hostMatch[1] || null;
+    afterHost = hostMatch[2];
+  }
   let path: string | null = null;
   let query = '';
-  const qIdx = rest.indexOf('?');
+  const qIdx = afterHost.indexOf('?');
   if (qIdx >= 0) {
-    path = rest.slice(0, qIdx);
-    query = rest.slice(qIdx + 1);
+    path = afterHost.slice(0, qIdx) || null;
+    query = afterHost.slice(qIdx + 1);
   } else {
-    path = rest;
+    path = afterHost || null;
   }
   const queryParams: Record<string, string> = {};
   if (query) {
@@ -80,7 +92,7 @@ export function parse(url: string): {
       queryParams[k] = v;
     }
   }
-  return { scheme, hostname: null, path, queryParams };
+  return { scheme, hostname, path, queryParams };
 }
 
 // -----------------------------------------------------------------------
