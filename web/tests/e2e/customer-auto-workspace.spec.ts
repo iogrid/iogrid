@@ -159,10 +159,19 @@ test.describe("customer dashboard — first-login auto workspace (#232)", () => 
     expect(cached).toBe(FAKE_WORKSPACE_ID);
 
     // Quick-link cards confirm the dashboard is fully wired, not a
-    // half-rendered loading shell.
-    await expect(page.getByRole("link", { name: /api keys/i })).toBeVisible();
-    await expect(page.getByRole("link", { name: /workloads/i })).toBeVisible();
-    await expect(page.getByRole("link", { name: /billing/i })).toBeVisible();
+    // half-rendered loading shell. Each label now appears twice (a sidebar
+    // nav link + the dashboard quick-link card), so scope to `.first()` —
+    // the contract is "at least one is visible", not a single match (#671:
+    // the unscoped getByRole tripped strict-mode with 2 elements).
+    await expect(
+      page.getByRole("link", { name: /api keys/i }).first(),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: /workloads/i }).first(),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: /billing/i }).first(),
+    ).toBeVisible();
   });
 
   test("cached workspace id short-circuits the BFF round-trip", async ({
