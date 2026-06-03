@@ -106,6 +106,14 @@ func Mount(d Deps) func(chi.Router) {
 		ePath, eh := billingv1connect.NewEarningsServiceHandler(earnings)
 		r.Mount(ePath, eh)
 
+		// Connect-RPC: SubscriptionService — ListUsage backs the customer
+		// /usage surface (#675; was CodeUnimplemented → web saw 501 and
+		// masked it as "$0.00"). Checkout/portal/invoices/cancel remain
+		// Unimplemented via the embedded stub until Stripe wiring lands.
+		subs := NewSubscriptionHandler(d.Store)
+		sPath, sh := billingv1connect.NewSubscriptionServiceHandler(subs)
+		r.Mount(sPath, sh)
+
 		// $GRID — session-end (#597) + devnet faucet (#595). Mounted as
 		// flat /v1/grid/* + /v1/devnet/* (not nested under the /v1
 		// Route block above because the call sequence already
