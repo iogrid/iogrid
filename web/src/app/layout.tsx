@@ -1,21 +1,22 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import localFont from "next/font/local";
 import { Toaster } from "sonner";
 import { SolanaWalletProvider } from "@/lib/solana/provider";
 import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
 
 /**
- * Single sans typeface for the entire surface — Inter, self-hosted by
- * `next/font` so we ship zero third-party font CDN calls in production.
- * The variable form gives us the full 100-900 weight range over the
- * 12-64px scale defined in `design-tokens.css` without loading multiple
- * static cuts. Exposed as the `--font-inter` CSS variable so the L1
- * `--font-sans` token (defined in design-tokens.css) can prefer Inter
- * when it is loaded and gracefully fall back to system-ui otherwise.
+ * Single sans typeface for the entire surface — Inter, VENDORED as a local
+ * woff2 (next/font/local) so the build makes ZERO calls to
+ * fonts.googleapis.com. Previously used next/font/google, which fetches the
+ * font at BUILD time and flaked the CI Docker build whenever Google Fonts was
+ * unreachable/rate-limited (#649 — broke #644/#643 deploys). The variable
+ * form gives the full 100-900 weight range; exposed as the `--font-inter` CSS
+ * variable so the L1 `--font-sans` token can prefer Inter and fall back to
+ * system-ui otherwise.
  */
-const inter = Inter({
-  subsets: ["latin"],
+const inter = localFont({
+  src: "./fonts/InterVariable.woff2",
   display: "swap",
   variable: "--font-inter",
 });
