@@ -110,7 +110,7 @@ spec:
               # tunnel preservation, maxUnavailable:0) could not schedule and the
               # rollout deadlocked (#637). 100m still ~100x real usage.
               cpu: 100m
-              memory: 256Mi
+              memory: 64Mi
             limits:
               cpu: 2000m
               memory: 1Gi

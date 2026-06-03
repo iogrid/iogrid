@@ -115,7 +115,7 @@ spec:
               # not schedule and rolling updates deadlocked (#637). 100m is still
               # ~100x headroom over real usage and lets the maxSurge:1 pod fit.
               cpu: 100m
-              memory: 256Mi
+              memory: 64Mi
             limits:
               cpu: 2000m
               memory: 1Gi
