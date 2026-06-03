@@ -235,6 +235,7 @@ func Mount(deps Deps) func(chi.Router) {
 				r.Delete("/api-keys/{id}", api.DeleteAPIKey)
 				r.Get("/usage", api.GetCustomerUsage)
 				r.Post("/workloads", api.SubmitWorkload)
+				r.Get("/workloads", api.ListWorkloads)
 				r.Get("/workloads/{id}/events", api.StreamWorkloadEvents)
 				// /customer/vpn/sessions (#541) — active VPN sessions for
 				// the signed-in customer. Forwards customer_id from the

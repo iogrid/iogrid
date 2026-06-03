@@ -212,6 +212,49 @@ func (a *API) SubmitWorkload(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, resp)
 }
 
+// ListWorkloads returns the workspace's submitted workloads so the
+// customer dashboard can show dispatches across sessions/devices (before
+// this, the UI only kept a browser-local "recent" list and a customer's
+// workloads vanished on refresh — found by the authenticated UAT, #677).
+//
+// The response is a PLAIN JSON shape, not raw protos: stdlib
+// encoding/json on generated protos emits snake_case keys + enum ints
+// that the web client can't consume (the #630 bug class).
+//
+//	GET /api/v1/customer/workloads?workspace_id=<UUID>
+//	-> 200 { workloads: [ { id, type, status, submittedAt } ... ] }
+func (a *API) ListWorkloads(w http.ResponseWriter, r *http.Request) {
+	if _, ok := auth.FromContext(r.Context()); !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "valid Bearer token required")
+		return
+	}
+	wsID, ok := parseUUIDParam(w, r.URL.Query().Get("workspace_id"), "workspace_id")
+	if !ok {
+		return
+	}
+	resp, err := a.Clients.Workloads.ListWorkloads(r.Context(), &workloadsv1.ListWorkloadsRequest{
+		WorkspaceId: &commonv1.UUID{Value: wsID.String()},
+		Page:        &commonv1.PageRequest{PageSize: 50},
+	})
+	if err != nil {
+		writeUpstreamError(w, err)
+		return
+	}
+	out := make([]map[string]any, 0, len(resp.GetWorkloads()))
+	for _, wl := range resp.GetWorkloads() {
+		row := map[string]any{
+			"id":     wl.GetId().GetValue(),
+			"type":   wl.GetType().String(),
+			"status": wl.GetStatus(),
+		}
+		if ts := wl.GetSubmittedAt(); ts != nil {
+			row["submittedAt"] = ts.AsTime().UTC().Format(time.RFC3339)
+		}
+		out = append(out, row)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"workloads": out})
+}
+
 // StreamWorkloadEvents pushes per-workload status updates as SSE.
 //
 //	GET /api/v1/customer/workloads/{id}/events  (SSE)

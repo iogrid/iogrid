@@ -32,6 +32,37 @@ export function WorkloadsPanel() {
   const [submitting, setSubmitting] = React.useState(false);
   const [recent, setRecent] = React.useState<RecentRow[]>([]);
   const [filter, setFilter] = React.useState<string>("all");
+  const [wsId, setWsId] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    setWsId(localStorage.getItem("iogrid_workspace_id"));
+  }, []);
+
+  // Server-backed dispatch list (#677): before this, `recent` was purely
+  // browser-local state, so a customer's workloads vanished on refresh or
+  // another device. Same wsId + refresh pattern as the api-keys panel.
+  const refresh = React.useCallback(async () => {
+    if (!wsId) return;
+    try {
+      const res = await browserApi().get<{
+        workloads?: { id: string; type: string; status: string; submittedAt?: string }[];
+      }>(`/api/v1/customer/workloads?workspace_id=${wsId}`);
+      setRecent(
+        (res.workloads ?? []).map((w) => ({
+          id: w.id,
+          type: w.type as WorkloadType,
+          status: w.status || "SUBMITTED",
+          submittedAt: w.submittedAt ?? "",
+        })),
+      );
+    } catch {
+      // Keep whatever is shown; the optimistic local rows still render.
+    }
+  }, [wsId]);
+
+  React.useEffect(() => {
+    void refresh();
+  }, [refresh]);
 
   const onSubmit = async () => {
     setSubmitting(true);
@@ -61,6 +92,9 @@ export function WorkloadsPanel() {
       );
       toast.success("Workload submitted.");
       setDestination("");
+      // Pull the server-backed list so the optimistic row is replaced by
+      // the canonical record (#677).
+      void refresh();
     } catch (e) {
       toast.error(`Submit failed: ${(e as Error).message}`);
     } finally {
@@ -150,9 +184,9 @@ export function WorkloadsPanel() {
         <ul className="mt-3 divide-y divide-border rounded-md border border-border dark:divide-border dark:border-border">
           {filtered.length === 0 ? (
             <li className="p-4 text-sm text-muted-foreground">
-              Nothing submitted from this browser yet. Workloads queued via
-              the API show up in /customer/usage with full historical
-              accounting once they bill.
+              No workloads dispatched yet. Submissions from any device — UI
+              or API — appear here, and show in /customer/usage with full
+              historical accounting once they bill.
             </li>
           ) : (
             filtered.map((r) => (
