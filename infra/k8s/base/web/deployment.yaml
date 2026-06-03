@@ -11,10 +11,16 @@ spec:
   replicas: 2
   revisionHistoryLimit: 3
   strategy:
+    # web is STATELESS (no session affinity / tunnels — unlike the data-plane
+    # gateways which keep maxUnavailable:0 deliberately). maxUnavailable:1 lets
+    # rollouts proceed by replacing pods in place when the node has no surge
+    # headroom — a surge-only strategy deadlocked the #677 web roll when the
+    # HPA had scaled web to 4 and the node was out of memory + pod slots
+    # (new pod Pending on "Insufficient memory / Too many pods").
     type: RollingUpdate
     rollingUpdate:
       maxSurge: 1
-      maxUnavailable: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: web
