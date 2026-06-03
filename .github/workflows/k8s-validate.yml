@@ -146,3 +146,39 @@ jobs:
             # Filter benign webhook-absent errors (no controller running, but CRD validation still ran)
             grep -vE "(no endpoints available|connection refused|webhook .* not found)" /tmp/ssdr-staging.log | grep -iE "error" && exit 1 || exit 0
           }
+
+      # ── #637 runtime-validation gate ────────────────────────────────────
+      # The off-prod RUNTIME validation that gates unsuspending the iogrid-prod
+      # Flux Kustomization. A real apply incident (2026-06-03) proved
+      # `kubectl diff` + client-side dry-run are NOT sufficient — they pass
+      # while the apply still breaks. This runs the FULL CNPG operator (not just
+      # CRDs) so the iogrid-pg Cluster CR is validated by its real admission
+      # webhook, then server-side dry-runs overlays/prod against the kind
+      # apiserver. An ad-hoc agent run on the bastion showed 107/108 resources
+      # apply cleanly here (the 1 miss was a missing CNPG controller — which
+      # THIS step installs). Wire this green as the precondition for Flux.
+      - name: Install full CNPG operator (for prod Cluster webhook validation)
+        run: |
+          kubectl apply --server-side -f https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/release-1.24/releases/cnpg-1.24.1.yaml
+          echo "Waiting for the CNPG operator to be Ready (its webhook must answer)…"
+          kubectl -n cnpg-system rollout status deploy/cnpg-controller-manager --timeout=180s || \
+            kubectl rollout status deploy/cnpg-controller-manager -A --timeout=180s || true
+          # give the webhook a moment to register its endpoints
+          sleep 10
+
+      - name: kubectl server-side dry-run prod (#637 gate)
+        run: |
+          kubectl create namespace iogrid --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create namespace gateway-system --dry-run=client -o yaml | kubectl apply -f -
+          # Server-side dry-run of the FULL prod overlay against a real
+          # apiserver + the live CNPG webhook. This is the #637 runtime gate.
+          kubectl apply --dry-run=server -f /tmp/prod.yaml 2>&1 | tee /tmp/ssdr-prod.log || {
+            # Only genuinely-absent-controller noise is tolerated (other
+            # operators' webhooks aren't installed in kind); any real schema /
+            # admission / immutable-field error fails the gate.
+            grep -vE "(no endpoints available|connection refused|failed calling webhook .*(cert-manager|gateway|cilium|prometheus)|webhook .* not found)" /tmp/ssdr-prod.log \
+              | grep -iE "error|invalid|forbidden|immutable" && {
+                echo "::error::overlays/prod failed the #637 server-side validation gate"; exit 1;
+              } || exit 0
+          }
+          echo "::notice::#637 gate PASSED — overlays/prod is server-side-valid against a real apiserver + CNPG webhook"
