@@ -30,9 +30,17 @@ jobs:
           version: latest
 
       - name: Install kustomize
+        # Pinned direct binary download — the upstream install_kustomize.sh
+        # script is flaky (intermittent `tar: Error is not recoverable`,
+        # 2026-06-03). Pin a known-good release + retry for transient net.
         run: |
-          curl -fsSL "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
-          sudo mv kustomize /usr/local/bin/
+          KVER=5.4.3
+          url="https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KVER}/kustomize_v${KVER}_linux_amd64.tar.gz"
+          for i in 1 2 3; do
+            curl -fsSL "$url" -o /tmp/kustomize.tgz && tar -xzf /tmp/kustomize.tgz -C /tmp kustomize && break
+            echo "kustomize download attempt $i failed, retrying…"; sleep 5
+          done
+          sudo install /tmp/kustomize /usr/local/bin/kustomize
           kustomize version
 
       - name: Install kubeval
