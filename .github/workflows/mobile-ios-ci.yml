@@ -290,76 +290,33 @@ jobs:
               except urllib.error.HTTPError as e:
                   print(f'  caps read HTTP {e.code}: {e.read().decode()[:200]}'); return set()
 
-          def _find_capability_id(bid, cap):
-              # The include=bundleIdCapabilities GET can OMIT a stuck/pending
-              # record; the related-resource endpoint lists them with their ids.
-              req = urllib.request.Request(
-                  f'https://api.appstoreconnect.apple.com/v1/bundleIds/{bid}/bundleIdCapabilities?limit=50',
-                  headers=hdrs)
-              try:
-                  with urllib.request.urlopen(req) as r:
-                      for c in json.load(r).get('data', []):
-                          if c.get('attributes', {}).get('capabilityType') == cap:
-                              return c.get('id')
-              except urllib.error.HTTPError as e:
-                  print(f'  find {cap} id HTTP {e.code}: {e.read().decode()[:300]}')
-              return None
-
-          def _delete_capability(cid):
-              dreq = urllib.request.Request(
-                  f'https://api.appstoreconnect.apple.com/v1/bundleIdCapabilities/{cid}',
-                  headers=hdrs, method='DELETE')
-              try:
-                  urllib.request.urlopen(dreq).read(); print(f'  DELETED stuck capability {cid}'); return True
-              except urllib.error.HTTPError as e:
-                  print(f'  delete {cid} HTTP {e.code}: {e.read().decode()[:300]}'); return False
-
-          def _ensure_capability(bid, cap, extra_rels=None):
+          def _ensure_capability(bid, cap):
               if cap in _caps(bid):
                   print(f'  capability {cap} already enabled'); return True
-              rels = {'bundleId': {'data': {'type': 'bundleIds', 'id': bid}}}
-              if extra_rels:
-                  rels.update(extra_rels)
               body = json.dumps({'data': {
                   'type': 'bundleIdCapabilities',
                   'attributes': {'capabilityType': cap},
-                  'relationships': rels}}).encode()
-              def _post():
-                  creq = urllib.request.Request(
-                      'https://api.appstoreconnect.apple.com/v1/bundleIdCapabilities',
-                      data=body, headers={**hdrs, 'Content-Type': 'application/json'}, method='POST')
-                  return urllib.request.urlopen(creq).read()
+                  'relationships': {'bundleId': {'data': {'type': 'bundleIds', 'id': bid}}}}}).encode()
+              creq = urllib.request.Request(
+                  'https://api.appstoreconnect.apple.com/v1/bundleIdCapabilities',
+                  data=body, headers={**hdrs, 'Content-Type': 'application/json'}, method='POST')
               try:
-                  _post(); print(f'  ENABLED capability {cap}'); return True
+                  urllib.request.urlopen(creq).read(); print(f'  ENABLED capability {cap}'); return True
               except urllib.error.HTTPError as e:
-                  body_txt = e.read().decode()[:600]
-                  if e.code == 409:
-                      # 409 but the active-capability GET omits it ⇒ a stuck/
-                      # pending APPLE_ID_AUTH record. Find + DELETE it (scoped to
-                      # THIS bundle's capability, not /v1/betaTesters), re-POST
-                      # fresh with the appConsentBundleId relationship (#638).
-                      print(f'  enable {cap} HTTP 409: {body_txt}')
-                      cid = _find_capability_id(bid, cap)
-                      if cid and _delete_capability(cid):
-                          time.sleep(10)
-                          try:
-                              _post(); print(f'  ENABLED {cap} after delete+recreate'); return True
-                          except urllib.error.HTTPError as e2:
-                              print(f'  re-enable {cap} HTTP {e2.code}: {e2.read().decode()[:400]}'); return False
-                      print(f'  could not resolve stuck {cap} (id={cid})'); return False
-                  print(f'  enable {cap} HTTP {e.code}: {body_txt}'); return False
+                  # Log the FULL body. The appConsentBundleId relationship from web
+                  # research was INVALID — Apple returned ENTITY_ERROR.RELATIONSHIP
+                  # .UNKNOWN ("'appConsentBundleId' is not a relationship on
+                  # bundleIdCapabilities"), i.e. MY request caused the 409, not a
+                  # stuck record. This bare POST surfaces APPLE_ID_AUTH's ACTUAL
+                  # requirement / restriction so #638 can be resolved or declared
+                  # portal-only.
+                  print(f'  enable {cap} HTTP {e.code}: {e.read().decode()[:900]}'); return False
 
           _app_bid = _bundle_id('io.iogrid.app')
           siwa_flag = os.path.join(os.environ.get('RUNNER_TEMP', '/tmp'), 'siwa_enabled')
           if _app_bid:
               print(f'=== ensuring Sign In with Apple on io.iogrid.app ({_app_bid}) ===')
-              # APPLE_ID_AUTH enablement is rejected with
-              # ENTITY_ERROR.RELATIONSHIP.REQUIRED unless an appConsentBundleId
-              # relationship (RELATED_APP_CONSENT) is supplied. iogrid is a
-              # standalone app → it is its OWN primary App ID, so the consent
-              # relationship self-references the bundle (#575/#638).
-              ok = _ensure_capability(_app_bid, 'APPLE_ID_AUTH',
-                  extra_rels={'appConsentBundleId': {'data': {'type': 'bundleIds', 'id': _app_bid}}})
+              ok = _ensure_capability(_app_bid, 'APPLE_ID_AUTH')
               if ok:
                   time.sleep(20)  # let Apple reflect the new capability before re-read
               now = _caps(_app_bid)
