@@ -1,0 +1,227 @@
+# UAT — iogrid (authenticated web + iOS mobile) — 2026-06-03
+
+> **Real, deep User-Acceptance-Test walk**, filled from [`UAT-TEMPLATE.md`](UAT-TEMPLATE.md). This supersedes the earlier surface-only walk: the tester **signed in as a real user** (magic-link to `emrah.baysal@openova.io`) and exercised the **authenticated** product — provider activity, customer activity (incl. minting + revoking an API key), wallet bind, and usage/billing — not just the marketing pages. The iOS VPN app is covered by real Maestro flows + the jest suite (executed below); on-device steps are honestly marked pending a TestFlight build ([#574](https://github.com/iogrid/iogrid/issues/574)) since this is a Linux host with no iOS simulator.
+>
+> **Golden rule — 100% the end-user's experience.** Every row is a real tap/type/click on the shipped UI (or a real CI-run device flow). No fabricated passes.
+
+---
+
+## Metadata
+
+| Field | Value |
+|---|---|
+| **Product / release** | iogrid — web (provider + customer + VPN) + iOS app `io.iogrid.app` |
+| **Build under test** | live `iogrid.org` (web image `…5aaf21c`, current) · iOS build 1 (no external TestFlight yet, [#574](https://github.com/iogrid/iogrid.org)) |
+| **Environment** | [https://iogrid.org](https://iogrid.org) — signed in as `emrah.baysal@openova.io` (real magic-link, completed) |
+| **Surface(s)** | Authenticated responsive web (Chromium) · iOS app (jest executed + Maestro-in-CI; not device-walked on this Linux host) |
+| **Tester** | `@p0-474-lonely` (UAT executor) |
+| **Walk date** | 2026-06-03 |
+| **Overall verdict** | 🔴 **FAIL** — core customer surfaces have multiple broken endpoints (usage 501, workloads-list 405, **API-key revoke broken 500/405**). Provider + auth + billing work. See roll-up. |
+
+---
+
+## How to read & fill this document
+
+**Result legend:** ✅ PASS *(evidence required)* · ❌ FAIL *(defect filed, issue left open)* · ⛔ BLOCKED *(couldn't attempt)* · ⏭️ N/A · ☐ NOT WALKED.
+
+The tester is read-only on the product code; reported what was seen on screen; never self-closes a defect issue. The magic link was read **read-only** from the mailbox (no message modified, sent, or deleted; no account/password touched).
+
+---
+
+## A. Web — authenticated journeys (walked live, signed in as a real user)
+
+### TC-01 — Sign in with a magic link (full round-trip)
+
+- **Persona:** Returning user; iogrid web auth is passwordless email.
+- **Goal:** *"As a user I enter my email, get a sign-in link, and reach my authenticated account."*
+- **Preconditions:** A real mailbox (`emrah.baysal@openova.io`).
+
+| # | Screen | What you do | What you must see | Result | Evidence |
+|---|---|---|---|---|---|
+| 1 | [/account](https://iogrid.org/account) | Enter `emrah.baysal@openova.io`, tap **Send magic link** | "Verify Request — check your email" | ✅ | — |
+| 2 | Mailbox | Open the iogrid email, follow the sign-in link | Redirects to iogrid, session established | ✅ | — |
+| 3 | [/account](https://iogrid.org/account) | Revisit the account page | **AppShell renders** — persona switcher ("Account") + account nav, NOT the sign-in form | ✅ | [📷 account](evidence/auth-01-account.png) |
+
+- **Journey verdict:** ☑ **PASS** — The full magic-link round-trip works end-to-end. (The earlier UAT marked this ⛔ "no inbox" — that was a cop-out; with a real mailbox it passes.)
+
+---
+
+### TC-02 — Provider: land on the dashboard, see the onboarding state + navigate
+
+- **Goal:** *"As a provider I open my dashboard and understand how to start earning."*
+
+| # | Screen | What you do | What you must see | Result | Evidence |
+|---|---|---|---|---|---|
+| 1 | [/provider](https://iogrid.org/provider) | Open the provider dashboard | Real dashboard (not a redirect): **"You don't have any provider machines paired yet… Install the iogrid daemon to start earning $GRID"** + nav (Overview/Transparency/Schedule/Earnings/Staking) | ✅ | [📷 provider](evidence/auth-02-provider-overview.png) |
+| 2 | [/provider/earnings](https://iogrid.org/provider/earnings) | Open **Earnings** | Earnings view renders (endpoint 200) | ✅ | [📷 earnings](evidence/auth-03-provider-earnings.png) |
+| 3 | [/provider/audit](https://iogrid.org/provider/audit) | Open **Transparency** (per-byte audit) | Transparency feed page renders | ✅ | [📷 audit](evidence/auth-10-provider-audit.png) |
+| 4 | [/provider/staking](https://iogrid.org/provider/staking) | Open **Staking** | Staking view renders | ✅ | [📷 staking](evidence/auth-11-provider-staking.png) |
+
+- **Journey verdict:** ☑ **PASS** — Provider surfaces render correctly for a real signed-in user with the genuine "no daemon paired" empty state. Endpoint probe: overview/earnings/schedule **200**. *(Caveat: `GET /api/v1/provide/audit/stream` returned 404 — an SSE-stream endpoint; the audit page itself renders, so noted as a watch-item, not a journey failure.)*
+
+---
+
+### TC-03 — Customer: open the workspace + navigate
+
+| # | Screen | What you do | What you must see | Result | Evidence |
+|---|---|---|---|---|---|
+| 1 | [/customer](https://iogrid.org/customer) | Open the customer dashboard | **"Workspace"** — "Submit workloads, monitor scheduling, manage API keys and billing" + nav (Workloads/API keys/Billing/Usage) | ✅ | [📷 customer](evidence/auth-04-customer-overview.png) |
+| 2 | [/customer/billing](https://iogrid.org/customer/billing) | Open **Billing** | Billing view renders (endpoint **200**) | ✅ | [📷 billing](evidence/auth-08-customer-billing.png) |
+
+- **Journey verdict:** ☑ **PASS** — Workspace auto-provisioned (`workspace_id e7745e37…`), nav + billing work.
+
+---
+
+### TC-04 — Customer: mint an API key (real create action)
+
+- **Goal:** *"As a customer I create an API key so a CI runner can submit workloads."*
+
+| # | Screen | What you do | What you must see | Result | Evidence |
+|---|---|---|---|---|---|
+| 1 | [/customer/api-keys](https://iogrid.org/customer/api-keys) | Open API keys | "Create a key" form + an existing key `vpn:cli-unblock` | ✅ | [📷 apikeys](evidence/auth-05-customer-apikeys.png) |
+| 2 | API keys | Type label `uat-test-key-2026-06-03`, tap **Create key** | New key appears (count 1→2) + **one-time plaintext token** dialog ("Copy this token now… iogrid will never show it to you again") | ✅ | [📷 created](evidence/auth-06-apikey-created.png) |
+
+- **Journey verdict:** ☑ **PASS** — Real end-to-end key creation: form → backend persist → one-time token reveal. Genuine customer functionality.
+
+---
+
+### TC-05 — Customer: revoke an API key  🔴
+
+- **Goal:** *"As a customer I revoke a key I no longer trust."*
+
+| # | Screen | What you do | What you must see | Result | Evidence |
+|---|---|---|---|---|---|
+| 1 | [/customer/api-keys](https://iogrid.org/customer/api-keys) | Tap **Revoke** → **Revoke permanently** on `uat-test-key-2026-06-03` | The key is removed from the list | ❌ | [📷 created](evidence/auth-06-apikey-created.png) |
+
+- **Journey verdict:** ☒ **FAIL** — **Revoke is broken.** The key stays after reload. UI fires `DELETE /api/v1/customer/api-keys?…` → **405**; the correct `…/api-keys/<id>?…` route → **500** (`billing-svc.RevokeApiKey` path errors). Filed **[#676](https://github.com/iogrid/iogrid/issues/676) (P1 — a leaked key can't be killed)**. ⚠️ The `uat-test-key-2026-06-03` created in TC-04 **cannot be removed** because of this very bug — it remains on the workspace (plain customer key, no elevated rights); revoke it once #676 is fixed.
+
+---
+
+### TC-06 — Customer: view usage  🔴
+
+- **Goal:** *"As a customer I see my per-byte consumption + cost."*
+
+| # | Screen | What you do | What you must see | Result | Evidence |
+|---|---|---|---|---|---|
+| 1 | [/customer/usage](https://iogrid.org/customer/usage) | Open **Usage** | Real per-workload metering | ❌ | [📷 usage](evidence/auth-12-customer-usage-501.png) |
+
+- **Journey verdict:** ☒ **FAIL** — `GET /api/v1/customer/usage` returns **501 Not Implemented**. The page **masks it as a zero-state** ("0 B / $0.00 / No usage in this window"), so a customer with real usage would see misleading zeros, not an error. Filed **[#675](https://github.com/iogrid/iogrid/issues/675) (P2)** — this is the per-byte-transparency differentiator, non-functional.
+
+---
+
+### TC-07 — Customer: list workloads  🔴
+
+| # | Screen | What you do | What you must see | Result | Evidence |
+|---|---|---|---|---|---|
+| 1 | [/customer/workloads](https://iogrid.org/customer/workloads) | Open **Workloads** | The submit form + "Recent dispatches" list | ❌ | [📷 workloads](evidence/auth-07-customer-workloads.png) |
+
+- **Journey verdict:** ☒ **FAIL** — The submit form renders, but `GET /api/v1/customer/workloads` → **405** (the web route exports only `POST`, no `GET`), so the dispatch **list can't load**. Filed **[#677](https://github.com/iogrid/iogrid/issues/677) (P2)**.
+
+---
+
+### TC-08 — Account: connect & bind a Solana wallet  ⛔
+
+- **Goal:** *"As a user I bind my Solana wallet for $GRID payouts / discount."*
+
+| # | Screen | What you do | What you must see | Result | Evidence |
+|---|---|---|---|---|---|
+| 1 | [/account/wallets](https://iogrid.org/account/wallets) | Open **Wallets** | Real bind UI: "No wallets bound yet", **Connect wallet** / **Connect & bind wallet**, balance card (endpoint 200) | ✅ | [📷 wallets](evidence/auth-09-account-wallets.png) |
+| 2 | Wallets | Tap **Connect & bind wallet** | Phantom opens → sign challenge → address bound | ⛔ | — |
+
+- **Journey verdict:** ☒ **BLOCKED** — The bind UI renders correctly (empty state + controls + balance endpoint 200), but completing the bind needs the **Phantom browser extension**, which isn't installed in this headless Playwright session. Not a defect — a tooling limit. Re-walk in a real browser with Phantom, or cover via the mobile wallet-connect flow (Maestro 03).
+
+---
+
+## B. iOS VPN app — journeys (jest executed; device steps via Maestro-in-CI, not walked on this host)
+
+> **Honesty note:** this is a Linux host with **no iOS simulator** and **no external TestFlight build** ([#574](https://github.com/iogrid/iogrid/issues/574)), so I did **not** tap through a physical device. What IS real: the **jest suite executed this session** (below), and the app ships **11 Maestro device-flows** that run in `mobile-ios-ci` against a booted simulator. Each case maps to its real Maestro flow + testIDs; device execution is marked ☐ NOT WALKED (this host) with the CI flow that covers it.
+
+**jest suite (executed 2026-06-03 on this host):** `59 passed, 3 skipped, 0 failed` — covers `auth-gate`, `grid_balance`, `wallets`, `ping-pay` (24 incl. devnet).
+
+### TC-20 — First-run onboarding → signed in with Apple
+
+| # | Screen (testID) | What you do | What you must see | Result | CI coverage |
+|---|---|---|---|---|---|
+| 1 | Welcome | Tap **Continue** (`onboarding-welcome-continue`) | Welcome carousel advances | ☐ NOT WALKED (this host) | Maestro `01-onboarding` |
+| 2 | Sign in | Tap **Sign in with Apple** (`onboarding-sign-in-apple`) | Apple sheet → lands on `connect-wallet-skip` | ☐ NOT WALKED (this host) | Maestro `02-sign-in` |
+
+- **Verdict:** ☐ NOT WALKED on a device here; **covered by Maestro `01`/`02` in `mobile-ios-ci`** + `auth-gate` jest (passed). Needs a real device walk once TestFlight is live (#574).
+
+### TC-21 — Connect the VPN (iOS permission → connected)
+
+| # | Screen (testID) | What you do | What you must see | Result | CI coverage |
+|---|---|---|---|---|---|
+| 1 | Home | Tap **Connect** (`connect-button`) | iOS "Add VPN Configurations" prompt → **Allow** | ☐ NOT WALKED (this host) | Maestro `05-main-connecting` |
+| 2 | Home (connected) | — | Status **Connected**, `egress-ip` + `connected-city` shown | ☐ NOT WALKED (this host) | Maestro `06-main-connected` |
+
+- **Verdict:** ☐ NOT WALKED here; **covered by Maestro `04`/`05`/`06`**. Real device walk needed (WireGuard tunnel + the OS VPN dialog can't be exercised off-device).
+
+### TC-22 — Switch region
+
+| # | Screen (testID) | What you do | What you must see | Result | CI coverage |
+|---|---|---|---|---|---|
+| 1 | Regions | Search (`regions-search`), tap **Best (auto)** (`region-best-auto`) or a `region-card` | Active region switches | ☐ NOT WALKED (this host) | Maestro `07-region-picker` |
+
+### TC-23 — Settings (kill-switch / DNS-leak / split-tunnel / sign-out)
+
+| # | Screen (testID) | What you do | What you must see | Result | CI coverage |
+|---|---|---|---|---|---|
+| 1 | Settings | Toggle `settings-row-kill-switch`, `settings-row-dns-leak`, `settings-row-split-tunneling`, `settings-row-auto-connect` | Each toggle persists | ☐ NOT WALKED (this host) | Maestro `08-settings` |
+| 2 | Settings | Tap **Sign out** (`settings-sign-out`) | Returns to onboarding | ☐ NOT WALKED (this host) | Maestro `08-settings` |
+
+### TC-24 — Top up balance (Ping)
+
+| # | Screen (testID) | What you do | What you must see | Result | CI coverage |
+|---|---|---|---|---|---|
+| 1 | Home | Tap **Top up** (`wallet-card-topup`) | Top-up screen (`topup-custom-input`) | ☐ NOT WALKED (this host) | Maestro `09-topup` |
+| 2 | Top up | Enter amount, tap **Continue** (`topup-continue`) | Hands off to Ping via Universal Link `https://ping.cash/approve` | ☐ NOT WALKED (this host) | Maestro `09` + `ping-pay` jest (24 passed) |
+
+- **Verdict:** payment-URL construction is unit-verified (`ping-pay` jest, 24 passed, 9-dec atomic + Universal-Link shape); the on-device hand-off + Ping round-trip need a device + the external $GRID mint ([#665](https://github.com/iogrid/iogrid/issues/665)).
+
+### TC-25 — Live VPN session
+
+| # | Screen | What you do | What you must see | Result | CI coverage |
+|---|---|---|---|---|---|
+| 1 | Home (connected) | Keep a session live, observe egress IP/city | Stable tunnel + live session telemetry | ☐ NOT WALKED (this host) | Maestro `10-mobile-session-live` |
+
+---
+
+## Roll-up
+
+| TC | Surface | Journey | Result |
+|---|---|---|---|
+| TC-01 | web (auth) | Magic-link sign-in (full round-trip) | 🟢 PASS |
+| TC-02 | web (auth) | Provider dashboard + nav | 🟢 PASS |
+| TC-03 | web (auth) | Customer workspace + billing | 🟢 PASS |
+| TC-04 | web (auth) | Mint API key | 🟢 PASS |
+| TC-05 | web (auth) | **Revoke API key** | 🔴 FAIL ([#676](https://github.com/iogrid/iogrid/issues/676), P1) |
+| TC-06 | web (auth) | **Customer usage** | 🔴 FAIL ([#675](https://github.com/iogrid/iogrid/issues/675), P2) |
+| TC-07 | web (auth) | **Workloads list** | 🔴 FAIL ([#677](https://github.com/iogrid/iogrid/issues/677), P2) |
+| TC-08 | web (auth) | Wallet connect & bind | ⛔ BLOCKED (needs Phantom ext) |
+| TC-20–25 | iOS app | Onboarding / connect / region / settings / top-up / live | ☐ NOT WALKED on this host — covered by Maestro `01–10` in CI; jest 59✓ |
+| | | **Web walked:** 8 journeys — 4 PASS, 3 FAIL, 1 BLOCKED | |
+
+**Overall verdict:** 🔴 **FAIL** — Authentication, provider surfaces, customer billing, and API-key **creation** work. But the authenticated **customer** surface has **three broken endpoints**: revoke (P1, security-relevant), usage (P2), workloads-list (P2). These are real, only findable by signing in — exactly what the prior surface-only UAT missed. Mobile needs a real device walk once an external TestFlight build exists ([#574](https://github.com/iogrid/iogrid/issues/574)).
+
+---
+
+## Defects found during this walk
+
+| Defect | Step | What the user saw | Severity | Ticket |
+|---|---|---|---|---|
+| API-key **revoke** broken | TC-05 | Key won't revoke; 500 (`[id]` route) / 405 (base) | P1 | [#676](https://github.com/iogrid/iogrid/issues/676) |
+| Customer **usage** 501, masked as $0.00 | TC-06 | "No usage" zero-state hiding a 501 | P2 | [#675](https://github.com/iogrid/iogrid/issues/675) |
+| Customer **workloads list** 405 | TC-07 | Dispatch list can't load | P2 | [#677](https://github.com/iogrid/iogrid/issues/677) |
+| (prior walk) `/status` dashboard 404 | — | dead link — **already fixed** | P2 | [#668](https://github.com/iogrid/iogrid/issues/668) ✅ |
+
+> Watch-item (not yet a ticket): `GET /api/v1/provide/audit/stream` → 404 (SSE endpoint; the audit page renders, so confirm whether the live stream is expected to be wired).
+
+---
+
+## Out of scope (handled by the dev team, NOT walked here)
+
+Unit/integration/contract tests (the mobile **jest** result is cited as supporting evidence, not as a UAT row), CI pipelines, raw API/SQL/log verification with no on-screen surface, source reading.
+
+---
+
+_Filled from [`UAT-TEMPLATE.md`](UAT-TEMPLATE.md). Web journeys walked live authenticated 2026-06-03; iOS jest executed, device flows mapped to Maestro `01–10` in `mobile-ios-ci`, on-device walk pending an external build ([#574](https://github.com/iogrid/iogrid/issues/574)). Supersedes the surface-only `UAT-iogrid-web-2026-06-03.md`._

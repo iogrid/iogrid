@@ -1,5 +1,7 @@
 # UAT — iogrid — 2026-06-03
 
+> ⚠️ **SUPERSEDED by [`UAT-iogrid-2026-06-03.md`](UAT-iogrid-2026-06-03.md)** — that doc is the real *authenticated* walk (signed in, exercised provider/customer/wallet, found 3 real defects). This file was a surface-only walk of unauthenticated pages.
+
 > **Standard User-Acceptance-Test walk** of the real iogrid product, filled from [`UAT-TEMPLATE.md`](UAT-TEMPLATE.md). This is a **real walk** — the web journeys (TC-01…TC-07) were executed live against `iogrid.org` with Playwright and every ✅ row has a real screenshot. The mobile journeys (TC-10…TC-12) are **NOT WALKED** — there is no live external TestFlight build to install yet ([#574](https://github.com/iogrid/iogrid/issues/574)).
 >
 > **Golden rule — this document is 100% the end-user's experience.** Every step is something a person does with their thumb or mouse on the shipped UI. No terminal, no `kubectl`, no API calls, no code reading.
