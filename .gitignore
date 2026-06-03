@@ -133,14 +133,12 @@ web/*.tsbuildinfo
 .playwright-mcp/
 bastion.key
 bastion.pub
-# Loose-root screenshot dumps (e.g. account-notifications-631-live.png)
+# Junk dumps — DoD evidence belongs in GitHub issue comments, not the repo
+# tree. Product assets (web/public, mobile/ios/assets, brand/) stay tracked.
 /account-*.png
-/*.png
-# Blanket: no new PNG screenshots anywhere (already-tracked product
-# assets are unaffected; this only stops fresh captures re-accumulating).
-*.png
-*.jpg
-*.jpeg
+docs/**/*.png
+docs/**/*.jpg
+docs/**/*-walk-evidence/
 *.log
 *.tmp
 *.orig
