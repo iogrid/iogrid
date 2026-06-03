@@ -154,7 +154,7 @@ The tester is read-only on the product code; reported what was seen on screen; n
 | **09-topup** | ❌ **FAIL — test bug, not an app bug**: `assertVisible: topup-continue` without scrolling, but Continue sits below the payment-methods list (Apple Pay / Card / Bitcoin / USDC / Transfer $GRID), off the CI viewport fold. The Top up screen itself rendered correctly (Quick amounts +500/+2,500/+10,000 with +2,500 selected, all pay methods). Fix: `scrollUntilVisible` added (`b59a043`). | [📷 failure capture](evidence-mobile/maestro-09-topup-FAIL-below-fold.png) |
 | 10-mobile-session-live | ⛔ BLOCKED this run (chain aborted at 09) — executes once 09 scrolls | — |
 
-*(Iteration pattern, same as ping-cash: each run peels a real layer. Run 1 `26903231905`: sim-build fixed (#681) → 01–07 ran, 08 below-fold. Run 2 `26904727684`: 08 fixed → **01–08 PASS**, 09 below-fold. Run 3: 09 scroll fix → expects 01–09, then 10. **Every "failure" so far has been a CI-viewport test-assertion bug — the app screens all render correctly.**)*
+*(Iteration pattern, same as ping-cash: each run peels a real layer. Run 1 `26903231905`: sim-build fixed (#681) → 01–07 ran, 08 below-fold. Run 2 `26904727684`: 08 fixed → **01–08 PASS**, 09 below-fold. Run 3 `26910040116`: carried the 09 scroll fix but **launch-flaked** after flow 02 ("Unable to launch app" — the known simulator/XCUITest flake, #575/#599 family; not an app or test regression) → rerun queued; 09/10 validation pending. **Every real flow "failure" so far has been a CI-viewport test-assertion bug — the app screens all render correctly.**)*
 
 ### TC-20 — First-run onboarding → signed in with Apple
 
