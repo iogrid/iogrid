@@ -1,0 +1,102 @@
+---
+# In-cluster MinIO — WAL-archive + base-backup target for iogrid-pg (#642).
+# The CNPG barmanObjectStore needs an S3 endpoint; the intended Hetzner
+# object-storage creds don't exist (operator-gated, exhaustively confirmed).
+# This dedicated in-cluster MinIO is the self-serviceable alternative —
+# continuous WAL archiving + PITR with NO external credentials.
+#
+# ⚠️ Limitation: same-cluster local-path storage = NOT offsite DR (a full
+# node/cluster loss takes DB + backup together). It is vastly better than the
+# current state (zero archiving). Hetzner offsite remains the recommended
+# durable target once creds land — at which point flip barmanObjectStore back.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: iogrid-minio
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: iogrid-minio
+    app.kubernetes.io/part-of: iogrid
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 50Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iogrid-minio
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: iogrid-minio
+    app.kubernetes.io/part-of: iogrid
+    app.kubernetes.io/component: backup-store
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate          # RWO volume — no rolling overlap
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: iogrid-minio
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: iogrid-minio
+        app.kubernetes.io/part-of: iogrid
+        app.kubernetes.io/component: backup-store
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: minio
+          image: quay.io/minio/minio:RELEASE.2024-09-22T00-33-43Z
+          args: ["server", "/data", "--console-address", ":9001"]
+          envFrom:
+            - secretRef:
+                name: iogrid-minio-root
+          ports:
+            - { name: s3, containerPort: 9000 }
+            - { name: console, containerPort: 9001 }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          readinessProbe:
+            httpGet: { path: /minio/health/ready, port: 9000 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /minio/health/live, port: 9000 }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests: { cpu: "50m", memory: "256Mi" }
+            limits: { cpu: "1", memory: "1Gi" }
+          volumeMounts:
+            - { name: data, mountPath: /data }
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: iogrid-minio
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: iogrid-minio
+    app.kubernetes.io/part-of: iogrid
+spec:
+  selector:
+    app.kubernetes.io/name: iogrid-minio
+  ports:
+    - { name: s3, port: 9000, targetPort: 9000 }
+    - { name: console, port: 9001, targetPort: 9001 }

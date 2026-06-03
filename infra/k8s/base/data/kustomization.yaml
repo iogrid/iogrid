@@ -5,3 +5,4 @@ resources:
   - redis.yaml
   - nats.yaml
   - pg-dump-backup.yaml
+  - minio-backup.yaml
