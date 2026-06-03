@@ -134,6 +134,47 @@ The tester is read-only on the product code; reported what was seen on screen; n
 
 ---
 
+### TC-09 — Account: sessions + identifiers (recovery surfaces)  🔴 *(enrichment walk, 2026-06-04)*
+
+- **Goal:** *"As a user I review which devices are signed in and which emails can recover my account."*
+
+| # | Screen | What you do | What you must see | Result | Evidence |
+|---|---|---|---|---|---|
+| 1 | [/account/sessions](https://iogrid.org/account/sessions) | Open **Sessions** | The signed-in sessions list — at minimum **this** browser session ("this device") | ⚠️ | [📷 sessions](evidence/auth-14-account-sessions.png) |
+| 2 | [/account/identifiers](https://iogrid.org/account/identifiers) | Open **Identifiers** | The signed-in email (`emrah.baysal@openova.io`) listed as a verified identifier + an Add flow | ❌ | [📷 identifiers](evidence/auth-15-identifiers-empty.png) |
+
+- **Journey verdict:** ☒ **FAIL** — Step 1 renders but says "No other active sessions" **without listing the current session** (no "this device" row — the standard Google/GitHub pattern; the endpoint returns 200, so this is a UI completeness gap, noted as a watch-item). Step 2 is broken outright: `GET /api/v1/account/identifiers` → **404**, masked as **"No identifiers bound"** — told to a user who just signed in with that very email (and whose **profile page displays it**), and the Add control the copy promises doesn't render. Filed **[#685](https://github.com/iogrid/iogrid/issues/685) (P2)** — the failure-masking-as-empty-state pattern again.
+
+---
+
+### TC-10 — Account: notification preferences round-trip  🟢 *(enrichment walk, 2026-06-04)*
+
+- **Goal:** *"As a user I choose which events email me, and the choice sticks across devices."*
+
+| # | Screen | What you do | What you must see | Result | Evidence |
+|---|---|---|---|---|---|
+| 1 | [/account/notifications](https://iogrid.org/account/notifications) | Open **Notifications** | The channel matrix — 4 event types × Email/In-app switches + Save/Reset | ✅ | — |
+| 2 | Notifications | Toggle **Product updates — email** (false→true), tap **Save** | Toast: **"Notification preferences saved."** | ✅ | — |
+| 3 | Notifications | Full page reload | The toggle is **still on** (server-persisted) | ✅ | — |
+| 4 | Notifications | Toggle back + Save (restore) | Saved again — walk leaves no residue | ✅ | — |
+
+- **Journey verdict:** ☑ **PASS** — A real settings round-trip: toggle → save → persists across reload → restored. The account-preferences chain (UI → BFF → identity-svc store) works.
+
+---
+
+### TC-11 — Sign out  🟢 *(enrichment walk, 2026-06-04)*
+
+- **Goal:** *"As a user I sign out and my session is actually gone."*
+
+| # | Screen | What you do | What you must see | Result | Evidence |
+|---|---|---|---|---|---|
+| 1 | [/account](https://iogrid.org/account) | Profile shows `emrah.baysal@openova.io`; tap **Sign out** | Redirects to the public home page | ✅ | — |
+| 2 | [/provider](https://iogrid.org/provider) | Deep-link to a protected page | Bounces to **/account?callbackUrl=/provider** — the gate re-engages; no stale session | ✅ | — |
+
+- **Journey verdict:** ☑ **PASS** — Session destroyed cleanly; auth gate re-engages with the destination preserved. *(Polish note: the profile card shows "Unnamed account" + a "?" avatar for a magic-link user — a warmer default would help.)*
+
+---
+
 ## B. iOS VPN app — journeys (EXECUTED on the CI iOS simulator via Maestro)
 
 > **UPDATE 2026-06-04 — the mobile flows now EXECUTE** (the ping-cash pattern). Every prior `mobile-ios-ci` run died at the simulator build (`auth.ts` `require('buffer')`, [#681](https://github.com/iogrid/iogrid/issues/681) — fixed `f774e03`), so Maestro had never actually run. With the fix, run [**26903231905**](https://github.com/iogrid/iogrid/actions/runs/26903231905) executed the flow chain on a booted iOS simulator — real per-flow results + real simulator screenshots below. A physical-device walk (real Apple-ID sign-in, real WG tunnel, TestFlight install) still awaits an external build ([#574](https://github.com/iogrid/iogrid/issues/574)).
@@ -217,6 +258,9 @@ The tester is read-only on the product code; reported what was seen on screen; n
 | TC-06 | web (auth) | **Customer usage** | 🔴 FAIL ([#675](https://github.com/iogrid/iogrid/issues/675), P2) |
 | TC-07 | web (auth) | Workloads (submit + dispatch list) | 🟢 **PASS (after fix, prod-verified)** — UI submit → 201 → server list row → **survives reload** ([📷](evidence/auth-13-workload-submit-persisted.png)); was 2-layer-broken ([#683](https://github.com/iogrid/iogrid/issues/683) closed) |
 | TC-08 | web (auth) | Wallet connect & bind | ⛔ BLOCKED (needs Phantom ext) |
+| TC-09 | web (auth) | Sessions + identifiers (recovery) | 🔴 FAIL — identifiers 404 masked as empty ([#685](https://github.com/iogrid/iogrid/issues/685)); sessions missing "this device" row |
+| TC-10 | web (auth) | Notification prefs round-trip | 🟢 PASS — toggle→save→persists→restored |
+| TC-11 | web (auth) | Sign out | 🟢 PASS — session destroyed, gate re-engages |
 | TC-20–25 | iOS app | Onboarding / connect / region / settings / top-up / live | **EXECUTED on the CI simulator** (latest run 26904727684): flows **01–08 🟢 PASS** w/ real captures; 09 🔴 test-bug (below-fold assert, fix `b59a043`); 10 ⛔ next run. Every failure so far = CI-viewport assertion bug, never an app defect. jest 59✓. Physical-device walk pending [#574](https://github.com/iogrid/iogrid/issues/574). |
 | | | **Web walked:** 8 journeys — 5 PASS, 2 FAIL, 1 BLOCKED | |
 
