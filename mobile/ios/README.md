@@ -1,109 +1,100 @@
-# iogrid iOS — VPN mobile client v1
+# iogrid iOS — consume-only VPN client
 
-> EPIC #566. Expo SDK 56 React Native app with a NetworkExtension
-> PacketTunnelProvider for WireGuard-over-iOS VPN. Mullvad-style
-> anonymous account ID (no email, no password). Seamless roaming on
-> WiFi ↔ cellular network changes.
+> EPIC #566 / #581. Expo SDK 56 React Native app with a NetworkExtension
+> PacketTunnelProvider for WireGuard-over-iOS VPN. Mobile is **consume-only**
+> (VPN) per App Store policy — providers run the desktop daemon, not the
+> phone. Seamless roaming on WiFi ↔ cellular network changes.
 
-## Status (2026-06-02)
+## Status
 
-- 7 of 8 EPIC children code-complete (#567 #568 #569 #570 #571 #572 #573)
-- #574 (App Store + TestFlight beta crew) parked on operator-action #575
-- #576 (WireGuardKit SwiftPM dep) parked on upstream Swift 6 compat
-- #577 (post-review polish) parked
+- On **TestFlight** (external beta group `vpn-beta`, public invite
+  link below). Build number auto-increments per CI run via EAS
+  (`autoIncrement: buildNumber`) — current TestFlight build is 137+.
+- **Sign in with Apple** is the sole auth path on iOS (no email/password,
+  no Google on iOS) — wired end-to-end against identity-svc, not a stub.
+- **Universal Links** active: `applinks:iogrid.org` declared in
+  `app.json` associatedDomains; AASA served from the web app.
+- **Ping payment** integration via Universal Links
+  `https://ping.cash/approve` + SPL Approve (delegate). See
+  [`src/lib/wallets/ping-pay.ts`](src/lib/wallets/ping-pay.ts). The
+  return bounce uses the registered `iogrid://` scheme.
 
-### Apple Developer Portal — bundle IDs registered ✅
+### Account model
 
-Programmatically registered via cinova's existing Apple credentials
-(same Dynolabs team) on 2026-06-02 04:18Z:
+Apple ID + Ping wallet IS the identity (the earlier Mullvad-style
+"anonymous account number" model was rejected — see
+[`docs/ux-wireframes-v2.md`](docs/ux-wireframes-v2.md)):
 
-| Bundle ID | Apple resource ID | Capabilities |
-|---|---|---|
-| `io.iogrid.app` | `CZVDX99A2L` | NETWORK_EXTENSIONS · APP_GROUPS · PERSONAL_VPN |
-| `io.iogrid.app.PacketTunnelProvider` | `D48F7P2J6L` | NETWORK_EXTENSIONS · APP_GROUPS |
+- **Auth**: Sign in with Apple (mandatory on iOS). Google arrives later
+  on Android.
+- **Identity**: Apple ID → maps to an iogrid account on first launch.
+  Apple's identity token is POSTed to identity-svc, validated against
+  Apple's JWKS, exchanged for an iogrid session JWT + refresh token,
+  persisted in iOS Keychain (App Group scoped so the NetworkExtension
+  can read it).
+- **Wallet / payment**: $GRID balance held in a Ping wallet; VPN top-ups
+  burn $GRID via Ping's SPL-Approve surface.
 
-Workflow that registered them lives in [dynolabs-io/cinova](https://github.com/dynolabs-io/cinova/blob/main/.github/workflows/register-iogrid-bundles.yml) — re-runnable via `gh workflow run register-iogrid-bundles.yml --repo dynolabs-io/cinova` if Apple ever drops them.
+### $GRID token
 
-### Operator's residual web-UI work (~3 min)
+- SPL Token-2022, **9 decimals** (NEVER 6). 250 $GRID → 250_000_000_000
+  atomic units.
+- Mainnet mint NOT deployed. Devnet mint:
+  `BaQvWwb1wUGvWJXPEUbLEwPeeYMd4sKvp2S7obzTWorR` (in `app.json`
+  `extra.iogridTokenMintDevnet`). `extra.iogridTokenMint` (mainnet) is
+  empty until Track 5 ships.
 
-Apple's API doesn't expose these two CREATE endpoints; founder must
-click through:
-
-1. **App Group** (30 sec) — https://developer.apple.com/account → Identifiers → "+" → App Groups → `group.io.iogrid.app`. Then link to both bundle IDs via the Configure button.
-2. **App Store Connect record** (2 min) — https://appstoreconnect.apple.com → My Apps → "+" → New App → Bundle: `io.iogrid.app`, Name: `iogrid`. Copy the numeric App ID from the URL.
-
-Then run:
-
-```bash
-cd mobile/ios
-./scripts/bootstrap-testflight.sh \
-    ~/Downloads/AuthKey_<KEY_ID>.p8 \
-    <KEY_ID> <ISSUER_ID> <APPLE_TEAM_ID> <APP_ID>
-```
-
-Script automates everything from there to emrahbaysal@gmail.com receiving the TestFlight invite.
-
-## Production state (live as of 2026-06-02)
-
-Live values on the Dynolabs Apple Developer team:
+### Apple Developer Portal
 
 | Resource | Value |
 |---|---|
-| **App Store Connect App ID** | `6775617937` |
-| Main bundle ID | `io.iogrid.app` (resource: `CZVDX99A2L`) — capabilities: NETWORK_EXTENSIONS, APP_GROUPS, PERSONAL_VPN |
-| Extension bundle ID | `io.iogrid.app.PacketTunnelProvider` (resource: `D48F7P2J6L`) — capabilities: NETWORK_EXTENSIONS, APP_GROUPS |
-| App Group `group.io.iogrid.app` | **NOT created (v1 entitlements stripped per #576 deferral)** — re-add when WireGuardKit lands |
-| External beta group | `vpn-beta` (id: `474ed0b2-429e-47f5-8382-f776e43a3423`) |
-| **Public TestFlight invite link** | **https://testflight.apple.com/join/jHPTNj9P** |
-| Distribution cert | Fresh cert created via fastlane cert in CI (2/2 slot — coexists with vcard's cert) |
-| Provisioning profile | `iogrid App Store` (regenerated each CI run via fastlane sigh) |
+| App Store Connect App ID | `6775617937` |
+| Main bundle ID | `io.iogrid.app` (resource `CZVDX99A2L`) — capabilities: NETWORK_EXTENSIONS, APP_GROUPS, PERSONAL_VPN |
+| Extension bundle ID | `io.iogrid.app.PacketTunnelProvider` (resource `D48F7P2J6L`) — capabilities: NETWORK_EXTENSIONS, APP_GROUPS |
+| App Group | `group.io.iogrid.app` |
+| External beta group | `vpn-beta` |
+| Public TestFlight invite | https://testflight.apple.com/join/jHPTNj9P |
 
-iogrid repo secrets (set 2026-06-02):
+CI signs with a fresh fastlane-cert Distribution cert (regenerated each
+run) and a `iogrid App Store` provisioning profile regenerated via
+fastlane sigh. The four App Store Connect secrets
+(`APP_STORE_CONNECT_KEY_ID`, `APP_STORE_CONNECT_ISSUER_ID`,
+`APP_STORE_CONNECT_PRIVATE_KEY`, `APPLE_TEAM_ID`) plus the signing
+secrets are set in the iogrid repo. When present, the credential-gated
+CI steps fire automatically (`if: env.HAS_APPLE_SECRETS == 'true'`).
 
-- `APP_STORE_CONNECT_KEY_ID`
-- `APP_STORE_CONNECT_ISSUER_ID`
-- `APP_STORE_CONNECT_PRIVATE_KEY` (base64-encoded .p8)
-- `APPLE_TEAM_ID`
-- `IOS_DIST_CERT_P12` (base64-encoded — currently for a revoked cert, regenerated each CI run via fastlane cert)
-- `IOS_DIST_P12_PASSWORD`
-- `IOS_DIST_PROVISION`
-
-All exfilled from sibling repos (cinova for the 4 ASC API secrets, vcard for the .p12) via one-shot workflows that were deleted after use. **Founder zero web-UI touches after the one-time App Store Connect "New App" creation.**
-
-## Quickstart for operators
-
-The complete TestFlight bootstrap runbook is at
+The complete bootstrap runbook is at
 [`docs/runbooks/mobile-ios-testflight-bootstrap.md`](../../docs/runbooks/mobile-ios-testflight-bootstrap.md).
-6 steps, ~40 min real-time from Apple Developer enrollment to
-emrahbaysal@gmail.com receiving the TestFlight invite.
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  Main app (Expo SDK 56 RN, expo-router stack navigation)    │
-│  ├─ src/app/index.tsx — toggle screen                       │
-│  ├─ src/app/regions.tsx — region picker (#571)              │
-│  ├─ src/app/settings.tsx — account number recovery (#569)   │
-│  ├─ src/components/quota-banner.tsx — server-driven (#573)  │
-│  └─ src/lib/                                                │
-│     ├─ account.ts — Mullvad-style anon ID via Keychain      │
-│     └─ coordinator.ts — JSON-over-fetch RPC to vpn-svc      │
+│  Main app (Expo SDK 56 RN, expo-router)                      │
+│  ├─ src/app/(onboarding)/ — welcome, privacy,                │
+│  │     sign-in-with-apple, connect-wallet                    │
+│  ├─ src/app/index.tsx — VPN toggle screen                    │
+│  ├─ src/app/regions.tsx — region picker                      │
+│  ├─ src/app/topup.tsx — $GRID top-up (Ping Approve launch)   │
+│  ├─ src/app/settings.tsx — account + session                │
+│  └─ src/lib/                                                 │
+│     ├─ auth.ts — Sign in with Apple + session persistence    │
+│     ├─ coordinator.ts — JSON-over-fetch RPC to vpn-svc        │
+│     ├─ grid_balance.ts — Solana RPC $GRID balance            │
+│     └─ wallets/ — Ping bind + ping-pay SPL Approve           │
 └──────────┬──────────────────────────────────────────────────┘
            │ NETunnelProviderManager IPC
 ┌──────────▼──────────────────────────────────────────────────┐
 │  TunnelControl Expo native module (modules/TunnelControl/)  │
 │  ├─ ios/TunnelControl.swift — start/stop/sendMessage        │
-│  └─ src/index.ts — TS wrapper, EventEmitter for status      │
+│  └─ src/index.ts — TS wrapper, EventEmitter for status       │
 └──────────┬──────────────────────────────────────────────────┘
            │ NETunnelProviderProtocol.providerConfiguration
 ┌──────────▼──────────────────────────────────────────────────┐
-│  PacketTunnelProvider extension (native/ios/PTP/)            │
+│  PacketTunnelProvider extension (native/ios/PacketTunnelProvider/) │
 │  ├─ PacketTunnelProvider.swift — NEPacketTunnelProvider      │
-│  │  ├─ startTunnel — decodes config, starts WireGuardAdapter │
-│  │  ├─ NWPathMonitor — #572 seamless roaming                 │
-│  │  └─ handleAppMessage — IPC from main app                  │
-│  └─ PacketTunnelProvider.entitlements — NE + App Group       │
+│  ├─ NWPathMonitor — seamless roaming                         │
+│  └─ handleAppMessage — IPC from main app                     │
 └──────────┬──────────────────────────────────────────────────┘
            │ WireGuard outer UDP, AllowedIPs=0.0.0.0/0
 ┌──────────▼──────────────────────────────────────────────────┐
@@ -130,39 +121,22 @@ xcodebuild archive                           # full build
 fastlane sigh + altool                       # provision + upload to TestFlight
 ```
 
-CI orchestrates this in `.github/workflows/mobile-ios-ci.yml`. The
-credential-requiring steps are gated by
-`if: ${{ env.HAS_APPLE_SECRETS == 'true' }}` — set the 4 Apple
-secrets per the runbook and they auto-fire.
-
-## Known gaps v1
-
-| # | Gap | Status |
-|---|---|---|
-| #574 | First TestFlight upload + tester invite | gated on #575 operator action |
-| #575 | Apple Developer secrets (.p8 + key id + issuer + team) | needs operator |
-| #576 | WireGuardKit SwiftPM dep — wireguard-apple's Package.swift fails Swift 6 compile | parked, upstream blocker |
-| #577 | Post-review polish (URL hardcode, IPC JSON escape, observer leak, etc.) | parked |
+CI orchestrates this in `.github/workflows/mobile-ios-ci.yml`. See
+[`CONTRIBUTING.md`](CONTRIBUTING.md) for the full set of Xcode 26 /
+Swift 6 / Expo SDK 56 build gotchas this codebase has hit.
 
 ## Maestro smoke gate
 
-`.maestro/` holds the 5 numbered flows + a `00-all.yaml` orchestrator
-(per vcard convention). CI runs the orchestrator on a booted iOS
-simulator before any TestFlight upload — a Maestro fail kills the
-upload.
-
-| Flow | Asserts |
-|---|---|
-| 01-launch | First-launch contract: no login screen, toggle visible, account number present |
-| 02-toggle-on | Toggle ON → CONNECTING state transition |
-| 03-region-picker | Picker reachable, 'Best (auto)' default selected, search field works |
-| 04-settings-account-id | Settings reachable, 'Account number' row present |
-| 05-quota-banner | Banner NOT visible on first launch (server hasn't responded yet) |
+`.maestro/` holds numbered flows + a `00-all.yaml` orchestrator. CI
+runs the orchestrator on a booted iOS simulator before any TestFlight
+upload — a Maestro fail kills the upload. Use `extendedWaitUntil` for
+waits (`assertVisible` has no `timeout` key — see CONTRIBUTING gotcha
+19) and prefer testID assertions over text on Pressable-wrapped content
+(gotcha 21/21b).
 
 ## UAT walk (Playwright)
 
 Run `expo start --web --port 8081` then drive via Playwright. The
 TunnelControl native module has a web stub (`src/index.web.ts`) that
 no-ops the iOS-only NEVPNStatusDidChange flow so the JS layer loads
-cleanly in browser. See `docs/evidence/566-mobile-uat-walk-2026-06-02/`
-for the 4 walk screenshots that flipped #568 to status/completed.
+cleanly in browser.

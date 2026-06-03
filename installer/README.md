@@ -1,8 +1,19 @@
 # iogrid installers
 
-End-state: a non-technical user clicks one link on **iogrid.org/install**, gets the correct double-clickable installer for their OS, clicks Continue 3 times, sees a browser tab open with a sign-in form, signs in with Google, and their PC is contributing. Total time: ~2 minutes (mostly Docker Desktop download on first-time installs).
+End-state: a non-technical user clicks one link on **iogrid.org/install**, gets the correct double-clickable installer for their OS, clicks Continue 3 times, sees a browser tab open with a sign-in form, signs in (magic-link; Google appears once configured), and their PC is contributing. Total time: ~2 minutes (mostly Docker Desktop download on first-time installs).
 
 Power users (developers, sysadmins) get the same end state from `curl | sh`.
+
+The web serves the install endpoints same-origin from the apex:
+
+```bash
+curl -fsSL https://iogrid.org/install/sh    | sh   # OS-detecting (mac + linux)
+curl -fsSL https://iogrid.org/install/mac   | sh
+curl -fsSL https://iogrid.org/install/linux | sudo sh
+iwr -useb  https://iogrid.org/install/win   | iex   # Windows
+```
+
+Binaries are downloaded from `https://releases.iogrid.org/latest/iogrid-<os>-<arch>.<ext>`.
 
 ---
 
@@ -71,7 +82,7 @@ Steps:
 4. Drops the binary at `/usr/local/iogrid/iogridd`. Symlinks `/usr/local/bin/iogridd`.
 5. Writes `~/Library/LaunchAgents/org.iogrid.daemon.plist`. Calls `launchctl bootstrap` + `enable` + `kickstart` to start it.
 6. Calls `iogridd pair --request` → daemon prints a 6-character code.
-7. Calls `open https://app.iogrid.org/onboard/<code>` to start the browser flow.
+7. Calls `open https://iogrid.org/onboard/<code>` to start the browser flow.
 
 ### Linux
 
@@ -99,7 +110,7 @@ Steps:
 3. If Docker Desktop is missing: silent install via `Docker Desktop Installer.exe install --quiet --accept-license`.
 4. Drops `iogridd.exe` at `C:\Program Files\iogrid\`.
 5. `sc.exe create iogridd binPath= ... start= auto`. Recovery: 3 restarts on failure.
-6. `Start-Service iogridd` → daemon mints code → `Start-Process` opens browser at `https://app.iogrid.org/onboard/<code>`.
+6. `Start-Service iogridd` → daemon mints code → `Start-Process` opens browser at `https://iogrid.org/onboard/<code>`.
 
 ---
 
@@ -115,7 +126,7 @@ Apple's standard productbuild workflow. The .pkg:
   2. Deletes the root-owned copy
   3. `launchctl bootstrap gui/<uid>` + `enable` + `kickstart`
   4. Calls `iogridd pair --request` and writes the code to `~/.iogrid/pairing-code.txt`
-  5. Opens the browser to `app.iogrid.org/onboard/<code>` (as the user, not root)
+  5. Opens the browser to `iogrid.org/onboard/<code>` (as the user, not root)
 
 Build it locally:
 
@@ -179,7 +190,7 @@ Cosign blob signing: set `COSIGN_KEY_FILE=./cosign.key` (output of `cosign gener
 
 ## Onboarding handshake (after install)
 
-Once the daemon is running, the browser tab opens at `app.iogrid.org/onboard/<code>`:
+Once the daemon is running, the browser tab opens at `iogrid.org/onboard/<code>`:
 
 ```
 ┌──────────────────────────────────────────────────┐
@@ -205,7 +216,7 @@ The wizard POSTs to `gateway-bff /api/v1/onboard/start` on mount (binds code →
 
 Server-side flow:
 1. `iogridd pair --request` mints a 6-char code, writes to `~/.iogrid/pairing-code.txt`, prints to stdout.
-2. Browser hits `/onboard/<code>`, user signs in (Google or magic-link).
+2. Browser hits `/onboard/<code>`, user signs in (magic-link; Google appears once configured).
 3. After sign-in the wizard calls BFF `/onboard/start { token }`.
 4. User picks defaults, wizard calls BFF `/onboard/complete { token, defaults }`.
 5. Daemon's background poll (`/onboard/poll { token, daemon_pubkey }`) flips from 202 to 200 with the bundle. Daemon writes the bundle to `~/Library/Application Support/iogrid/identity.pem` (Mac) / `~/.config/iogrid/identity.pem` (Linux) / `%APPDATA%\iogrid\identity.pem` (Windows) and starts the supervisor.

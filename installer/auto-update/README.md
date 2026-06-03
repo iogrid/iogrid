@@ -79,7 +79,7 @@ daemon/crates/core/src/updater/
    manifestd's `IOGRID_MANIFEST_PATH`).
 6. Upload binaries under `<release-version>/<artifact-name>` matching the URLs
    embedded in the manifest.
-7. CDN (Cloudflare) purges within 30 s; daemons pick up on their next 6-hour
+7. CDN (Cloudflare) purges within 30 s; daemons pick up on their next 24-hour
    poll, or immediately when the operator clicks **Check now** in
    `/account/updates`.
 

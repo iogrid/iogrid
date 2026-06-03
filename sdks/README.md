@@ -17,7 +17,7 @@ expose the same idiomatic API in each language.
 
 ## Method surface
 
-Every SDK exposes the same ten methods. Naming follows each language's idioms (camelCase / snake_case / PascalCase).
+Every SDK exposes the same eleven methods. Naming follows each language's idioms (camelCase / snake_case / PascalCase).
 
 | Capability                | TypeScript / Java          | Python                       | Go                       |
 |---------------------------|----------------------------|------------------------------|--------------------------|
@@ -31,6 +31,12 @@ Every SDK exposes the same ten methods. Naming follows each language's idioms (c
 | Delete API key            | `deleteApiKey`             | `delete_api_key`             | `DeleteAPIKey`           |
 | Get usage records         | `getUsage`                 | `get_usage`                  | `GetUsage`               |
 | Get invoices              | `getInvoices`              | `get_invoices`               | `GetInvoices`            |
+| Request mobile VPN session | `requestMobileSession`    | `request_mobile_session`     | `RequestMobileSession`   |
+
+`requestMobileSession` brings up a mobile WireGuard VPN session
+(`POST /v1/vpn/sessions/mobile`) and returns the peer config; the Go SDK
+additionally ships a `vpn/` subpackage with the roaming / DERP-fallback
+tunnel manager.
 
 The TypeScript and Python SDKs return AsyncIterables for `streamWorkloadEvents`. The Go SDK returns `(<-chan WorkloadEvent, <-chan error)`. The Java SDK accepts a `Consumer<WorkloadEvent>` callback (with a `collectWorkloadEvents` helper for tests that want a buffered list).
 
