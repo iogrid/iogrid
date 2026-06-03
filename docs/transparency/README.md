@@ -7,6 +7,14 @@ in git history — without inheriting the gatekeeping. Anyone can audit the
 treasury, the burn ledger, the emission curve, and the foundation's activity
 against what we publish.
 
+> **Scope.** This directory is the **$GRID economics** transparency surface only.
+> The separate **law-enforcement / abuse** transparency report (LEO request
+> counts, AUP-enforcement actions, NCMEC reports, defense-fund disbursements,
+> per-byte audit-log handling) is specified in
+> [`legal/incident-response.md`](../../legal/incident-response.md) §B.6 and its
+> drafting playbook [`legal/incident-response/playbook.md`](../../legal/incident-response/playbook.md) §8.
+> Both report families publish quarterly starting Phase 2.
+
 ## Why this exists
 
 Closes the visibility gap between the on-chain reality (which is technically

@@ -291,7 +291,7 @@ iogrid is not intended for and is not marketed to children under the age of 18 (
 
 ## 13. Updates to this policy
 
-We may update this Privacy Policy from time to time. Material updates will be notified via email to the address on your account (where you have one) and / or by prominent notice on iogrid.org at least **30 days** before the effective date. The current version is always at *[COUNSEL: insert canonical URL, e.g., https://iogrid.org/privacy]*.
+We may update this Privacy Policy from time to time. Material updates will be notified via email to the address on your account (where you have one) and / or by prominent notice on iogrid.org at least **30 days** before the effective date. The current version is always published at https://iogrid.org/legal/privacy.
 
 The revision history is maintained in [`legal/README.md`](./README.md).
 

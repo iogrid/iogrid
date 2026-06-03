@@ -1,6 +1,8 @@
 # iogrid brand identity
 
-The single source of truth for iogrid's visual identity. Everything that ships under the iogrid name — marketing site, web management plane, daemon installer screens, App Store assets — pulls from this folder.
+The single source of truth for iogrid's **brand expression** — logo, voice, and palette intent. Everything that ships under the iogrid name — landing site, web management plane, daemon installer screens, App Store assets — aligns to this folder.
+
+> **Implementation note.** The *live, code-enforced* design tokens (colors, type, spacing, radius, motion) live in [`web/src/styles/design-tokens.css`](../web/src/styles/design-tokens.css) and are documented in [`docs/design-system.md`](../docs/design-system.md) — the canonical authority for the Linear/Notion/Vercel surface aesthetic. The palette here mirrors those tokens (indigo `primary` + minty-green `accent` + warm neutral ramp). When the two ever diverge, `design-tokens.css` wins for anything that renders in the product; this folder governs brand-asset usage (logo, voice, clearspace).
 
 ## Contents
 
@@ -10,10 +12,10 @@ The single source of truth for iogrid's visual identity. Everything that ships u
 | `logo/mark.svg` | Standalone icon (hexagonal mesh motif) |
 | `logo/monochrome.svg` | Single-color wordmark for one-ink prints, T-shirts, dark UI overlays |
 | `logo/reversed.svg` | Light-on-dark wordmark for use on the brand-primary background |
-| `colors.md` | Palette reference (primary, accent, neutral, semantic) |
-| `typography.md` | Type system spec (display / UI / code / numerical) |
-| `tokens/colors.json` | Machine-readable color tokens, consumed by Tailwind config in `marketing/` and `web/` |
-| `tokens/spacing.json` | Spacing scale, also consumed by Tailwind |
+| `colors.md` | Palette reference (primary, accent, neutral, semantic) — mirrors `design-tokens.css` |
+| `typography.md` | Type system spec (UI / display / code / numerical) |
+| `tokens/colors.json` | Machine-readable color tokens for brand assets |
+| `tokens/spacing.json` | Spacing scale |
 
 ## Brand voice
 

@@ -60,7 +60,7 @@ interruption.
 | % of quarter revenue routed to burn | TBD (target ≥2%) |
 
 **Mechanism:** Daily automated process converts ≥2% of platform revenue to
-$GRID via Jupiter swap and sends to `1nc1nerator1111111111111111111111111111111`.
+$GRID via Jupiter swap and sends to `1nc1nerator11111111111111111111111111111111`.
 
 **Top 5 burn transactions this quarter:**
 
