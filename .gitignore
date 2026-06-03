@@ -139,6 +139,14 @@ bastion.pub
 docs/**/*.png
 docs/**/*.jpg
 docs/**/*-walk-evidence/
+# EXCEPTION: standardized UAT evidence. The UAT-TEMPLATE standard REQUIRES
+# screenshots committed under docs/ledger/evidence[-mobile]/ and referenced as
+# [📷 ...](evidence/...png) — these are structured acceptance artifacts, not
+# ad-hoc walk-dumps. Keep them tracked.
+!docs/ledger/evidence/
+!docs/ledger/evidence/**
+!docs/ledger/evidence-mobile/
+!docs/ledger/evidence-mobile/**
 *.log
 *.tmp
 *.orig
