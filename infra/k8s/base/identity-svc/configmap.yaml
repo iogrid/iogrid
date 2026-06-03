@@ -15,7 +15,12 @@ metadata:
     app.kubernetes.io/part-of: iogrid
     app.kubernetes.io/component: identity
 data:
-  GOOGLE_REDIRECT_URL: "https://app.iogrid.org/api/auth/callback/google"
+  # iogrid.org, NOT app.iogrid.org — the app.* subdomain was dropped and now
+  # 301s to the apex (verified: app.iogrid.org/api/auth/callback/google → 301 →
+  # iogrid.org/...). An OAuth redirect_uri must match EXACTLY; a 301 mid-flow
+  # breaks Google sign-in, so this must be the canonical apex host (#648, prereq
+  # for #646). Web NextAuth already derives the apex callback from NEXTAUTH_URL.
+  GOOGLE_REDIRECT_URL: "https://iogrid.org/api/auth/callback/google"
   BASE_URL: "https://api.iogrid.org"
-  ALLOWED_RETURN_HOSTS: "app.iogrid.org,iogrid.org"
+  ALLOWED_RETURN_HOSTS: "iogrid.org,app.iogrid.org"
   REDIS_URL: "redis://redis-client.iogrid.svc.cluster.local:6379/0"
