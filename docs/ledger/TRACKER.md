@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-03T11:00Z` ✅ #664 right-size applied (node 97%→70%) + #629 driving to close |
+| Last refreshed | `2026-06-03T11:15Z` 🟢 cron-refresh: +1 commits since last TRACKER bump |
 | ✅ 2026-06-03 #664 CPU right-sizing — node 97%→70%, surge headroom restored | Acted on the over-provisioning finding (no parking-lot): right-sized 9 services 100m→50m + `iogrid-pg` 500m→200m (via CNPG Cluster CR) — all via targeted single-field patches (Flux-wire stays banned). **Node CPU requests 97%→70%** (~1630m reclaimed). All rolled clean: edge+api stable 200, CNPG did a controlled in-place pg restart (no switchover, healthy 2/2), 0 non-running pods. Repo manifests match live. Eliminates the #637 rollout-deadlock root cause (no surge CPU) fleet-wide. Independent verifier in flight → close on ACCEPT. |
 | 🟡 2026-06-03 #629 deliverable DONE → driving to close; #665 splits external residuals | #629's actual deliverable (realign mobile to Ping's published Universal-Link SPL-Approve contract) is **complete + verified**: `ping.ts` self-invented `ping://` `@deprecated` (dead code), `ping-pay.ts` faithful to the published contract (UL + SPL-Approve + bounce, 9-dec), onboarding copy fixed, jest 59 green, cross-team ping-cash#169 closed. The residual **C-8 sig-verify ruling (Ping) + mainnet $GRID mint (founder)** are NOT realignment blockers (RPC-poll verify works now; realignment uses env-indirection) — split to **#665** (`blocked-ext`) so #629 closes on its delivered scope. Independent realignment-complete reviewer in flight → close #629 on ACCEPT. |
 | ✅ 2026-06-03 #629 cross-team contract RESOLVED — ping-cash#169 closed (P23 code-verify) |
