@@ -1,5 +1,9 @@
 # 2026-05-31 — Hatice provider_id cleanup runbook (post-#503)
 
+> 🗄️ Historical — captured 2026-05-31; transient session artifact, may not
+> reflect current state. For current state see `docs/ARCHITECTURE.md` +
+> `docs/ledger/TRACKER.md`.
+
 > One-time data migration to bring `hatice.yildiz@openova.io` back onto the
 > canonical provider id `808ce330-79c1-4390-8cc6-87c5ce5a94d8` after the
 > drift documented in #502.

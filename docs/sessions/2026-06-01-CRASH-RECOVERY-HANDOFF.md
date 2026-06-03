@@ -1,5 +1,9 @@
 # Handoff — VPN end-state demo, crash recovery 2026-06-01
 
+> 🗄️ Historical — captured 2026-06-01; transient session handoff, may not
+> reflect current state. For current state see `docs/ARCHITECTURE.md` +
+> `docs/ledger/TRACKER.md`.
+
 > Written immediately after a host crash during an autonomous push toward the
 > VPN end-state demo. Reading order: (1) **North star** → (2) **Where we are
 > right now** → (3) **What's next** → (4) **Guardrails**. After this doc, the

@@ -1,5 +1,9 @@
 # VPN Phase 1 Kickoff Session (2026-06-01)
 
+> 🗄️ Historical — captured 2026-06-01; transient session artifact, may not
+> reflect current state. For current state see `docs/ARCHITECTURE.md` +
+> `docs/ledger/TRACKER.md`.
+
 ## Session Summary
 
 **Date**: 2026-06-01 03:00-04:30Z  
