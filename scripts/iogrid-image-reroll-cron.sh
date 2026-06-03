@@ -42,6 +42,15 @@ EDGE_URL="${EDGE_URL:-https://iogrid.org}"
 ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 log() { printf '%s [reroll-cron] %s\n' "$(ts)" "$*"; }
 
+# Overlap guard: a slow rollout (up to 180s/svc × 12) could in principle still
+# be running when the next tick fires. flock makes a second run exit at once
+# rather than racing concurrent `set image`s (idempotent, but cleaner logs).
+exec 9>"${IOGRID_REROLL_LOCK:-/tmp/iogrid-image-reroll.lock}"
+if ! flock -n 9; then
+  log "another reroll run holds the lock — skipping this tick"
+  exit 0
+fi
+
 # A dedicated checkout keeps the cron clear of the developer working tree
 # (concurrent Claude/operator sessions race the primary checkout's branch).
 if [[ ! -d "$CLONE/.git" ]]; then
