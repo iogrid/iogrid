@@ -44,7 +44,7 @@ const SECTIONS = [
   },
   {
     h: "8. Security",
-    body: "mTLS between every service. Secrets in OpenBao + external-secrets (no plaintext in the cluster, never in git). Container images cosign-signed + SBOM-published + Trivy-scanned at admission. Responsible-disclosure: security@iogrid.org; PGP key on docs.iogrid.org.",
+    body: "mTLS between every service. Secrets in OpenBao + external-secrets (no plaintext in the cluster, never in git). Container images cosign-signed + SBOM-published + Trivy-scanned at admission. Responsible-disclosure: security@iogrid.org; PGP key at iogrid.org/security.",
   },
   {
     h: "9. Changes",
