@@ -75,6 +75,28 @@ interface RawManifest {
 const data = raw as RawManifest;
 
 /**
+ * Map a Platform to the OS slug the release CDN uses in artifact names.
+ * The CDN serves artifacts at `/latest/iogrid-<os>-<arch>.<ext>` (NOT
+ * `/<version>/<nfpm-filename>`, which 404s). Verified live 2026-06-03 (#643).
+ */
+const CDN_OS_SLUG: Record<Platform, string> = {
+  mac: "darwin",
+  win: "windows",
+  linux: "linux",
+};
+
+/** File extension for the CDN artifact name. Linux uses its package format. */
+function cdnExt(a: RawArtifact): string {
+  if (a.platform === "linux") return a.linuxFormat ?? "deb";
+  return a.platform === "mac" ? "pkg" : "msi";
+}
+
+/** Build the working CDN download URL: `/latest/iogrid-<os>-<arch>.<ext>`. */
+function cdnUrl(a: RawArtifact): string {
+  return `${data.cdn}/latest/iogrid-${CDN_OS_SLUG[a.platform]}-${a.arch}.${cdnExt(a)}`;
+}
+
+/**
  * Current released version. Bumped at release time alongside the daemon
  * Cargo.toml + nfpm IOGRID_VERSION + the Phase-1 live manifest service.
  */
@@ -94,7 +116,7 @@ export const INSTALLER_ARTIFACTS: readonly Artifact[] = data.artifacts.map(
     arch: a.arch,
     linuxFormat: a.linuxFormat ?? undefined,
     target: a.target,
-    url: `${data.cdn}/${data.version}/${a.filename}`,
+    url: cdnUrl(a),
     sha256: a.sha256,
     sizeBytes: a.sizeBytes,
   }),
