@@ -110,7 +110,11 @@ spec:
                 optional: true
           resources:
             requests:
-              cpu: 250m
+              # 100m (was 250m): actual steady-state usage is ~1m; the node runs
+              # near 100% CPU *requests* (not usage), so a 250m surge pod could
+              # not schedule and rolling updates deadlocked (#637). 100m is still
+              # ~100x headroom over real usage and lets the maxSurge:1 pod fit.
+              cpu: 100m
               memory: 256Mi
             limits:
               cpu: 2000m

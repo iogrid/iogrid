@@ -105,7 +105,11 @@ spec:
                 optional: true
           resources:
             requests:
-              cpu: 250m
+              # 100m (was 250m): actual steady-state usage is ~1m; the node runs
+              # near 100% CPU *requests*, so the maxSurge:1 pod (kept for WG
+              # tunnel preservation, maxUnavailable:0) could not schedule and the
+              # rollout deadlocked (#637). 100m still ~100x real usage.
+              cpu: 100m
               memory: 256Mi
             limits:
               cpu: 2000m
