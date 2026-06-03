@@ -17,7 +17,7 @@ const cols = [
       { href: "/providers", label: "Earn with iogrid" },
       { href: "/pricing", label: "Pricing" },
       { href: "/token", label: "$GRID token" },
-      { href: "https://status.iogrid.org", label: "Status", external: true },
+      { href: "/status", label: "Status" },
     ],
   },
   {
