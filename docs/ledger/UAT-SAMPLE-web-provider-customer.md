@@ -39,7 +39,7 @@ Rules: no ✅ without a screenshot; walk in order; executor is read-only on the 
 
 | # | Screen you're on | What you do | What you must see | Result | Evidence |
 |---|---|---|---|---|---|
-| 1 | [iogrid.org](https://iogrid.org) | Open the landing page | The iogrid home page — "Distributed compute mesh" with **VPN** and **Become a provider** entry points | ✅ | [📷 tc01-1-home](evidence/tc01-1-home.png) |
+| 1 | [iogrid.org](https://iogrid.org) | Open the landing page | The iogrid home page — hero "The mesh that shows you every byte" (browser tab reads "iogrid — Distributed compute mesh"), with **VPN** and **Become a provider** entry points | ✅ | [📷 tc01-1-home](evidence/tc01-1-home.png) |
 | 2 | [iogrid.org/vpn](https://iogrid.org/vpn) | Open the **VPN** page | The VPN plans: **Free** (2 GB/mo), **Plus** ($2.99), **Pro** ($4.99) with **Get** buttons | ✅ | [📷 tc01-2-vpn-pricing](evidence/tc01-2-vpn-pricing.png) |
 | 3 | [iogrid.org/install](https://iogrid.org/install) | Open the **Install** page | Per-OS **Download** options — **macOS** (`.pkg`), **Windows** (`.msi`), **Linux** (`.deb`) | ✅ | [📷 tc01-3-install](evidence/tc01-3-install.png) |
 
