@@ -15,6 +15,16 @@ labels:
 resources:
   - namespaces
   - data
+  # The 2 per-svc SealedSecrets (identity-svc-secrets, proxy-gateway-secrets)
+  # that #640 / #637-killer-#2 needs. Wired into base so a Flux/kustomize apply
+  # PROVISIONS them — they are NOT a deploy/boot blocker on #646: the sealed
+  # values are the SAME phase0 Google placeholders + real IOGRID_SERVICE_TOKEN
+  # the live identity-svc already boots with (sha256-verified equal to the live
+  # literal env, 2026-06-03). The secret only needs to EXIST + be structurally
+  # valid for identity-svc to boot under envFrom; making Google sign-in actually
+  # WORK (real OAuth creds) is #646's job — a feature patch to this secret, not
+  # a prerequisite for the secret to apply. Sealed for THIS prod controller key.
+  - ../sealed-secrets
   - identity-svc
   - providers-svc
   - workloads-svc
