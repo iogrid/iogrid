@@ -109,13 +109,13 @@ The tester is read-only on the product code; reported what was seen on screen; n
 
 ---
 
-### TC-07 — Customer: list workloads  🔴
+### TC-07 — Customer: workloads (submit form + recent dispatches)
 
 | # | Screen | What you do | What you must see | Result | Evidence |
 |---|---|---|---|---|---|
-| 1 | [/customer/workloads](https://iogrid.org/customer/workloads) | Open **Workloads** | The submit form + "Recent dispatches" list | ❌ | [📷 workloads](evidence/auth-07-customer-workloads.png) |
+| 1 | [/customer/workloads](https://iogrid.org/customer/workloads) | Open **Workloads** | Submit form (Type/Category/Destination) + "Recent dispatches" (this-session) | ✅ | [📷 workloads](evidence/auth-07-customer-workloads.png) |
 
-- **Journey verdict:** ☒ **FAIL** — The submit form renders, but `GET /api/v1/customer/workloads` → **405** (the web route exports only `POST`, no `GET`), so the dispatch **list can't load**. Filed **[#677](https://github.com/iogrid/iogrid/issues/677) (P2)**.
+- **Journey verdict:** ☑ **PASS (works as designed)** — The submit form renders and "Recent dispatches" tracks **this-browser-session** submissions (local state; the page says so: *"Workloads queued via the API show up in /customer/usage…"*). I initially mis-filed a 405 here from a raw GET probe, but the UI never GETs this route (POST-only by design) — [#677](https://github.com/iogrid/iogrid/issues/677) closed as invalid. **Caveat:** historical/all-workloads visibility lives in `/customer/usage`, which **is** broken ([#675](https://github.com/iogrid/iogrid/issues/675), 501) — so a user still can't see past workloads, via that bug.
 
 ---
 
@@ -196,12 +196,12 @@ The tester is read-only on the product code; reported what was seen on screen; n
 | TC-04 | web (auth) | Mint API key | 🟢 PASS |
 | TC-05 | web (auth) | **Revoke API key** | 🔴 FAIL ([#676](https://github.com/iogrid/iogrid/issues/676), P1) |
 | TC-06 | web (auth) | **Customer usage** | 🔴 FAIL ([#675](https://github.com/iogrid/iogrid/issues/675), P2) |
-| TC-07 | web (auth) | **Workloads list** | 🔴 FAIL ([#677](https://github.com/iogrid/iogrid/issues/677), P2) |
+| TC-07 | web (auth) | Workloads (submit + session list) | 🟢 PASS (works as designed; #677 closed invalid) |
 | TC-08 | web (auth) | Wallet connect & bind | ⛔ BLOCKED (needs Phantom ext) |
 | TC-20–25 | iOS app | Onboarding / connect / region / settings / top-up / live | ☐ NOT WALKED on this host — covered by Maestro `01–10` in CI; jest 59✓ |
-| | | **Web walked:** 8 journeys — 4 PASS, 3 FAIL, 1 BLOCKED | |
+| | | **Web walked:** 8 journeys — 5 PASS, 2 FAIL, 1 BLOCKED | |
 
-**Overall verdict:** 🔴 **FAIL** — Authentication, provider surfaces, customer billing, and API-key **creation** work. But the authenticated **customer** surface has **three broken endpoints**: revoke (P1, security-relevant), usage (P2), workloads-list (P2). These are real, only findable by signing in — exactly what the prior surface-only UAT missed. Mobile needs a real device walk once an external TestFlight build exists ([#574](https://github.com/iogrid/iogrid/issues/574)).
+**Overall verdict:** 🔴 **FAIL** — Authentication, provider surfaces, customer billing/workloads-submit, and API-key **creation** work. But the authenticated **customer** surface has **two broken endpoints**: API-key **revoke** (P1, security-relevant — [#676](https://github.com/iogrid/iogrid/issues/676)) and **usage** (P2 — [#675](https://github.com/iogrid/iogrid/issues/675), also the only place to see historical workloads). These are real, only findable by signing in — exactly what the prior surface-only UAT missed. Mobile needs a real device walk once an external TestFlight build exists ([#574](https://github.com/iogrid/iogrid/issues/574)).
 
 ---
 
@@ -211,8 +211,9 @@ The tester is read-only on the product code; reported what was seen on screen; n
 |---|---|---|---|---|
 | API-key **revoke** broken | TC-05 | Key won't revoke; 500 (`[id]` route) / 405 (base) | P1 | [#676](https://github.com/iogrid/iogrid/issues/676) |
 | Customer **usage** 501, masked as $0.00 | TC-06 | "No usage" zero-state hiding a 501 | P2 | [#675](https://github.com/iogrid/iogrid/issues/675) |
-| Customer **workloads list** 405 | TC-07 | Dispatch list can't load | P2 | [#677](https://github.com/iogrid/iogrid/issues/677) |
 | (prior walk) `/status` dashboard 404 | — | dead link — **already fixed** | P2 | [#668](https://github.com/iogrid/iogrid/issues/668) ✅ |
+
+> Withdrawn: `/customer/workloads` GET 405 ([#677](https://github.com/iogrid/iogrid/issues/677)) — closed invalid; the UI never GETs that route (POST-only by design), so it was a probe artifact, not a user-facing failure.
 
 > Watch-item (not yet a ticket): `GET /api/v1/provide/audit/stream` → 404 (SSE endpoint; the audit page renders, so confirm whether the live stream is expected to be wired).
 
