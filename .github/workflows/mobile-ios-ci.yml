@@ -290,12 +290,15 @@ jobs:
               except urllib.error.HTTPError as e:
                   print(f'  caps read HTTP {e.code}: {e.read().decode()[:200]}'); return set()
 
-          def _ensure_capability(bid, cap):
+          def _ensure_capability(bid, cap, settings=None):
               if cap in _caps(bid):
                   print(f'  capability {cap} already enabled'); return True
+              attrs = {'capabilityType': cap}
+              if settings:
+                  attrs['settings'] = settings
               body = json.dumps({'data': {
                   'type': 'bundleIdCapabilities',
-                  'attributes': {'capabilityType': cap},
+                  'attributes': attrs,
                   'relationships': {'bundleId': {'data': {'type': 'bundleIds', 'id': bid}}}}}).encode()
               creq = urllib.request.Request(
                   'https://api.appstoreconnect.apple.com/v1/bundleIdCapabilities',
@@ -316,7 +319,14 @@ jobs:
           siwa_flag = os.path.join(os.environ.get('RUNNER_TEMP', '/tmp'), 'siwa_enabled')
           if _app_bid:
               print(f'=== ensuring Sign In with Apple on io.iogrid.app ({_app_bid}) ===')
-              ok = _ensure_capability(_app_bid, 'APPLE_ID_AUTH')
+              # APPLE_ID_AUTH requires a capabilitySetting, NOT a relationship —
+              # the bare POST 409'd with ENTITY_ERROR "Please select at least one
+              # configuration for Sign In with Apple." APPLE_ID_AUTH_APP_CONSENT /
+              # PRIMARY_APP_CONSENT = this standalone app is its OWN primary App
+              # ID (#638).
+              ok = _ensure_capability(_app_bid, 'APPLE_ID_AUTH', settings=[
+                  {'key': 'APPLE_ID_AUTH_APP_CONSENT',
+                   'options': [{'key': 'PRIMARY_APP_CONSENT'}]}])
               if ok:
                   time.sleep(20)  # let Apple reflect the new capability before re-read
               now = _caps(_app_bid)
