@@ -195,6 +195,45 @@ func TestBillingAPIKeyStore_ListHappyPath(t *testing.T) {
 	}
 }
 
+// Revoked rows must be hidden: billing-svc deliberately returns them
+// (revoked_at set), but this surface feeds the UI's "Active keys" list —
+// and the post-revoke refresh reads it, so an unfiltered revoked row
+// makes a successful revoke LOOK failed (#676 residual).
+func TestBillingAPIKeyStore_ListHidesRevokedRows(t *testing.T) {
+	ws := uuid.New()
+	active, revoked := uuid.New(), uuid.New()
+	fake := &fakeBillingClient{
+		listResp: &billingv1.ListApiKeysResponse{
+			ApiKeys: []*billingv1.ApiKey{
+				{
+					Id:          &commonv1.UUID{Value: active.String()},
+					WorkspaceId: &commonv1.UUID{Value: ws.String()},
+					Label:       "live",
+					LastFour:    "3333",
+				},
+				{
+					Id:          &commonv1.UUID{Value: revoked.String()},
+					WorkspaceId: &commonv1.UUID{Value: ws.String()},
+					Label:       "killed",
+					LastFour:    "4444",
+					RevokedAt:   timestamppb.Now(),
+				},
+			},
+		},
+	}
+	store := NewBillingAPIKeyStore(fake)
+	got, err := store.List(context.Background(), ws)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len: want 1 (revoked hidden) got %d", len(got))
+	}
+	if got[0].ID != active {
+		t.Fatalf("surviving row should be the active key, got %+v", got[0])
+	}
+}
+
 func TestBillingAPIKeyStore_ListSkipsMalformedRows(t *testing.T) {
 	ws := uuid.New()
 	good := uuid.New()
