@@ -34,9 +34,10 @@ level of abstraction they need:
 
 | Token | Light | Dark |
 |---|---|---|
-| `--gray-0` … `--gray-950` | Achromatic ramp | (same ramp) |
-| `--accent-500` / `--accent-600` | Electric blue, the ONE accent | (same) |
-| `--success-500` / `--warning-500` / `--danger-500` | Semantic moods | (same) |
+| `--primary-50` … `--primary-900` | **Indigo brand ramp** — `--primary-500 = #4257F5`, the ONE primary CTA color (buttons, links, mark). | (same) |
+| `--neutral-0` … `--neutral-950` | Warm achromatic ramp | (same ramp) |
+| `--accent-300/500/700` | **Minty green** — `--accent-500 = #2EC78B`. Used SPARINGLY for success states + secondary CTAs (not the primary CTA). | (same) |
+| `--success-500` / `--warning-500` / `--danger-500` | Semantic moods (`--success-500 == --accent-500`). | (same) |
 
 **L2 — semantic roles**. What components SHOULD reference.
 
