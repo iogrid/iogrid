@@ -109,13 +109,14 @@ The tester is read-only on the product code; reported what was seen on screen; n
 
 ---
 
-### TC-07 — Customer: workloads (submit form + recent dispatches)
+### TC-07 — Customer: workloads (submit + dispatch list)  🔴
 
 | # | Screen | What you do | What you must see | Result | Evidence |
 |---|---|---|---|---|---|
-| 1 | [/customer/workloads](https://iogrid.org/customer/workloads) | Open **Workloads** | Submit form (Type/Category/Destination) + "Recent dispatches" (this-session) | ✅ | [📷 workloads](evidence/auth-07-customer-workloads.png) |
+| 1 | [/customer/workloads](https://iogrid.org/customer/workloads) | Open **Workloads** | Submit form (Type/Category/Destination) + "Recent dispatches" | ✅ | [📷 workloads](evidence/auth-07-customer-workloads.png) |
+| 2 | Workloads | Fill Type=Bandwidth, Destination=`uat-test.example.com`, tap **Submit workload** | The workload is accepted and appears in the dispatch list | ❌ | — |
 
-- **Journey verdict:** ☑ **PASS (works as designed)** — The submit form renders and "Recent dispatches" tracks **this-browser-session** submissions (local state; the page says so: *"Workloads queued via the API show up in /customer/usage…"*). I initially mis-filed a 405 here from a raw GET probe, but the UI never GETs this route (POST-only by design) — [#677](https://github.com/iogrid/iogrid/issues/677) closed as invalid. **Caveat:** historical/all-workloads visibility lives in `/customer/usage`, which **is** broken ([#675](https://github.com/iogrid/iogrid/issues/675), 501) — so a user still can't see past workloads, via that bug.
+- **Journey verdict:** ☒ **FAIL** — **Submission is broken for every UI user**: the POST returns `400 — json: cannot unmarshal string into Go struct field Workload.workload.type` (web sends proto3-JSON enum-as-string; gateway-bff decoded with stdlib `encoding/json` — the #630/#633 bug class on the request side). The panel's optimistic local rows had **masked** this — it showed "(pending)" entries from client state while every real POST failed. Filed **[#683](https://github.com/iogrid/iogrid/issues/683) (P1)**, fix shipped `e6a708b` (protojson both directions — the response also emitted `workload_id` where the panel reads `workloadId`), deploying; re-walk on deploy. **List half:** initially filed as [#677](https://github.com/iogrid/iogrid/issues/677) (closed-invalid as "POST-only by design"), but the server-backed list was built anyway and is **live** (`GET /customer/workloads` now 401-wired, was 405; the panel fetches the workspace's dispatches on mount) — submissions no longer vanish on refresh once #683 lands.
 
 ---
 
@@ -212,7 +213,7 @@ The tester is read-only on the product code; reported what was seen on screen; n
 | TC-04 | web (auth) | Mint API key | 🟢 PASS |
 | TC-05 | web (auth) | **Revoke API key** | 🔴 FAIL ([#676](https://github.com/iogrid/iogrid/issues/676), P1) |
 | TC-06 | web (auth) | **Customer usage** | 🔴 FAIL ([#675](https://github.com/iogrid/iogrid/issues/675), P2) |
-| TC-07 | web (auth) | Workloads (submit + session list) | 🟢 PASS (works as designed; #677 closed invalid) |
+| TC-07 | web (auth) | Workloads (submit + dispatch list) | 🔴 FAIL — submit 400s for every UI user ([#683](https://github.com/iogrid/iogrid/issues/683), P1, fix deploying); server-backed list shipped + live |
 | TC-08 | web (auth) | Wallet connect & bind | ⛔ BLOCKED (needs Phantom ext) |
 | TC-20–25 | iOS app | Onboarding / connect / region / settings / top-up / live | **EXECUTED on the CI simulator** (run 26903231905): flows 01–07 🟢 PASS w/ real captures; 08 🔴 test-bug (below-fold assert, fix `a4824d2`); 09–10 ⛔ next run. jest 59✓. Physical-device walk pending [#574](https://github.com/iogrid/iogrid/issues/574). |
 | | | **Web walked:** 8 journeys — 5 PASS, 2 FAIL, 1 BLOCKED | |
