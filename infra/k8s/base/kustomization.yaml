@@ -44,6 +44,16 @@ resources:
   # served by the `web` Service instead.
   - releases
   - updates
+  # gateway/ = the Gateway-API HTTPRoutes. INERT on this cluster — the cilium
+  # Gateway is never Programmed (no Cilium Gateway controller), so these route
+  # nothing. Kept for the eventual Gateway-API migration; live traffic is served
+  # by the Traefik IngressRoutes wired in via ../traefik below.
   - gateway
   - certs
+  # The WORKING Traefik routing layer (#637): IngressRoutes + Middlewares + TLS
+  # Certs captured from live prod. Without this, a Flux/kustomize apply would
+  # ship ONLY the inert Gateway HTTPRoutes and reproduce NO working routing. A
+  # reconcile is a no-op on live (these IngressRoutes already exist out-of-band).
+  # Now the manifest reproduces working prod end-to-end — the core #637 goal.
+  - ../traefik
   - sparkle
