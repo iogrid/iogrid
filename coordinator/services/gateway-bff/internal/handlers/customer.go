@@ -49,6 +49,9 @@ func (a *API) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !a.requireWorkspaceAccess(r.Context(), w, wsID) { // #688 IDOR guard
+		return
+	}
 	k, err := a.APIKeyStore.Create(r.Context(), wsID, body.Label)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "store_error", err.Error())
@@ -67,6 +70,9 @@ func (a *API) ListAPIKeys(w http.ResponseWriter, r *http.Request) {
 	}
 	wsID, ok := parseUUIDParam(w, r.URL.Query().Get("workspace_id"), "workspace_id")
 	if !ok {
+		return
+	}
+	if !a.requireWorkspaceAccess(r.Context(), w, wsID) { // #688 IDOR guard
 		return
 	}
 	keys, err := a.APIKeyStore.List(r.Context(), wsID)
@@ -91,6 +97,9 @@ func (a *API) DeleteAPIKey(w http.ResponseWriter, r *http.Request) {
 	}
 	wsID, ok := parseUUIDParam(w, r.URL.Query().Get("workspace_id"), "workspace_id")
 	if !ok {
+		return
+	}
+	if !a.requireWorkspaceAccess(r.Context(), w, wsID) { // #688 IDOR guard
 		return
 	}
 	if err := a.APIKeyStore.Delete(r.Context(), wsID, id); err != nil {
@@ -163,6 +172,9 @@ func (a *API) GetCustomerUsage(w http.ResponseWriter, r *http.Request) {
 	}
 	wsID, ok := parseUUIDParam(w, r.URL.Query().Get("workspace_id"), "workspace_id")
 	if !ok {
+		return
+	}
+	if !a.requireWorkspaceAccess(r.Context(), w, wsID) { // #688 IDOR guard
 		return
 	}
 	req := &billingv1.ListUsageRequest{
@@ -246,6 +258,9 @@ func (a *API) ListWorkloads(w http.ResponseWriter, r *http.Request) {
 	}
 	wsID, ok := parseUUIDParam(w, r.URL.Query().Get("workspace_id"), "workspace_id")
 	if !ok {
+		return
+	}
+	if !a.requireWorkspaceAccess(r.Context(), w, wsID) { // #688 IDOR guard
 		return
 	}
 	resp, err := a.Clients.Workloads.ListWorkloads(r.Context(), &workloadsv1.ListWorkloadsRequest{

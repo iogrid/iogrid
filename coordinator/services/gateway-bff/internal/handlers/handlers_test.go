@@ -276,7 +276,12 @@ type claimsKey struct{}
 
 func newAPI(t *testing.T, set *clients.Set) *API {
 	t.Helper()
-	return New(set, NewMemoryAPIKeyStore(), nil)
+	api := New(set, NewMemoryAPIKeyStore(), nil)
+	// #688: workspace-scoped handlers run the membership guard; unit
+	// tests that aren't ABOUT the guard get a permissive stub (the
+	// guard's own tests live in workspace_guard_test.go).
+	api.Workspaces = allowAllWorkspaces{}
+	return api
 }
 
 func mustReadJSON(t *testing.T, body io.Reader, out any) {

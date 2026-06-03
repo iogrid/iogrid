@@ -60,6 +60,9 @@ func (a *API) GetVPNAccount(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !a.requireWorkspaceAccess(r.Context(), w, wsID) { // #688 IDOR guard
+		return
+	}
 	sub, err := a.Clients.Billing.GetSubscription(r.Context(), &billingv1.GetSubscriptionRequest{
 		WorkspaceId: &commonv1.UUID{Value: wsID.String()},
 	})
@@ -108,6 +111,9 @@ func (a *API) UpgradeVPN(w http.ResponseWriter, r *http.Request) {
 	}
 	wsID, ok := parseUUIDParam(w, body.WorkspaceID, "workspace_id")
 	if !ok {
+		return
+	}
+	if !a.requireWorkspaceAccess(r.Context(), w, wsID) { // #688 IDOR guard
 		return
 	}
 	tier, ok := parseTier(body.Tier)
