@@ -175,6 +175,20 @@ The tester is read-only on the product code; reported what was seen on screen; n
 
 ---
 
+### TC-12 — VPN paid-plan upgrade (the money path)  🔴→fix shipped *(enrichment walk, 2026-06-04)*
+
+- **Goal:** *"As a signed-in user I pick a paid VPN plan and reach Stripe Checkout."*
+
+| # | Screen | What you do | What you must see | Result | Evidence |
+|---|---|---|---|---|---|
+| 1 | [/vpn](https://iogrid.org/vpn) | Open the VPN marketing page | Pricing (Free / $2.99 Plus / $4.99 Pro), FAQ, CTAs render | ✅ | — |
+| 2 | [/vpn/upgrade](https://iogrid.org/vpn/upgrade) | Click **Upgrade to Plus or Pro** | The 3-plan picker renders, prices match /vpn | ✅ | — |
+| 3 | /vpn/upgrade | Click **Choose Plus** | Stripe Checkout opens (or an honest error) | ❌ → browser navigated to **`/vpn/undefined` → 404** | [#686](https://github.com/iogrid/iogrid/issues/686) |
+
+- **Journey verdict:** ☒ **FAIL → fix shipped same-day (`8303556`)** — a three-layer interaction: billing-svc's Connect `CreateCheckoutSession` was the **Unimplemented stub** (Stripe wiring existed only on its REST surface) → BFF 501 → web ApiClient's #300 design masked it as `{}` → `window.location.href = undefined`. Fixed both ends: RPC now binds to `stripeapi` with honest codes (FailedPrecondition until Stripe creds land), and the panel refuses to navigate without a URL (explicit "nothing was charged" toast). Re-walk after deploy. Filed **[#686](https://github.com/iogrid/iogrid/issues/686) (P1 — paid-conversion funnel)**: the failure-masking pattern's third instance (#675's "$0.00", #685's "No identifiers bound", now a literal `undefined` URL).
+
+---
+
 ## B. iOS VPN app — journeys (EXECUTED on the CI iOS simulator via Maestro)
 
 > **UPDATE 2026-06-04 — the mobile flows now EXECUTE** (the ping-cash pattern). Every prior `mobile-ios-ci` run died at the simulator build (`auth.ts` `require('buffer')`, [#681](https://github.com/iogrid/iogrid/issues/681) — fixed `f774e03`), so Maestro had never actually run. With the fix, run [**26903231905**](https://github.com/iogrid/iogrid/actions/runs/26903231905) executed the flow chain on a booted iOS simulator — real per-flow results + real simulator screenshots below. A physical-device walk (real Apple-ID sign-in, real WG tunnel, TestFlight install) still awaits an external build ([#574](https://github.com/iogrid/iogrid/issues/574)).
@@ -280,8 +294,10 @@ The tester is read-only on the product code; reported what was seen on screen; n
 | TC-09 | web (auth) | Sessions + identifiers (recovery) | 🟡 **PASS after fix (identifiers), re-walked 2026-06-04** — `/account/identifiers` lists the signed-in email, Verified ([#685](https://github.com/iogrid/iogrid/issues/685) `7f26da1` prod-verified, [📷](evidence-web/685-identifiers-fixed.png)); sessions "this device" row still a watch-item |
 | TC-10 | web (auth) | Notification prefs round-trip | 🟢 PASS — toggle→save→persists→restored |
 | TC-11 | web (auth) | Sign out | 🟢 PASS — session destroyed, gate re-engages |
+| TC-12 | web (auth) | **VPN paid-plan upgrade (money path)** | 🔴 FAIL → fix shipped (`8303556`) — "Choose Plus" → `/vpn/undefined` 404; checkout RPC was the Unimplemented stub, masked twice ([#686](https://github.com/iogrid/iogrid/issues/686)); re-walk after deploy |
+| TC-13 | web (auth) | Provider overview (fresh account) | 🟢 PASS — honest empty state + Install-daemon CTA (deep provider actions need a paired daemon) |
 | TC-20–25 | iOS app | Onboarding / connect / region / settings / top-up / live | **EXECUTED on the CI simulator** (latest run 26904727684): flows **01–08 🟢 PASS** w/ real captures; 09 🔴 test-bug (below-fold assert, fix `b59a043`); 10 ⛔ next run. Every failure so far = CI-viewport assertion bug, never an app defect. jest 59✓. Physical-device walk pending [#574](https://github.com/iogrid/iogrid/issues/574). |
-| | | **Web walked:** 11 journeys — **9 PASS** (4 after same-day fix), 1 watch-item (sessions row), 1 BLOCKED (Phantom) | |
+| | | **Web walked:** 13 journeys — **10 PASS** (4 after same-day fix), 1 FAIL-fix-shipped (#686 money path, re-walk pending deploy), 1 watch-item fix shipped (sessions "this device", `022876b`), 1 BLOCKED (Phantom) | |
 
 **Overall verdict (updated 2026-06-04):** 🟢 **PASS with watch-items** — every defect this UAT surfaced has been **fixed and prod-re-verified the same day**: workloads submit ([#683](https://github.com/iogrid/iogrid/issues/683)), API-key revoke ([#676](https://github.com/iogrid/iogrid/issues/676)), customer usage ([#675](https://github.com/iogrid/iogrid/issues/675)), identifiers registration ([#685](https://github.com/iogrid/iogrid/issues/685)). The UAT-fix-rewalk loop (find → file → fix → redeploy → re-walk live) closed 4 prod defects in one cycle. Remaining: sessions "this device" row (UI completeness), wallet bind (needs Phantom ext), mobile physical-device walk pending TestFlight ([#574](https://github.com/iogrid/iogrid/issues/574)).
 
