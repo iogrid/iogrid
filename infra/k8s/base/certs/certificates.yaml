@@ -97,8 +97,13 @@ spec:
     kind: ClusterIssuer
     group: cert-manager.io
 ---
-# proxy.iogrid.org — DNS-01 because the Gateway listener is TLS-passthrough.
-# Secret is written to the iogrid namespace where proxy-gateway mounts it.
+# proxy.iogrid.org — http-01 via Traefik. The original comment claimed DNS-01
+# was needed because the Gateway is TLS-passthrough, but http-01 uses port 80
+# (NOT 443), and Traefik serves /.well-known/acme-challenge/* on :80 normally
+# (verified: curl http://proxy.iogrid.org/.well-known/acme-challenge/test → 404,
+# Traefik responding). The DNS-01 dynadot ClusterIssuer's webhook is broken
+# (dynadot.acme.dynadot.iogrid.org → "server could not find" — 10d stuck
+# challenge, #645). Patched live + updated here to letsencrypt-prod-http01.
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -117,6 +122,6 @@ spec:
   dnsNames:
     - proxy.iogrid.org
   issuerRef:
-    name: letsencrypt-prod-dns01-dynadot
+    name: letsencrypt-prod-http01
     kind: ClusterIssuer
     group: cert-manager.io
