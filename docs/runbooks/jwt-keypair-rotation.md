@@ -54,8 +54,14 @@ git add infra/k8s/base/identity-svc/{sealed-jwt-2026q3.yaml,deployment.yaml}
 git commit -m "ops(identity-svc): begin JWT rotation 2026q3 — accept both old + new keys"
 git push
 
-# 4. Wait for Flux reconcile + identity-svc roll. Verify both keys
-#    are loaded: kubectl logs deploy/identity-svc | grep 'jwt verifier loaded'
+# 4. Apply the change and roll identity-svc. iogrid is NOT Flux-wired,
+#    so the git push above does NOT auto-reconcile — apply the manifest
+#    yourself, then restart the deployment:
+#      kubectl -n iogrid apply -f infra/k8s/base/identity-svc/sealed-jwt-2026q3.yaml
+#      kubectl -n iogrid apply -f infra/k8s/base/identity-svc/deployment.yaml
+#      kubectl -n iogrid rollout restart deploy/identity-svc
+#    Verify both keys are loaded:
+#      kubectl -n iogrid logs deploy/identity-svc | grep 'jwt verifier loaded'
 
 # 5. (5 min later, traffic stable) Swap the SIGNING key to the new pem.
 #    Edit infra/k8s/base/identity-svc/deployment.yaml — change

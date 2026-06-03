@@ -33,10 +33,12 @@ curl -sIL https://iogrid.org/legal/mobile-privacy | head -1
 curl -sIL https://iogrid.org/legal/mobile-eula    | head -1
 ```
 
-Expected: both return `HTTP/2 200`. If either is 404, the Flux
-deploy of commit `6481c40` hasn't rolled — wait for the next
-`infra(web): deploy ...` commit on `main` and retry. The pages are
-templated in `web/src/app/legal/mobile-privacy/page.tsx` and
+Expected: both return `HTTP/2 200`. If either is 404, the web image
+carrying commit `6481c40` hasn't rolled yet — iogrid is not Flux-wired,
+so the roll lands when an `infra(web): deploy harbor.openova.io/iogrid/web@…`
+commit pins the new digest on `main` (image-only roll, per
+`scripts/reroll-iogrid-deployments.sh`). Wait for that commit and retry.
+The pages are templated in `web/src/app/legal/mobile-privacy/page.tsx` and
 `web/src/app/legal/mobile-eula/page.tsx`.
 
 ```bash

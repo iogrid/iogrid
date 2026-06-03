@@ -145,7 +145,7 @@ If audit-log analysis reveals the customer violated the AUP:
 - Preserve all customer records (KYC pack, payment history, workload submissions, audit
   logs) under indefinite legal hold.
 - Notify the LEO authority of the AUP violation + customer identity.
-- Notify the provider that their indemnification under Provider ToS §10 is preserved
+- Notify the provider that their indemnification under Provider ToS §5 is preserved
   (because the violator is the customer, not the provider).
 - Notify the provider of defense-fund eligibility status (eligible if provider did NOT
   participate in the violation).
@@ -682,12 +682,15 @@ language below.
 | AUP section | Count of customer suspensions | Count of customer terminations |
 |-------------|-------------------------------|--------------------------------|
 | 2.1 CSAM | N | N |
-| 2.2 Phishing / fraud | N | N |
-| 2.3 DDoS / network abuse | N | N |
-| 2.4 Sanctions evasion | N | N |
-| 2.5 Government / banking targets | N | N |
-| 2.6 Spam | N | N |
-| 5.x (other categories) | N | N |
+| 2.2 Human trafficking / exploitation | N | N |
+| 2.3 Critical-infrastructure attacks | N | N |
+| 2.6 Terrorist content | N | N |
+| 3.1 Government / military targets | N | N |
+| 4.1 Banking targets (unauthorized) | N | N |
+| 4.2 / 5.3 Phishing / fraud | N | N |
+| 5.2 Spam / anti-spam bypass | N | N |
+| 5.3 Sanctions evasion | N | N |
+| 5.4 DDoS / network abuse | N | N |
 
 ## Provider enforcement actions
 

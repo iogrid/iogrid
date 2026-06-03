@@ -1,6 +1,6 @@
 # Color system
 
-Source of truth: `brand/tokens/colors.json`. This document is the human-readable companion.
+Brand-asset reference: `brand/tokens/colors.json`. This document is the human-readable companion. The product surface enforces the same palette via [`web/src/styles/design-tokens.css`](../web/src/styles/design-tokens.css) (see [`docs/design-system.md`](../docs/design-system.md)) — the hex values below match those tokens.
 
 ## Primary palette
 

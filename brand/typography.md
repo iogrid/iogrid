@@ -50,4 +50,4 @@ For pricing tables, earnings counters, latency metrics:
 font-feature-settings: "tnum" 1, "lnum" 1;
 ```
 
-Exposed in Tailwind via the `font-tabular` utility (custom plugin in `marketing/tailwind.config.ts`).
+Exposed in Tailwind via a `font-tabular` utility in the `web/` Tailwind setup (theme tokens live in [`web/src/styles/design-tokens.css`](../web/src/styles/design-tokens.css)).

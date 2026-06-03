@@ -1,5 +1,10 @@
 # VPN Definition of Done — Non-Stop Implementation Target
 
+> **Note:** This is the condensed DoD. The authoritative, implementation-ready
+> spec is [`definition-of-done-comprehensive.md`](./definition-of-done-comprehensive.md)
+> — use that for engineering. This file is the short-form summary; if the two
+> disagree, the comprehensive spec wins.
+
 **Project**: iogrid P2P VPN with Seamless Regional Roaming  
 **Target Completion**: 2026-06-15  
 **First Client**: bastion machine (current working host)  
@@ -295,7 +300,7 @@ GO/NO-GO: Launch to internal beta (all engineers use for 1 week)
 
 ## References
 
-- Architecture: docs/VPN-ARCHITECTURE.md
+- Architecture: [`architecture.md`](./architecture.md)
 - RFC 5245 (ICE): https://tools.ietf.org/html/rfc5245
 - RFC 8445 (ICE 2.0): https://tools.ietf.org/html/rfc8445
 - WireGuard: https://www.wireguard.com/

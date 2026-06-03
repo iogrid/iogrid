@@ -1,5 +1,14 @@
 # 2026-05-23 — ghcr-pull rotator + image-warmer pattern
 
+> **⚠️ ARCHIVAL — SUPERSEDED.** The `.github/workflows/ghcr-pull-rotator.yml`
+> workflow referenced below has been removed. The cluster no longer pulls
+> from ghcr.io on the hot path; images are mirrored to the in-cluster
+> **Harbor** registry instead — see
+> [`2026-05-24-harbor-mirror-bypass.md`](./2026-05-24-harbor-mirror-bypass.md)
+> and the live `harbor-mirror-verify.yml` workflow. This document is kept
+> for historical context on the GITHUB_TOKEN-rotator + image-warmer
+> mechanism; do not follow the TL;DR for a current incident.
+
 > Per-incident playbook for the #454 fix path: revoked hatiyildiz PAT
 > → workflow GITHUB_TOKEN rotator with in-cluster image-warmer Pod
 > pattern. Captures the mechanism so future PAT rotations follow the
