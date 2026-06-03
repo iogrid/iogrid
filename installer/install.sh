@@ -15,7 +15,7 @@
 #   IOGRID_VERSION=v0.1.0       pin a release; default = "latest"
 #   IOGRID_PREFIX=/usr/local    install root (Mac uses /usr/local/iogrid;
 #                               Linux uses /usr/local/bin)
-#   IOGRID_BASE_URL=https://app.iogrid.org   onboard URL host
+#   IOGRID_BASE_URL=https://iogrid.org   onboard URL host
 #   IOGRID_RELEASE_URL=https://releases.iogrid.org   binary CDN
 #   IOGRID_NO_DOCKER=1          skip Docker install (already managed)
 #   IOGRID_NO_OPEN=1            don't auto-open the browser; print URL
@@ -40,7 +40,7 @@ set -eu
 # ---------------------------------------------------------------------------
 
 IOGRID_VERSION="${IOGRID_VERSION:-latest}"
-IOGRID_BASE_URL="${IOGRID_BASE_URL:-https://app.iogrid.org}"
+IOGRID_BASE_URL="${IOGRID_BASE_URL:-https://iogrid.org}"
 IOGRID_RELEASE_URL="${IOGRID_RELEASE_URL:-https://releases.iogrid.org}"
 IOGRID_NO_DOCKER="${IOGRID_NO_DOCKER:-0}"
 IOGRID_NO_OPEN="${IOGRID_NO_OPEN:-0}"
