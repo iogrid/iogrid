@@ -54,6 +54,7 @@ mainnet deploy is a **separate followup with founder sign-off**.
 | Date | Cluster | Actor | Change | PR |
 |---|---|---|---|---|
 | 2026-06-03 | devnet | hatiyildiz | initial Token-2022 mint `BaQvWwb1wUGvWJXPEUbLEwPeeYMd4sKvp2S7obzTWorR` via `spl-token create-token --program-2022 --decimals 9`; minted 1,000,000 $GRID test supply to treasury ATA so Ping integration is testable end-to-end | #629 |
+| 2026-06-03 | devnet | hatiyildiz | first REAL $GRID approve-verification exercise: SPL Token-2022 transfer of 250 $GRID treasury → test acct `5iaigRahctvgthUhUG5gaJTjfQXn9NQW7juAzWDQbE3Y` (ATA `GGXjP94WPW6wnWvejqLHqJyXVKYgM6xZrjj9ixB3W1DY`). **Tx sig `4kCKLJME5gz1QDo7uR5YB447GZPmBQQY59GP8BS6Uv1J6UyFNZGnYMJwf1SwMoEJoxGi3bcaiHpfr6QS6hLCdX1T`** (slot 466826638, `meta.err=null`). The mobile `verifyApprovalBestEffort()` getTransaction RPC path returns **`confirmed`** against it — Ping approve-verification proven end-to-end vs a real on-chain $GRID tx. See `solana/grid/verify-devnet.sh` + guarded jest `ping-pay-devnet.test.ts`. | #629 |
 
 > **Note on tooling:** this devnet mint was created with `spl-token
 > create-token --program-2022` (Token-2022), matching the canonical
@@ -66,6 +67,7 @@ mainnet deploy is a **separate followup with founder sign-off**.
 
 - Deploy script: [`solana/grid/deploy.ts`](../solana/grid/deploy.ts)
 - Treasury seed wrapper: [`solana/grid/seed-treasury.sh`](../solana/grid/seed-treasury.sh)
+- Devnet approve-verification harness: [`solana/grid/verify-devnet.sh`](../solana/grid/verify-devnet.sh) + guarded jest [`mobile/ios/src/lib/wallets/__tests__/ping-pay-devnet.test.ts`](../mobile/ios/src/lib/wallets/__tests__/ping-pay-devnet.test.ts) (exercises `verifyApprovalBestEffort()` against a real devnet $GRID tx)
 - Faucet handler (devnet only): [`coordinator/services/billing-svc/internal/server/handlers/faucet_devnet.go`](../coordinator/services/billing-svc/internal/server/handlers/faucet_devnet.go)
 - Settlement worker: [`coordinator/services/billing-svc/cmd/settlement-worker/main.go`](../coordinator/services/billing-svc/cmd/settlement-worker/main.go)
 - Token metadata JSON (served by web/): _follow-up issue — host `https://iogrid.org/grid-token.json` from web/ public assets_
