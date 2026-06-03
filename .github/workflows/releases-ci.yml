@@ -75,11 +75,23 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Log in to harbor.openova.io (Refs #473)
+        # The cluster pulls from harbor; without a harbor push, releases ran a
+        # :local placeholder disconnected from CI (same class as admin #663).
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: harbor.openova.io
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
+
       - name: Compute image metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/iogrid/releases
+          images: |
+            ghcr.io/iogrid/releases
+            harbor.openova.io/iogrid/releases
           tags: |
             type=sha,format=long
             type=sha
@@ -136,7 +148,10 @@ jobs:
               exit 1
             fi
           fi
-          IMAGE="ghcr.io/iogrid/releases@${DIGEST}"
+          # Harbor path (was ghcr): the cluster pulls from harbor, so the deploy
+          # marker + manifest must point there for the reroll cron to roll it
+          # (#663-class fix). Same content digest (multi-registry push).
+          IMAGE="harbor.openova.io/iogrid/releases@${DIGEST}"
           RESTARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           echo "image=${IMAGE}"            | tee -a "$GITHUB_OUTPUT"
           echo "restartedAt=${RESTARTED_AT}" | tee -a "$GITHUB_OUTPUT"

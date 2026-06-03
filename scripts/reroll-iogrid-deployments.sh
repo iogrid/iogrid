@@ -34,7 +34,7 @@ cd "$REPO_ROOT"
 SERVICES=(
   web gateway-bff billing-svc identity-svc providers-svc vpn-svc
   workloads-svc vpn-gateway telemetry-svc proxy-gateway build-gateway antiabuse-svc
-  admin
+  admin releases
 )
 
 changed=0
