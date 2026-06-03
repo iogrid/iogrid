@@ -28,7 +28,16 @@ import { test, expect } from "@playwright/test";
  * route resolution all line up end-to-end).
  */
 
-test.describe("PersonaSwitcher (#470) on /provider", () => {
+// SKIPPED (#671): this spec requires an authenticated session via
+// `tests/.auth/user.json`, produced by a `tests/auth.setup.ts` magic-link
+// roundtrip — but that setup file + the `setup` project that would run it were
+// never created, and the storage-state file does not exist, so every test here
+// fails at fixture load ("Error reading storage state"). A real session can't be
+// minted in CI without a live SMTP + inbox for the magic link. The dropdown's
+// behavior IS covered by the vitest unit suite (web/src/test/persona-switcher.
+// test.tsx, all 7 states). Un-skip once a real auth-setup fixture (or a signed
+// session cookie injector) lands. Tracked on #671.
+test.describe.skip("PersonaSwitcher (#470) on /provider", () => {
   // Reuse the magic-link session set up in tests/auth.setup.ts so we
   // land on a signed-in /provider page that mounts AppShell.
   test.use({ storageState: "tests/.auth/user.json" });
