@@ -387,7 +387,11 @@ pub async fn spawn_vpn_modules(config: &DaemonConfig) -> Option<VpnHandles> {
         if let Err(e) = health::register_provider(&health_cfg, &http).await {
             tracing::warn!(error = %e, "VPN /register POST failed; health reporter will retry on next tick");
         }
-        Some(health::spawn_reporter(health_cfg, http.clone(), shutdown_rx.clone()))
+        Some(health::spawn_reporter(
+            health_cfg,
+            http.clone(),
+            shutdown_rx.clone(),
+        ))
     } else {
         tracing::error!(
             provider_id = %config.provider_id,
