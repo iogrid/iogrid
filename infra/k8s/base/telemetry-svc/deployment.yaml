@@ -38,6 +38,7 @@ spec:
         prometheus.io/port: "8080"
         prometheus.io/path: "/metrics"
     spec:
+      priorityClassName: iogrid-serving
       serviceAccountName: telemetry-svc
       automountServiceAccountToken: true
       securityContext:

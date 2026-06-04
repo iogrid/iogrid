@@ -14,6 +14,7 @@ labels:
     includeSelectors: false
 resources:
   - namespaces
+  - priorityclass.yaml
   - data
   # The 2 per-svc SealedSecrets (identity-svc-secrets, proxy-gateway-secrets)
   # that #640 / #637-killer-#2 needs. Wired into base so a Flux/kustomize apply

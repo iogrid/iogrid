@@ -47,6 +47,7 @@ spec:
         # to roll the pods.
         kubectl.kubernetes.io/restartedAt: "2026-06-04T00:20:18Z"
     spec:
+      priorityClassName: iogrid-serving
       serviceAccountName: web
       automountServiceAccountToken: true
       securityContext:

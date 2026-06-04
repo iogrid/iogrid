@@ -1,0 +1,21 @@
+# iogrid-serving (#682): queue priority WITHOUT eviction.
+#
+# At the node's pod cap, every freed slot is raced by all Pending pods —
+# all at default priority 0, so the scheduler picks effectively at
+# random and iogrid's surge pods repeatedly lose freed slots to foreign
+# broken pods' recreates (pool-domain-manager IPBO, catalyst churn —
+# "slot sniping", documented across 2026-06-04). A higher PriorityClass
+# puts iogrid's serving path FIRST IN THE SCHEDULING QUEUE; the explicit
+# preemptionPolicy: Never means it NEVER evicts running pods (no
+# cross-product collateral) — it only wins ties for freed capacity.
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: iogrid-serving
+value: 100000
+preemptionPolicy: Never
+globalDefault: false
+description: >-
+  iogrid public serving path (web, gateway-bff, identity-svc,
+  telemetry-svc). Wins freed-slot races at the pod cap without ever
+  preempting running pods.

@@ -35,6 +35,7 @@ spec:
         prometheus.io/port: "9090"
         prometheus.io/path: "/metrics"
     spec:
+      priorityClassName: iogrid-serving
       serviceAccountName: gateway-bff
       automountServiceAccountToken: true
       securityContext:
