@@ -40,6 +40,7 @@ spec:
         prometheus.io/port: "9090"
         prometheus.io/path: "/metrics"
     spec:
+      priorityClassName: iogrid-serving
       serviceAccountName: proxy-gateway
       automountServiceAccountToken: true
       # proxy-gateway speaks raw TLS to customer clients (passthrough). It uses

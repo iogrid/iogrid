@@ -47,6 +47,7 @@ spec:
         prometheus.io/port: "9090"
         prometheus.io/path: "/metrics"
     spec:
+      priorityClassName: iogrid-serving
       serviceAccountName: vpn-gateway
       automountServiceAccountToken: true
       securityContext:
