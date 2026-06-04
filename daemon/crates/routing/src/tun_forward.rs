@@ -99,6 +99,8 @@ pub enum TunSetupError {
 mod imp {
     use super::*;
 
+    use std::collections::HashMap;
+    use std::net::Ipv4Addr;
     use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
     use std::process::Command;
 
@@ -145,11 +147,14 @@ mod imp {
     /// Linux impl of [`super::TunForwardSink`]. See module docs.
     pub struct TunForwardSinkImpl {
         tun: Arc<TunDevice>,
-        /// Single-customer demo: the most-recent peer to send a packet
-        /// inbound, used as the destination for everything the read
-        /// loop sees. Multi-customer routing requires an inner-IP →
-        /// pubkey table, queued as a follow-up.
-        bound_peer: RwLock<Option<String>>,
+        /// Inner-IP → WG-pubkey routing table (#695). Populated on the
+        /// `deliver` path from each customer's inner *source* IP; the read
+        /// loop looks up each return packet's inner *destination* IP to
+        /// ship it to the right customer. Replaces the old single-customer
+        /// `bound_peer`, so N customers on one provider no longer
+        /// cross-route. Self-populating: the first packet from a customer
+        /// registers its inner IP.
+        peer_map: RwLock<HashMap<Ipv4Addr, String>>,
         ifname: String,
     }
 
@@ -188,7 +193,7 @@ mod imp {
 
             Ok(Arc::new(Self {
                 tun,
-                bound_peer: RwLock::new(None),
+                peer_map: RwLock::new(HashMap::new()),
                 ifname: ifname.to_string(),
             }))
         }
@@ -234,11 +239,13 @@ mod imp {
                     Err(_would_block) => continue,
                 };
 
-                let peer = self.bound_peer.read().clone();
+                // Route by the return packet's inner destination IP (#695):
+                // look up which customer owns that inner IP. Drop packets
+                // for an unknown inner IP (no customer has sent from it yet,
+                // or it's non-IPv4).
+                let peer = ipv4_dst(&buf[..nbytes])
+                    .and_then(|dst| self.peer_map.read().get(&dst).cloned());
                 let Some(pubkey) = peer else {
-                    // No customer has sent a packet yet; nothing to
-                    // route. Drop. (In multi-customer mode, look up
-                    // the dst IP in the inner-IP → pubkey table.)
                     continue;
                 };
                 if let Err(e) = enc.encapsulate_for_peer(&pubkey, &buf[..nbytes]).await {
@@ -262,17 +269,17 @@ mod imp {
             if packet.family != InnerFamily::V4 {
                 return;
             }
-            // Remember the peer so the read loop knows where to ship
-            // return packets. Single-customer demo — a multi-customer
-            // version keys by `inner_src_ip → pubkey`.
-            {
-                let cur = self.bound_peer.read().clone();
-                if cur.as_deref() != Some(packet.peer_public_key_b64.as_str()) {
-                    *self.bound_peer.write() = Some(packet.peer_public_key_b64.clone());
+            // Record inner-source-IP → pubkey so the read loop can route
+            // return packets to the right customer (#695). Self-populating:
+            // the first packet from each customer registers its inner IP.
+            if let Some(src) = ipv4_src(packet.payload) {
+                let mut map = self.peer_map.write();
+                if map.get(&src).map(String::as_str) != Some(packet.peer_public_key_b64.as_str()) {
+                    map.insert(src, packet.peer_public_key_b64.clone());
                     tracing::info!(
                         peer = %packet.peer_public_key_b64,
-                        dst = %packet.dst_ip,
-                        "TUN sink bound to new peer (single-customer demo)"
+                        inner_src = %src,
+                        "TUN sink routing-table entry added (#695)"
                     );
                 }
             }
@@ -480,6 +487,68 @@ mod imp {
             "installed FORWARD ACCEPT rules (tun↔WAN) — egress works on FORWARD-DROP hosts (#699)"
         );
         Ok(())
+    }
+
+    /// Parse the IPv4 **source** address from a raw inner packet (the
+    /// customer's inner-tunnel IP). `None` for non-IPv4 or short buffers.
+    fn ipv4_src(buf: &[u8]) -> Option<Ipv4Addr> {
+        if buf.len() >= 20 && buf[0] >> 4 == 4 {
+            Some(Ipv4Addr::new(buf[12], buf[13], buf[14], buf[15]))
+        } else {
+            None
+        }
+    }
+
+    /// Parse the IPv4 **destination** address from a raw return packet (the
+    /// inner IP the reply is bound for). `None` for non-IPv4 or short.
+    fn ipv4_dst(buf: &[u8]) -> Option<Ipv4Addr> {
+        if buf.len() >= 20 && buf[0] >> 4 == 4 {
+            Some(Ipv4Addr::new(buf[16], buf[17], buf[18], buf[19]))
+        } else {
+            None
+        }
+    }
+
+    #[cfg(test)]
+    mod parse_tests {
+        use super::{ipv4_dst, ipv4_src};
+        use std::net::Ipv4Addr;
+
+        // Minimal 20-byte IPv4 header: version/IHL=0x45, src@12, dst@16.
+        fn pkt(src: [u8; 4], dst: [u8; 4]) -> Vec<u8> {
+            let mut b = vec![0u8; 20];
+            b[0] = 0x45;
+            b[12..16].copy_from_slice(&src);
+            b[16..20].copy_from_slice(&dst);
+            b
+        }
+
+        #[test]
+        fn parses_src_and_dst() {
+            let b = pkt([10, 66, 81, 2], [1, 1, 1, 1]);
+            assert_eq!(ipv4_src(&b), Some(Ipv4Addr::new(10, 66, 81, 2)));
+            assert_eq!(ipv4_dst(&b), Some(Ipv4Addr::new(1, 1, 1, 1)));
+        }
+
+        #[test]
+        fn rejects_non_ipv4_and_short() {
+            let mut b = pkt([10, 66, 0, 2], [8, 8, 8, 8]);
+            b[0] = 0x60; // IPv6 version nibble
+            assert_eq!(ipv4_src(&b), None);
+            assert_eq!(ipv4_dst(&b), None);
+            assert_eq!(ipv4_src(&[0x45, 0, 0]), None); // too short
+        }
+
+        #[test]
+        fn multi_customer_distinct_dst() {
+            // The #695 win: two return packets resolve to two different
+            // inner IPs → two different customers (no cross-routing).
+            let a = pkt([1, 1, 1, 1], [10, 66, 0, 5]);
+            let c = pkt([1, 1, 1, 1], [10, 66, 0, 9]);
+            assert_eq!(ipv4_dst(&a), Some(Ipv4Addr::new(10, 66, 0, 5)));
+            assert_eq!(ipv4_dst(&c), Some(Ipv4Addr::new(10, 66, 0, 9)));
+            assert_ne!(ipv4_dst(&a), ipv4_dst(&c));
+        }
     }
 }
 
