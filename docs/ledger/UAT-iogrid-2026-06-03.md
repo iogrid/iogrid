@@ -85,7 +85,7 @@ The tester is read-only on the product code; reported what was seen on screen; n
 
 ---
 
-### TC-05 — Customer: revoke an API key  🔴
+### TC-05 — Customer: revoke an API key  🔴→🟢 *(fixed + prod-verified same day)*
 
 - **Goal:** *"As a customer I revoke a key I no longer trust."*
 
@@ -97,7 +97,7 @@ The tester is read-only on the product code; reported what was seen on screen; n
 
 ---
 
-### TC-06 — Customer: view usage  🔴
+### TC-06 — Customer: view usage  🔴→🟢 *(fixed + re-walked same day)*
 
 - **Goal:** *"As a customer I see my per-byte consumption + cost."*
 
@@ -105,7 +105,7 @@ The tester is read-only on the product code; reported what was seen on screen; n
 |---|---|---|---|---|---|
 | 1 | [/customer/usage](https://iogrid.org/customer/usage) | Open **Usage** | Real per-workload metering | ❌ | [📷 usage](evidence/auth-12-customer-usage-501.png) |
 
-- **Journey verdict:** ☒ **FAIL** — `GET /api/v1/customer/usage` returns **501 Not Implemented**. The page **masks it as a zero-state** ("0 B / $0.00 / No usage in this window"), so a customer with real usage would see misleading zeros, not an error. Filed **[#675](https://github.com/iogrid/iogrid/issues/675) (P2)** — this is the per-byte-transparency differentiator, non-functional.
+- **Journey verdict:** ☒ **FAIL at walk time → ✅ FIXED + RE-WALKED same day.** At walk time `GET /api/v1/customer/usage` returned **501 Not Implemented**, and the page **masked it as a zero-state** ("0 B / $0.00 / No usage in this window") — a customer with real usage would see misleading zeros, not an error (4th instance of the failure-masking pattern, #675/#685/#686 lineage). Fixed in **[PR #679](https://github.com/iogrid/iogrid/pull/679)** (merged) → **re-walked in prod: the metering UI now renders** the Bytes/Cost/Records summary + type filter + an *honest* empty state (not a fake zero). [#675](https://github.com/iogrid/iogrid/issues/675) closed — the per-byte-transparency differentiator is functional.
 
 ---
 
