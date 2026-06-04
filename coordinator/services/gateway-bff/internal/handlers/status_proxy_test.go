@@ -79,3 +79,41 @@ func TestStatusPosture_UpstreamErrorCodePassesThrough(t *testing.T) {
 		t.Fatalf("code = %d, want upstream 500 passed through", w.Code)
 	}
 }
+
+func TestStatusUptime_ForwardsValidatedServiceParam(t *testing.T) {
+	var gotPath string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.String()
+		_, _ = w.Write([]byte(`{"days":90,"samples":[]}`))
+	}))
+	defer upstream.Close()
+
+	api := New(nil, nil, nil)
+	api.TelemetrySvcURL = upstream.URL
+
+	w := httptest.NewRecorder()
+	api.StatusUptime(w, httptest.NewRequest(http.MethodGet, "/status/uptime?service=identity-svc", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d", w.Code)
+	}
+	if gotPath != "/status/uptime?service=identity-svc" {
+		t.Fatalf("upstream path = %q, want the validated service param forwarded", gotPath)
+	}
+}
+
+func TestStatusUptime_RejectsHostileServiceParam(t *testing.T) {
+	api := New(nil, nil, nil)
+	api.TelemetrySvcURL = "http://example.invalid" // must never be reached
+
+	for _, bad := range []string{"../../etc", "a b", "x?y=1", strings.Repeat("a", 41), "UPPER"} {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/status/uptime", nil)
+		q := req.URL.Query()
+		q.Set("service", bad)
+		req.URL.RawQuery = q.Encode()
+		api.StatusUptime(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("service=%q: code = %d, want 400", bad, w.Code)
+		}
+	}
+}

@@ -4,6 +4,8 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"net/url"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -28,11 +30,25 @@ func (a *API) StatusPosture(w http.ResponseWriter, r *http.Request) {
 	a.proxyStatusFeed(w, r, "/status/posture")
 }
 
+// serviceNameRe allowlists the ONE query param the uptime feed needs.
+// telemetry-svc's /status/uptime contract requires ?service=<name>; the
+// proxy otherwise forwards nothing (anti-open-proxy), so the param is
+// re-built — never copied — after strict validation (#689).
+var serviceNameRe = regexp.MustCompile(`^[a-z0-9-]{1,40}$`)
+
 // StatusUptime proxies GET /status/uptime → telemetry-svc.
 //
-//	GET /status/uptime  ->  200 (uptime ledger JSON)
+//	GET /status/uptime?service=<name>  ->  200 (90-day uptime ledger JSON)
 func (a *API) StatusUptime(w http.ResponseWriter, r *http.Request) {
-	a.proxyStatusFeed(w, r, "/status/uptime")
+	path := "/status/uptime"
+	if svc := r.URL.Query().Get("service"); svc != "" {
+		if !serviceNameRe.MatchString(svc) {
+			writeError(w, http.StatusBadRequest, "bad_request", "invalid service name")
+			return
+		}
+		path += "?service=" + url.QueryEscape(svc)
+	}
+	a.proxyStatusFeed(w, r, path)
 }
 
 func (a *API) proxyStatusFeed(w http.ResponseWriter, r *http.Request, path string) {

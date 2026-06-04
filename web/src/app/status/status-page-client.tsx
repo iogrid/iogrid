@@ -47,7 +47,47 @@ function overallSummary(o: PostureResponse["overall"]): string | undefined {
   return typeof o === "string" ? undefined : o?.summary;
 }
 
+interface UptimeSample {
+  service: string;
+  day: string;
+  state: string;
+  sli_pct: number;
+}
+
+interface UptimeResponse {
+  days: number;
+  samples: UptimeSample[];
+}
+
 const POLL_MS = 30_000;
+
+// Day-bucket → strip cell colour. Empty state = the ledger has no data
+// for that day (it is young) — render neutral, never fake-green (#689).
+function uptimeCellClass(s: UptimeSample): string {
+  if (!s.state && s.sli_pct === 0) return "bg-muted";
+  if (s.state === "down" || s.sli_pct < 95) return "bg-red-500";
+  if (s.state === "degraded" || s.sli_pct < 99) return "bg-amber-500";
+  return "bg-emerald-500";
+}
+
+function UptimeStrip({ samples }: { samples: UptimeSample[] }) {
+  if (!samples.length) return null;
+  return (
+    <div
+      className="mt-2 flex h-2 w-full gap-px overflow-hidden rounded"
+      title={`${samples.length}-day uptime history (oldest → newest)`}
+      data-testid="uptime-strip"
+    >
+      {samples.map((s) => (
+        <span
+          key={s.day}
+          className={`min-w-0 flex-1 ${uptimeCellClass(s)}`}
+          title={`${s.day}: ${!s.state && s.sli_pct === 0 ? "no data" : `${s.sli_pct.toFixed(2)}% SLI`}`}
+        />
+      ))}
+    </div>
+  );
+}
 
 const STATUS_STYLES: Record<string, { dot: string; label: string }> = {
   up: { dot: "bg-emerald-500", label: "Operational" },
@@ -64,6 +104,9 @@ function statusStyle(status: string | undefined) {
 export function StatusPageClient() {
   const [posture, setPosture] = useState<PostureResponse | null>(null);
   const [failed, setFailed] = useState(false);
+  // Uptime ledgers are day-granular: fetched once per service when the
+  // service list first arrives, NOT re-polled every 30s (#689).
+  const [uptime, setUptime] = useState<Record<string, UptimeSample[]>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -87,6 +130,36 @@ export function StatusPageClient() {
       clearInterval(t);
     };
   }, []);
+
+  const serviceNames = (posture?.services ?? [])
+    .map((s) => s.name)
+    .sort()
+    .join(",");
+
+  useEffect(() => {
+    if (!serviceNames) return;
+    let cancelled = false;
+    void Promise.all(
+      serviceNames.split(",").map(async (name) => {
+        try {
+          const res = await fetch(
+            `/status/feed?kind=uptime&service=${encodeURIComponent(name)}`,
+            { cache: "no-store" },
+          );
+          if (!res.ok) return [name, []] as const;
+          const body = (await res.json()) as UptimeResponse;
+          return [name, body.samples ?? []] as const;
+        } catch {
+          return [name, []] as const;
+        }
+      }),
+    ).then((pairs) => {
+      if (!cancelled) setUptime(Object.fromEntries(pairs));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [serviceNames]);
 
   if (failed && !posture) {
     return (
@@ -139,20 +212,20 @@ export function StatusPageClient() {
         {(posture.services ?? []).map((svc) => {
           const s = statusStyle(svc.status);
           return (
-            <li
-              key={svc.name}
-              className="flex items-center justify-between px-5 py-3"
-            >
-              <span className="flex items-center gap-3 text-sm">
-                <span className={`h-2 w-2 rounded-full ${s.dot}`} aria-hidden />
-                {svc.name}
-              </span>
-              <span className="flex items-baseline gap-4">
-                <span className="text-xs tabular-nums text-muted-foreground">
-                  SLO budget {svc.slo_percent.toFixed(1)}%
+            <li key={svc.name} className="px-5 py-3">
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-3 text-sm">
+                  <span className={`h-2 w-2 rounded-full ${s.dot}`} aria-hidden />
+                  {svc.name}
                 </span>
-                <span className="text-xs font-medium">{s.label}</span>
-              </span>
+                <span className="flex items-baseline gap-4">
+                  <span className="text-xs tabular-nums text-muted-foreground">
+                    SLO budget {svc.slo_percent.toFixed(1)}%
+                  </span>
+                  <span className="text-xs font-medium">{s.label}</span>
+                </span>
+              </div>
+              <UptimeStrip samples={uptime[svc.name] ?? []} />
             </li>
           );
         })}

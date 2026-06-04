@@ -22,10 +22,21 @@ const UPSTREAM_PATHS: Record<string, string> = {
 };
 
 export async function GET(req: Request) {
-  const kind = new URL(req.url).searchParams.get("kind") ?? "posture";
-  const path = UPSTREAM_PATHS[kind];
+  const params = new URL(req.url).searchParams;
+  const kind = params.get("kind") ?? "posture";
+  let path = UPSTREAM_PATHS[kind];
   if (!path) {
     return NextResponse.json({ error: "unknown feed kind" }, { status: 400 });
+  }
+  // The uptime ledger is per-service (#689). Forward EXACTLY one
+  // validated param — the route otherwise forwards nothing, mirroring
+  // the BFF's anti-open-proxy stance.
+  const service = params.get("service");
+  if (service) {
+    if (!/^[a-z0-9-]{1,40}$/.test(service)) {
+      return NextResponse.json({ error: "invalid service" }, { status: 400 });
+    }
+    path += `?service=${encodeURIComponent(service)}`;
   }
   const base = (
     process.env.IOGRID_GATEWAY_BFF_URL ?? "https://api.iogrid.org"
