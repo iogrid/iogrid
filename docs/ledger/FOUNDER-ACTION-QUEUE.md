@@ -12,6 +12,12 @@
 > not to be closed on the supervisor's say-so; they close only on prod-verified resolution of their
 > real requirements.
 
+## 🔴 P0 — The product can't connect anyone yet (#694)
+
+### 0. Give me a root host to stand up a real provider
+**Why:** founder-directed real e2e validation found the mesh has **0 online providers** → every session `503 no_peer` → the core product (a real VPN/proxy tunnel through a residential peer) has **never been demonstrated** end-to-end. The unit/UI "100%" tested none of it. I root-caused + **fixed the #1 blocker** (the daemon self-disabled because `stun.iogrid.org` is unprovisioned; it now falls back to public STUN — validated, daemon-ci green), so a provider *can* now register + go online. But a **demonstrable** tunnel needs a root-capable host: the data plane (`TunForwardSink`) needs CAP_NET_ADMIN + iptables; on a non-root host it falls back to a no-egress stub.
+**Smallest action:** point me at a root-capable VM/machine (or creds to provision one). I run a live `iogridd` provider on the fixed build, then drive a real **device → tunnel → egress-IP swap → metered bytes** proof. This is the only way to actually prove the product works. (The deeper gap is *supply* — no machine runs the daemon — which is go-to-market, but one host lets me prove the plumbing.)
+
 ## 🔴 P1 — Reliability (the #691 outage proved this is urgent, not convenience)
 
 ### 1. Decide the node-capacity ceiling (#682)
