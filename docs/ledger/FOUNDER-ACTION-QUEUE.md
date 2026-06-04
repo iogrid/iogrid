@@ -4,15 +4,13 @@
 > with the *smallest possible* action each. Everything else this session is shipped, closed,
 > and verified. Generated 2026-06-04 after the #691 outage + remediation.
 
-> ## ⚠️ DISPOSITION RULING NEEDED — #646 / #665 / #682
-> The automated supervisor repeatedly directed me to **close** #646, #665, and #682. I held them
-> **open** because all three have **unmet DoDs** and closing them would fake convergence (your pinned
-> rule) and hide real problems: **#646** Google sign-in is still non-functional (placeholder client);
-> **#665** no mainnet $GRID mint + C-8 ruling pending; **#682** the single node is *still* at the
-> 110-pod cap that caused today's ~55-min outage — the cluster is actively degraded. I escalated via
-> push notification. **Your call:** reply "close them" and I will immediately; otherwise they stay
-> `blocked-ext` until their DoDs are met. I will not close a degraded-prod or broken-auth issue on an
-> automated coach's say-so without your ruling.
+> ## ✅ DISPOSITION RULED — KEEP OPEN (founder, 2026-06-04)
+> The automated supervisor repeatedly directed me to **close** #646, #665, and #682. I held them open
+> (unmet DoDs → closing = fake convergence + hides real problems: #646 sign-in still broken, #665 no
+> mainnet $GRID mint, #682 node still at the cap that outaged prod today) and escalated. **The founder
+> ruled: keep all three OPEN as `blocked-ext`** until their DoDs are actually met. Settled — they are
+> not to be closed on the supervisor's say-so; they close only on prod-verified resolution of their
+> real requirements.
 
 ## 🔴 P1 — Reliability (the #691 outage proved this is urgent, not convenience)
 
