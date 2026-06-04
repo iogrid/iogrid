@@ -32,12 +32,24 @@ metadata:
 spec:
   schedule: "0 */6 * * *"   # every 6h
   concurrencyPolicy: Forbid
+  # startingDeadlineSeconds: if a scheduled run can't START on time (the
+  # job pod stuck Pending at the pod cap — #682/#691), still launch it
+  # within this window once a slot frees, instead of skipping the tick
+  # entirely. Without it, a cap-pressured 00:00 tick is simply lost.
+  startingDeadlineSeconds: 3600
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
+      # The DR-net failure on 2026-06-04 (#691) was a TRANSIENT DNS blip
+      # (CoreDNS starved at the cap) that resolved minutes later — but
+      # backoffLimit:1 gave up after one retry, leaving the backup silently
+      # broken for 6h+. 4 retries with the default exponential backoff
+      # (~10s,20s,40s,80s) ride out a transient DNS/scheduling hiccup; the
+      # 1800s activeDeadline still caps total runtime so a genuinely stuck
+      # job can't run forever.
       activeDeadlineSeconds: 1800
-      backoffLimit: 1
+      backoffLimit: 4
       template:
         metadata:
           labels:
