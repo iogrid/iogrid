@@ -43,7 +43,7 @@ spec:
         # cache-identical. Treated as an opaque ISO-8601 string by the
         # deploy-bot — do not hand-edit unless you intend to roll the
         # pods. Refs #335.
-        kubectl.kubernetes.io/restartedAt: "2026-06-04T03:30:45Z"
+        kubectl.kubernetes.io/restartedAt: "2026-06-04T04:58:14Z"
         prometheus.io/port: "9090"
         prometheus.io/path: "/metrics"
     spec:
@@ -59,7 +59,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: vpn-gateway
-          image: harbor.openova.io/iogrid/vpn-gateway@sha256:22e68889e0bffeeee2a3f2798aed87e195e8a3eaa23790c4d4b29527a20f0779
+          image: harbor.openova.io/iogrid/vpn-gateway@sha256:66b61a43b923c82e2147800ec4f5ffc7789c5974419a2111187d7757f17136ba
           imagePullPolicy: Always
           ports:
             - name: http
