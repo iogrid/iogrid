@@ -1109,3 +1109,17 @@ If 26841579531 fails again, read its Maestro failure (`[Failed] 00-all ... id: X
 
 ## 2026-06-03T03:25Z — #575 credential audit → UAT
 `gh secret list -R iogrid/iogrid` confirms all 4 ASC creds present (2026-06-01): APPLE_TEAM_ID, APP_STORE_CONNECT_{ISSUER_ID,KEY_ID,PRIVATE_KEY}. CI proven to consume them (clears fastlane sigh every run). #575 'provision credentials' DoD MET → moved status/uat for founder close. Remaining concern (Apple WAITING_FOR_BETA_REVIEW timing) is Apple-internal, non-actionable. CI auto-uploads + auto-submits + auto-invites on green — zero founder action. Terminal CI gate: 26842367936 (sha 6c7c429, all 11 Maestro flows pre-verified).
+
+---
+
+## Session close-out — connection-path directive COMPLETE + backlog parked (2026-06-05)
+
+All **6 VPN connection-path gaps fixed**, CI-green, **proven end-to-end live** (isolated customer → real WG handshake → egress as the provider, metered bytes), **vpn-svc deployed to prod**: STUN fallback (#694), no-egress gate (#694), WG-key-at-register (#696), FORWARD-ACCEPT (#699), mobile-flow-bind (#698), multi-customer routing (#695).
+
+Backlog collapsed — **#695/#696/#697/#698/#699 closed** (work done/verified). The **4 remaining blocked-ext are confirmed-external with turnkey artifacts**, each P23 5-mechanism-analyzed (engineering mechanisms exhausted):
+- **#694** provider-supply → `scripts/bring-up-provider.sh` (register is unauthenticated; gate is purely a machine running the daemon on a host).
+- **#682** node pod-cap → `docs/runbooks/2026-06-05-raise-max-pods.md` (trim exhausted; operator max-pods raise / node-2).
+- **#646** Google sign-in → Console OAuth steps on the issue (kubectl-verified the secret value is a structurally-fake placeholder; client_id is Console-issued only, not self-settable).
+- **#665** Ping/$GRID → `docs/runbooks/2026-06-05-grid-mainnet-cutover.md` (devnet live + tested; mainnet = mint deploy + C-8 ruling + a config flip).
+
+Every residual is a founder/operator action, documented turnkey. No dispatchable engineering remains.
