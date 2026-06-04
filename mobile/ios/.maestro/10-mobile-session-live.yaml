@@ -74,7 +74,14 @@ appId: io.iogrid.app
 # The 503 → Alert.alert path. The native iOS dialog title is
 # "Could not connect" (see src/app/index.tsx onConnect). Maestro
 # matches the title text; the body varies by retry_after_sec.
-- assertVisible: "Could not connect"
+# extendedWaitUntil, NOT assertVisible: the simulator's CONNECTING hold
+# grew 8s->12s (the flow-05 de-flake) and the live coordinator path adds
+# network retries, so the 503 alert lands past assertVisible's default
+# window — run 26925409479 died exactly here with 01-09 all green.
+# (assertVisible has NO timeout key — suite-wide parse error; gotcha #599.)
+- extendedWaitUntil:
+    visible: "Could not connect"
+    timeout: 30000
 
 - takeScreenshot: 10-mobile-session-alert-503
 

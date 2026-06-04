@@ -793,6 +793,11 @@ jobs:
           echo "$HOME/.maestro/bin" >> $GITHUB_PATH
 
       - name: Run Maestro flows
+        # Step cap: 3 outer attempts × ~6-min chain + driver spin-up fits
+        # comfortably; a HUNG attempt (driver deadlock) must die here fast
+        # enough that the artifact/crash-log steps still run inside the
+        # 60-min job budget instead of a hang eating all of it.
+        timeout-minutes: 25
         env:
           # Maestro's iOS driver (XCUITest installer) takes ~2-5 min to
           # spin up on cold-boot CI runners. Default timeout is too short.
