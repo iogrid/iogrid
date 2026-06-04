@@ -253,6 +253,44 @@ func TestRequestMobileSession_OutcomeMetrics(t *testing.T) {
 	}
 }
 
+// TestRequestMobileSession_BindableByDaemon pins #698: a mobile session must
+// be visible to the daemon's binder (in /assigned-sessions) WITH the customer
+// WG key + WITHOUT a pre-set provider key, so the provider actually upserts
+// the customer peer. Before the fix the mobile flow set only ClientPublicKey
+// and pre-set provider_wg_public_key, so the session was excluded from the
+// binder and the mobile WG handshake silently failed.
+func TestRequestMobileSession_BindableByDaemon(t *testing.T) {
+	mem := store.NewMemory().(*store.Memory)
+	providerID := seedReadyProvider(t, mem, "us-east-1")
+	srv := mountMobile(t, mem, nil)
+
+	const clientKey = "CLIENTwgKEY1111AAAA2222BBBB3333CCCC4444DDD="
+	resp, body := postMobile(t, srv.URL, map[string]interface{}{
+		"customer_id":       uuid.New().String(),
+		"client_public_key": clientKey,
+		"region":            "us-east-1",
+	}, nil)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status=%d body=%s, want 201", resp.StatusCode, body)
+	}
+
+	assigned, err := mem.ListAssignedSessions(context.Background(), providerID)
+	if err != nil {
+		t.Fatalf("ListAssignedSessions: %v", err)
+	}
+	if len(assigned) != 1 {
+		t.Fatalf("assigned-sessions len=%d, want 1 — mobile session must be bindable by the daemon (#698)", len(assigned))
+	}
+	if assigned[0].CustomerWgPublicKey != clientKey {
+		t.Errorf("assigned CustomerWgPublicKey=%q, want %q (binder needs it to upsert the peer)",
+			assigned[0].CustomerWgPublicKey, clientKey)
+	}
+	if assigned[0].ProviderWgPublicKey != "" {
+		t.Errorf("mobile session pre-set ProviderWgPublicKey=%q — that re-excludes it from the binder (#698)",
+			assigned[0].ProviderWgPublicKey)
+	}
+}
+
 // TestRequestMobileSession_CreatedResponseShape asserts the success path
 // returns the complete WG peer config the PacketTunnelProvider needs in a
 // single round-trip (#588 / #605), so the `created` counter increment is

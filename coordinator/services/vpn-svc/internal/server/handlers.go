@@ -1396,6 +1396,12 @@ func (h *RequestMobileSession) Handle(w http.ResponseWriter, r *http.Request) {
 		// memory-store-backed tests see it via GetSession even before
 		// PersistSessionPeerConfig overwrites the postgres row.
 		ClientPublicKey:      req.ClientPublicKey,
+		// #698: also set CustomerWgPublicKey so the daemon's binder upserts
+		// this customer as a WG peer. The binder reads customer_wg_public_key
+		// from /assigned-sessions; the mobile flow previously set only
+		// ClientPublicKey, so the binder saw an empty customer key and never
+		// added the peer → the mobile WG handshake silently failed.
+		CustomerWgPublicKey:  req.ClientPublicKey,
 		InnerIP:              innerIP,
 		ExpiresAt:            &expiresAt,
 		PaymentAuthorization: paymentAuth,
@@ -1407,27 +1413,20 @@ func (h *RequestMobileSession) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Stamp the Track-3 fields onto the persisted row. Memory store
-	// already has them from the in-place pointer; Postgres needs the
-	// explicit UPDATE. We surface any failure as 500 — the session
-	// row exists at this point so a retry would dup-key, but the
-	// cleanup tick will catch the orphan.
-	//
-	// Note: PersistSessionPeerConfig signature carries only the
-	// public key + endpoint; inner_ip / expires_at / payment_auth
-	// were already written via CreateSession's Session pointer. A
-	// future expansion of this method can take all four if Postgres
-	// needs a single atomic UPDATE.
-	if err := h.st.PersistSessionPeerConfig(
-		r.Context(), sessionID,
-		providerInfo.WgPublicKey, providerInfo.Endpoint); err != nil {
-		MobileSessionRequests.WithLabelValues("internal_error").Inc()
-		h.logger.Error("mobile session: persist peer config failed",
-			slog.String("session_id", sessionID.String()),
-			slog.String("error", err.Error()))
-		respondError(w, http.StatusInternalServerError, "failed to persist session config")
-		return
-	}
+	// #698: deliberately do NOT pre-set the session's provider_wg_public_key
+	// here. The daemon's binder owns the data-plane bind: it polls
+	// /assigned-sessions (which lists sessions whose provider_wg_public_key
+	// is still ""), upserts THIS customer (CustomerWgPublicKey, set above)
+	// as a WG peer, then POSTs bind-provider — which sets
+	// provider_wg_public_key. Pre-setting it here marked the session
+	// "already bound" and excluded it from the binder, so the provider never
+	// added the customer peer and the mobile WG handshake silently failed
+	// (proven live, #696/#698). The one-round-trip response below still
+	// carries peer_public_key + peer_endpoint (from providerInfo) so the
+	// client configures WG immediately; the handshake completes once the
+	// binder's next ~5s poll upserts the peer (WireGuard retries the
+	// handshake until then). Persisting the endpoint is unnecessary for the
+	// mobile flow — the client never re-reads it.
 
 	// TODO(#596): once Track 5 lands wallet-signed authorization, push
 	// the client_public_key to the provider daemon's WG peer set via
