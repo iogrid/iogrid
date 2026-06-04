@@ -25,7 +25,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { ConnectButton, type ConnectState } from '@/components/connect-button';
+import { ConnectButton } from '@/components/connect-button';
 import { GearIcon } from '@/components/icons';
 import {
   ConnectionStatus,
@@ -38,17 +38,14 @@ import { useTheme } from '@/hooks/use-theme';
 import { AUTO_REGION_SENTINEL } from '@/app/regions';
 import { loadOrCreateIdentity } from '@/lib/account';
 import { requestMobileSession, requestSession } from '@/lib/coordinator';
+import {
+  failActiveConnectingStep,
+  tunnelToConnectState,
+  type TunnelState,
+} from '@/lib/connection-steps';
 import { TunnelControl } from 'iogrid-tunnel-control';
 
-type TunnelState = 'OFF' | 'CONNECTING' | 'CONNECTED' | 'DISCONNECTING';
-
 const SELECTED_REGION_KEY = 'iogrid.region.selected';
-
-function tunnelToConnectState(state: TunnelState): ConnectState {
-  if (state === 'CONNECTED') return 'connected';
-  if (state === 'CONNECTING' || state === 'DISCONNECTING') return 'connecting';
-  return 'off';
-}
 
 export default function MainScreen() {
   const theme = useTheme();
@@ -252,9 +249,7 @@ export default function MainScreen() {
   // alert. Real per-step progression arrives with Track 3 (#588).
   const [connectingSteps, setConnectingSteps] = useState(DEFAULT_CONNECTING_STEPS);
   const failActiveStep = useCallback(() => {
-    setConnectingSteps((prev) =>
-      prev.map((st) => (st.state === 'active' ? { ...st, state: 'failed' as const } : st)),
-    );
+    setConnectingSteps(failActiveConnectingStep);
   }, []);
 
   const connectState = tunnelToConnectState(state);
