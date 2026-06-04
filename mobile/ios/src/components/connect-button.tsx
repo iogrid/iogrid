@@ -30,6 +30,7 @@ import Svg, { Circle } from 'react-native-svg';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { useReduceMotion } from '@/hooks/use-reduce-motion';
 import { useTheme } from '@/hooks/use-theme';
 import {
   ConnectButton as ConnectButtonTokens,
@@ -69,11 +70,19 @@ export function ConnectButton({ state, onPress, innerLabel, disabled }: Props) {
   // the gap equals 75%, and rotating the whole circle gives the
   // sweeping-arc illusion.
   const rotation = useRef(new Animated.Value(0)).current;
+  const reduceMotion = useReduceMotion();
 
   useEffect(() => {
     if (state !== 'connecting') {
       rotation.stopAnimation();
       rotation.setValue(0);
+      return;
+    }
+    // Reduce Motion (#684 pass 5): hold the arc mid-sweep instead of
+    // looping — same in-progress read, no perpetual animation (and no
+    // Maestro settle-wait tax).
+    if (reduceMotion) {
+      rotation.setValue(0.125);
       return;
     }
     const loop = Animated.loop(
@@ -88,7 +97,7 @@ export function ConnectButton({ state, onPress, innerLabel, disabled }: Props) {
     return () => {
       loop.stop();
     };
-  }, [state, rotation]);
+  }, [state, rotation, reduceMotion]);
 
   const rotateInterpolation = rotation.interpolate({
     inputRange: [0, 1],

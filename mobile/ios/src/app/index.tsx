@@ -128,6 +128,7 @@ export default function MainScreen() {
     }
 
     setState('CONNECTING');
+    setConnectingSteps(DEFAULT_CONNECTING_STEPS);
     const minVisibleStart = Date.now();
     const holdConnectingVisible = async () => {
       // Preserve the failure-path hold from #567: if the tunnel
@@ -178,6 +179,7 @@ export default function MainScreen() {
         clientPublicKey: 'maestro-degraded-path-stub-pubkey',
       });
       if (mobile.status === 503) {
+        failActiveStep();
         await holdConnectingVisible();
         setState('OFF');
         Alert.alert(
@@ -189,6 +191,7 @@ export default function MainScreen() {
         return;
       }
       if (mobile.status === 429) {
+        failActiveStep();
         await holdConnectingVisible();
         setState('OFF');
         Alert.alert(
@@ -207,6 +210,7 @@ export default function MainScreen() {
         // Backend returned a session-less response (e.g. quota
         // exhausted, or v2's wallet authorization failed). Surface
         // a tappable error.
+        failActiveStep();
         await holdConnectingVisible();
         setState('OFF');
         Alert.alert(
@@ -232,6 +236,7 @@ export default function MainScreen() {
       // branches show. Fourth instance of the failure-masking
       // pattern (#675/#685/#686) had lived right here.
       console.warn('vpn start failed', e);
+      failActiveStep();
       await holdConnectingVisible();
       setState('OFF');
       Alert.alert(
@@ -240,6 +245,17 @@ export default function MainScreen() {
       );
     }
   }, [state]);
+
+  // Connecting step-list state (#684 pass 5): on failure the ACTIVE step
+  // flips to 'failed' (red ✕) for the hold window, so the user sees WHERE
+  // the attempt died instead of a frozen spinner vanishing under the
+  // alert. Real per-step progression arrives with Track 3 (#588).
+  const [connectingSteps, setConnectingSteps] = useState(DEFAULT_CONNECTING_STEPS);
+  const failActiveStep = useCallback(() => {
+    setConnectingSteps((prev) =>
+      prev.map((st) => (st.state === 'active' ? { ...st, state: 'failed' as const } : st)),
+    );
+  }, []);
 
   const connectState = tunnelToConnectState(state);
   const isConnected = state === 'CONNECTED';
@@ -277,7 +293,7 @@ export default function MainScreen() {
               real WG handshake progress (Track 3 #588) will drive
               the step state once peer + tunnel + egress events fire. */}
           {connectState === 'connecting' ? (
-            <ConnectionStatus steps={DEFAULT_CONNECTING_STEPS} />
+            <ConnectionStatus steps={connectingSteps} />
           ) : null}
 
           {/* ── Connected state extras: city, egress IP, stats ── */}

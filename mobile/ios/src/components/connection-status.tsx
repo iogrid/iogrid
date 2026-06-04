@@ -13,6 +13,9 @@
  * Each step is one of:
  *   - 'pending'    — not yet started (greyscale dot)
  *   - 'active'     — currently in progress (spinning arc)
+ *   - 'failed'     — the step the connect attempt died on (#684 pass 5:
+ *                    previously the list froze mid-spinner and vanished
+ *                    under the failure alert with no state honesty)
  *   - 'done'       — completed (filled accent checkmark)
  *
  * The component is purely visual; the parent screen drives the
@@ -27,7 +30,7 @@ import { Spinner } from '@/components/spinner';
 import { Spacing, TypeScale } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
-export type ConnectionStepState = 'pending' | 'active' | 'done';
+export type ConnectionStepState = 'pending' | 'active' | 'done' | 'failed';
 
 export interface ConnectionStep {
   /** Stable id (used as React key + testID suffix). */
@@ -80,6 +83,18 @@ export function ConnectionStatus({ steps, testIDPrefix = 'connection-step' }: Pr
               />
             ) : step.state === 'active' ? (
               <Spinner size={14} color={theme.text} rotationDuration={900} />
+            ) : step.state === 'failed' ? (
+              <View
+                style={[
+                  styles.dot,
+                  styles.dotFilled,
+                  { backgroundColor: theme.error, borderColor: theme.error },
+                ]}
+              >
+                <ThemedText style={[styles.checkmark, { color: theme.textInverse }]}>
+                  ✕
+                </ThemedText>
+              </View>
             ) : (
               <View
                 style={[
@@ -103,7 +118,9 @@ export function ConnectionStatus({ steps, testIDPrefix = 'connection-step' }: Pr
                     ? theme.textTertiary
                     : step.state === 'active'
                       ? theme.text
-                      : theme.textSecondary,
+                      : step.state === 'failed'
+                        ? theme.error
+                        : theme.textSecondary,
               },
               step.state === 'done' ? styles.labelDone : null,
             ]}

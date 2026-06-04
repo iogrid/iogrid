@@ -13,6 +13,7 @@ import { Animated, Easing, StyleSheet, View, type ViewStyle } from 'react-native
 import Svg, { Circle } from 'react-native-svg';
 
 import { Motion } from '@/constants/theme';
+import { useReduceMotion } from '@/hooks/use-reduce-motion';
 import { useTheme } from '@/hooks/use-theme';
 
 interface Props {
@@ -46,8 +47,17 @@ export function Spinner({
   const arcGap = circumference * 0.75;
 
   const rotation = useRef(new Animated.Value(0)).current;
+  const reduceMotion = useReduceMotion();
 
   useEffect(() => {
+    // Honor the OS Reduce Motion setting (#684 pass 5): hold the arc at
+    // a fixed angle — the visible partial arc + progressbar role still
+    // read as "in progress" without the perpetual rotation. Also stops
+    // the infinite loop that forces Maestro's 4-5s settle-waits.
+    if (reduceMotion) {
+      rotation.setValue(0.125); // 45° — clearly "mid-progress", not idle
+      return;
+    }
     const loop = Animated.loop(
       Animated.timing(rotation, {
         toValue: 1,
@@ -60,7 +70,7 @@ export function Spinner({
     return () => {
       loop.stop();
     };
-  }, [rotation, rotationDuration]);
+  }, [rotation, rotationDuration, reduceMotion]);
 
   const rotate = rotation.interpolate({
     inputRange: [0, 1],
