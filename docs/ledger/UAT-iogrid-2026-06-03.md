@@ -15,7 +15,7 @@
 | **Environment** | [https://iogrid.org](https://iogrid.org) — signed in as `emrah.baysal@openova.io` (real magic-link, completed) |
 | **Surface(s)** | Authenticated responsive web (Chromium) · iOS app (jest executed + Maestro-in-CI; not device-walked on this Linux host) |
 | **Tester** | `@p0-474-lonely` (UAT executor) |
-| **Walk date** | 2026-06-03 |
+| **Walk date** | 2026-06-03 (initial) · 2026-06-04 (re-walks: #683/#685/#686/#688/#689/#690 fix-verifications + the 10/10 mobile chain) |
 | **Overall verdict** | 🟢 **PASS with watch-items** *(updated 2026-06-04)* — every defect this UAT surfaced was fixed + prod-re-verified same-day (#675 usage, #676 revoke, #683 workloads submit, #685 identifiers; #686 money-path fix shipped, re-walk pending deploy). See the roll-up for the current per-journey state. |
 
 ---
