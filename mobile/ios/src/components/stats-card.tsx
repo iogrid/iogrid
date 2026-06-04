@@ -18,6 +18,7 @@ import * as Clipboard from 'expo-clipboard';
 import { ThemedText } from '@/components/themed-text';
 import { Card, Spacing, TypeScale } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { formatBytes } from '@/lib/format-bytes';
 
 interface Props {
   sentBytes: number;
@@ -177,15 +178,6 @@ function Meta({
       </ThemedText>
     </View>
   );
-}
-
-// ── Helpers ──────────────────────────────────────────────────────
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
 // ── Styles ───────────────────────────────────────────────────────

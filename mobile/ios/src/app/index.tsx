@@ -44,6 +44,7 @@ import {
   type TunnelState,
 } from '@/lib/connection-steps';
 import { formatBytes } from '@/lib/format-bytes';
+import * as Clipboard from 'expo-clipboard';
 import { TunnelControl } from 'iogrid-tunnel-control';
 
 const SELECTED_REGION_KEY = 'iogrid.region.selected';
@@ -253,6 +254,23 @@ export default function MainScreen() {
     setConnectingSteps(failActiveConnectingStep);
   }, []);
 
+  // Copy the egress IP to the clipboard with transient confirmation —
+  // replaces the prior no-op stub (a Pressable labelled "Copy egress IP"
+  // that did nothing was misleading-affordance UX). Matches the
+  // established stats-card.tsx pattern (Clipboard.setStringAsync + a
+  // 1.5s reset). Activates once Track 3 wires real stats.egressIP.
+  const [ipCopied, setIpCopied] = useState(false);
+  const copyEgressIP = useCallback(async () => {
+    if (!stats.egressIP) return;
+    try {
+      await Clipboard.setStringAsync(stats.egressIP);
+      setIpCopied(true);
+      setTimeout(() => setIpCopied(false), 1500);
+    } catch {
+      // copy is a convenience, not critical — swallow
+    }
+  }, [stats.egressIP]);
+
   const connectState = tunnelToConnectState(state);
   const isConnected = state === 'CONNECTED';
 
@@ -306,17 +324,20 @@ export default function MainScreen() {
               {stats.egressIP ? (
                 <Pressable
                   testID="egress-ip"
-                  onPress={() => {
-                    // TODO Track 3 wires Clipboard.setStringAsync once
-                    // the stats event provides the egress IP. For now
-                    // this is a no-op stub.
-                  }}
+                  onPress={copyEgressIP}
                   hitSlop={8}
-                  accessibilityLabel={`Copy egress IP ${stats.egressIP}`}
+                  accessibilityLabel={
+                    ipCopied ? 'Egress IP copied' : `Copy egress IP ${stats.egressIP}`
+                  }
                   accessibilityRole="button"
                 >
-                  <ThemedText style={[styles.egressIP, { color: theme.textSecondary }]}>
-                    {stats.egressIP}
+                  <ThemedText
+                    style={[
+                      styles.egressIP,
+                      { color: ipCopied ? theme.accent : theme.textSecondary },
+                    ]}
+                  >
+                    {ipCopied ? '✓ Copied' : stats.egressIP}
                   </ThemedText>
                 </Pressable>
               ) : null}
