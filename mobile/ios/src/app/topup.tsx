@@ -26,6 +26,7 @@ import {
   verifyApprovalBestEffort,
   vpnVault,
 } from '@/lib/wallets/ping-pay';
+import { formatGridAsUsd } from '@/lib/pricing';
 
 // Default VPN region/length encoded into the Ping approve memo
 // (iogrid.v1:vpn:<region>:<days>). The top-up screen tops up a generic
@@ -104,6 +105,12 @@ export default function TopUpScreen() {
     }
     return selectedChip;
   })();
+
+  // Live USD echo for the custom field — the quick chips show their price
+  // but a typed amount didn't, leaving the user to do the 100:1 math in
+  // their head right before authorizing a real charge (#594 transparency).
+  const customParsed = customAmount ? parseInt(customAmount, 10) : NaN;
+  const showCustomUsd = !isNaN(customParsed) && customParsed > 0;
 
   const onChipPress = (grid: number) => {
     setSelectedChip(grid);
@@ -201,7 +208,7 @@ export default function TopUpScreen() {
             </ThemedText>
             <ThemedText style={[styles.balanceValue, { color: theme.text }]}>
               {currentBalance != null
-                ? `${currentBalance} $GRID  ≈  $${(currentBalance / 100).toFixed(2)}`
+                ? `${currentBalance} $GRID  ≈  ${formatGridAsUsd(currentBalance)}`
                 : '0 $GRID'}
             </ThemedText>
           </View>
@@ -270,6 +277,14 @@ export default function TopUpScreen() {
               $GRID
             </ThemedText>
           </View>
+          {showCustomUsd ? (
+            <ThemedText
+              testID="topup-custom-usd"
+              style={[styles.customUsdHint, { color: theme.textTertiary }]}
+            >
+              ≈ {formatGridAsUsd(customParsed)}
+            </ThemedText>
+          ) : null}
 
           {/* ── Payment methods ──────────────────────────────────── */}
           <ThemedText style={[styles.sectionHeader, { color: theme.textTertiary }]}>
@@ -337,11 +352,14 @@ export default function TopUpScreen() {
               { backgroundColor: theme.text },
               pressed ? { opacity: 0.85 } : null,
             ]}
-            accessibilityLabel={`Continue topping up ${effectiveAmount} GRID`}
+            accessibilityLabel={`Add ${effectiveAmount} GRID for ${formatGridAsUsd(effectiveAmount)}`}
             accessibilityRole="button"
           >
             <ThemedText style={[styles.ctaLabel, { color: theme.textInverse }]}>
-              Continue
+              Add {effectiveAmount.toLocaleString()} $GRID
+            </ThemedText>
+            <ThemedText style={[styles.ctaSublabel, { color: theme.textInverse }]}>
+              {formatGridAsUsd(effectiveAmount)}
             </ThemedText>
           </Pressable>
 
@@ -445,6 +463,12 @@ const styles = StyleSheet.create({
   customSuffix: {
     ...TypeScale.bodyM,
   },
+  customUsdHint: {
+    ...TypeScale.bodyS,
+    paddingTop: Spacing.xs,
+    paddingHorizontal: Card.padding,
+    fontVariant: ['tabular-nums'],
+  },
   methodGroup: {
     borderRadius: Radii.lg,
     borderWidth: StyleSheet.hairlineWidth,
@@ -489,9 +513,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     minHeight: 56,
     justifyContent: 'center',
+    gap: 2,
   },
   ctaLabel: {
     ...TypeScale.button,
+  },
+  ctaSublabel: {
+    ...TypeScale.bodyS,
+    opacity: 0.7,
+    fontVariant: ['tabular-nums'],
   },
   poweredBy: {
     ...TypeScale.bodyS,
