@@ -346,7 +346,7 @@ export default function TopUpScreen() {
           </Pressable>
 
           <ThemedText style={[styles.poweredBy, { color: theme.textTertiary }]}>
-            Powered by ping
+            Powered by Ping
           </ThemedText>
         </ScrollView>
       </SafeAreaView>

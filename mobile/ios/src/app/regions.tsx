@@ -24,6 +24,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { GlobeIcon } from '@/components/icons';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Card, Radii, Spacing, TypeScale } from '@/constants/theme';
@@ -300,9 +301,14 @@ export default function RegionsScreen() {
               ]}
             >
               <View style={styles.bestAutoText}>
-                <ThemedText style={[styles.bestAutoTitle, { color: theme.text }]}>
-                  🌐 Best (auto)
-                </ThemedText>
+                <View style={styles.bestAutoTitleRow}>
+                  {/* drawn globe, not the 🌐 emoji — same monochrome rule
+                      that replaced ⚙/🏠 (pass 4, #684) */}
+                  <GlobeIcon size={20} color={theme.text} />
+                  <ThemedText style={[styles.bestAutoTitle, { color: theme.text }]}>
+                    Best (auto)
+                  </ThemedText>
+                </View>
                 <ThemedText style={[styles.bestAutoSub, { color: theme.textSecondary }]}>
                   Coordinator picks the closest, fastest peer
                 </ThemedText>
@@ -526,6 +532,11 @@ const styles = StyleSheet.create({
   bestAutoText: {
     flex: 1,
     paddingRight: Spacing.md,
+  },
+  bestAutoTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   bestAutoTitle: {
     ...TypeScale.bodyL,

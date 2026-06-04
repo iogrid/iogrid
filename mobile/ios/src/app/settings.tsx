@@ -289,11 +289,19 @@ function Row({ testID, theme, label, hint, value, chevron, disabled, onPress }: 
       onPress={onPress}
       accessibilityLabel={label}
       accessibilityRole={isPressable ? 'button' : undefined}
-      style={({ pressed }: { pressed?: boolean }) => [
-        styles.row,
-        { borderBottomColor: theme.border },
-        isPressable && pressed ? { opacity: 0.7 } : null,
-      ]}
+      // A plain View ignores function styles — passing the Pressable-style
+      // callback unconditionally left every NON-pressable row (Split
+      // tunneling, Version) completely unstyled: flush-left, no inset,
+      // visually broken out of its card (pass-4 capture review, #684).
+      style={
+        isPressable
+          ? ({ pressed }: { pressed?: boolean }) => [
+              styles.row,
+              { borderBottomColor: theme.border },
+              pressed ? { opacity: 0.7 } : null,
+            ]
+          : [styles.row, { borderBottomColor: theme.border }]
+      }
     >
       <View style={styles.rowText}>
         <ThemedText
