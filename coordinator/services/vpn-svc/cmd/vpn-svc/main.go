@@ -113,8 +113,12 @@ func main() {
 	var validator server.APIKeyValidator
 	billingURL := os.Getenv("BILLING_SVC_URL")
 	if billingURL != "" {
-		validator = server.NewBillingValidator(billingURL, nil)
-		logger.Info("api key validation enabled", slog.String("billing_url", billingURL))
+		// #690 D1: register-on-first-use decorator — a fresh install's
+		// client-generated 16-digit account number self-registers (free
+		// tier) on its first connect instead of 401ing forever.
+		validator = server.NewConsumerRegisteringValidator(
+			server.NewBillingValidator(billingURL, nil), billingURL, nil)
+		logger.Info("api key validation enabled (consumer register-on-first-use)", slog.String("billing_url", billingURL))
 	} else {
 		logger.Warn("api key validation DISABLED — set BILLING_SVC_URL to enable",
 			slog.String("impact", "every POST /v1/vpn/sessions is unauthenticated"))

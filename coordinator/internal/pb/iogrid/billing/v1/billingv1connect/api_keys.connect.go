@@ -59,15 +59,19 @@ const (
 	// ApiKeyServiceValidateApiKeyProcedure is the fully-qualified name of the ApiKeyService's
 	// ValidateApiKey RPC.
 	ApiKeyServiceValidateApiKeyProcedure = "/iogrid.billing.v1.ApiKeyService/ValidateApiKey"
+	// ApiKeyServiceRegisterConsumerAccountProcedure is the fully-qualified name of the ApiKeyService's
+	// RegisterConsumerAccount RPC.
+	ApiKeyServiceRegisterConsumerAccountProcedure = "/iogrid.billing.v1.ApiKeyService/RegisterConsumerAccount"
 )
 
 // These variables are the protoreflect.Descriptor objects for the RPCs defined in this package.
 var (
-	apiKeyServiceServiceDescriptor              = v1.File_iogrid_billing_v1_api_keys_proto.Services().ByName("ApiKeyService")
-	apiKeyServiceCreateApiKeyMethodDescriptor   = apiKeyServiceServiceDescriptor.Methods().ByName("CreateApiKey")
-	apiKeyServiceListApiKeysMethodDescriptor    = apiKeyServiceServiceDescriptor.Methods().ByName("ListApiKeys")
-	apiKeyServiceRevokeApiKeyMethodDescriptor   = apiKeyServiceServiceDescriptor.Methods().ByName("RevokeApiKey")
-	apiKeyServiceValidateApiKeyMethodDescriptor = apiKeyServiceServiceDescriptor.Methods().ByName("ValidateApiKey")
+	apiKeyServiceServiceDescriptor                       = v1.File_iogrid_billing_v1_api_keys_proto.Services().ByName("ApiKeyService")
+	apiKeyServiceCreateApiKeyMethodDescriptor            = apiKeyServiceServiceDescriptor.Methods().ByName("CreateApiKey")
+	apiKeyServiceListApiKeysMethodDescriptor             = apiKeyServiceServiceDescriptor.Methods().ByName("ListApiKeys")
+	apiKeyServiceRevokeApiKeyMethodDescriptor            = apiKeyServiceServiceDescriptor.Methods().ByName("RevokeApiKey")
+	apiKeyServiceValidateApiKeyMethodDescriptor          = apiKeyServiceServiceDescriptor.Methods().ByName("ValidateApiKey")
+	apiKeyServiceRegisterConsumerAccountMethodDescriptor = apiKeyServiceServiceDescriptor.Methods().ByName("RegisterConsumerAccount")
 )
 
 // ApiKeyServiceClient is a client for the iogrid.billing.v1.ApiKeyService service.
@@ -76,6 +80,10 @@ type ApiKeyServiceClient interface {
 	ListApiKeys(context.Context, *connect.Request[v1.ListApiKeysRequest]) (*connect.Response[v1.ListApiKeysResponse], error)
 	RevokeApiKey(context.Context, *connect.Request[v1.RevokeApiKeyRequest]) (*connect.Response[v1.RevokeApiKeyResponse], error)
 	ValidateApiKey(context.Context, *connect.Request[v1.ValidateApiKeyRequest]) (*connect.Response[v1.ValidateApiKeyResponse], error)
+	// RegisterConsumerAccount accepts a client-generated account number on
+	// first use (#690 D1 — fresh-install mobile connect). Stub until the
+	// billing-svc store gains consumer-scoped key rows.
+	RegisterConsumerAccount(context.Context, *connect.Request[v1.RegisterConsumerAccountRequest]) (*connect.Response[v1.RegisterConsumerAccountResponse], error)
 }
 
 // NewApiKeyServiceClient constructs a client for the iogrid.billing.v1.ApiKeyService service. By
@@ -112,15 +120,22 @@ func NewApiKeyServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(apiKeyServiceValidateApiKeyMethodDescriptor),
 			connect.WithClientOptions(opts...),
 		),
+		registerConsumerAccount: connect.NewClient[v1.RegisterConsumerAccountRequest, v1.RegisterConsumerAccountResponse](
+			httpClient,
+			baseURL+ApiKeyServiceRegisterConsumerAccountProcedure,
+			connect.WithSchema(apiKeyServiceRegisterConsumerAccountMethodDescriptor),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // apiKeyServiceClient implements ApiKeyServiceClient.
 type apiKeyServiceClient struct {
-	createApiKey   *connect.Client[v1.CreateApiKeyRequest, v1.CreateApiKeyResponse]
-	listApiKeys    *connect.Client[v1.ListApiKeysRequest, v1.ListApiKeysResponse]
-	revokeApiKey   *connect.Client[v1.RevokeApiKeyRequest, v1.RevokeApiKeyResponse]
-	validateApiKey *connect.Client[v1.ValidateApiKeyRequest, v1.ValidateApiKeyResponse]
+	createApiKey            *connect.Client[v1.CreateApiKeyRequest, v1.CreateApiKeyResponse]
+	listApiKeys             *connect.Client[v1.ListApiKeysRequest, v1.ListApiKeysResponse]
+	revokeApiKey            *connect.Client[v1.RevokeApiKeyRequest, v1.RevokeApiKeyResponse]
+	validateApiKey          *connect.Client[v1.ValidateApiKeyRequest, v1.ValidateApiKeyResponse]
+	registerConsumerAccount *connect.Client[v1.RegisterConsumerAccountRequest, v1.RegisterConsumerAccountResponse]
 }
 
 // CreateApiKey calls iogrid.billing.v1.ApiKeyService.CreateApiKey.
@@ -143,12 +158,21 @@ func (c *apiKeyServiceClient) ValidateApiKey(ctx context.Context, req *connect.R
 	return c.validateApiKey.CallUnary(ctx, req)
 }
 
+// RegisterConsumerAccount calls iogrid.billing.v1.ApiKeyService.RegisterConsumerAccount.
+func (c *apiKeyServiceClient) RegisterConsumerAccount(ctx context.Context, req *connect.Request[v1.RegisterConsumerAccountRequest]) (*connect.Response[v1.RegisterConsumerAccountResponse], error) {
+	return c.registerConsumerAccount.CallUnary(ctx, req)
+}
+
 // ApiKeyServiceHandler is an implementation of the iogrid.billing.v1.ApiKeyService service.
 type ApiKeyServiceHandler interface {
 	CreateApiKey(context.Context, *connect.Request[v1.CreateApiKeyRequest]) (*connect.Response[v1.CreateApiKeyResponse], error)
 	ListApiKeys(context.Context, *connect.Request[v1.ListApiKeysRequest]) (*connect.Response[v1.ListApiKeysResponse], error)
 	RevokeApiKey(context.Context, *connect.Request[v1.RevokeApiKeyRequest]) (*connect.Response[v1.RevokeApiKeyResponse], error)
 	ValidateApiKey(context.Context, *connect.Request[v1.ValidateApiKeyRequest]) (*connect.Response[v1.ValidateApiKeyResponse], error)
+	// RegisterConsumerAccount accepts a client-generated account number on
+	// first use (#690 D1 — fresh-install mobile connect). Stub until the
+	// billing-svc store gains consumer-scoped key rows.
+	RegisterConsumerAccount(context.Context, *connect.Request[v1.RegisterConsumerAccountRequest]) (*connect.Response[v1.RegisterConsumerAccountResponse], error)
 }
 
 // NewApiKeyServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -181,6 +205,12 @@ func NewApiKeyServiceHandler(svc ApiKeyServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(apiKeyServiceValidateApiKeyMethodDescriptor),
 		connect.WithHandlerOptions(opts...),
 	)
+	apiKeyServiceRegisterConsumerAccountHandler := connect.NewUnaryHandler(
+		ApiKeyServiceRegisterConsumerAccountProcedure,
+		svc.RegisterConsumerAccount,
+		connect.WithSchema(apiKeyServiceRegisterConsumerAccountMethodDescriptor),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/iogrid.billing.v1.ApiKeyService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ApiKeyServiceCreateApiKeyProcedure:
@@ -191,6 +221,8 @@ func NewApiKeyServiceHandler(svc ApiKeyServiceHandler, opts ...connect.HandlerOp
 			apiKeyServiceRevokeApiKeyHandler.ServeHTTP(w, r)
 		case ApiKeyServiceValidateApiKeyProcedure:
 			apiKeyServiceValidateApiKeyHandler.ServeHTTP(w, r)
+		case ApiKeyServiceRegisterConsumerAccountProcedure:
+			apiKeyServiceRegisterConsumerAccountHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -214,4 +246,8 @@ func (UnimplementedApiKeyServiceHandler) RevokeApiKey(context.Context, *connect.
 
 func (UnimplementedApiKeyServiceHandler) ValidateApiKey(context.Context, *connect.Request[v1.ValidateApiKeyRequest]) (*connect.Response[v1.ValidateApiKeyResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iogrid.billing.v1.ApiKeyService.ValidateApiKey is not implemented"))
+}
+
+func (UnimplementedApiKeyServiceHandler) RegisterConsumerAccount(context.Context, *connect.Request[v1.RegisterConsumerAccountRequest]) (*connect.Response[v1.RegisterConsumerAccountResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("iogrid.billing.v1.ApiKeyService.RegisterConsumerAccount is not implemented"))
 }

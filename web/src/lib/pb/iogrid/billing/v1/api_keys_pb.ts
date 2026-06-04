@@ -509,3 +509,104 @@ export class ValidateApiKeyResponse extends Message<ValidateApiKeyResponse> {
   }
 }
 
+/**
+ * ApiKeyService is the wire contract for issuance + validation of
+ * customer API keys. proxy-gateway + build-gateway are validate-only
+ * callers; gateway-bff calls Create/List/Revoke on behalf of authed
+ * users.
+ * RegisterConsumerAccountRequest registers a CLIENT-generated 16-digit
+ * account number as a free-tier consumer credential (#690). Under the
+ * Mullvad model (#569) the account number IS the credential: the mobile
+ * app generates it locally (account.ts) and the server accepts it on
+ * first use. Idempotent — re-registering an existing number returns the
+ * existing identity. Implementations MUST format-check (exactly 16
+ * digits) and SHOULD rate-limit minting per source IP; accounts created
+ * this way start at the free tier with FreeTierQuotaBytes enforcement.
+ *
+ * @generated from message iogrid.billing.v1.RegisterConsumerAccountRequest
+ */
+export class RegisterConsumerAccountRequest extends Message<RegisterConsumerAccountRequest> {
+  /**
+   * @generated from field: string account_number = 1;
+   */
+  accountNumber = "";
+
+  constructor(data?: PartialMessage<RegisterConsumerAccountRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "iogrid.billing.v1.RegisterConsumerAccountRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "account_number", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RegisterConsumerAccountRequest {
+    return new RegisterConsumerAccountRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RegisterConsumerAccountRequest {
+    return new RegisterConsumerAccountRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RegisterConsumerAccountRequest {
+    return new RegisterConsumerAccountRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: RegisterConsumerAccountRequest | PlainMessage<RegisterConsumerAccountRequest> | undefined, b: RegisterConsumerAccountRequest | PlainMessage<RegisterConsumerAccountRequest> | undefined): boolean {
+    return proto3.util.equals(RegisterConsumerAccountRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message iogrid.billing.v1.RegisterConsumerAccountResponse
+ */
+export class RegisterConsumerAccountResponse extends Message<RegisterConsumerAccountResponse> {
+  /**
+   * @generated from field: iogrid.common.v1.UUID customer_id = 1;
+   */
+  customerId?: UUID;
+
+  /**
+   * @generated from field: iogrid.billing.v1.SubscriptionTier tier = 2;
+   */
+  tier = SubscriptionTier.UNSPECIFIED;
+
+  /**
+   * True when this call created the account (false = already existed).
+   *
+   * @generated from field: bool created = 3;
+   */
+  created = false;
+
+  constructor(data?: PartialMessage<RegisterConsumerAccountResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "iogrid.billing.v1.RegisterConsumerAccountResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "customer_id", kind: "message", T: UUID },
+    { no: 2, name: "tier", kind: "enum", T: proto3.getEnumType(SubscriptionTier) },
+    { no: 3, name: "created", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RegisterConsumerAccountResponse {
+    return new RegisterConsumerAccountResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RegisterConsumerAccountResponse {
+    return new RegisterConsumerAccountResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RegisterConsumerAccountResponse {
+    return new RegisterConsumerAccountResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: RegisterConsumerAccountResponse | PlainMessage<RegisterConsumerAccountResponse> | undefined, b: RegisterConsumerAccountResponse | PlainMessage<RegisterConsumerAccountResponse> | undefined): boolean {
+    return proto3.util.equals(RegisterConsumerAccountResponse, a, b);
+  }
+}
+

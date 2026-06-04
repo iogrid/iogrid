@@ -17,15 +17,10 @@
 /* eslint-disable */
 // @ts-nocheck
 
-import { CreateApiKeyRequest, CreateApiKeyResponse, ListApiKeysRequest, ListApiKeysResponse, RevokeApiKeyRequest, RevokeApiKeyResponse, ValidateApiKeyRequest, ValidateApiKeyResponse } from "./api_keys_pbjs";
+import { CreateApiKeyRequest, CreateApiKeyResponse, ListApiKeysRequest, ListApiKeysResponse, RegisterConsumerAccountRequest, RegisterConsumerAccountResponse, RevokeApiKeyRequest, RevokeApiKeyResponse, ValidateApiKeyRequest, ValidateApiKeyResponse } from "./api_keys_pbjs";
 import { MethodKind } from "@bufbuild/protobuf";
 
 /**
- * ApiKeyService is the wire contract for issuance + validation of
- * customer API keys. proxy-gateway + build-gateway are validate-only
- * callers; gateway-bff calls Create/List/Revoke on behalf of authed
- * users.
- *
  * @generated from service iogrid.billing.v1.ApiKeyService
  */
 export const ApiKeyService = {
@@ -65,6 +60,19 @@ export const ApiKeyService = {
       name: "ValidateApiKey",
       I: ValidateApiKeyRequest,
       O: ValidateApiKeyResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * RegisterConsumerAccount accepts a client-generated account number on
+     * first use (#690 D1 — fresh-install mobile connect). Stub until the
+     * billing-svc store gains consumer-scoped key rows.
+     *
+     * @generated from rpc iogrid.billing.v1.ApiKeyService.RegisterConsumerAccount
+     */
+    registerConsumerAccount: {
+      name: "RegisterConsumerAccount",
+      I: RegisterConsumerAccountRequest,
+      O: RegisterConsumerAccountResponse,
       kind: MethodKind.Unary,
     },
   }

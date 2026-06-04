@@ -17,6 +17,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"regexp"
 	"strings"
 	"time"
 
@@ -24,9 +25,9 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	commonv1 "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/common/v1"
 	billingv1 "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/billing/v1"
 	"github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/billing/v1/billingv1connect"
+	commonv1 "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/common/v1"
 	"github.com/iogrid/iogrid/coordinator/services/billing-svc/internal/store"
 )
 
@@ -298,4 +299,78 @@ func tierFromString(s string) billingv1.SubscriptionTier {
 	default:
 		return billingv1.SubscriptionTier_SUBSCRIPTION_TIER_UNSPECIFIED
 	}
+}
+
+// consumerAccountNumberRe: exactly 16 digits — the format account.ts's
+// generateAccountNumber produces (#690, the Mullvad model per #569).
+var consumerAccountNumberRe = regexp.MustCompile(`^[0-9]{16}$`)
+
+// consumerWorkspaceNamespace seeds the deterministic UUIDv5 derivation of
+// a consumer account's synthetic workspace id. Fixed forever — changing
+// it would orphan every registered consumer account.
+var consumerWorkspaceNamespace = uuid.MustParse("6f3b27aa-9b41-5f10-8d6e-1c2a90b4e8d3")
+
+// deriveConsumerWorkspaceID maps an account number onto its synthetic
+// workspace id (UUIDv5-style SHA1 derivation). Deterministic forever —
+// the pinned test vector guards the namespace.
+func deriveConsumerWorkspaceID(accountNumber string) uuid.UUID {
+	return uuid.NewSHA1(consumerWorkspaceNamespace, []byte(accountNumber))
+}
+
+// RegisterConsumerAccount accepts a CLIENT-generated 16-digit account
+// number on first use (#690 D1). Idempotent: an already-registered
+// number returns its existing identity with created=false. The account
+// row reuses the api_key table — key_hash = sha256(account_number),
+// workspace_id = UUIDv5(namespace, account_number) so the NOT NULL
+// constraint holds without a migration and per-workspace quota tracking
+// works unchanged. Tier stays UNSPECIFIED = vpn-svc's free tier
+// (isFreeTier, #548). Per-IP mint rate-limiting lives at the EDGE
+// caller (vpn-svc's mobile endpoint owns the client IP); this handler
+// enforces format + idempotency only.
+func (h *ApiKeyHandler) RegisterConsumerAccount(
+	ctx context.Context,
+	req *connect.Request[billingv1.RegisterConsumerAccountRequest],
+) (*connect.Response[billingv1.RegisterConsumerAccountResponse], error) {
+	num := strings.TrimSpace(req.Msg.GetAccountNumber())
+	if !consumerAccountNumberRe.MatchString(num) {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			errors.New("account_number must be exactly 16 digits"))
+	}
+	keyHash := hashKey(num)
+
+	// Idempotent fast-path: already registered.
+	if row, err := h.Store.LookupApiKeyByHash(ctx, keyHash); err == nil {
+		return connect.NewResponse(&billingv1.RegisterConsumerAccountResponse{
+			CustomerId: &commonv1.UUID{Value: row.WorkspaceID.String()},
+			Tier:       tierFromString(row.Tier),
+			Created:    false,
+		}), nil
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+
+	wsID := deriveConsumerWorkspaceID(num)
+	k := store.ApiKey{
+		WorkspaceID: wsID,
+		Label:       "consumer:self-registered",
+		KeyHash:     keyHash,
+		LastFour:    num[len(num)-4:],
+		Tier:        billingv1.SubscriptionTier_SUBSCRIPTION_TIER_UNSPECIFIED.String(),
+	}
+	if err := h.Store.InsertApiKey(ctx, k); err != nil {
+		// A concurrent register can win the race — resolve idempotently.
+		if row, lerr := h.Store.LookupApiKeyByHash(ctx, keyHash); lerr == nil {
+			return connect.NewResponse(&billingv1.RegisterConsumerAccountResponse{
+				CustomerId: &commonv1.UUID{Value: row.WorkspaceID.String()},
+				Tier:       tierFromString(row.Tier),
+				Created:    false,
+			}), nil
+		}
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return connect.NewResponse(&billingv1.RegisterConsumerAccountResponse{
+		CustomerId: &commonv1.UUID{Value: wsID.String()},
+		Tier:       billingv1.SubscriptionTier_SUBSCRIPTION_TIER_UNSPECIFIED,
+		Created:    true,
+	}), nil
 }

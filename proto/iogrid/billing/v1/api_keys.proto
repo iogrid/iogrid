@@ -104,9 +104,32 @@ message ValidateApiKeyResponse {
 // customer API keys. proxy-gateway + build-gateway are validate-only
 // callers; gateway-bff calls Create/List/Revoke on behalf of authed
 // users.
+// RegisterConsumerAccountRequest registers a CLIENT-generated 16-digit
+// account number as a free-tier consumer credential (#690). Under the
+// Mullvad model (#569) the account number IS the credential: the mobile
+// app generates it locally (account.ts) and the server accepts it on
+// first use. Idempotent — re-registering an existing number returns the
+// existing identity. Implementations MUST format-check (exactly 16
+// digits) and SHOULD rate-limit minting per source IP; accounts created
+// this way start at the free tier with FreeTierQuotaBytes enforcement.
+message RegisterConsumerAccountRequest {
+  string account_number = 1;
+}
+message RegisterConsumerAccountResponse {
+  iogrid.common.v1.UUID customer_id = 1;
+  SubscriptionTier tier = 2;
+  // True when this call created the account (false = already existed).
+  bool created = 3;
+}
+
 service ApiKeyService {
   rpc CreateApiKey(CreateApiKeyRequest) returns (CreateApiKeyResponse);
   rpc ListApiKeys(ListApiKeysRequest) returns (ListApiKeysResponse);
   rpc RevokeApiKey(RevokeApiKeyRequest) returns (RevokeApiKeyResponse);
   rpc ValidateApiKey(ValidateApiKeyRequest) returns (ValidateApiKeyResponse);
+
+  // RegisterConsumerAccount accepts a client-generated account number on
+  // first use (#690 D1 — fresh-install mobile connect). Stub until the
+  // billing-svc store gains consumer-scoped key rows.
+  rpc RegisterConsumerAccount(RegisterConsumerAccountRequest) returns (RegisterConsumerAccountResponse);
 }
