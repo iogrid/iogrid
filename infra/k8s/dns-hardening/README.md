@@ -50,6 +50,32 @@ failure so one pod-death is survivable.
    2/2 Ready on (ideally) different nodes once node-2 lands; `kubectl -n
    kube-system get pdb coredns-availability` shows `ALLOWED DISRUPTIONS 1`.
 
+## Why CoreDNS keeps restarting (diagnosed 2026-06-04) — a third #682 symptom
+
+The lone CoreDNS pod has 17 restarts (latest 13:26Z, ongoing). Cause is
+**not** OOM — it's the **liveness probe timing out under node pressure**:
+`kubectl describe` shows `Killing … failed liveness probe` (×7 over 3h26m)
+and `Unhealthy … /health … context deadline exceeded` (×110). The probe is
+`GET /health timeout=1s period=10s #failure=3`; on the saturated node
+(#682) CoreDNS is CPU-starved badly enough that `/health` can't answer
+within **1 second**, so after 3 misses kubelet kills + restarts it — which
+is itself a DNS blip, and at the cap a failed reschedule re-arms #691.
+
+**Hardening (operator, alongside the replica raise):** loosen the probe
+tolerance so transient starvation doesn't kill a healthy CoreDNS. In the
+same node-side `HelmChartConfig` (step 1), if the bundled chart exposes it:
+```yaml
+valuesContent: |-
+  replicas: 2
+  # if unsupported by the chart version, patch the deployment's
+  # livenessProbe.timeoutSeconds 1→5 + failureThreshold 3→5 instead
+  # (k3s' helm-controller will reconcile a manual `kubectl patch` back,
+  # so it must live in the manifest, not a one-off patch).
+```
+This is a band-aid over the real fix (the #682 cap raise removes the CPU
+starvation). Both: the cap raise stops the starvation, the probe loosening
++ 2nd replica + PDB make any residual blip survivable.
+
 ## Status
 
 - `coredns-pdb.yaml` — ready; inert on the current single replica, activates at 2.

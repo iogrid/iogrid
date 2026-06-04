@@ -15,7 +15,7 @@
 ## 🔴 P1 — Reliability (the #691 outage proved this is urgent, not convenience)
 
 ### 1. Decide the node-capacity ceiling (#682)
-**Why now:** the 110-pod cap on the single node just caused a **~55-min production outage** — a CoreDNS pod couldn't reschedule at the cap → DNS cascade → API + web down. The cluster **cannot self-heal** at the cap because recovery pods need headroom the cap denies. It currently runs with no DNS redundancy (CoreDNS 1/1) and two products' surfaces parked.
+**Why now:** the 110-pod cap on the single node just caused a **~55-min production outage** — a CoreDNS pod couldn't reschedule at the cap → DNS cascade → API + web down. The cluster **cannot self-heal** at the cap because recovery pods need headroom the cap denies. It currently runs with no DNS redundancy (CoreDNS 1/1) and two products' surfaces parked. **Live evidence (2026-06-04 13:51Z verify):** the lone CoreDNS pod has **17 restarts**, the **most recent just ~25 min ago (container started 13:26Z)** — i.e. *ongoing* well after the 09:30Z #691 incident, not historical. Each restart is a window where a failed reschedule at the cap re-arms the #691 cascade. This is a current, recurring reliability cost — not a hypothetical.
 **Smallest action — pick one:**
 - **(a) Raise k3s max-pods** (fastest, ~30s control-plane blip): the 1-command runbook is `docs/runbooks/2026-06-04-k3s-raise-max-pods.md`. I cannot run it solo (no-solo-control-plane-restart rule). Say the word, or run it.
 - **(b) Provision node 2** (#652-adjacent): durable fix; needs the Hetzner/provider creds.
