@@ -1,0 +1,39 @@
+# CoreDNS-SPOF hardening — config-as-code persistence for #692 (from the
+# #691 CoreDNS-starvation-cascade incident).
+#
+# ⚠️ GATED on #682 + operator-applied ONLY. This is NOT wired into any
+# kustomization and MUST NOT be applied via `kubectl apply -k overlays/*`
+# or Flux — iogrid is not Flux-wired and the overlay apply crashlooped
+# prod once (see CLAUDE.md / the iogrid deploy-freeze memory). Apply it
+# MANUALLY per docs/runbooks/2026-06-04-coredns-starvation-cascade.md,
+# and only AFTER #682 raises max-pods (CoreDNS needs the headroom for a
+# 2nd replica first — a PDB with minAvailable:1 over a single replica
+# would block that replica's voluntary eviction without buying redundancy).
+#
+# Why it exists: in #691 the lone CoreDNS pod was disrupted and its
+# replacement couldn't schedule at the 110-pod cap → cluster-wide DNS
+# loss → CNPG-operator lease loss → API 503 → full outage. With ≥2
+# replicas this PDB guarantees at least one CoreDNS pod survives any
+# voluntary disruption (node drain, eviction), so a single pod-death
+# can never again take all of DNS down.
+#
+# On the current single-node, single-replica cluster this manifest is a
+# deliberate no-op (no voluntary drains happen on one node); it activates
+# the moment CoreDNS reaches 2 replicas post-#682.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: coredns-availability
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/part-of: iogrid-dns-hardening
+    iogrid.io/gated-on: "682"
+spec:
+  # Keep ≥1 CoreDNS pod through any voluntary disruption. With desired=2
+  # this allows exactly one pod to be drained at a time; with desired=1
+  # it is inert (single-node has no drains).
+  minAvailable: 1
+  selector:
+    matchLabels:
+      # k3s/upstream CoreDNS standard label.
+      k8s-app: kube-dns
