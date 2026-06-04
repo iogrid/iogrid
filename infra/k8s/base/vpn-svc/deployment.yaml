@@ -33,6 +33,7 @@ spec:
         # cache-identical.
         kubectl.kubernetes.io/restartedAt: "2026-06-04T05:13:49Z"
     spec:
+      priorityClassName: iogrid-serving
       serviceAccountName: vpn-svc
       automountServiceAccountToken: false
       securityContext:
