@@ -22,26 +22,32 @@ failure so one pod-death is survivable.
 
 ## Apply order (operator, post-#682)
 
-1. **Raise CoreDNS to 2 replicas** — k3s manages CoreDNS via its bundled
-   AddOn, so this is a **node-access** step (operator-gated; no solo
-   control-plane changes). Create a `HelmChartConfig` on the node so k3s'
-   helm-controller reconciles it (survives k3s restarts, unlike a manual
-   `kubectl scale`):
+1. **Raise CoreDNS to 2 replicas + loosen the liveness probe** — **VERIFIED
+   2026-06-04 against the live cluster (k3s v1.34.4):** CoreDNS here is a
+   **k3s AddOn**, NOT a HelmChart. `kubectl get helmchart -A` shows only
+   `traefik`/`traefik-crd`; the `coredns` Deployment's owner is
+   `objectset.rio.cattle.io/owner-gvk: k3s.cattle.io/v1, Kind=Addon,
+   name=coredns`. So a `HelmChartConfig` would **no-op** (there is no
+   coredns chart to override — that earlier instruction was wrong).
 
-   ```yaml
-   # /var/lib/rancher/k3s/server/manifests/coredns-ha.yaml  (on the node)
-   apiVersion: helm.cattle.io/v1
-   kind: HelmChartConfig
-   metadata:
-     name: coredns
-     namespace: kube-system
-   valuesContent: |-
-     replicas: 2
+   The change goes in the **AddOn source manifest on the node** (node-access,
+   operator-gated — no solo control-plane changes); the k3s AddOn controller
+   reconciles it within seconds and survives restarts (a bare `kubectl
+   scale`/`patch` gets reverted by the controller):
+
+   ```bash
+   # On the node, edit the k3s-managed CoreDNS AddOn manifest:
+   #   /var/lib/rancher/k3s/server/manifests/coredns.yaml
+   # In the CoreDNS Deployment spec, set:
+   #   spec.replicas: 2
+   #   spec.template.spec.containers[name=coredns].livenessProbe.timeoutSeconds: 5   # was 1
+   #   spec.template.spec.containers[name=coredns].livenessProbe.failureThreshold: 5  # was 3
+   # Save → the AddOn controller re-applies it automatically.
    ```
 
-   (Confirm the value key against the running chart first:
-   `kubectl -n kube-system get helmchart coredns -o yaml` — older k3s use
-   `replicas`, some bundles `replicaCount`. Adjust before writing the file.)
+   (Confirmed live: `kubectl get deploy coredns -n kube-system` → `replicas=1`;
+   probe today is `timeout=1s period=10s failure=3` — the cause of the
+   restart loop under #682 pressure.)
 
 2. **Apply the PodDisruptionBudget** — `kubectl apply -f coredns-pdb.yaml`.
    Keeps ≥1 CoreDNS pod through any voluntary drain once there are 2.
@@ -61,17 +67,12 @@ and `Unhealthy … /health … context deadline exceeded` (×110). The probe is
 within **1 second**, so after 3 misses kubelet kills + restarts it — which
 is itself a DNS blip, and at the cap a failed reschedule re-arms #691.
 
-**Hardening (operator, alongside the replica raise):** loosen the probe
-tolerance so transient starvation doesn't kill a healthy CoreDNS. In the
-same node-side `HelmChartConfig` (step 1), if the bundled chart exposes it:
-```yaml
-valuesContent: |-
-  replicas: 2
-  # if unsupported by the chart version, patch the deployment's
-  # livenessProbe.timeoutSeconds 1→5 + failureThreshold 3→5 instead
-  # (k3s' helm-controller will reconcile a manual `kubectl patch` back,
-  # so it must live in the manifest, not a one-off patch).
-```
+**Hardening (operator — folded into step 1's AddOn-manifest edit):** loosen
+the probe so transient starvation doesn't kill a healthy CoreDNS —
+`livenessProbe.timeoutSeconds 1→5` + `failureThreshold 3→5` in the CoreDNS
+Deployment inside `/var/lib/rancher/k3s/server/manifests/coredns.yaml` (NOT
+a one-off `kubectl patch` — the k3s AddOn controller reverts anything not in
+that manifest).
 This is a band-aid over the real fix (the #682 cap raise removes the CPU
 starvation). Both: the cap raise stops the starvation, the probe loosening
 + 2nd replica + PDB make any residual blip survivable.
