@@ -195,24 +195,30 @@ The tester is read-only on the product code; reported what was seen on screen; n
 
 **jest suite (executed on this host):** `59 passed, 3 skipped, 0 failed` — covers `auth-gate`, `grid_balance`, `wallets`, `ping-pay` (24 incl. devnet).
 
-### Latest automated iOS walk — run [26918273935](https://github.com/iogrid/iogrid/actions/runs/26918273935) (**UX pass 1+2+2b** on the simulator)
+### Latest automated iOS walk — run [26925409479](https://github.com/iogrid/iogrid/actions/runs/26925409479) (**UX pass 1+2+2b+3, stale-handle fix** — 01–09 ALL PASS)
 
-> Flows **01–03 PASS on the pass-2 UI** — captures show the shipped refinements: the SIWA button now
-> carries the real Apple glyph, the sign-in screen's dead middle holds the **privacy-assurance card**
-> (No activity logs — ever · Apple hides your email from us · The VPN works without an account), and
-> the privacy screen reads as one centered composition. Death at flow 04 with Maestro's generic
-> "App crashed or stopped" — again **no crash signature** (no Jetsam/OOM/SIGABRT in the sim log;
-> normal flow-boundary exits only). Pattern: 2/2 post-overhaul chains died at DIFFERENT flows
-> (05, then 04) = the #575 relaunch-flake hitting mid-chain, where ONE flaky `launchApp` killed the
-> whole run. **Hardening shipped**: every subflow in `00-all.yaml` is now wrapped in Maestro
-> `retry (maxRetries: 2)` — a flaky relaunch re-runs just that subflow. Next run carries it.
+> **THE CHAIN FINALLY WALKS.** After root-causing the 3-run death pattern to a stale XCTest app
+> handle (error 10001 — Maestro maps it to a fatal AppCrash; in-session retries can't recover) and
+> shipping the outer restart loop (`bb601de7`), the chain ran **8m19s in ONE attempt: flows 01–09
+> ALL PASS on the fully redesigned UI** — including **09-topup (first pass ever)** and the deepest
+> capture set yet (connecting/connected/region-picker/settings/top-up on UX pass 1+2+2b+3). Flow 10
+> (live-coordinator session) failed on a REAL test-timing bug of mine: the flow-05 de-flake grew the
+> simulated CONNECTING hold 8s→12s, pushing the degraded-503 alert past `assertVisible`'s default
+> window — fixed with `extendedWaitUntil timeout:30000` (rides the next push). The 10-connecting
+> capture shows the live attempt mid-flight: disc + CREATING SECURE CONNECTION… + step list.
 
-| Maestro flow | Result (run 26918273935) | Evidence (real simulator captures, pass-2 UI) |
+| Maestro flow | Result (run 26925409479) | Evidence |
 |---|---|---|
-| 01-onboarding (Welcome → carousel → privacy) | ✅ PASS | [📷 welcome (SVG mesh)](evidence-mobile/maestro-01-onboarding-welcome.png) · [📷 privacy (centered composition)](evidence-mobile/maestro-01-onboarding-privacy.png) |
-| 02-sign-in ( glyph + privacy-assurance card) | ✅ PASS | [📷 landed](evidence-mobile/maestro-02-sign-in-landed.png) |
+| 01-onboarding | ✅ PASS | [📷 welcome](evidence-mobile/maestro-01-onboarding-welcome.png) · [📷 privacy](evidence-mobile/maestro-01-onboarding-privacy.png) |
+| 02-sign-in | ✅ PASS | [📷 landed](evidence-mobile/maestro-02-sign-in-landed.png) |
 | 03-wallet-connect | ✅ PASS | [📷 wallet](evidence-mobile/maestro-03-wallet-connected.png) |
-| 04–10 | 🔁 relaunch-flake at 04 (#575 family, no crash signature) — retry-hardened chain re-runs next push | — |
+| 04-main-disconnected | ✅ PASS | [📷 home](evidence-mobile/maestro-04-main-disconnected.png) |
+| 05-main-connecting | ✅ PASS | [📷 connecting](evidence-mobile/maestro-05-main-connecting.png) |
+| 06-main-connected | ✅ PASS | [📷 connected](evidence-mobile/maestro-06-main-connected.png) |
+| 07-region-picker | ✅ PASS | [📷 regions](evidence-mobile/maestro-07-region-picker.png) |
+| 08-settings | ✅ PASS | [📷 settings](evidence-mobile/maestro-08-settings.png) |
+| **09-topup** | ✅ **PASS (first ever)** | [📷 top-up](evidence-mobile/maestro-09-topup.png) |
+| 10-mobile-session-live | 🔁 test-timing bug (mine): 503-alert assert window too short after the 05 de-flake — `extendedWaitUntil` fix staged | [📷 pre-tap](evidence-mobile/maestro-10-mobile-session-pre-tap.png) · [📷 connecting](evidence-mobile/maestro-10-mobile-session-connecting.png) |
 
 ### Prior full-chain walk — run [26904727684](https://github.com/iogrid/iogrid/actions/runs/26904727684) (pre-overhaul UI; chain ran 5m14s; 08 passed, reached 09)
 
