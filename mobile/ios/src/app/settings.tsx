@@ -143,6 +143,7 @@ export default function SettingsScreen() {
                   : 'Not connected'
               }
               chevron
+              last
               onPress={() => router.push('/(onboarding)/connect-wallet' as any)}
             />
           </SectionGroup>
@@ -188,6 +189,7 @@ export default function SettingsScreen() {
               label="Split tunneling"
               value="Coming soon"
               disabled
+              last
             />
           </SectionGroup>
 
@@ -212,7 +214,7 @@ export default function SettingsScreen() {
                 void Linking.openURL('https://iogrid.org/legal/mobile-terms');
               }}
             />
-            <Row testID="settings-row-version" theme={theme} label="Version" value="1.0.0" />
+            <Row testID="settings-row-version" theme={theme} label="Version" value="1.0.0" last />
           </SectionGroup>
 
           {/* ── Sign out ─────────────────────────────────────────── */}
@@ -277,10 +279,14 @@ interface RowProps {
   value?: string;
   chevron?: boolean;
   disabled?: boolean;
+  /** Last row in its SectionGroup — drops the bottom hairline so it
+   *  doesn't draw a divider against the card's rounded bottom edge
+   *  (matches the regions/top-up row pattern). */
+  last?: boolean;
   onPress?: () => void;
 }
 
-function Row({ testID, theme, label, hint, value, chevron, disabled, onPress }: RowProps) {
+function Row({ testID, theme, label, hint, value, chevron, disabled, last, onPress }: RowProps) {
   const isPressable = !!onPress && !disabled;
   const Container: typeof View | typeof Pressable = isPressable ? Pressable : View;
   return (
@@ -298,9 +304,10 @@ function Row({ testID, theme, label, hint, value, chevron, disabled, onPress }: 
           ? ({ pressed }: { pressed?: boolean }) => [
               styles.row,
               { borderBottomColor: theme.border },
+              last ? styles.rowLast : null,
               pressed ? { opacity: 0.7 } : null,
             ]
-          : [styles.row, { borderBottomColor: theme.border }]
+          : [styles.row, { borderBottomColor: theme.border }, last ? styles.rowLast : null]
       }
     >
       <View style={styles.rowText}>
