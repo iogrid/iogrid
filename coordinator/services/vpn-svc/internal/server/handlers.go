@@ -1484,6 +1484,15 @@ func (h *RequestMobileSession) lookupProvider(ctx context.Context, providerID uu
 		if endpoint == "" {
 			return mobilePeerInfo{}, errors.New("no ICE candidate published yet")
 		}
+		// Fail safe (#696): a provider that registered without its static WG
+		// public key would yield peer_public_key:"" — the customer's tunnel
+		// would then configure a peer with no key and silently never
+		// handshake (a 201 that never connects). Treat it like an
+		// unpublished endpoint: surface 503 + Retry-After so the client
+		// retries once the daemon's register (now carrying the key) lands.
+		if strings.TrimSpace(p.WgPublicKey) == "" {
+			return mobilePeerInfo{}, errors.New("provider WG public key not published yet")
+		}
 		return mobilePeerInfo{WgPublicKey: p.WgPublicKey, Endpoint: endpoint}, nil
 	}
 	// Provider isn't in the top-50 probe result — surface 404-shaped

@@ -309,6 +309,46 @@ func TestRequestMobileSession_CreatedResponseShape(t *testing.T) {
 	}
 }
 
+// TestRequestMobileSession_NoPeerWhenWgKeyUnpublished covers the #696 path:
+// a provider IS selectable AND has a fresh ICE endpoint, but registered
+// WITHOUT its static WG public key (a legacy/standalone daemon that omits
+// it). lookupProvider must fail safe → 503 + Retry-After, NOT return a 201
+// with peer_public_key:"" that configures a dead tunnel which silently
+// never handshakes.
+func TestRequestMobileSession_NoPeerWhenWgKeyUnpublished(t *testing.T) {
+	mem := store.NewMemory().(*store.Memory)
+	ctx := context.Background()
+	// Provider is healthy + has an srflx endpoint, but NO WG public key.
+	pid := uuid.New()
+	if err := mem.RegisterProvider(ctx, &store.ProviderInfo{
+		ID: pid, Region: "us-east-1", Status: "healthy", LastSeenAt: time.Now(),
+		WgPublicKey: "", // the #696 case: daemon never published its key
+	}); err != nil {
+		t.Fatalf("register provider: %v", err)
+	}
+	if err := mem.RegisterCandidates(ctx, pid, []*pb.IceCandidate{{
+		Foundation: "1", Transport: "udp", CandidateType: "srflx",
+		ConnectionAddress: "203.0.113.7", ConnectionPort: 51820,
+		DiscoveredAtUnixMs: time.Now().UnixMilli(),
+	}}); err != nil {
+		t.Fatalf("register candidates: %v", err)
+	}
+	srv := mountMobile(t, mem, nil)
+
+	before := outcomeCount(t, "no_peer")
+	resp, body := postMobile(t, srv.URL, map[string]interface{}{
+		"customer_id":       uuid.New().String(),
+		"client_public_key": "CLIENTPUBKEY1111AAAA2222BBBB=",
+		"region":            "us-east-1",
+	}, nil)
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d body=%s, want 503 (empty WG key must fail safe)", resp.StatusCode, body)
+	}
+	if got := outcomeCount(t, "no_peer") - before; got != 1 {
+		t.Errorf("no_peer counter delta=%v, want 1", got)
+	}
+}
+
 // TestRequestMobileSession_NoPeerWhenEndpointUnpublished covers the second
 // no_peer path: a provider IS selectable (picker succeeds) but has no fresh
 // ICE candidate, so lookupProvider fails and the handler must still record

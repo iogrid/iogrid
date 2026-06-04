@@ -89,6 +89,12 @@ pub struct HealthConfig {
     /// debugging (vpn-svc currently ignores it but logs are easier
     /// when the report carries the endpoint).
     pub vpn_listen_addr: SocketAddr,
+    /// The daemon's static WireGuard public key (base64). Sent in the
+    /// `/register` body so vpn-svc can hand it to customers as the WG
+    /// peer key (#570 / #696 mobile bring-up). Without it the mobile
+    /// session handler returns an empty `peer_public_key` and the
+    /// customer's tunnel can't complete a handshake.
+    pub wg_public_key: String,
 }
 
 /// Wire body for `POST /v1/vpn/providers/{id}/health`.
@@ -115,6 +121,11 @@ pub struct HealthReport {
 pub struct RegisterReport {
     /// Region slug the daemon advertises.
     pub region: String,
+    /// The daemon's static WireGuard public key (base64). vpn-svc surfaces
+    /// this to customers as the provider's WG peer key (#570); the mobile
+    /// session handler returns an empty `peer_public_key` without it, so
+    /// the customer's tunnel can't handshake (#696).
+    pub wg_public_key: String,
 }
 
 /// Wire body for `POST /v1/vpn/providers/{id}/offline`.
@@ -249,6 +260,7 @@ pub async fn register_provider(
     );
     let body = RegisterReport {
         region: config.region.clone(),
+        wg_public_key: config.wg_public_key.clone(),
     };
     let post = http.post(&url).json(&body).send();
     let resp = match tokio::time::timeout(TICK_TIMEOUT, post).await {
@@ -350,6 +362,7 @@ mod tests {
             region: "us-east-1".into(),
             vpn_svc_base_url: base,
             vpn_listen_addr: "127.0.0.1:51820".parse().unwrap(),
+            wg_public_key: "TESTWGKEY0000000000000000000000000000000000=".into(),
         }
     }
 

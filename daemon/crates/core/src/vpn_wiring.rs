@@ -378,6 +378,11 @@ pub async fn spawn_vpn_modules(config: &DaemonConfig) -> Option<VpnHandles> {
             region: region.clone(),
             vpn_svc_base_url: vpn.vpn_svc_url.clone(),
             vpn_listen_addr,
+            // Publish our static WG pubkey so vpn-svc can hand it to
+            // customers as the peer key (#696): the mobile bring-up returns
+            // peer_public_key from this, else the customer tunnel can't
+            // handshake. boringtun is up by here so the key is known.
+            wg_public_key: boringtun.provider_public_key(),
         };
         if let Err(e) = health::register_provider(&health_cfg, &http).await {
             tracing::warn!(error = %e, "VPN /register POST failed; health reporter will retry on next tick");
