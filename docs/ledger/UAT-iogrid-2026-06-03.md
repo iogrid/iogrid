@@ -219,7 +219,7 @@ The tester is read-only on the product code; reported what was seen on screen; n
 | 07-region-picker | ✅ PASS | [📷 regions](evidence-mobile/maestro-07-region-picker.png) |
 | 08-settings | ✅ PASS | [📷 settings](evidence-mobile/maestro-08-settings.png) |
 | 09-topup | ✅ PASS | [📷 top-up](evidence-mobile/maestro-09-topup.png) |
-| **10-mobile-session-live** | ✅ **PASS — the honest 'Could not connect' alert renders + clean recovery (#690-D2 validated)** | [📷 alert](evidence-mobile/maestro-10-mobile-session-alert-503.png) · [📷 recovery](evidence-mobile/maestro-10-mobile-session-post-recovery.png) |
+| **10-mobile-session-live** | ✅ **PASS ×2 — and the second run (26932667895, post-#690-D1) exercised the REAL path**: self-register → genuine 503 → alert → clean recovery, end-to-end against prod | [📷 alert](evidence-mobile/maestro-10-mobile-session-alert-503.png) · [📷 recovery](evidence-mobile/maestro-10-mobile-session-post-recovery.png) |
 
 ### Prior full-chain walk — run [26904727684](https://github.com/iogrid/iogrid/actions/runs/26904727684) (pre-overhaul UI; chain ran 5m14s; 08 passed, reached 09)
 
