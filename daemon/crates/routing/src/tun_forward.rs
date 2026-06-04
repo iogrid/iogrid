@@ -163,6 +163,7 @@ mod imp {
             configure_interface(ifname, inner_cidr)?;
             enable_ip_forward()?;
             install_masquerade(wan_iface)?;
+            install_forward(ifname, wan_iface)?;
 
             // Wrap the raw fd as an OwnedFd then as an AsyncFd for tokio.
             // Set non-blocking so the AsyncFd readable() / try_io flow
@@ -424,6 +425,61 @@ mod imp {
                 "spawning `iptables -A`: {e}"
             ))),
         }
+    }
+
+    /// Install FORWARD ACCEPT rules so decapsulated tunnel traffic is
+    /// actually routed tun↔WAN. MASQUERADE alone is NOT enough on hosts
+    /// whose FORWARD chain defaults to DROP (Docker, k8s/CNI, hardened
+    /// hosts): the WG handshake succeeds but no customer byte egresses
+    /// (#699 — "handshake OK, zero egress", proven live). Idempotent
+    /// (`-C` then `-I`), so restarts don't pile up duplicates.
+    fn install_forward(tun_iface: &str, wan_iface: &str) -> Result<(), TunSetupError> {
+        // (a) tun → WAN (customer egress); (b) WAN → tun for the return
+        // traffic of established/related conntrack flows.
+        let rules: [&[&str]; 2] = [
+            &["-i", tun_iface, "-o", wan_iface, "-j", "ACCEPT"],
+            &[
+                "-i",
+                wan_iface,
+                "-o",
+                tun_iface,
+                "-m",
+                "state",
+                "--state",
+                "RELATED,ESTABLISHED",
+                "-j",
+                "ACCEPT",
+            ],
+        ];
+        for rule in rules {
+            let mut check = vec!["-C", "FORWARD"];
+            check.extend_from_slice(rule);
+            let exists = Command::new("iptables")
+                .args(&check)
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
+            if exists {
+                continue;
+            }
+            let mut add = vec!["-I", "FORWARD", "1"];
+            add.extend_from_slice(rule);
+            let st = Command::new("iptables").args(&add).status().map_err(|e| {
+                TunSetupError::Masquerade(format!("spawning `iptables -I FORWARD`: {e}"))
+            })?;
+            if !st.success() {
+                return Err(TunSetupError::Masquerade(format!(
+                    "iptables -I FORWARD → exit {:?}",
+                    st.code()
+                )));
+            }
+        }
+        tracing::info!(
+            tun_iface,
+            wan_iface,
+            "installed FORWARD ACCEPT rules (tun↔WAN) — egress works on FORWARD-DROP hosts (#699)"
+        );
+        Ok(())
     }
 }
 
