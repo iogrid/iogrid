@@ -19,7 +19,7 @@
 ## 🟡 P2 — Auth & integration (each needs one external credential/step)
 
 ### 3. Create the Google OAuth client (#646)
-**Proven external** (cluster-wide secret sweep + browser wall-test, both in-transcript): no valid client ID exists anywhere in the cluster; the only real one is another product's (redirect-URI-bound, not reusable); the creation page is Google-Console-only.
+**Proven external** (cluster-wide secret sweep + browser wall-test + programmatic-path check, all in-transcript): no valid client ID exists anywhere in the cluster; the only real one is another product's (redirect-URI-bound, not reusable); **no GCP service-account credential exists to create one programmatically** (0 found cluster-wide, gcloud not installed, and Google exposes no consumer-web-client creation API — 2026-06-04 check); the creation page is Google-Console-only.
 **Smallest action — pick one:**
 - **(a)** ~3 min in console.cloud.google.com: create a Web OAuth client for redirect `https://iogrid.org/api/auth/callback/google`, paste the ID+secret (I reseal). Magic-link + Apple sign-in already work without it (#653 hides the button).
 - **(b)** Paste a Google-Console session cookie once and I'll automate the client creation + reseal (the #574-pattern offer).
