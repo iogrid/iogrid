@@ -218,7 +218,7 @@ The tester is read-only on the product code; reported what was seen on screen; n
 | 07-region-picker | ✅ PASS | [📷 regions](evidence-mobile/maestro-07-region-picker.png) |
 | 08-settings | ✅ PASS | [📷 settings](evidence-mobile/maestro-08-settings.png) |
 | **09-topup** | ✅ **PASS (first ever)** | [📷 top-up](evidence-mobile/maestro-09-topup.png) |
-| 10-mobile-session-live | 🔁 test-timing bug (mine): 503-alert assert window too short after the 05 de-flake — `extendedWaitUntil` fix staged | [📷 pre-tap](evidence-mobile/maestro-10-mobile-session-pre-tap.png) · [📷 connecting](evidence-mobile/maestro-10-mobile-session-connecting.png) |
+| 10-mobile-session-live | 🔴 exposed **[#690](https://github.com/iogrid/iogrid/issues/690)**: fresh-install identity 401s (client-local only, never registered) AND the thrown failure was SILENT (no alert) — the assert waited for an alert the masked path never showed. D2 (honest alert) shipped `9a4bfdc8`, validating on run 26929754228; D1 (register-on-first-use RPC) is the next window's first item | [📷 pre-tap](evidence-mobile/maestro-10-mobile-session-pre-tap.png) · [📷 connecting](evidence-mobile/maestro-10-mobile-session-connecting.png) |
 
 ### Prior full-chain walk — run [26904727684](https://github.com/iogrid/iogrid/actions/runs/26904727684) (pre-overhaul UI; chain ran 5m14s; 08 passed, reached 09)
 
