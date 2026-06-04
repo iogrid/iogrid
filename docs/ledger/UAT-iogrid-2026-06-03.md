@@ -244,7 +244,7 @@ The tester is read-only on the product code; reported what was seen on screen; n
 | 1 | Welcome | Tap **Continue** (`onboarding-welcome-continue`) | Welcome carousel advances | ☐ NOT WALKED (this host) | Maestro `01-onboarding` |
 | 2 | Sign in | Tap **Sign in with Apple** (`onboarding-sign-in-apple`) | Apple sheet → lands on `connect-wallet-skip` | ☐ NOT WALKED (this host) | Maestro `02-sign-in` |
 
-- **Verdict:** ☐ NOT WALKED on a device here; **covered by Maestro `01`/`02` in `mobile-ios-ci`** + `auth-gate` jest (passed). Needs a real device walk once TestFlight is live (#574).
+- **Verdict:** ☐ NOT WALKED on a device here; **covered by Maestro `01`/`02` — both PASS on the redesigned UI (run 26925409479)** + `auth-gate` jest (passed). Needs a real device walk once TestFlight is live (#574).
 
 ### TC-21 — Connect the VPN (iOS permission → connected)
 
@@ -253,7 +253,7 @@ The tester is read-only on the product code; reported what was seen on screen; n
 | 1 | Home | Tap **Connect** (`connect-button`) | iOS "Add VPN Configurations" prompt → **Allow** | ☐ NOT WALKED (this host) | Maestro `05-main-connecting` |
 | 2 | Home (connected) | — | Status **Connected**, `egress-ip` + `connected-city` shown | ☐ NOT WALKED (this host) | Maestro `06-main-connected` |
 
-- **Verdict:** ☐ NOT WALKED here; **covered by Maestro `04`/`05`/`06`**. Real device walk needed (WireGuard tunnel + the OS VPN dialog can't be exercised off-device).
+- **Verdict:** ☐ NOT WALKED here; **covered by Maestro `04`/`05`/`06` — all PASS on the redesigned UI (run 26925409479)**. Real device walk needed (WireGuard tunnel + the OS VPN dialog can't be exercised off-device).
 
 ### TC-22 — Switch region
 
