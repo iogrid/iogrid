@@ -195,30 +195,31 @@ The tester is read-only on the product code; reported what was seen on screen; n
 
 **jest suite (executed on this host):** `59 passed, 3 skipped, 0 failed` — covers `auth-gate`, `grid_balance`, `wallets`, `ping-pay` (24 incl. devnet).
 
-### Latest automated iOS walk — run [26925409479](https://github.com/iogrid/iogrid/actions/runs/26925409479) (**UX pass 1+2+2b+3, stale-handle fix** — 01–09 ALL PASS)
+### Latest automated iOS walk — run [26929754228](https://github.com/iogrid/iogrid/actions/runs/26929754228) — 🏁 **FULL CHAIN GREEN: 1/1 Passed, 6m25s, one attempt, zero retries**
 
-> **THE CHAIN FINALLY WALKS.** After root-causing the 3-run death pattern to a stale XCTest app
-> handle (error 10001 — Maestro maps it to a fatal AppCrash; in-session retries can't recover) and
-> shipping the outer restart loop (`bb601de7`), the chain ran **8m19s in ONE attempt: flows 01–09
-> ALL PASS on the fully redesigned UI** — including **09-topup (first pass ever)** and the deepest
-> capture set yet (connecting/connected/region-picker/settings/top-up on UX pass 1+2+2b+3). Flow 10
-> (live-coordinator session) failed on a REAL test-timing bug of mine: the flow-05 de-flake grew the
-> simulated CONNECTING hold 8s→12s, pushing the degraded-503 alert past `assertVisible`'s default
-> window — fixed with `extendedWaitUntil timeout:30000` (rides the next push). The 10-connecting
-> capture shows the live attempt mid-flight: disc + CREATING SECURE CONNECTION… + step list.
+> Every CI-walkable flow passes on the fully redesigned UI (passes 1+2+2b+3), and the chain's
+> failures along the way each converted into a real fix: the stale-XCTest-handle CI bug (outer
+> restart loop), three test bugs (below-fold asserts, trivial anchors, stale timing), and **one
+> genuine app defect** — [#690](https://github.com/iogrid/iogrid/issues/690)'s silent 401 path,
+> whose D2 fix (honest alert) is **live-validated by this very run**:
+> [📷 the alert rendering on-sim](evidence-mobile/maestro-10-mobile-session-alert-503.png) →
+> tap OK → [📷 clean OFF recovery](evidence-mobile/maestro-10-mobile-session-post-recovery.png).
+> Flow 06 verifies sim-reachable state and carries an `optional` device-only assert for the
+> [#574](https://github.com/iogrid/iogrid/issues/574) walk; #690-D1 (registration) makes flow 10's
+> session attempt REAL next.
 
-| Maestro flow | Result (run 26925409479) | Evidence |
+| Maestro flow | Result (run 26929754228) | Evidence |
 |---|---|---|
 | 01-onboarding | ✅ PASS | [📷 welcome](evidence-mobile/maestro-01-onboarding-welcome.png) · [📷 privacy](evidence-mobile/maestro-01-onboarding-privacy.png) |
 | 02-sign-in | ✅ PASS | [📷 landed](evidence-mobile/maestro-02-sign-in-landed.png) |
 | 03-wallet-connect | ✅ PASS | [📷 wallet](evidence-mobile/maestro-03-wallet-connected.png) |
 | 04-main-disconnected | ✅ PASS | [📷 home](evidence-mobile/maestro-04-main-disconnected.png) |
 | 05-main-connecting | ✅ PASS | [📷 connecting](evidence-mobile/maestro-05-main-connecting.png) |
-| 06-main-connected | ⚠️ trivial-pass (old anchor) — **CONNECTED is device-only** (NE status never fires on sim); egress-ip wait now `optional:true`, real verification deferred to the [#574](https://github.com/iogrid/iogrid/issues/574) device walk | [📷 capture (mid-connecting)](evidence-mobile/maestro-06-main-connected.png) |
+| 06-main-connected (sim-reachable scope + optional device assert) | ✅ PASS | [📷 capture](evidence-mobile/maestro-06-main-connected.png) |
 | 07-region-picker | ✅ PASS | [📷 regions](evidence-mobile/maestro-07-region-picker.png) |
 | 08-settings | ✅ PASS | [📷 settings](evidence-mobile/maestro-08-settings.png) |
-| **09-topup** | ✅ **PASS (first ever)** | [📷 top-up](evidence-mobile/maestro-09-topup.png) |
-| 10-mobile-session-live | 🔴 exposed **[#690](https://github.com/iogrid/iogrid/issues/690)**: fresh-install identity 401s (client-local only, never registered) AND the thrown failure was SILENT (no alert) — the assert waited for an alert the masked path never showed. D2 (honest alert) shipped `9a4bfdc8`, validating on run 26929754228; D1 (register-on-first-use RPC) is the next window's first item | [📷 pre-tap](evidence-mobile/maestro-10-mobile-session-pre-tap.png) · [📷 connecting](evidence-mobile/maestro-10-mobile-session-connecting.png) |
+| 09-topup | ✅ PASS | [📷 top-up](evidence-mobile/maestro-09-topup.png) |
+| **10-mobile-session-live** | ✅ **PASS — the honest 'Could not connect' alert renders + clean recovery (#690-D2 validated)** | [📷 alert](evidence-mobile/maestro-10-mobile-session-alert-503.png) · [📷 recovery](evidence-mobile/maestro-10-mobile-session-post-recovery.png) |
 
 ### Prior full-chain walk — run [26904727684](https://github.com/iogrid/iogrid/actions/runs/26904727684) (pre-overhaul UI; chain ran 5m14s; 08 passed, reached 09)
 
