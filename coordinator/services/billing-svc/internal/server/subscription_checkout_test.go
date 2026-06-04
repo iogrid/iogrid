@@ -61,3 +61,26 @@ func TestCreateCheckoutSession_MissingURLs(t *testing.T) {
 		t.Fatalf("code = %v, want InvalidArgument (err=%v)", got, err)
 	}
 }
+
+// CreatePortalSession contract tests (#686-class pre-emption).
+
+func TestCreatePortalSession_NilStripeIsFailedPrecondition(t *testing.T) {
+	h := NewSubscriptionHandler(nil, nil)
+	_, err := h.CreatePortalSession(context.Background(), connect.NewRequest(&billingv1.CreatePortalSessionRequest{
+		WorkspaceId: &commonv1.UUID{Value: uuid.NewString()},
+		ReturnUrl:   "https://iogrid.org/customer/billing",
+	}))
+	if got := connect.CodeOf(err); got != connect.CodeFailedPrecondition {
+		t.Fatalf("code = %v, want FailedPrecondition (err=%v)", got, err)
+	}
+}
+
+func TestCreatePortalSession_MissingReturnURL(t *testing.T) {
+	h := NewSubscriptionHandler(nil, nil)
+	_, err := h.CreatePortalSession(context.Background(), connect.NewRequest(&billingv1.CreatePortalSessionRequest{
+		WorkspaceId: &commonv1.UUID{Value: uuid.NewString()},
+	}))
+	if got := connect.CodeOf(err); got != connect.CodeInvalidArgument {
+		t.Fatalf("code = %v, want InvalidArgument (err=%v)", got, err)
+	}
+}

@@ -20,14 +20,18 @@ appId: io.iogrid.app
 - tapOn:
     id: "connect-button"
 
-# Actually wait for the CONNECTED state before capturing: the old anchor
-# (connect-button) is visible in EVERY state, so the flow passed trivially
-# and run 26925409479's capture caught mid-CONNECTING. The egress-ip row
-# only renders once connected; 30s covers the 12s simulated hold +
-# transitions. (extendedWaitUntil, NOT assertVisible+timeout — gotcha #599.)
+# CONNECTED is DEVICE-ONLY: the state is driven by NEVPNStatusDidChange
+# (index.tsx status machine) and NetworkExtension never connects on the
+# simulator — the connect attempt 503s/fails and the app honestly returns
+# to OFF. Run 26927050194 proved a hard egress-ip wait can NEVER pass on
+# CI (the old connect-button anchor had been passing trivially instead).
+# optional:true = verifies the egress-ip row when a real device runs this
+# suite (#574 TestFlight walk), no-ops on the simulator. The flow's CI
+# value is the capture of the post-tap steady state.
 - extendedWaitUntil:
     visible:
       id: "egress-ip"
     timeout: 30000
+    optional: true
 
 - takeScreenshot: 06-main-connected

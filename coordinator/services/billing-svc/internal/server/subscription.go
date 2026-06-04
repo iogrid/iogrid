@@ -104,6 +104,36 @@ func (h *SubscriptionHandler) CreateCheckoutSession(
 	return connect.NewResponse(&billingv1.CreateCheckoutSessionResponse{CheckoutUrl: url}), nil
 }
 
+// CreatePortalSession binds the Connect-RPC to stripeapi's Customer
+// Portal path (pre-emptive #686-class fix: the embedded Unimplemented
+// stub would surface as a masked 501→{} the day a web "Manage
+// subscription" button ships — bind it with honest codes now, while
+// the pattern is fresh).
+func (h *SubscriptionHandler) CreatePortalSession(
+	ctx context.Context,
+	req *connect.Request[billingv1.CreatePortalSessionRequest],
+) (*connect.Response[billingv1.CreatePortalSessionResponse], error) {
+	wsRaw := req.Msg.GetWorkspaceId().GetValue()
+	workspaceID, err := uuid.Parse(wsRaw)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid workspace_id %q", wsRaw))
+	}
+	if req.Msg.GetReturnUrl() == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("return_url required"))
+	}
+	if h.Stripe == nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("stripe disabled: no payment backend configured"))
+	}
+	url, err := h.Stripe.CreatePortalSession(ctx, workspaceID, req.Msg.GetReturnUrl())
+	if err != nil {
+		if stripeapi.IsStripeDisabled(err) {
+			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+		}
+		return nil, connect.NewError(connect.CodeUnavailable, err)
+	}
+	return connect.NewResponse(&billingv1.CreatePortalSessionResponse{PortalUrl: url}), nil
+}
+
 // listUsageDefaultPageSize / Max bound the page; PageRequest.page_size 0
 // means "server default" per the proto contract.
 const (
