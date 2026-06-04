@@ -214,7 +214,7 @@ The tester is read-only on the product code; reported what was seen on screen; n
 | 03-wallet-connect | ✅ PASS | [📷 wallet](evidence-mobile/maestro-03-wallet-connected.png) |
 | 04-main-disconnected | ✅ PASS | [📷 home](evidence-mobile/maestro-04-main-disconnected.png) |
 | 05-main-connecting | ✅ PASS | [📷 connecting](evidence-mobile/maestro-05-main-connecting.png) |
-| 06-main-connected | ✅ PASS | [📷 connected](evidence-mobile/maestro-06-main-connected.png) |
+| 06-main-connected | ⚠️ trivial-pass (old anchor) — **CONNECTED is device-only** (NE status never fires on sim); egress-ip wait now `optional:true`, real verification deferred to the [#574](https://github.com/iogrid/iogrid/issues/574) device walk | [📷 capture (mid-connecting)](evidence-mobile/maestro-06-main-connected.png) |
 | 07-region-picker | ✅ PASS | [📷 regions](evidence-mobile/maestro-07-region-picker.png) |
 | 08-settings | ✅ PASS | [📷 settings](evidence-mobile/maestro-08-settings.png) |
 | **09-topup** | ✅ **PASS (first ever)** | [📷 top-up](evidence-mobile/maestro-09-topup.png) |
@@ -229,7 +229,7 @@ The tester is read-only on the product code; reported what was seen on screen; n
 | 03-wallet-connect | ✅ PASS | [📷 wallet](evidence-mobile/maestro-03-wallet-connected.png) |
 | 04-main-disconnected ("Tap to connect", Region Best (auto), $GRID wallet card + Top up) | ✅ PASS | [📷 home](evidence-mobile/maestro-04-main-disconnected.png) |
 | 05-main-connecting | ✅ PASS | [📷 connecting](evidence-mobile/maestro-05-main-connecting.png) |
-| 06-main-connected | ✅ PASS | [📷 connected](evidence-mobile/maestro-06-main-connected.png) |
+| 06-main-connected | ⚠️ trivial-pass (old anchor) — **CONNECTED is device-only** (NE status never fires on sim); egress-ip wait now `optional:true`, real verification deferred to the [#574](https://github.com/iogrid/iogrid/issues/574) device walk | [📷 capture (mid-connecting)](evidence-mobile/maestro-06-main-connected.png) |
 | 07-region-picker | ✅ PASS | [📷 regions](evidence-mobile/maestro-07-region-picker.png) |
 | **08-settings** | ✅ **PASS** *(was last run's below-fold fail; scroll fix `a4824d2` cleared it)* | [📷 settings](evidence-mobile/maestro-08-settings.png) |
 | **09-topup** | ❌ **FAIL — test bug, not an app bug**: `assertVisible: topup-continue` without scrolling, but Continue sits below the payment-methods list (Apple Pay / Card / Bitcoin / USDC / Transfer $GRID), off the CI viewport fold. The Top up screen itself rendered correctly (Quick amounts +500/+2,500/+10,000 with +2,500 selected, all pay methods). Fix: `scrollUntilVisible` added (`b59a043`). | [📷 failure capture](evidence-mobile/maestro-09-topup-FAIL-below-fold.png) |
