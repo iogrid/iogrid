@@ -1,0 +1,23 @@
+# PodDisruptionBudget for the public web tier (#682 mitigation).
+#
+# The Deployment's maxUnavailable governs ROLLOUTS only — it does NOT
+# protect against voluntary disruptions (node drain, the eventual node-2
+# migration, kubelet maintenance). Without a PDB, a drain can evict every
+# web replica at once → iogrid.org 503. minAvailable:1 keeps at least one
+# replica serving through any drain while still allowing the drain to
+# proceed (web runs >=2 via the HPA floor, so this never deadlocks
+# maintenance — unlike a 1-replica service, which is why only web gets a
+# PDB here).
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: web
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: web
+    app.kubernetes.io/part-of: iogrid
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: web
