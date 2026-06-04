@@ -4,7 +4,7 @@ Every node in the WBS below is **clickable** — open it to land on the related 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-06-04T02:00Z` 🟢 cron-refresh: +7 commits since last TRACKER bump |
+| Last refreshed | `2026-06-04T02:15Z` 🟢 cron-refresh: +1 commits since last TRACKER bump |
 | ✅ 2026-06-04 #674 CLOSED — status dashboard live, walked, indep-ACCEPT | Full §1 cycle: live walk (per-service SLO rows all Operational, honest incidents empty-state, 30s refresh) → screenshot evidence → reviewer **ACCEPT** (re-run after a rate-limit killed the first: open-proxy abuse impossible — pinned paths, zero forwarding, probe ignored; island never fake-greens; 90-day-uptime chart judged a named follow-up, `?kind=uptime` already plumbed) → status/completed → closed. Banner cosmetic fix `3f6e9f2d` image published (marker `4090d715`), pod seating with churn → evidence re-capture then. |
 | ✅ 2026-06-04 #688 CLOSED — IDOR guard prod-proven BOTH directions | Same authenticated session: own workspace → **200** + UI renders (zero member regression); foreign workspace UUID → **403 `workspace_forbidden`**. Guard live at all 7 BFF sites via identity-svc membership (#321 claims), fails closed. Filed-from-reviewer-finding → fixed → deployed → proven in one session window. |
 | 🟡 2026-06-04 mobile run 26924449821 (workflow_dispatch) — retry-chain validation, immune to push-cancels | Both prior retry-hardened runs were concurrency-cancelled before Maestro could execute. Dispatched run carries retry(maxRetries:2)-wrapped chain + pass-3 polish; expecting the FIRST full post-overhaul 01–10 chain w/ captures of the redesigned connecting/connected/regions/settings/top-up screens. Monitor armed. |
