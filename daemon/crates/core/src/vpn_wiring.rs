@@ -352,16 +352,46 @@ pub async fn spawn_vpn_modules(config: &DaemonConfig) -> Option<VpnHandles> {
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
     // ---- Health one-shot register + periodic loop ----
-    let health_cfg = HealthConfig {
-        provider_id: config.provider_id.clone(),
-        region: region.clone(),
-        vpn_svc_base_url: vpn.vpn_svc_url.clone(),
-        vpn_listen_addr,
+    // Only advertise to vpn-svc if we have a real egress data plane. On
+    // Linux, falling through to LoggingSink (tun_concrete == None) means
+    // TunForwardSink setup failed: the host lacks CAP_NET_ADMIN / iptables,
+    // so this daemon can RECEIVE customer WG packets but can't NAT them
+    // out. Registering anyway puts us in vpn-svc's selectable pool and
+    // black-holes whoever gets routed here — the #694 "advertised but
+    // can't carry traffic" bug. Withholding registration is verified safe
+    // and sufficient: RegisterProvider is the ONLY path that inserts into
+    // vpn-svc's provider pool (store/memory.go) — /health
+    // (UpdateProviderHealth) errors on a missing provider and /candidates
+    // writes a separate map, so a never-registered daemon can never be
+    // selected. We still boot (BoringTun is up) and logged the fallback
+    // warning above so the operator can fix the host. Non-Linux always
+    // uses LoggingSink today; it's left advertising pending a product
+    // decision on non-Linux VPN providers (#694).
+    #[cfg(target_os = "linux")]
+    let egress_capable = tun_concrete.is_some();
+    #[cfg(not(target_os = "linux"))]
+    let egress_capable = true;
+
+    let health_handle = if egress_capable {
+        let health_cfg = HealthConfig {
+            provider_id: config.provider_id.clone(),
+            region: region.clone(),
+            vpn_svc_base_url: vpn.vpn_svc_url.clone(),
+            vpn_listen_addr,
+        };
+        if let Err(e) = health::register_provider(&health_cfg, &http).await {
+            tracing::warn!(error = %e, "VPN /register POST failed; health reporter will retry on next tick");
+        }
+        Some(health::spawn_reporter(health_cfg, http.clone(), shutdown_rx.clone()))
+    } else {
+        tracing::error!(
+            provider_id = %config.provider_id,
+            "VPN egress data plane unavailable (LoggingSink fallback) — NOT registering with \
+             vpn-svc; this provider stays out of the selection pool until the host egress is \
+             fixed (needs CAP_NET_ADMIN + iptables). See #694."
+        );
+        None
     };
-    if let Err(e) = health::register_provider(&health_cfg, &http).await {
-        tracing::warn!(error = %e, "VPN /register POST failed; health reporter will retry on next tick");
-    }
-    let health_handle = health::spawn_reporter(health_cfg, http.clone(), shutdown_rx.clone());
 
     // ---- ICE candidate reporter ----
     let public_ip = if vpn.public_ip.trim().is_empty() {
@@ -399,10 +429,16 @@ pub async fn spawn_vpn_modules(config: &DaemonConfig) -> Option<VpnHandles> {
     let tunnel: Arc<dyn Tunnel> = boringtun.clone();
     let binder_handle = peer_binder::spawn_binder(binder_cfg, http, tunnel, shutdown_rx);
 
+    // health_handle is None when we withheld registration (no egress) —
+    // a provider we never advertised has no health heartbeat to run.
+    let mut task_handles = vec![ice_handle, binder_handle];
+    if let Some(h) = health_handle {
+        task_handles.push(h);
+    }
     Some(VpnHandles {
         shutdown_tx,
         boringtun,
-        task_handles: vec![health_handle, ice_handle, binder_handle],
+        task_handles,
     })
 }
 

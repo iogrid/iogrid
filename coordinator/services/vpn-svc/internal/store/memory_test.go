@@ -76,6 +76,37 @@ func TestMemoryStore_SelectProvider_NoneAvailable(t *testing.T) {
 	}
 }
 
+// TestMemoryStore_UnregisteredProviderNeverSelectable pins the safety
+// invariant the daemon-side #694 fix depends on. A daemon with no real
+// egress data plane (LoggingSink fallback — no CAP_NET_ADMIN/iptables)
+// now WITHHOLDS RegisterProvider so vpn-svc can't route a session to a
+// provider that would black-hole it. That fix is only sound if /register
+// is the ONLY way into the selection pool: /health and /candidates must
+// NOT create-on-missing. If a future change makes either of them upsert a
+// provider row, this test fails and the #694 black-hole silently returns.
+func TestMemoryStore_UnregisteredProviderNeverSelectable(t *testing.T) {
+	ctx := context.Background()
+	st := NewMemory()
+
+	ghost := uuid.New() // a daemon that withheld /register (no egress)
+
+	// /health on an unregistered provider must error, never create a row.
+	if err := st.UpdateProviderHealth(ctx, ghost, "healthy", time.Now()); err == nil {
+		t.Error("UpdateProviderHealth created a provider from /health alone — reopens #694")
+	}
+
+	// /candidates must not make the provider selectable either (it writes
+	// a separate map, keyed by providerID, with no provider-pool row).
+	if err := st.RegisterCandidates(ctx, ghost, []*pb.IceCandidate{{}}); err != nil {
+		t.Fatalf("RegisterCandidates failed: %v", err)
+	}
+
+	// With no RegisterProvider call, the provider is not selectable.
+	if _, err := st.SelectProviderForSession(ctx, "us-east-1"); err == nil {
+		t.Error("selected a provider that only sent /health + /candidates (never /register) — #694 black-hole")
+	}
+}
+
 func TestMemoryStore_SelectProvider_RoundRobin(t *testing.T) {
 	ctx := context.Background()
 	st := NewMemory().(*Memory)
