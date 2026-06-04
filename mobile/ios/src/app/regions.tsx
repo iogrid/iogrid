@@ -30,103 +30,15 @@ import { ThemedView } from '@/components/themed-view';
 import { Card, Radii, Spacing, TypeScale } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { listRegions, type RegionRow } from '@/lib/coordinator';
+import {
+  CONTINENT_ORDER,
+  filterGroups,
+  groupRegions,
+  type CountryGroup,
+} from '@/lib/region-grouping';
 
 const SELECTED_REGION_KEY = 'iogrid.region.selected';
 export const AUTO_REGION_SENTINEL = 'auto';
-
-interface CityRow {
-  /** Region slug we send to vpn-svc (e.g. 'us-east-1'). */
-  slug: string;
-  /** Human-readable city label. */
-  city: string;
-  /** Round-trip ping ms, or null if unknown. */
-  pingMs: number | null;
-  /** Number of healthy providers in this region. */
-  healthy: number;
-  /** Total providers (healthy + offline). */
-  total: number;
-}
-
-interface CountryGroup {
-  /** ISO 3166-1 alpha-2 country code. */
-  code: string;
-  /** Country name. */
-  name: string;
-  /** Emoji flag. */
-  flag: string;
-  /** Continent for SectionList grouping. */
-  continent: 'EUROPE' | 'AMERICAS' | 'ASIA-PACIFIC' | 'AFRICA' | 'OCEANIA' | 'OTHER';
-  /** Cities under this country. */
-  cities: CityRow[];
-  /** Median ping across cities, for the country row's subtitle. */
-  medianPingMs: number | null;
-}
-
-// ── Country mapping for unknown slugs ─────────────────────────────
-//
-// vpn-svc returns region slugs like 'us-east-1'; we infer the country
-// code + continent from the prefix. This stays a heuristic until the
-// backend ships proper geo metadata in the regions response (#TBD).
-
-const PREFIX_TO_COUNTRY: Record<string, Pick<CountryGroup, 'code' | 'name' | 'flag' | 'continent'>> =
-  {
-    'us': { code: 'US', name: 'United States', flag: '🇺🇸', continent: 'AMERICAS' },
-    'ca': { code: 'CA', name: 'Canada', flag: '🇨🇦', continent: 'AMERICAS' },
-    'br': { code: 'BR', name: 'Brazil', flag: '🇧🇷', continent: 'AMERICAS' },
-    'eu': { code: 'EU', name: 'Europe', flag: '🇪🇺', continent: 'EUROPE' },
-    'de': { code: 'DE', name: 'Germany', flag: '🇩🇪', continent: 'EUROPE' },
-    'fr': { code: 'FR', name: 'France', flag: '🇫🇷', continent: 'EUROPE' },
-    'uk': { code: 'GB', name: 'United Kingdom', flag: '🇬🇧', continent: 'EUROPE' },
-    'gb': { code: 'GB', name: 'United Kingdom', flag: '🇬🇧', continent: 'EUROPE' },
-    'nl': { code: 'NL', name: 'Netherlands', flag: '🇳🇱', continent: 'EUROPE' },
-    'es': { code: 'ES', name: 'Spain', flag: '🇪🇸', continent: 'EUROPE' },
-    'it': { code: 'IT', name: 'Italy', flag: '🇮🇹', continent: 'EUROPE' },
-    'jp': { code: 'JP', name: 'Japan', flag: '🇯🇵', continent: 'ASIA-PACIFIC' },
-    'sg': { code: 'SG', name: 'Singapore', flag: '🇸🇬', continent: 'ASIA-PACIFIC' },
-    'kr': { code: 'KR', name: 'South Korea', flag: '🇰🇷', continent: 'ASIA-PACIFIC' },
-    'hk': { code: 'HK', name: 'Hong Kong', flag: '🇭🇰', continent: 'ASIA-PACIFIC' },
-    'au': { code: 'AU', name: 'Australia', flag: '🇦🇺', continent: 'OCEANIA' },
-    'ap': { code: '__', name: 'Asia Pacific', flag: '🌏', continent: 'ASIA-PACIFIC' },
-    'za': { code: 'ZA', name: 'South Africa', flag: '🇿🇦', continent: 'AFRICA' },
-  };
-
-function regionToCity(row: RegionRow): { country: typeof PREFIX_TO_COUNTRY[string]; city: CityRow } {
-  const parts = row.region.split('-');
-  const prefix = parts[0]?.toLowerCase() ?? '';
-  const country =
-    PREFIX_TO_COUNTRY[prefix] ?? {
-      code: '__',
-      name: prefix.toUpperCase() || row.region,
-      flag: '🌐',
-      continent: 'OTHER' as const,
-    };
-  // Title-case the remainder as the city label (e.g. 'us-east-1' →
-  // 'East 1'). When the backend ships city metadata, swap this for
-  // row.city || derived.
-  const cityLabel = parts
-    .slice(1)
-    .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
-    .join(' ');
-  return {
-    country,
-    city: {
-      slug: row.region,
-      city: cityLabel || country.name,
-      pingMs: null, // populated client-side after mount; #592 follow-up
-      healthy: row.healthyProviders,
-      total: row.totalProviders,
-    },
-  };
-}
-
-const CONTINENT_ORDER: CountryGroup['continent'][] = [
-  'EUROPE',
-  'AMERICAS',
-  'ASIA-PACIFIC',
-  'AFRICA',
-  'OCEANIA',
-  'OTHER',
-];
 
 export default function RegionsScreen() {
   const theme = useTheme();
@@ -160,54 +72,14 @@ export default function RegionsScreen() {
   }, []);
 
   // ── Group rows into continents → countries → cities ─────────────
-  const groups: CountryGroup[] = useMemo(() => {
-    if (!rows) return [];
-    const byCountry = new Map<string, CountryGroup>();
-    for (const row of rows) {
-      const { country, city } = regionToCity(row);
-      const key = country.code + ':' + country.name;
-      const existing = byCountry.get(key);
-      if (existing) {
-        existing.cities.push(city);
-      } else {
-        byCountry.set(key, {
-          ...country,
-          cities: [city],
-          medianPingMs: null,
-        });
-      }
-    }
-    // Sort cities within country alphabetically
-    for (const g of byCountry.values()) {
-      g.cities.sort((a, b) => a.city.localeCompare(b.city));
-    }
-    const arr = Array.from(byCountry.values());
-    arr.sort((a, b) => {
-      const ca = CONTINENT_ORDER.indexOf(a.continent);
-      const cb = CONTINENT_ORDER.indexOf(b.continent);
-      if (ca !== cb) return ca - cb;
-      return a.name.localeCompare(b.name);
-    });
-    return arr;
-  }, [rows]);
+  // (pure shaping lives in @/lib/region-grouping — unit-tested there)
+  const groups: CountryGroup[] = useMemo(() => (rows ? groupRegions(rows) : []), [rows]);
 
   // ── Search filter ───────────────────────────────────────────────
-  const filteredGroups: CountryGroup[] = useMemo(() => {
-    if (!search) return groups;
-    const needle = search.toLowerCase();
-    return groups
-      .map((g) => {
-        const countryHit =
-          g.name.toLowerCase().includes(needle) || g.code.toLowerCase().includes(needle);
-        const matchingCities = g.cities.filter(
-          (c) => c.city.toLowerCase().includes(needle) || c.slug.toLowerCase().includes(needle),
-        );
-        if (countryHit) return g;
-        if (matchingCities.length > 0) return { ...g, cities: matchingCities };
-        return null;
-      })
-      .filter((g): g is CountryGroup => g !== null);
-  }, [groups, search]);
+  const filteredGroups: CountryGroup[] = useMemo(
+    () => filterGroups(groups, search),
+    [groups, search],
+  );
 
   // ── Group filtered by continent for rendering ───────────────────
   const byContinent = useMemo(() => {
