@@ -49,6 +49,14 @@ use crate::VpnConfig;
 /// first paired Sovereign into.
 const DEFAULT_REGION: &str = "us-east-1";
 
+/// Public STUN servers to fall back to when the configured STUN (default
+/// `stun.iogrid.org`, which is currently unprovisioned — #694) does not
+/// resolve. Without a reachable STUN the daemon self-disables VPN and
+/// never becomes provider supply; falling back lets a provider still
+/// discover its srflx (public) candidate and come online. These anycast
+/// servers only echo the public IP/port — no traffic flows through them.
+const STUN_FALLBACKS: &[&str] = &["stun.l.google.com:19302", "stun.cloudflare.com:3478"];
+
 /// Path to the persisted WG private key under the daemon state dir.
 pub fn wg_key_path(state_dir: &Path) -> std::path::PathBuf {
     state_dir.join("wg.key")
@@ -199,8 +207,27 @@ pub async fn spawn_vpn_modules(config: &DaemonConfig) -> Option<VpnHandles> {
     let stun_server: std::net::SocketAddr = match resolve_first(&vpn.stun_server).await {
         Some(a) => a,
         None => {
-            tracing::error!(stun = %vpn.stun_server, "could not resolve --stun-server; VPN disabled");
-            return None;
+            // The configured STUN (default stun.iogrid.org) may be
+            // unprovisioned/down (#694). Rather than self-disable VPN —
+            // which leaves the provider invisible to vpn-svc — fall back
+            // to public STUN so the daemon can still discover its srflx
+            // candidate and come online as real supply.
+            tracing::warn!(stun = %vpn.stun_server, "configured STUN unresolvable; trying public fallbacks (#694)");
+            let mut fallback_addr = None;
+            for &fb in STUN_FALLBACKS {
+                if let Some(a) = resolve_first(fb).await {
+                    tracing::warn!(fallback = fb, "using public STUN fallback");
+                    fallback_addr = Some(a);
+                    break;
+                }
+            }
+            match fallback_addr {
+                Some(a) => a,
+                None => {
+                    tracing::error!(stun = %vpn.stun_server, "configured STUN and all public fallbacks unresolvable; VPN disabled");
+                    return None;
+                }
+            }
         }
     };
     let region = if vpn.region.trim().is_empty() {
