@@ -226,9 +226,18 @@ export default function MainScreen() {
       // NEVPNStatusDidChange will drive setState to CONNECTED via
       // the onStatusChange subscriber above.
     } catch (e) {
+      // #690 D2: a THROWN failure (401 unregistered identity, DNS,
+      // timeout, 5xx) must never be silent — the user tapped Connect
+      // and deserves the same honest alert the explicit 503/429
+      // branches show. Fourth instance of the failure-masking
+      // pattern (#675/#685/#686) had lived right here.
       console.warn('vpn start failed', e);
       await holdConnectingVisible();
       setState('OFF');
+      Alert.alert(
+        'Could not connect',
+        'Something went wrong starting the session. Check your connection and try again.',
+      );
     }
   }, [state]);
 
