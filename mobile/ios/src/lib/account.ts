@@ -32,6 +32,12 @@
 import * as SecureStore from 'expo-secure-store';
 import * as Crypto from 'expo-crypto';
 
+import {
+  accountNumberFromBytes,
+  digestToUuidV4,
+  formatAccountNumber,
+} from '@/lib/account-derivation';
+
 const ACCOUNT_NUMBER_KEY = 'iogrid.account.number';
 const CUSTOMER_ID_KEY = 'iogrid.account.customerId';
 
@@ -116,17 +122,9 @@ async function writeKeychain(identity: Identity): Promise<void> {
  * graceful "regenerate" rather than data corruption.
  */
 function generateAccountNumber(): string {
-  const bytes = Crypto.getRandomBytes(8);
-  // Interpret as 64-bit unsigned big-endian, modulo 10^16.
-  let n = 0n;
-  for (const b of bytes) n = (n << 8n) + BigInt(b);
-  const sixteenDigits = n % 10_000_000_000_000_000n;
-  return sixteenDigits.toString().padStart(16, '0');
-}
-
-/** Format "1234567890123456" as "1234 5678 9012 3456". */
-export function formatAccountNumber(raw: string): string {
-  return raw.replace(/(\d{4})(?=\d)/g, '$1 ');
+  // Pure 64-bit-BE → 16-digit-decimal math lives in account-derivation
+  // (unit-tested); here we just feed it fresh entropy.
+  return accountNumberFromBytes(Crypto.getRandomBytes(8));
 }
 
 /**
@@ -154,16 +152,7 @@ async function deriveCustomerId(accountNumberRaw: string): Promise<string> {
     accountNumberRaw,
     { encoding: Crypto.CryptoEncoding.HEX },
   );
-  // digest is 64 hex chars (32 bytes). Take first 32 chars (16 bytes).
-  const hex = digest.slice(0, 32).toLowerCase();
-  // Patch version (4) + variant (8/9/a/b) bits per RFC 4122.
-  const v4 = hex.slice(0, 12) + '4' + hex.slice(13, 16) +
-    ((parseInt(hex[16], 16) & 0x3) | 0x8).toString(16) + hex.slice(17);
-  return (
-    v4.slice(0, 8) + '-' +
-    v4.slice(8, 12) + '-' +
-    v4.slice(12, 16) + '-' +
-    v4.slice(16, 20) + '-' +
-    v4.slice(20, 32)
-  );
+  // RFC-4122 formatting (the recovery invariant) lives in
+  // account-derivation, pinned by a unit-test vector.
+  return digestToUuidV4(digest);
 }
