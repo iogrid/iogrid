@@ -30,10 +30,21 @@ interface Incident {
 interface PostureResponse {
   schema_version: number;
   generated_at: string;
-  overall: { status?: string; summary?: string };
+  // telemetry-svc emits `overall` as a plain string ("up" | "degraded" |
+  // "down"); tolerate an object shape too in case the generator grows a
+  // summary field later.
+  overall: string | { status?: string; summary?: string };
   services: ServicePosture[];
   incidents_active: Incident[];
   incidents_recent: Incident[];
+}
+
+function overallStatus(o: PostureResponse["overall"]): string | undefined {
+  return typeof o === "string" ? o : o?.status;
+}
+
+function overallSummary(o: PostureResponse["overall"]): string | undefined {
+  return typeof o === "string" ? undefined : o?.summary;
 }
 
 const POLL_MS = 30_000;
@@ -101,7 +112,7 @@ export function StatusPageClient() {
     );
   }
 
-  const overall = statusStyle(posture.overall?.status);
+  const overall = statusStyle(overallStatus(posture.overall));
   const active = posture.incidents_active ?? [];
   const recent = posture.incidents_recent ?? [];
 
@@ -112,9 +123,9 @@ export function StatusPageClient() {
         <span className={`h-3 w-3 rounded-full ${overall.dot}`} aria-hidden />
         <div>
           <p className="text-base font-medium">
-            {posture.overall?.status === "up"
+            {overallStatus(posture.overall) === "up"
               ? "All systems operational"
-              : (posture.overall?.summary ?? overall.label)}
+              : (overallSummary(posture.overall) ?? overall.label)}
           </p>
           <p className="text-xs text-muted-foreground">
             Updated {new Date(posture.generated_at).toLocaleTimeString()} ·
