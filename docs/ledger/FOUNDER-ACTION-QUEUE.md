@@ -13,8 +13,8 @@
 - **(b) Provision node 2** (#652-adjacent): durable fix; needs the Hetzner/provider creds.
 **Already done on my side:** ~1.5Gi requests right-sized, CNPG standby reclaimed, HPA fiction fixed, `iogrid-serving` PriorityClass, web PDB, slot-cascade tactic. The cap is the one lever left.
 
-### 2. Review + merge the operator-hardening PR (openova-private#783)
-**Why:** persists the CNPG-operator fixes I applied live during #691 (priority + Recreate) so the deadlock can't re-arm on a restart. It changes the **shared** DB operator (all products), so I left it as a PR for your eyes rather than auto-merging. **CLEAN/mergeable, +14/-0, single file.** Action: review + merge → Flux applies in ~1h.
+### 2. ~~Review + merge the operator-hardening PR (openova-private#783)~~ ✅ DONE
+**Merged 2026-06-04 11:41Z** — the CNPG-operator priority + Recreate fixes are now persisted in GitOps (idempotent with the already-live config; operator + pg verified healthy post-merge). The #691 deadlock can no longer re-arm on a restart. No action needed.
 
 ## 🟡 P2 — Auth & integration (each needs one external credential/step)
 
