@@ -827,14 +827,37 @@ jobs:
           # lines AND the parse-error line (e.g. "Unknown Property: timeout
           # at ...05-main-connecting.yaml" — run 26845303436) only ever hit
           # the CI step's stdout, never an uploaded file. `tee` fixes that.
-          (
-            cd "$MAESTRO_SCREEN_DIR" && \
-            maestro --device "$SIM_UDID" test \
-              --format=junit \
-              --output="$RUNNER_TEMP/maestro-junit.xml" \
-              "$GITHUB_WORKSPACE/mobile/ios/.maestro/00-all.yaml"
-          ) 2>&1 | tee "$RUNNER_TEMP/maestro-stdout.log"
-          MAESTRO_EXIT=${PIPESTATUS[0]}
+          # ── Outer restart loop (run 26924449821 root-cause): after a
+          # mid-suite terminate+relaunch the XCTest runner's app handle can
+          # go STALE — every viewHierarchy snapshot then fails with XCTest
+          # error 10001 ("Application io.iogrid.app is not running") even
+          # though launchd shows fresh app pids spawning. Maestro maps
+          # 10001 to a fatal AppCrash, and IN-SESSION retries (the 00-all
+          # `retry` wrappers) inherit the same stale handle, so they lose
+          # deterministically (3/3). The only cure is a FRESH XCTest
+          # session = re-running the whole maestro invocation. Up to 3
+          # attempts; per-attempt stdout preserved in the artifact.
+          MAESTRO_EXIT=1
+          for MAESTRO_ATTEMPT in 1 2 3; do
+            echo "── maestro attempt $MAESTRO_ATTEMPT/3 ──"
+            # Settle the app between attempts so the fresh XCTest session
+            # starts from a clean foreground state.
+            xcrun simctl terminate "$SIM_UDID" io.iogrid.app 2>/dev/null || true
+            sleep 3
+            (
+              cd "$MAESTRO_SCREEN_DIR" && \
+              maestro --device "$SIM_UDID" test \
+                --format=junit \
+                --output="$RUNNER_TEMP/maestro-junit.xml" \
+                "$GITHUB_WORKSPACE/mobile/ios/.maestro/00-all.yaml"
+            ) 2>&1 | tee "$RUNNER_TEMP/maestro-stdout-attempt$MAESTRO_ATTEMPT.log"
+            MAESTRO_EXIT=${PIPESTATUS[0]}
+            cp "$RUNNER_TEMP/maestro-stdout-attempt$MAESTRO_ATTEMPT.log" "$RUNNER_TEMP/maestro-stdout.log"
+            [ "$MAESTRO_EXIT" -eq 0 ] && break
+            # Only restart on the stale-handle signature; real flow
+            # failures (assertions) must NOT burn 2 more full chains.
+            grep -q "App crashed or stopped" "$RUNNER_TEMP/maestro-stdout.log" || break
+          done
           set -e
           kill $LOG_PID 2>/dev/null || true
           # Save Maestro's own debug output dir
@@ -900,6 +923,7 @@ jobs:
           path: |
             ${{ runner.temp }}/maestro-junit.xml
             ${{ runner.temp }}/maestro-stdout.log
+            ${{ runner.temp }}/maestro-stdout-attempt*.log
             ${{ runner.temp }}/maestro-debug/**
             ${{ runner.temp }}/maestro-screenshots/**
             ${{ runner.temp }}/sim.log
