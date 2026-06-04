@@ -36,7 +36,7 @@ spec:
         # cache-identical. Treated as an opaque ISO-8601 string by the
         # deploy-bot — do not hand-edit unless you intend to roll the
         # pods. Refs #335.
-        kubectl.kubernetes.io/restartedAt: "2026-06-04T01:46:35Z"
+        kubectl.kubernetes.io/restartedAt: "2026-06-04T03:29:49Z"
         prometheus.io/port: "9090"
         prometheus.io/path: "/metrics"
     spec:
@@ -56,7 +56,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: proxy-gateway
-          image: harbor.openova.io/iogrid/proxy-gateway@sha256:7dbb109c2600bc33e08ec0b1e50eba3a84e4486b9187b995319b90a4b8024afd
+          image: harbor.openova.io/iogrid/proxy-gateway@sha256:becb57551ed3389f62289aa7aaef02731ed71d8fd2da1b6713cb18212d2cc114
           imagePullPolicy: Always
           ports:
             - name: tls
