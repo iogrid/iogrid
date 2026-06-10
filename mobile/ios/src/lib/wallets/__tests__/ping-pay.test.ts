@@ -14,6 +14,8 @@ import {
   GRID_DECIMALS,
   PING_APPROVE_URL,
   VPN_ACTIVATED_RETURN,
+  buildBuildApproveUrl,
+  buildBuildMemo,
   buildVpnApproveUrl,
   buildVpnConfirmedReturn,
   buildVpnMemo,
@@ -249,5 +251,41 @@ describe('onVpnApproveReturn — deeplink listener', () => {
     it('appends with & when return_url already has a query', () => {
       expect(buildVpnConfirmedReturn(`${RU}?t=1`, true)).toBe(`${RU}?t=1&ok=1`);
     });
+  });
+});
+
+// -----------------------------------------------------------------------
+// iOS-build pull (G3 Phase D — provider earnings via Ping)
+// -----------------------------------------------------------------------
+
+describe('buildBuildMemo — iogrid.v1:build:ios:<spec>', () => {
+  it('builds the canonical build memo', () => {
+    expect(buildBuildMemo('iogrid@main')).toBe('iogrid.v1:build:ios:iogrid@main');
+  });
+  it('rejects a spec smuggling a colon or whitespace', () => {
+    expect(() => buildBuildMemo('a:b')).toThrow(/invalid build spec/);
+    expect(() => buildBuildMemo('a b')).toThrow(/invalid build spec/);
+    expect(() => buildBuildMemo('')).toThrow(/invalid build spec/);
+  });
+});
+
+describe('buildBuildApproveUrl — Ping SPL-Approve for an iOS build', () => {
+  it('builds the approve URL with token=GRID, atomic amount, build memo', () => {
+    const url = buildBuildApproveUrl({ grid: 5, spec: 'iogrid@main', delegate: VAULT });
+    expect(url.startsWith(`${PING_APPROVE_URL}?`)).toBe(true);
+    const q = new URLSearchParams(url.split('?')[1]);
+    expect(q.get('token')).toBe('GRID');
+    expect(q.get('delegate')).toBe(VAULT);
+    expect(q.get('amount')).toBe(gridToAtomic(5));
+    expect(q.get('memo')).toBe('iogrid.v1:build:ios:iogrid@main');
+    expect(q.get('return_url')).toBe('iogrid://build/paid');
+  });
+  it('throws when the build vault delegate is unset (CI guard)', () => {
+    const prev = process.env.EXPO_PUBLIC_IOGRID_BUILD_VAULT;
+    delete process.env.EXPO_PUBLIC_IOGRID_BUILD_VAULT;
+    expect(() => buildBuildApproveUrl({ grid: 5, spec: 'iogrid@main' })).toThrow(
+      /build vault delegate is unset/,
+    );
+    if (prev !== undefined) process.env.EXPO_PUBLIC_IOGRID_BUILD_VAULT = prev;
   });
 });
