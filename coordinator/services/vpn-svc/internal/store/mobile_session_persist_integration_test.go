@@ -68,6 +68,12 @@ func TestPostgres_CreateSession_PersistsCustomerWgKey(t *testing.T) {
 			"an empty key here is the #701 'Resolving peer' bug",
 			assigned[0].CustomerWgPublicKey, deviceKey)
 	}
+	// #701: the inner IP must also round-trip — the daemon's #695 return-
+	// routing needs it. scanSession reads host(inner_ip) (mask stripped).
+	if assigned[0].InnerIP != "10.66.176.9" {
+		t.Fatalf("InnerIP=%q, want %q — needed for multi-customer egress routing",
+			assigned[0].InnerIP, "10.66.176.9")
+	}
 
 	// GetSession must also see it (the customer-facing peer config read).
 	got, err := p.GetSession(ctx, sess.ID)
