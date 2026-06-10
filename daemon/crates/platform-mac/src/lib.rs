@@ -122,10 +122,24 @@ pub fn macos_major_version() -> Option<u32> {
     }
 }
 
-/// `true` if the host is macOS 15 Sequoia or newer (the minimum required for
-/// Xcode 26 / iOS 18 SDK / Tart's macOS-15 base images).
+/// `true` if the host can run the iOS-build workload at all: either macOS 15
+/// Sequoia or newer (the minimum for Tart's macOS-15 base images), or any
+/// macOS with a usable local Xcode toolchain (the native host-direct runner's
+/// only requirement).
 pub fn supports_ios_build() -> bool {
-    matches!(macos_major_version(), Some(v) if v >= 15)
+    matches!(macos_major_version(), Some(v) if v >= 15) || xcode_present()
+}
+
+/// `true` when a local Xcode toolchain is selected (`xcode-select -p` exits
+/// 0). The native (no-VM) iOS-build runner's host requirement.
+pub fn xcode_present() -> bool {
+    std::process::Command::new("xcode-select")
+        .arg("-p")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
 }
 
 /// Resolve `$HOME` → LaunchAgent plist absolute path.

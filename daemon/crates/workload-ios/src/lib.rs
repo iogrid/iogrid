@@ -56,6 +56,9 @@ pub enum IosBuildError {
     /// `tart` CLI missing.
     #[error("tart CLI not found on PATH")]
     TartMissing,
+    /// No usable local Xcode toolchain (native runner; `xcode-select -p` failed).
+    #[error("no usable Xcode toolchain on host (xcode-select -p failed)")]
+    XcodeMissing,
     /// Tart subcommand returned non-zero.
     #[error("tart command {cmd} failed (exit={code}): {stderr}")]
     TartFailed {
@@ -287,6 +290,66 @@ impl IosBuildRunner for TartRunner {
             let _ = workload;
             Err(IosBuildError::UnsupportedPlatform)
         }
+    }
+}
+
+/// Native (host-direct) runner — runs the clone + build straight on the
+/// provider Mac with its locally installed Xcode, no VM. The platform
+/// posture is VM/pod isolation everywhere; this is the explicit
+/// macOS-native exception for hosts that have an Xcode toolchain but no
+/// `tart` (e.g. cannot fit the ~60 GiB VM base image on disk, or run
+/// macOS 14 where the Tart runner's Sequoia requirement isn't met).
+#[derive(Debug, Clone)]
+pub struct NativeRunner {
+    /// Root under which per-build workspaces are created
+    /// (`<work_root>/iogridd-ios-<id>`). Defaults to the OS temp dir.
+    pub work_root: PathBuf,
+}
+
+impl Default for NativeRunner {
+    fn default() -> Self {
+        Self {
+            work_root: std::env::temp_dir(),
+        }
+    }
+}
+
+#[async_trait]
+impl IosBuildRunner for NativeRunner {
+    async fn run(&self, workload: IosBuildWorkload) -> Result<IosBuildResult, IosBuildError> {
+        #[cfg(target_os = "macos")]
+        {
+            let driver = native_impl::NativeDriver {
+                work_root: self.work_root.clone(),
+            };
+            return driver.run(workload).await;
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = workload;
+            Err(IosBuildError::UnsupportedPlatform)
+        }
+    }
+}
+
+/// Pick the runner this host can actually drive: [`TartRunner`] when the
+/// `tart` CLI is on PATH (full-VM isolation — the production posture),
+/// [`NativeRunner`] otherwise. Non-macOS hosts get a runner that errors
+/// with [`IosBuildError::UnsupportedPlatform`]; the capability gate keeps
+/// them from ever being assigned IOS_BUILD work in the first place.
+pub fn auto_runner() -> std::sync::Arc<dyn IosBuildRunner> {
+    let tart_present = std::process::Command::new("tart")
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if tart_present {
+        std::sync::Arc::new(TartRunner::default())
+    } else {
+        tracing::info!("tart not on PATH — using native host-direct iOS-build runner");
+        std::sync::Arc::new(NativeRunner::default())
     }
 }
 
@@ -535,7 +598,8 @@ mod tart_impl {
                 .await
                 .is_ok();
 
-            let screenshots_local = std::env::temp_dir().join(format!("{}-maestro-screenshots", w.id));
+            let screenshots_local =
+                std::env::temp_dir().join(format!("{}-maestro-screenshots", w.id));
             let _ = tokio::fs::create_dir_all(&screenshots_local).await;
             // `scp -r` the whole screenshots dir; tolerate "no such file".
             let screenshots_ok = self
@@ -740,7 +804,7 @@ mod tart_impl {
         }
     }
 
-    fn shell_quote(s: &str) -> String {
+    pub(super) fn shell_quote(s: &str) -> String {
         // Naive single-quote escaping good enough for repo URLs / git refs.
         let escaped = s.replace('\'', "'\\''");
         format!("'{escaped}'")
@@ -847,6 +911,227 @@ exit "$MAESTRO_EXIT"
             .filter_map(|n| n.trim().parse::<u32>().ok())
             .max()
             .unwrap_or(0)
+    }
+}
+
+#[cfg(target_os = "macos")]
+mod native_impl {
+    //! Host-direct driver — clone + `xcodebuild` straight on the provider
+    //! Mac. Mirrors the Tart driver's step semantics (same shell-snippet
+    //! shape, same best-effort artifact/upload, the identical Maestro
+    //! script) minus the VM: the walkthrough runs locally and its /tmp
+    //! output paths are read directly instead of `scp`'d out.
+
+    use super::tart_impl::{
+        maestro_remote_script, parse_maestro_attempts, shell_quote, MAESTRO_GUEST_JUNIT,
+        MAESTRO_GUEST_SCREENSHOT_DIR,
+    };
+    use super::*;
+    use std::process::Stdio;
+    use tokio::io::AsyncReadExt;
+    use tokio::process::Command;
+
+    pub(super) struct NativeDriver {
+        pub work_root: PathBuf,
+    }
+
+    impl NativeDriver {
+        pub async fn run(&self, w: IosBuildWorkload) -> Result<IosBuildResult, IosBuildError> {
+            // 0. A usable Xcode toolchain is the native equivalent of the
+            // VM base image: hard-require it up front.
+            if !xcode_present().await {
+                return Err(IosBuildError::XcodeMissing);
+            }
+
+            // 1. Per-build workspace.
+            let ws = self.work_root.join(format!("iogridd-ios-{}", w.id));
+            tokio::fs::create_dir_all(&ws)
+                .await
+                .map_err(|e| IosBuildError::Io(format!("mkdir {}: {e}", ws.display())))?;
+
+            // 2. Clone + checkout + build — same snippet shape as the Tart
+            // driver's in-VM command, rooted at the workspace instead of the
+            // VM's $HOME/build. Non-zero exit returns BuildFailed (parity
+            // with ssh_run).
+            let snippet = format!(
+                "set -euo pipefail; cd {ws}; \
+                 if [ ! -d repo ]; then git clone --depth 50 {repo} repo; fi; \
+                 cd repo && git fetch origin {gref} && git checkout {gref}; \
+                 {cmd}",
+                ws = shell_quote(&ws.to_string_lossy()),
+                repo = shell_quote(&w.repo_url),
+                gref = shell_quote(&w.git_ref),
+                cmd = w.build_command,
+            );
+            let (exit_code, logs) = run_local(&snippet).await?;
+
+            // 3. Artifact: relative paths resolve against the repo checkout;
+            // absolute paths are used as-is. (No VM-convention default — a
+            // native workload spec must say where its artifact lands.)
+            let artifact_local = {
+                let p = std::path::Path::new(w.artifact_path());
+                if p.is_absolute() {
+                    p.to_path_buf()
+                } else {
+                    ws.join("repo").join(p)
+                }
+            };
+
+            // 4. Upload (best-effort, same as the Tart driver's step 8).
+            if artifact_local.exists() && !w.upload_url.is_empty() {
+                if let Err(e) = upload_artifact(&artifact_local, &w.upload_url).await {
+                    tracing::warn!(%e, "artifact upload failed");
+                }
+            }
+
+            // 5. Optional Maestro walkthrough — the same script the Tart
+            // driver ships into the VM, run locally against the host's
+            // simctl + maestro.
+            let maestro_result = match &w.maestro {
+                Some(cfg) => match self.maestro_walkthrough(&w, cfg).await {
+                    Ok(r) => Some(r),
+                    Err(e) => {
+                        tracing::warn!(%e, "maestro walkthrough failed (non-fatal)");
+                        Some(MaestroResult {
+                            exit_code: -1,
+                            attempts: 0,
+                            junit_local_path: None,
+                            screenshots_local_dir: None,
+                        })
+                    }
+                },
+                None => None,
+            };
+
+            Ok(IosBuildResult {
+                id: w.id,
+                exit_code,
+                logs,
+                artifact_local_path: artifact_local.exists().then_some(artifact_local),
+                timed_out: false,
+                maestro: maestro_result,
+            })
+        }
+
+        async fn maestro_walkthrough(
+            &self,
+            w: &IosBuildWorkload,
+            cfg: &MaestroWalkthrough,
+        ) -> Result<MaestroResult, IosBuildError> {
+            let script = maestro_remote_script(cfg);
+            tracing::info!(id = %w.id, "running maestro walkthrough natively on host");
+            let (code, logs) = run_local_no_fail(&script).await?;
+            let attempts = parse_maestro_attempts(&logs);
+            let junit = std::path::Path::new(MAESTRO_GUEST_JUNIT);
+            let screenshots = std::path::Path::new(MAESTRO_GUEST_SCREENSHOT_DIR);
+            Ok(MaestroResult {
+                exit_code: code,
+                attempts,
+                junit_local_path: junit.exists().then(|| junit.to_path_buf()),
+                screenshots_local_dir: screenshots.exists().then(|| screenshots.to_path_buf()),
+            })
+        }
+    }
+
+    /// `true` when a local Xcode toolchain is selected (`xcode-select -p`
+    /// exits 0).
+    async fn xcode_present() -> bool {
+        Command::new("xcode-select")
+            .arg("-p")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
+
+    /// Run `snippet` via `/bin/bash -lc`; non-zero exit is
+    /// [`IosBuildError::BuildFailed`] (parity with the Tart driver's
+    /// `ssh_run`).
+    async fn run_local(snippet: &str) -> Result<(i32, Vec<u8>), IosBuildError> {
+        let (code, logs) = run_local_no_fail(snippet).await?;
+        if code != 0 {
+            return Err(IosBuildError::BuildFailed(code));
+        }
+        Ok((code, logs))
+    }
+
+    /// Run `snippet` via `/bin/bash -lc`, capturing interleaved
+    /// stdout+stderr capped at 1 MiB; the exit code is returned, never an
+    /// error (Maestro flow failures are data, not transport errors).
+    async fn run_local_no_fail(snippet: &str) -> Result<(i32, Vec<u8>), IosBuildError> {
+        const CAP: usize = 1024 * 1024;
+        let mut child = Command::new("/bin/bash")
+            .args(["-lc", snippet])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| IosBuildError::Io(format!("spawn build shell: {e}")))?;
+        let mut logs: Vec<u8> = Vec::new();
+        let mut out = child.stdout.take();
+        let mut err = child.stderr.take();
+        let mut out_buf = [0u8; 8192];
+        let mut err_buf = [0u8; 8192];
+        let (mut out_done, mut err_done) = (out.is_none(), err.is_none());
+        while !(out_done && err_done) {
+            tokio::select! {
+                r = async { out.as_mut().unwrap().read(&mut out_buf).await }, if !out_done => {
+                    match r {
+                        Ok(0) => out_done = true,
+                        Ok(n) => {
+                            if logs.len() + n <= CAP {
+                                logs.extend_from_slice(&out_buf[..n]);
+                            }
+                        }
+                        Err(_) => out_done = true,
+                    }
+                }
+                r = async { err.as_mut().unwrap().read(&mut err_buf).await }, if !err_done => {
+                    match r {
+                        Ok(0) => err_done = true,
+                        Ok(n) => {
+                            if logs.len() + n <= CAP {
+                                logs.extend_from_slice(&err_buf[..n]);
+                            }
+                        }
+                        Err(_) => err_done = true,
+                    }
+                }
+            }
+        }
+        let status = child
+            .wait()
+            .await
+            .map_err(|e| IosBuildError::Io(format!("wait build shell: {e}")))?;
+        Ok((status.code().unwrap_or(-1), logs))
+    }
+
+    /// `curl --upload-file` to the coordinator's pre-signed PUT URL (same
+    /// mechanism as the Tart driver).
+    async fn upload_artifact(path: &std::path::Path, url: &str) -> Result<(), IosBuildError> {
+        let out = Command::new("curl")
+            .args([
+                "-fsS",
+                "--upload-file",
+                path.to_string_lossy().as_ref(),
+                url,
+            ])
+            .output()
+            .await
+            .map_err(|e| IosBuildError::Io(format!("exec curl: {e}")))?;
+        if !out.status.success() {
+            return Err(IosBuildError::UploadFailed {
+                url: url.to_string(),
+                reason: format!(
+                    "curl exit {} stderr={}",
+                    out.status.code().unwrap_or(-1),
+                    String::from_utf8_lossy(&out.stderr)
+                ),
+            });
+        }
+        Ok(())
     }
 }
 

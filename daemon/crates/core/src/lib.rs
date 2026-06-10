@@ -357,13 +357,12 @@ impl iogrid_scheduler::IdleSource for PlatformIdleSource {
 /// Workload-type slugs this daemon advertises in its `DaemonHello`.
 ///
 /// Every paired daemon advertises `BANDWIDTH` (Phase 0 proxy/bandwidth
-/// path). On a macOS 15 (Sequoia) or newer host the daemon additionally
-/// advertises `IOS_BUILD`: the Tart-based iOS-build runner requires the
-/// Xcode-26 / iOS-18 SDK that only ships on Sequoia+, so older macOS hosts
-/// (and every non-Mac platform) deliberately omit it. The
-/// [`iogrid_platform_mac::supports_ios_build`] gate encodes the `>= 15`
-/// check; on non-macOS targets the platform-mac crate isn't even linked,
-/// so the `#[cfg]` arm below compiles to the bandwidth-only list.
+/// path). A macOS host additionally advertises `IOS_BUILD` when it can run
+/// either iOS-build runner: macOS 15+ for the Tart VM runner, or any macOS
+/// with a usable local Xcode for the native host-direct runner. The
+/// [`iogrid_platform_mac::supports_ios_build`] gate encodes that check; on
+/// non-macOS targets the platform-mac crate isn't even linked, so the
+/// `#[cfg]` arm below compiles to the bandwidth-only list.
 pub fn eligible_workload_types() -> Vec<String> {
     // `mut` is only exercised on the macOS arm; suppress the Linux/Windows
     // unused-mut warning rather than fork the whole body per-platform.

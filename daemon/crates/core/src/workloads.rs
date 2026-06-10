@@ -28,7 +28,7 @@ use iogrid_scheduler::{SchedulerHandle, State as SchedState};
 use iogrid_transport::DispatchFrame;
 use iogrid_workload_docker::{DockerRunner, DockerWorkload, ScaffoldDockerRunner};
 use iogrid_workload_gpu::{GpuRunner, GpuWorkload, NoopGpuRunner};
-use iogrid_workload_ios::{IosBuildRunner, IosBuildWorkload, TartRunner};
+use iogrid_workload_ios::{IosBuildRunner, IosBuildWorkload};
 use parking_lot::Mutex;
 use serde::Deserialize;
 use tokio::sync::mpsc;
@@ -139,11 +139,13 @@ impl WorkloadRouterRunners {
     /// Build the default scaffold trio (works on every target, no vendor
     /// deps). The production wiring swaps these out for the bollard /
     /// nvidia / Tart-backed concrete types when the `*-real` features are on.
+    /// The iOS runner is host-aware: Tart when the CLI is present, the
+    /// native host-direct runner otherwise (see `auto_runner`).
     pub fn scaffold() -> Self {
         Self {
             docker: Arc::new(ScaffoldDockerRunner::default()),
             gpu: Arc::new(NoopGpuRunner),
-            ios: Arc::new(TartRunner::default()),
+            ios: iogrid_workload_ios::auto_runner(),
         }
     }
 }
@@ -456,6 +458,7 @@ mod tests {
     use super::*;
     use iogrid_scheduler::SchedulerConfig;
     use iogrid_workload_docker::WorkloadResult;
+    use iogrid_workload_ios::TartRunner;
     use std::sync::atomic::{AtomicU32, Ordering};
 
     fn paused_scheduler() -> SchedulerHandle {
