@@ -195,6 +195,36 @@ func (h *DispatchHandler) Dispatch(
 	h.Dispatcher.Register(conn)
 	defer h.Dispatcher.Unregister(providerID)
 
+	// #705: keep the SERVER→CLIENT half of the dispatch stream warm with a
+	// periodic ping. The daemon already pings client→server every 15s, but
+	// nothing flowed server→client between the CoordinatorHello (at open)
+	// and the first Assignment — so for a REMOTE daemon the idle reverse
+	// half went stale at the Traefik edge and the Assignment frame was
+	// never delivered (proven in-cluster-fine by the #708 bisect; the bug
+	// is the idle edge). Neither h2-PING path is usable here (the daemon's
+	// own keepalive was removed in #273's reconnect-loop fix; Traefik's
+	// readIdleTimeout is 0 because its PINGs through h2c don't get an ACK,
+	// #367), so we keep the reverse half alive at the APPLICATION layer.
+	// The daemon decodes an inbound ping as a no-op (convert.rs Frame::Ping).
+	pingCtx, cancelPing := context.WithCancel(ctx)
+	defer cancelPing()
+	go func() {
+		t := time.NewTicker(15 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-pingCtx.Done():
+				return
+			case <-t.C:
+				if err := sendFrame(&workloadsv1.DispatchFrame{
+					Frame: &workloadsv1.DispatchFrame_Ping{Ping: timestamppb.New(time.Now().UTC())},
+				}); err != nil {
+					return // stream gone; the receive loop will also exit
+				}
+			}
+		}
+	}()
+
 	// Drain frames from the daemon until disconnect.
 	for {
 		f, err := stream.Receive()
