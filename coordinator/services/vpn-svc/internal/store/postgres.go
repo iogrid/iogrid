@@ -23,14 +23,32 @@ func NewPostgres(pool *pgxpool.Pool) Store {
 
 // CreateSession implements Store.
 func (p *Postgres) CreateSession(ctx context.Context, session *Session) error {
+	// #701: persist the peer-config columns AT CREATE time. The mobile
+	// flow (#698) sets CustomerWgPublicKey + InnerIP on the session at
+	// creation so the daemon's binder — which polls /assigned-sessions and
+	// upserts the customer as a WG peer — can read them. The previous
+	// INSERT wrote only the 8 identity/state columns and SILENTLY DROPPED
+	// customer_wg_public_key / client_public_key / inner_ip / expires_at.
+	// The in-memory store kept the whole struct (so unit tests passed), but
+	// on Postgres /assigned-sessions returned an empty customer key → the
+	// provider never added the device peer → the mobile WG handshake got no
+	// response → "Resolving peer" failed for every real (Postgres) session.
 	query := `
 		INSERT INTO vpn_sessions (
 			id, customer_id, region, primary_provider_id, current_provider_id,
-			state, created_at, last_activity_at
+			state, created_at, last_activity_at,
+			customer_wg_public_key, client_public_key, inner_ip, expires_at
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8
+			$1, $2, $3, $4, $5, $6, $7, $8,
+			$9, $10, $11, $12
 		)
 	`
+	// inner_ip is INET — an empty string is not a valid INET literal, so
+	// pass NULL for the legacy (non-mobile) sessions that don't set it.
+	var innerIP any
+	if session.InnerIP != "" {
+		innerIP = session.InnerIP
+	}
 	_, err := p.pool.Exec(ctx, query,
 		session.ID,
 		session.CustomerID,
@@ -40,6 +58,10 @@ func (p *Postgres) CreateSession(ctx context.Context, session *Session) error {
 		session.State.String(),
 		session.CreatedAt,
 		session.LastActivityAt,
+		session.CustomerWgPublicKey,
+		session.ClientPublicKey,
+		innerIP,
+		session.ExpiresAt,
 	)
 	return err
 }
