@@ -21,10 +21,13 @@ import (
 // (#597) and /v1/devnet/faucet (#595). Wired up in main.go alongside the
 // existing server.Deps.
 type GridDeps struct {
-	Meter  *grid.SessionMeter
-	Store  *grid.PostgresStore
-	Solana *solana.Service // for the faucet (mint authority)
-	Logger *slog.Logger
+	Meter *grid.SessionMeter
+	// BuildMeter settles iOS-build provider earnings (#700/#707). nil
+	// disables /v1/grid/build-end (returns 503).
+	BuildMeter *grid.BuildMeter
+	Store      *grid.PostgresStore
+	Solana     *solana.Service // for the faucet (mint authority)
+	Logger     *slog.Logger
 	// DevnetMode is true when we're authorised to mint test $GRID via the
 	// faucet. Wired from IOGRID_CLUSTER env (= "devnet").
 	DevnetMode bool
@@ -46,8 +49,52 @@ func mountGrid(r chi.Router, deps *GridDeps) {
 		return
 	}
 	r.Post("/v1/grid/session-end", deps.handleSessionEnd)
+	r.Post("/v1/grid/build-end", deps.handleBuildEnd)
 	r.Post("/v1/devnet/faucet", deps.handleFaucet)
 	r.Get("/v1/grid/balance", deps.handleBalance)
+}
+
+// ── /v1/grid/build-end ──────────────────────────────────────────────
+// Provider-earnings settlement for a completed iOS build. build-gateway
+// POSTs the (build_id, attempt_id, customer_wallet, provider_*, escrowed,
+// consumed) tuple on terminal build status; the BuildMeter writes the
+// 85/15 split row that the settlement-worker drains. Idempotent on
+// (build_id, attempt_id) so a build-gateway retry can't double-pay.
+func (g *GridDeps) handleBuildEnd(w http.ResponseWriter, r *http.Request) {
+	if g.BuildMeter == nil {
+		writeErr(w, http.StatusServiceUnavailable, "grid build meter disabled")
+		return
+	}
+	var in grid.BuildInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid request: "+err.Error())
+		return
+	}
+	row, err := g.BuildMeter.Settle(r.Context(), in)
+	if err != nil {
+		// Zero consumption is a benign no-settlement, not a 500.
+		if errors.Is(err, grid.ErrNoBuildConsumption) {
+			writeJSON(w, http.StatusOK, map[string]any{"settled": false, "reason": "no consumption"})
+			return
+		}
+		if g.Logger != nil {
+			g.Logger.Warn("grid: build settle failed",
+				slog.String("build_id", in.BuildID.String()),
+				slog.String("attempt_id", in.AttemptID.String()),
+				slog.String("error", err.Error()))
+		}
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"id":              row.ID,
+		"build_id":        row.BuildID,
+		"attempt_id":      row.AttemptID,
+		"consumed_atomic": row.ConsumedAtomic,
+		"refund_atomic":   row.RefundAtomic,
+		"provider_share":  row.ProviderShare,
+		"iogrid_share":    row.IogridShare,
+	})
 }
 
 // ── /v1/grid/balance ─────────────────────────────────────────────────

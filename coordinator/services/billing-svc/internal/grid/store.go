@@ -244,3 +244,60 @@ func (p *PostgresStore) LastFaucetClaim(ctx context.Context, wallet string) (*Fa
 	c.MintedAtomic = uint64(minted)
 	return c, nil
 }
+
+// ── Build-settlement store (BuildStore) ─────────────────────────────────
+// The provider-earnings ledger for iOS builds (#700/#707). Mirrors the
+// session-settlement methods but keyed on (build_id, attempt_id).
+
+// InsertBuildSettlement implements BuildStore. Idempotent on
+// (build_id, attempt_id) via ON CONFLICT DO NOTHING — a build-gateway retry
+// cannot double-pay a provider.
+func (p *PostgresStore) InsertBuildSettlement(ctx context.Context, s *BuildSettlement) error {
+	if s.ID == uuid.Nil {
+		s.ID = uuid.New()
+	}
+	_, err := p.pool.Exec(ctx, `
+		INSERT INTO grid_build_settlement (
+			id, build_id, attempt_id, customer_wallet, provider_wallet, provider_id,
+			escrowed_atomic, consumed_atomic, refund_atomic,
+			provider_share, iogrid_share, tx_signature
+		) VALUES ($1, $2, $3, $4, NULLIF($5,''),
+			NULLIF($6,'00000000-0000-0000-0000-000000000000')::uuid,
+			$7, $8, $9, $10, $11, NULLIF($12,''))
+		ON CONFLICT (build_id, attempt_id) DO NOTHING`,
+		s.ID, s.BuildID, s.AttemptID, s.CustomerWallet, s.ProviderWallet, s.ProviderID.String(),
+		int64(s.EscrowedAtomic), int64(s.ConsumedAtomic), int64(s.RefundAtomic),
+		int64(s.ProviderShare), int64(s.IogridShare), s.TxSignature,
+	)
+	return err
+}
+
+// GetBuildSettlement implements BuildStore. Returns nil (not ErrNotFound) on
+// a missing row so the meter's idempotency check (`existing != nil`) reads
+// cleanly.
+func (p *PostgresStore) GetBuildSettlement(ctx context.Context, buildID, attemptID uuid.UUID) (*BuildSettlement, error) {
+	row := p.pool.QueryRow(ctx, `
+		SELECT id, build_id, attempt_id, customer_wallet, COALESCE(provider_wallet,''),
+		       COALESCE(provider_id, '00000000-0000-0000-0000-000000000000'::uuid),
+		       escrowed_atomic, consumed_atomic, refund_atomic,
+		       provider_share, iogrid_share, COALESCE(tx_signature,'')
+		  FROM grid_build_settlement WHERE build_id = $1 AND attempt_id = $2`,
+		buildID, attemptID)
+	s := &BuildSettlement{}
+	var esc, cons, refund, ps, ic int64
+	if err := row.Scan(
+		&s.ID, &s.BuildID, &s.AttemptID, &s.CustomerWallet, &s.ProviderWallet, &s.ProviderID,
+		&esc, &cons, &refund, &ps, &ic, &s.TxSignature,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	s.EscrowedAtomic = uint64(esc)
+	s.ConsumedAtomic = uint64(cons)
+	s.RefundAtomic = uint64(refund)
+	s.ProviderShare = uint64(ps)
+	s.IogridShare = uint64(ic)
+	return s, nil
+}
