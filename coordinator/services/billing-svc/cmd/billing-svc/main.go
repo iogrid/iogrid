@@ -136,6 +136,7 @@ func main() {
 	gridMetrics := grid.NewPromMetrics()
 	gridDeps := &server.GridDeps{
 		Meter:          &grid.SessionMeter{St: gridStore, Metrics: gridMetrics},
+		BuildMeter:     &grid.BuildMeter{St: gridStore, Metrics: gridMetrics},
 		Store:          gridStore,
 		Solana:         solSvc,
 		Logger:         logger.With(slog.String("subsystem", "grid")),
