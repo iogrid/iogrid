@@ -1,0 +1,41 @@
+name: asc-cert-diagnostic
+# Read-only: list the Apple Distribution certs + their validity so we know
+# whether the "revoked/expired" archive failure is a SLOT-LIMIT problem
+# (2-cert max full of dead certs → portal cleanup) or transient. #701.
+on:
+  workflow_dispatch: {}
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      ASC_KEY_ID:    ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      ASC_KEY:       ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+    steps:
+      - name: List certificates (read-only)
+        run: |
+          python3 -m pip install --quiet --break-system-packages pyjwt cryptography requests
+          python3 - <<'PY'
+          import os, base64, time, jwt, requests
+          tok = jwt.encode(
+              {'iss': os.environ['ASC_ISSUER_ID'], 'iat': int(time.time()),
+               'exp': int(time.time())+900, 'aud': 'appstoreconnect-v1'},
+              base64.b64decode(os.environ['ASC_KEY']), algorithm='ES256',
+              headers={'kid': os.environ['ASC_KEY_ID']})
+          H = {'Authorization': f'Bearer {tok}'}
+          r = requests.get('https://api.appstoreconnect.apple.com/v1/certificates?limit=200',
+                           headers=H, timeout=20).json()
+          certs = r.get('data', [])
+          print(f'total certificates: {len(certs)}')
+          from collections import Counter
+          by_type = Counter(c['attributes'].get('certificateType') for c in certs)
+          print('by type:', dict(by_type))
+          print('--- DISTRIBUTION certs (the archive-signing ones) ---')
+          for c in certs:
+              a = c['attributes']
+              t = a.get('certificateType','')
+              if 'DISTRIBUTION' in t or t in ('IOS_DISTRIBUTION','DISTRIBUTION'):
+                  print(f"  id={c['id']} type={t} name={a.get('name')!r} expires={a.get('expirationDate')} serial={a.get('serialNumber')}")
+          print('::notice::distribution cert slot usage above — Apple caps at 2-3 per type')
+          PY
