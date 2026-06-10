@@ -961,6 +961,17 @@ func (h *RegisterProvider) Handle(w http.ResponseWriter, r *http.Request) {
 
 // --- #536: WG peer binding handlers ---------------------------------------
 
+// innerCIDR formats a per-session tunnel-inner IP (stored as host(inner_ip),
+// e.g. "10.66.176.11") as the /32 CIDR the daemon's binder expects, matching
+// the mobile-session response shape. Returns "" for an unset inner IP so a
+// legacy (non-mobile) session doesn't get a bogus "/32".
+func innerCIDR(innerIP string) string {
+	if innerIP == "" {
+		return ""
+	}
+	return innerIP + "/32"
+}
+
 // ListAssignedSessions handles GET /v1/vpn/providers/{providerID}/assigned-sessions
 type ListAssignedSessions struct {
 	st     store.Store
@@ -993,6 +1004,11 @@ func (h *ListAssignedSessions) Handle(w http.ResponseWriter, r *http.Request) {
 			"region":                  s.Region,
 			"current_provider_id":     s.CurrentProvider.String(),
 			"customer_wg_public_key":  s.CustomerWgPublicKey,
+			// #701: the customer's tunnel-inner IP. The daemon's binder
+			// needs it for #695 multi-customer return-routing — without it
+			// the provider can't tell which connected peer a return packet
+			// belongs to, so general-internet egress doesn't route back.
+			"customer_inner_cidr":     innerCIDR(s.InnerIP),
 			"created_at":              s.CreatedAt,
 		})
 	}

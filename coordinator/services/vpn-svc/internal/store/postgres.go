@@ -74,7 +74,7 @@ func (p *Postgres) GetSession(ctx context.Context, sessionID uuid.UUID) (*Sessio
 		       ice_candidate_count, ice_time_ms, wg_establish_time_ms,
 		       created_at, terminated_at, last_activity_at, exit_reason,
 		       COALESCE(provider_wg_public_key, ''), COALESCE(customer_wg_public_key, ''),
-		       billed_at
+		       billed_at, COALESCE(host(inner_ip), '')
 		FROM vpn_sessions
 		WHERE id = $1
 	`
@@ -124,7 +124,7 @@ func (p *Postgres) ListActiveSessionsByRegion(ctx context.Context, region string
 		       ice_candidate_count, ice_time_ms, wg_establish_time_ms,
 		       created_at, terminated_at, last_activity_at, exit_reason,
 		       COALESCE(provider_wg_public_key, ''), COALESCE(customer_wg_public_key, ''),
-		       billed_at
+		       billed_at, COALESCE(host(inner_ip), '')
 		FROM vpn_sessions
 		WHERE region = $1 AND terminated_at IS NULL
 		ORDER BY created_at DESC
@@ -154,7 +154,7 @@ func (p *Postgres) ListSessionsByCustomer(ctx context.Context, customerID uuid.U
 		       ice_candidate_count, ice_time_ms, wg_establish_time_ms,
 		       created_at, terminated_at, last_activity_at, exit_reason,
 		       COALESCE(provider_wg_public_key, ''), COALESCE(customer_wg_public_key, ''),
-		       billed_at
+		       billed_at, COALESCE(host(inner_ip), '')
 		FROM vpn_sessions
 		WHERE customer_id = $1
 		ORDER BY created_at DESC
@@ -568,7 +568,7 @@ func (p *Postgres) ListAssignedSessions(ctx context.Context, providerID uuid.UUI
 		       ice_candidate_count, ice_time_ms, wg_establish_time_ms,
 		       created_at, terminated_at, last_activity_at, exit_reason,
 		       COALESCE(provider_wg_public_key, ''), COALESCE(customer_wg_public_key, ''),
-		       billed_at
+		       billed_at, COALESCE(host(inner_ip), '')
 		FROM vpn_sessions
 		WHERE current_provider_id = $1
 		  AND terminated_at IS NULL
@@ -643,7 +643,7 @@ func (p *Postgres) ListUnbilledTerminatedSessions(ctx context.Context, limit int
 		       ice_candidate_count, ice_time_ms, wg_establish_time_ms,
 		       created_at, terminated_at, last_activity_at, exit_reason,
 		       COALESCE(provider_wg_public_key, ''), COALESCE(customer_wg_public_key, ''),
-		       billed_at
+		       billed_at, COALESCE(host(inner_ip), '')
 		FROM vpn_sessions
 		WHERE terminated_at IS NOT NULL AND billed_at IS NULL
 		ORDER BY terminated_at ASC
@@ -720,6 +720,7 @@ func (p *Postgres) scanSession(row interface {
 		&session.ProviderWgPublicKey,
 		&session.CustomerWgPublicKey,
 		&session.BilledAt,
+		&session.InnerIP, // #701: the daemon's #695 return-routing needs it
 	)
 	if err != nil {
 		return nil, fmt.Errorf("scan session: %w", err)
