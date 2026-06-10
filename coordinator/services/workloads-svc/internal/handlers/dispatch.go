@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 
@@ -144,12 +145,7 @@ func (h *DispatchHandler) Dispatch(
 	conn := &dispatcher.Connection{
 		ProviderID:   providerID,
 		EndpointHint: h.ProviderEndpointTemplate,
-		Snapshot: scheduler.ProviderSnapshot{
-			ID:             providerID,
-			Status:         "active",
-			State:          "SCHEDULER_STATE_ACTIVE",
-			SupportedTypes: capabilityTypesFromHello(dh),
-		},
+		Snapshot:     snapshotFromHello(providerID, dh),
 		Send: func(a *dispatcher.Assignment) error {
 			w, err := h.Store.GetWorkload(ctx, a.WorkloadID)
 			if err != nil {
@@ -328,6 +324,33 @@ func (h *DispatchHandler) GetAssignment(
 		},
 		LatestStatus: statusToProto(a.LatestStatus),
 	}), nil
+}
+
+// snapshotFromHello builds the scheduler ProviderSnapshot from a
+// DaemonHello. The hello carries only the eligible-type slugs, not the
+// host platform or per-capability flags the scheduler's MatchCapability
+// gates on, so we infer them from the advertised types: a daemon only
+// ever advertises IOS_BUILD on a macOS host (the daemon's
+// eligible_workload_types gate adds IOS_BUILD only on macOS with a usable
+// Xcode/Tart toolchain), and GPU on a GPU-enabled host. Without this
+// inference an IOS_BUILD-capable Mac is filtered out as "no eligible
+// provider" because Platform=="" and IOSBuildEnabled==false.
+func snapshotFromHello(providerID string, dh *workloadsv1.DaemonHello) scheduler.ProviderSnapshot {
+	supportedTypes := capabilityTypesFromHello(dh)
+	iosBuild := slices.Contains(supportedTypes, store.TypeIOSBuild)
+	platform := ""
+	if iosBuild {
+		platform = "macos"
+	}
+	return scheduler.ProviderSnapshot{
+		ID:              providerID,
+		Status:          "active",
+		State:           "SCHEDULER_STATE_ACTIVE",
+		SupportedTypes:  supportedTypes,
+		Platform:        platform,
+		IOSBuildEnabled: iosBuild,
+		GPUEnabled:      slices.Contains(supportedTypes, store.TypeGPU),
+	}
 }
 
 // capabilityTypesFromHello extracts the slug list the dispatcher needs
