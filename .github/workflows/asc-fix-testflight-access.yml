@@ -70,9 +70,10 @@ jobs:
           bid = build['id']; bver = build['attributes']['version']
           print(f'TARGET build version={bver} id={bid} state={build["attributes"].get("processingState")}')
 
-          groups = requests.get(f'{BASE}/v1/apps/{app_id}/betaGroups',
+          groups = requests.get(f'{BASE}/v1/apps/{app_id}/betaGroups?limit=200',
                                 headers=H, timeout=20).json()['data']
           gmap = {g['attributes']['name']: g for g in groups}
+          print('app betaGroups:', [(n, g['attributes'].get('isInternalGroup')) for n, g in gmap.items()])
           for gname in TARGET_GROUPS:
               g = gmap.get(gname)
               if not g:
@@ -95,12 +96,15 @@ jobs:
               if tid:
                   print(f'tester {EMAIL} already exists: {tid}')
               else:
-                  gids = [gmap[n]['id'] for n in TARGET_GROUPS if n in gmap]
+                  # Create against EXTERNAL groups only — including an internal
+                  # group here is ENTITY_ERROR.RELATIONSHIP.INVALID (run 27292845667).
+                  gids = [gmap[n]['id'] for n in TARGET_GROUPS
+                          if n in gmap and not gmap[n]['attributes'].get('isInternalGroup')]
                   payload = {'data': {'type': 'betaTesters',
                       'attributes': {'email': EMAIL, 'firstName': FIRST, 'lastName': LAST},
                       'relationships': {'betaGroups': {'data': [{'type': 'betaGroups', 'id': i} for i in gids]}}}}
                   r = requests.post(f'{BASE}/v1/betaTesters', headers=H, json=payload, timeout=20)
-                  print(f'  create tester {EMAIL}: HTTP {r.status_code} {r.text[:240]}')
+                  print(f'  create tester {EMAIL} (external groups: {len(gids)}): HTTP {r.status_code} {r.text[:600]}')
                   if r.status_code in (200, 201):
                       tid = r.json()['data']['id']
               if not tid:
