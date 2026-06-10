@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -276,6 +277,47 @@ func (c *BastionClient) Connect(ctx context.Context, region string) error {
 	c.vlog("Bringing up WireGuard interface...\n")
 	if err := c.tunnelMgr.BringUp(ctx, ifName); err != nil {
 		return fmt.Errorf("bring up: %w", err)
+	}
+
+	// Step 6.5: gate "established" on a REAL WireGuard handshake. BringUp +
+	// verifyTunnelConfigured prove the interface is UP with routes, NOT that
+	// the provider actually answered. Without this the CLI prints "tunnel
+	// established" over a black-hole tunnel (the exit IP stays unchanged) —
+	// the original "fake connection" failure mode. We nudge one packet through
+	// the tunnel to force wireguard-go to emit the handshake init, then poll
+	// the peer's counters until a handshake lands or we time out honestly.
+	c.vlog("Verifying WireGuard handshake with provider...\n")
+	go func() {
+		// Best-effort: any packet routed via the tunnel (1.1.1.1 matches the
+		// 0.0.0.0/1 override) forces the handshake initiation. Errors ignored.
+		d := net.Dialer{Timeout: 3 * time.Second}
+		if conn, derr := d.DialContext(ctx, "udp", "1.1.1.1:53"); derr == nil {
+			_, _ = conn.Write([]byte{0})
+			_ = conn.Close()
+		}
+	}()
+	hsDeadline := time.Now().Add(12 * time.Second)
+	for {
+		stats, serr := c.tunnelMgr.PeerStats(ctx, ifName, providerWgPubKey)
+		if errors.Is(serr, ErrNotImplemented) {
+			c.vlog("  (handshake counters unavailable on this platform; skipping liveness gate)\n")
+			break
+		}
+		if serr == nil && (stats.LastHandshakeUnix > 0 || stats.RxBytes > 0) {
+			c.vlog("✓ Handshake confirmed (rx=%d bytes)\n", stats.RxBytes)
+			break
+		}
+		if time.Now().After(hsDeadline) {
+			return fmt.Errorf(
+				"no WireGuard handshake from provider %s within 12s (endpoint %s) — "+
+					"the provider's WG port is unreachable or it is not forwarding; tunnel NOT established",
+				providerID, endpoint)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(400 * time.Millisecond):
+		}
 	}
 
 	// Step 7: Confirm working candidate to Coordinator
