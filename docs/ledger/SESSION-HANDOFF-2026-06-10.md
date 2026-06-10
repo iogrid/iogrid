@@ -61,3 +61,20 @@ ssh -i ~/.ssh/openova_migration openova@144.91.121.182 'ss -tln | grep :2223'
 ## 6. Are we handoff-ready for regular-effort agents?
 
 **Yes for the code tracks** (VPN deploy/repro, iOS D/E) — scoped above with specific files. **No for the headline** until you (a) free the Mac disk and (b) decide the mainnet mint. A regular agent following §4 + `ios-build-pipeline-plan.md` can complete the code; only the two decisions and the deploy-approval are yours.
+
+## 7. How to proceed — model / effort / topology verdict
+
+The remaining work is **two different shapes**; one setting is not right for both.
+
+| Remaining task | Shape | Right tool |
+|---|---|---|
+| Root-cause the CLI black-hole (e2e red despite a proven *manual* tunnel) | **Discovery** | one workflow (multi-angle live repro) |
+| iOS Phase D (`build_meter.go`) + E (dogfood) + the deploy | **Execution** | single agent, commit-per-step |
+
+- **Model: Opus 4.8 for all of it.** Fable's 2× per-token cost is poor value for mirroring existing files / writing YAML; spend the saved tokens on extra verification passes (more reliability than a pricier model). No evidence Fable changes any outcome on this work.
+- **Effort:** regular→high for execution; ultracode only for the single discovery task.
+- **Topology:** single coherent agent for coupled sequential code; sub-agents only for isolated read-only checks; a workflow only for the CLI black-hole. Parallel agents on coupled code create inconsistency, not speed.
+- **Reliability multiplier = incremental commits + build-verify each step**, not the model or topology. The tmux crash lost nothing precisely because A–C was committed.
+
+### The gate above all knobs
+The headline (a live iOS build) is blocked on the **Mac disk: ~2.9 GiB free, needs ~60 GiB** for the Tart runner. *Every* model/effort/topology combination is blocked there equally. Resolve the disk (free real space / bigger Mac) before optimizing the engine behind the handbrake.
