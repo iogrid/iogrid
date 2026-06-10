@@ -37,7 +37,7 @@ import { Card, Spacing, TypeScale } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { AUTO_REGION_SENTINEL } from '@/app/regions';
 import { loadOrCreateIdentity } from '@/lib/account';
-import { requestMobileSession, requestSession } from '@/lib/coordinator';
+import { requestMobileSession } from '@/lib/coordinator';
 import {
   failActiveConnectingStep,
   tunnelToConnectState,
@@ -168,14 +168,18 @@ export default function MainScreen() {
       // we surface a tappable "Could not connect" alert and stay OFF —
       // the user can retry later. The legacy two-step path below kicks
       // in only when the mobile endpoint returns a populated session.
+      // #701: register the device's REAL WireGuard public key with
+      // vpn-svc. The keypair is generated+persisted natively (App Group);
+      // its private half is injected into the tunnel by TunnelControl, so
+      // the provider can accept this device as a peer and the WG handshake
+      // can complete. (Was a stub string — the provider then had no key to
+      // route return traffic to, and startTunnel got an empty peer.)
+      const devicePublicKey = await TunnelControl.ensureDeviceKeypair();
       const mobile = await requestMobileSession({
         apiKey: identity.accountNumberRaw,
         customerId: identity.customerId,
         region: persistedRegion,
-        // Track 3 will replace this stub with the real WG public key
-        // once iogrid-tunnel-control exposes a generateKeypair() RPC.
-        // The handler accepts any non-empty string for the smoke path.
-        clientPublicKey: 'maestro-degraded-path-stub-pubkey',
+        clientPublicKey: devicePublicKey,
       });
       if (mobile.status === 503) {
         failActiveStep();
@@ -200,31 +204,32 @@ export default function MainScreen() {
         return;
       }
 
-      const session = await requestSession(
-        identity.accountNumberRaw,
-        identity.customerId,
-        persistedRegion,
-      );
-      if (!session.sessionId) {
-        // Backend returned a session-less response (e.g. quota
-        // exhausted, or v2's wallet authorization failed). Surface
-        // a tappable error.
+      // #701: the mobile endpoint (#588/#605) is the canonical single-shot
+      // path — it returns the fully-resolved WG peer config in one
+      // round-trip: peerPublicKey + peerEndpoint (the provider's REAL
+      // public IP:port after the pickEndpoint fix #702) + the assigned
+      // inner IP. Start the tunnel directly with it. A 201 with an empty
+      // peer_public_key means vpn-svc had no resolvable peer (e.g. the
+      // phantom-provider state) — surface an honest error instead of
+      // starting a tunnel with an empty peer, which the extension rejects
+      // with missingField("peerPublicKey").
+      if (!mobile.peerPublicKey || !mobile.peerEndpoint) {
         failActiveStep();
         await holdConnectingVisible();
         setState('OFF');
         Alert.alert(
           'Could not connect',
-          'Your wallet balance may be insufficient. Tap Top up to add $GRID.',
+          'No VPN peer is available right now. Try again in a moment.',
         );
         return;
       }
       await TunnelControl.startTunnel({
-        peerPublicKey: '',
-        peerEndpoint: 'discover',
-        customerInnerCIDR: '10.66.0.2/16',
+        peerPublicKey: mobile.peerPublicKey,
+        peerEndpoint: mobile.peerEndpoint,
+        customerInnerCIDR: mobile.innerIP || '10.66.0.2/32',
         allowedIPs: '0.0.0.0/0',
-        region: session.region,
-        sessionId: session.sessionId,
+        region: mobile.region,
+        sessionId: mobile.sessionId,
       });
       // NEVPNStatusDidChange will drive setState to CONNECTED via
       // the onStatusChange subscriber above.

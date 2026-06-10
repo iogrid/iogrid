@@ -56,6 +56,7 @@ export interface TunnelStats {
 
 interface TunnelControlNative {
   getStatus(): Promise<TunnelStatus>;
+  ensureDeviceKeypair(): Promise<string>;
   startTunnel(config: TunnelConfig): Promise<void>;
   stopTunnel(): Promise<void>;
   sendProviderMessage(command: string): Promise<string | null>;
@@ -86,6 +87,15 @@ const emitter = new EventEmitter<TunnelEvents>(native as never);
 export const TunnelControl = {
   /** Current tunnel status (one HTTP-style round trip to the OS). */
   getStatus: (): Promise<TunnelStatus> => native.getStatus(),
+
+  /**
+   * Ensure the device's persistent WireGuard keypair exists and return
+   * its base64 PUBLIC key. Generated once per install and shared with the
+   * tunnel extension via the App Group; the private key never crosses the
+   * JS bridge. Call this BEFORE requesting a mobile session so the app can
+   * register the real device public key with vpn-svc (#701).
+   */
+  ensureDeviceKeypair: (): Promise<string> => native.ensureDeviceKeypair(),
 
   /**
    * Save the VPN configuration + start the tunnel. The first call on
