@@ -1,0 +1,143 @@
+name: asc-fix-testflight-access
+# One-shot, fast (ubuntu, no Xcode): make the founder SEE the latest build.
+#
+# Root cause this fixes (#574/#700): the mobile-ios-ci "assign build to
+# vpn-beta" step keys on filter[version]={run_number} with a 10-min wait.
+# Build 167 finished ASC processing AFTER that window, so the assignment
+# silently skipped — 167 is VALID + BETA_APPROVED but was never attached
+# to vpn-beta, so TestFlight kept showing build 61 to the founder.
+#
+# This workflow assigns the LATEST VALID build (by version) to both
+# vpn-beta and vpn-internal and ensures emrahbaysal@gmail.com is a tester
+# in both. STRICTLY ADDITIVE — it NEVER deletes a betaTester record (a
+# single betaTester is shared across ALL apps in the team; deleting it
+# would nuke TestFlight access everywhere).
+on:
+  workflow_dispatch:
+    inputs:
+      build_version:
+        description: 'CFBundleVersion to assign (blank = latest VALID build)'
+        required: false
+        default: ''
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      ASC_KEY_ID:    ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      ASC_KEY:       ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+      WANT_VERSION:  ${{ github.event.inputs.build_version }}
+    steps:
+      - name: Assign latest build to groups + ensure founder tester (additive only)
+        run: |
+          python3 -m pip install --quiet --break-system-packages pyjwt cryptography requests
+          python3 - <<'PY'
+          import os, base64, time, jwt, requests, sys
+          tok = jwt.encode(
+              {'iss': os.environ['ASC_ISSUER_ID'], 'iat': int(time.time()),
+               'exp': int(time.time())+1200, 'aud': 'appstoreconnect-v1'},
+              base64.b64decode(os.environ['ASC_KEY']), algorithm='ES256',
+              headers={'kid': os.environ['ASC_KEY_ID']})
+          H = {'Authorization': f'Bearer {tok}', 'Content-Type': 'application/json'}
+          BASE = 'https://api.appstoreconnect.apple.com'
+          BUNDLE = 'io.iogrid.app'
+          TESTERS = [('emrahbaysal@gmail.com', 'Emrah', 'Baysal'),
+                     ('hat.yil@gmail.com', 'Hatice', 'Yilmaz')]
+          want = os.environ.get('WANT_VERSION', '').strip()
+          # "Internal Testers" is Apple's default internal group and the ONLY
+          # group the founder (account holder / team member) is actually in.
+          # CI historically assigned builds to vpn-beta only, so the founder
+          # stayed frozen at build 61. Target the founder's real group first.
+          TARGET_GROUPS = ('Internal Testers', 'vpn-beta', 'vpn-internal')
+
+          app_id = requests.get(f'{BASE}/v1/apps?filter[bundleId]={BUNDLE}',
+                                headers=H, timeout=20).json()['data'][0]['id']
+          print('app_id', app_id)
+
+          blds = requests.get(
+              f'{BASE}/v1/builds?filter[app]={app_id}&sort=-version&limit=25',
+              headers=H, timeout=20).json()['data']
+          def valid(b):
+              a = b['attributes']
+              return a.get('processingState') == 'VALID' and not a.get('expired')
+          if want:
+              build = next((b for b in blds if b['attributes'].get('version') == want), None)
+          else:
+              build = next((b for b in blds if valid(b)), None)
+          if not build:
+              print('::error::no suitable build found'); sys.exit(1)
+          bid = build['id']; bver = build['attributes']['version']
+          print(f'TARGET build version={bver} id={bid} state={build["attributes"].get("processingState")}')
+
+          groups = requests.get(f'{BASE}/v1/apps/{app_id}/betaGroups?limit=200',
+                                headers=H, timeout=20).json()['data']
+          gmap = {g['attributes']['name']: g for g in groups}
+          print('app betaGroups:', [(n, g['attributes'].get('isInternalGroup')) for n, g in gmap.items()])
+          for gname in TARGET_GROUPS:
+              g = gmap.get(gname)
+              if not g:
+                  print(f'::warning::group {gname} missing'); continue
+              r = requests.post(f'{BASE}/v1/betaGroups/{g["id"]}/relationships/builds',
+                                headers=H, json={'data': [{'type': 'builds', 'id': bid}]}, timeout=20)
+              print(f'  assign build {bver} -> {gname}: HTTP {r.status_code} {r.text[:160]}')
+              pl = g['attributes'].get('publicLink')
+              if pl:
+                  print(f'  {gname} publicLink: {pl}')
+
+          # Ensure each tester exists + is in the groups. ADDITIVE ONLY —
+          # never DELETE a betaTester (shared across all team apps).
+          tids = {}
+          for EMAIL, FIRST, LAST in TESTERS:
+              existing = requests.get(
+                  f'{BASE}/v1/betaTesters?filter[email]={EMAIL}',
+                  headers=H, timeout=20).json().get('data', [])
+              tid = existing[0]['id'] if existing else None
+              if tid:
+                  print(f'tester {EMAIL} already exists: {tid}')
+              else:
+                  # Create against EXTERNAL groups only — including an internal
+                  # group here is ENTITY_ERROR.RELATIONSHIP.INVALID (run 27292845667).
+                  gids = [gmap[n]['id'] for n in TARGET_GROUPS
+                          if n in gmap and not gmap[n]['attributes'].get('isInternalGroup')]
+                  payload = {'data': {'type': 'betaTesters',
+                      'attributes': {'email': EMAIL, 'firstName': FIRST, 'lastName': LAST},
+                      'relationships': {'betaGroups': {'data': [{'type': 'betaGroups', 'id': i} for i in gids]}}}}
+                  r = requests.post(f'{BASE}/v1/betaTesters', headers=H, json=payload, timeout=20)
+                  print(f'  create tester {EMAIL} (external groups: {len(gids)}): HTTP {r.status_code} {r.text[:600]}')
+                  if r.status_code in (200, 201):
+                      tid = r.json()['data']['id']
+              if not tid:
+                  continue
+              tids[EMAIL] = tid
+              for gname in TARGET_GROUPS:
+                  g = gmap.get(gname)
+                  if not g:
+                      continue
+                  r = requests.post(f'{BASE}/v1/betaGroups/{g["id"]}/relationships/betaTesters',
+                                    headers=H, json={'data': [{'type': 'betaTesters', 'id': tid}]}, timeout=20)
+                  if r.status_code in (200, 201, 204):
+                      print(f'  add {EMAIL} -> {gname}: HTTP {r.status_code} ADDED')
+                  elif r.status_code in (409, 422):
+                      print(f'  add {EMAIL} -> {gname}: HTTP {r.status_code} (already a member — no-op)')
+                  else:
+                      print(f'  add {EMAIL} -> {gname}: HTTP {r.status_code} {r.text[:200]}')
+
+          # VERIFY (read-only): each tester's ACTUAL group memberships + that
+          # the target build is now attached to each group.
+          print('=== VERIFY ===')
+          for EMAIL, tid in tids.items():
+              fg = requests.get(f'{BASE}/v1/betaTesters/{tid}/betaGroups',
+                                headers=H, timeout=20).json().get('data', [])
+              print(f'  {EMAIL} is in groups:', [x['attributes']['name'] for x in fg])
+          for gname in TARGET_GROUPS:
+              g = gmap.get(gname)
+              if not g:
+                  continue
+              gb = requests.get(f'{BASE}/v1/betaGroups/{g["id"]}/builds?limit=200',
+                                headers=H, timeout=20).json().get('data', [])
+              vers = sorted({x['attributes'].get('version') for x in gb if x['attributes'].get('version')},
+                            key=lambda v: int(v) if v.isdigit() else 0, reverse=True)[:6]
+              print(f'  {gname} now has builds (top 6): {vers}')
+          print(f'::notice::done — founder should now see/receive build {bver}')
+          PY

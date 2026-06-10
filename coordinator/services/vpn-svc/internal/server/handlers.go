@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -1506,28 +1507,51 @@ func (h *RequestMobileSession) lookupProvider(ctx context.Context, providerID uu
 //
 // IceCandidate.CandidateType is a string ("host", "srflx", "prflx",
 // "relay") — not an enum — so we string-match.
+// vpnInnerNet is the inner tunnel CIDR. An address inside it is the VPN's own
+// overlay address (the daemon's iogrid-tun0), never a reachable WG endpoint.
+var vpnInnerNet = func() *net.IPNet { _, n, _ := net.ParseCIDR("10.66.0.0/16"); return n }()
+
 func pickEndpoint(candidates []*pb.IceCandidate) string {
-	order := []string{"srflx", "host", "prflx", "relay"}
-	for _, t := range order {
-		for _, c := range candidates {
-			if c == nil {
-				continue
-			}
-			if c.CandidateType == t && c.ConnectionAddress != "" && c.ConnectionPort > 0 {
-				return c.ConnectionAddress + ":" + strconv.FormatUint(uint64(c.ConnectionPort), 10)
-			}
-		}
-	}
-	// Fallback: first non-empty candidate of any type.
+	// ICE type preference; lower rank = more preferred.
+	typeRank := map[string]int{"srflx": 0, "host": 1, "prflx": 2, "relay": 3}
+	best := ""
+	bestScore := -1
 	for _, c := range candidates {
-		if c == nil {
+		if c == nil || c.ConnectionAddress == "" || c.ConnectionPort == 0 {
 			continue
 		}
-		if c.ConnectionAddress != "" && c.ConnectionPort > 0 {
-			return c.ConnectionAddress + ":" + strconv.FormatUint(uint64(c.ConnectionPort), 10)
+		// ConnectionAddress may carry a "/NN" mask (e.g. "10.66.0.1/32") — strip it
+		// so the endpoint is a clean dotted-quad:port WireGuardKit can parse.
+		addr := c.ConnectionAddress
+		if i := strings.IndexByte(addr, '/'); i >= 0 {
+			addr = addr[:i]
+		}
+		ip := net.ParseIP(addr)
+		if ip == nil {
+			continue
+		}
+		// Never hand an internet customer a non-routable endpoint: the VPN inner
+		// CIDR, loopback, link-local, or unspecified are never valid WG endpoints.
+		// (Fixes peer_endpoint=10.66.0.1, which black-holed the mobile tunnel.)
+		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() || vpnInnerNet.Contains(ip) {
+			continue
+		}
+		// Public IPs beat private (NAT-LAN) ones; within a tier keep ICE order.
+		tier := 0
+		if !ip.IsPrivate() {
+			tier = 1
+		}
+		rank, ok := typeRank[c.CandidateType]
+		if !ok {
+			rank = 9
+		}
+		score := tier*100 + (10 - rank)
+		if score > bestScore {
+			bestScore = score
+			best = addr + ":" + strconv.FormatUint(uint64(c.ConnectionPort), 10)
 		}
 	}
-	return ""
+	return best
 }
 
 // MobileHeartbeat handles POST /v1/vpn/sessions/{sessionID}/heartbeat.
