@@ -15,7 +15,9 @@ import (
 )
 
 // memBuildStore is an in-memory grid.BuildStore for the handler test.
-type memBuildStore struct{ rows map[string]*grid.BuildSettlement }
+type memBuildStore struct {
+	rows map[string]*grid.BuildSettlement
+}
 
 func (m *memBuildStore) InsertBuildSettlement(_ context.Context, s *grid.BuildSettlement) error {
 	m.rows[s.BuildID.String()+":"+s.AttemptID.String()] = s
@@ -80,7 +82,10 @@ func TestHandleBuildEnd(t *testing.T) {
 			BuildID: uuid.New(), AttemptID: uuid.New(),
 			CustomerWallet: "w", ConsumedAtomic: 0,
 		})
-		resp, _ := http.Post(srv.URL+"/v1/grid/build-end", "application/json", bytes.NewReader(body))
+		resp, err := http.Post(srv.URL+"/v1/grid/build-end", "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
 		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("want 200, got %d", resp.StatusCode)

@@ -21,7 +21,7 @@ import (
 // (#597) and /v1/devnet/faucet (#595). Wired up in main.go alongside the
 // existing server.Deps.
 type GridDeps struct {
-	Meter  *grid.SessionMeter
+	Meter *grid.SessionMeter
 	// BuildMeter settles iOS-build provider earnings (#700/#707). nil
 	// disables /v1/grid/build-end (returns 503).
 	BuildMeter *grid.BuildMeter
