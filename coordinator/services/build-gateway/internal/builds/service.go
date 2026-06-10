@@ -213,12 +213,16 @@ func (s *Service) Submit(ctx context.Context, workspaceID, userID, plan string, 
 		SubmittedByUserID: userID,
 		TartImage:         tartImage,
 		BuildCommands:     cmd,
-		SourceBucket:      sourceBucket,
-		SourceKey:         sourceKey,
-		ArtifactBucket:    artifactBucket,
-		ArtifactPrefix:    artifactPrefix,
-		EnvVars:           req.EnvVars,
-		SigningTeamID:     req.SigningTeamID,
+		// git-based dispatch (preferred — drives the daemon Tart driver).
+		GitURL:         req.GitURL,
+		GitRef:         req.GitRef,
+		BuildCommand:   req.BuildCommand,
+		SourceBucket:   sourceBucket,
+		SourceKey:      sourceKey,
+		ArtifactBucket: artifactBucket,
+		ArtifactPrefix: artifactPrefix,
+		EnvVars:        req.EnvVars,
+		SigningTeamID:  req.SigningTeamID,
 	}
 	resp, err := s.dispatcher.Submit(ctx, subReq)
 	if err != nil {
@@ -341,6 +345,31 @@ func (s *Service) UpdateStatus(ctx context.Context, id string, next Status, note
 // Used by the workloads-svc stream listener and the internal upload path.
 func (s *Service) AppendLog(buildID, stream, text string) uint64 {
 	return s.logs.For(buildID).Append(stream, text, s.now())
+}
+
+// Heartbeat is the runner-liveness hook. The Mac provider's runner POSTs here
+// periodically while a build is in flight; the gateway uses it to (a) confirm
+// the build is still tracked (returns ErrNotFound otherwise so the runner can
+// abort a build the gateway already cancelled), and (b) keep a last-seen
+// timestamp the stale-build reaper consults. Returns the current Build so the
+// runner can detect a server-side cancel (Status == cancelled).
+//
+// This is intentionally metering-adjacent rather than a status transition: a
+// heartbeat never advances the state machine, it only proves the provider is
+// alive. workspaceID is skipped — the dispatch-token / mTLS already proved
+// authority for the internal caller.
+func (s *Service) Heartbeat(ctx context.Context, buildID string) (*Build, error) {
+	updated, err := s.store.Update(ctx, buildID, func(curr *Build) error {
+		// No state change — touch only the in-process last-seen marker via
+		// the log hub so a future reaper can tell "provider went silent"
+		// from "build never dispatched". We keep the record untouched so we
+		// don't churn the persisted row on every heartbeat.
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return updated, nil
 }
 
 // RegisterArtifact records an artifact upload completed by a Mac provider

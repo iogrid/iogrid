@@ -28,12 +28,22 @@
 //	                                pre-signed URL output (the real S3
 //	                                client is plugged in once Hetzner
 //	                                credentials are wired).
+//	WORKLOADS_SVC_URL               when set, the gateway dispatches builds
+//	                                to workloads-svc over Connect-Go (the
+//	                                REAL provider path) instead of the
+//	                                in-memory test dispatcher.
+//	DATABASE_URL                    when set, builds are persisted to
+//	                                Postgres so they survive a pod restart;
+//	                                empty keeps the in-memory store (unit
+//	                                tests / local dev).
 package main
 
 import (
 	"context"
 	"log/slog"
 	"os"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/iogrid/iogrid/coordinator/services/build-gateway/internal/auth"
 	"github.com/iogrid/iogrid/coordinator/services/build-gateway/internal/builds"
@@ -78,8 +88,15 @@ func main() {
 	// Wire dependencies. Every concrete impl here is the development
 	// default; production overrides land via env-driven config (S3
 	// credentials, billing-svc Connect-Go client, NATS publisher).
-	st := store.NewInMemory(nil)
-	disp := workloadclient.NewInMemory(nil)
+
+	// Store: Postgres when DATABASE_URL is set (builds survive pod
+	// restarts), otherwise the in-memory default for unit tests / local dev.
+	st := buildStore(ctx, logger)
+
+	// Dispatcher: the REAL Connect-Go client to workloads-svc when
+	// WORKLOADS_SVC_URL is set, otherwise the in-memory test dispatcher.
+	disp := buildDispatcher(logger)
+
 	storage := s3artifact.NewInMemory(nil, os.Getenv("BUILD_GATEWAY_S3_ENDPOINT"))
 	hub := builds.NewLogHub(2048)
 	webhookDisp := webhook.NewAsyncDispatcher(ctx, logger, 4, 256)
@@ -111,6 +128,46 @@ func main() {
 		logger.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
+}
+
+// buildStore selects the persistence backend. DATABASE_URL set → Postgres
+// (durable across pod restarts); empty → in-memory (unit tests / local dev).
+// A Postgres connection failure is fatal: silently falling back to in-memory
+// would lose builds on the next restart without anyone noticing.
+func buildStore(ctx context.Context, logger *slog.Logger) builds.Store {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		logger.Warn("no DATABASE_URL set; using in-memory build store",
+			slog.String("impact", "builds are LOST on pod restart; set DATABASE_URL for prod"))
+		return store.NewInMemory(nil)
+	}
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		logger.Error("postgres pool create failed", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+	pg := store.NewPostgres(pool, nil)
+	if err := pg.EnsureSchema(ctx); err != nil {
+		logger.Error("postgres schema ensure failed", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+	logger.Info("postgres build store ready")
+	return pg
+}
+
+// buildDispatcher selects the workloads-svc dispatch backend.
+// WORKLOADS_SVC_URL set → real Connect-Go client; empty → in-memory test
+// dispatcher (which never reaches a provider — dev/test only).
+func buildDispatcher(logger *slog.Logger) workloadclient.Dispatcher {
+	url := os.Getenv("WORKLOADS_SVC_URL")
+	if url == "" {
+		logger.Warn("no WORKLOADS_SVC_URL set; using in-memory dispatcher",
+			slog.String("impact", "builds are accepted but NEVER reach a Mac provider; set WORKLOADS_SVC_URL for prod"))
+		return workloadclient.NewInMemory(nil)
+	}
+	logger.Info("dispatching builds to workloads-svc over Connect-Go",
+		slog.String("workloads_svc_url", url))
+	return workloadclient.NewConnect(url, nil)
 }
 
 // buildValidator wires the API-key validator. Production substitutes a

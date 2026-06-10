@@ -125,6 +125,72 @@ pub struct IosBuildWorkload {
     pub timeout_secs: u32,
     /// How long to poll `tart ip` before giving up on the VM (seconds).
     pub boot_timeout_secs: u32,
+    /// Optional post-build Maestro simulator walkthrough. When `None` the
+    /// runner stops after `xcodebuild` + artifact upload. When `Some`, the
+    /// runner additionally boots an iOS simulator inside the same VM,
+    /// installs the freshly built `.app`, and runs the Maestro suite,
+    /// copying the JUnit report + screenshots out as extra artifacts.
+    #[serde(default)]
+    pub maestro: Option<MaestroWalkthrough>,
+}
+
+/// Post-build Maestro walkthrough configuration. All paths are *inside the
+/// guest VM* unless noted. The runner shells these into `simctl` + `maestro`
+/// over the same `sshpass ssh` channel the build used.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MaestroWalkthrough {
+    /// Guest path to the built simulator `.app` bundle to install
+    /// (e.g. `$HOME/build/repo/mobile/ios/build/Build/Products/Release-iphonesimulator/iogrid.app`).
+    /// When empty the runner uses [`MaestroWalkthrough::DEFAULT_APP_GLOB`]
+    /// to locate the first `*.app` under the build's `Release-iphonesimulator`
+    /// products dir.
+    #[serde(default)]
+    pub app_guest_path: String,
+    /// Bundle identifier of the installed app (used by `simctl terminate`
+    /// between the outer restart-loop attempts). Defaults to
+    /// `io.iogrid.app` when empty.
+    #[serde(default)]
+    pub app_bundle_id: String,
+    /// Guest path to the Maestro master flow to run with
+    /// `maestro test --format junit`. Defaults to
+    /// `$HOME/build/repo/mobile/ios/.maestro/00-all.yaml` when empty.
+    #[serde(default)]
+    pub flow_guest_path: String,
+}
+
+impl MaestroWalkthrough {
+    /// Glob used to locate the simulator `.app` when `app_guest_path` is empty.
+    pub const DEFAULT_APP_GLOB: &'static str =
+        "$HOME/build/repo/mobile/ios/build/Build/Products/Release-iphonesimulator/*.app";
+    /// Default Maestro master flow path.
+    pub const DEFAULT_FLOW: &'static str = "$HOME/build/repo/mobile/ios/.maestro/00-all.yaml";
+    /// Default bundle id (matches `appId` in `.maestro/00-all.yaml`).
+    pub const DEFAULT_BUNDLE_ID: &'static str = "io.iogrid.app";
+
+    /// Bundle id resolved to the default when empty.
+    pub fn bundle_id(&self) -> &str {
+        if self.app_bundle_id.is_empty() {
+            Self::DEFAULT_BUNDLE_ID
+        } else {
+            &self.app_bundle_id
+        }
+    }
+    /// Flow path resolved to the default when empty.
+    pub fn flow_path(&self) -> &str {
+        if self.flow_guest_path.is_empty() {
+            Self::DEFAULT_FLOW
+        } else {
+            &self.flow_guest_path
+        }
+    }
+    /// App-bundle locator: an explicit path when set, otherwise the glob.
+    pub fn app_locator(&self) -> &str {
+        if self.app_guest_path.is_empty() {
+            Self::DEFAULT_APP_GLOB
+        } else {
+            &self.app_guest_path
+        }
+    }
 }
 
 impl IosBuildWorkload {
@@ -155,6 +221,24 @@ pub struct IosBuildResult {
     pub artifact_local_path: Option<PathBuf>,
     /// Whether the time-box fired.
     pub timed_out: bool,
+    /// Post-build Maestro walkthrough outcome, if one was requested.
+    #[serde(default)]
+    pub maestro: Option<MaestroResult>,
+}
+
+/// Outcome of the post-build Maestro simulator walkthrough.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MaestroResult {
+    /// `maestro test` exit code from the attempt that decided the result
+    /// (`0` = all flows green). `-1` when Maestro never ran (e.g. the
+    /// simulator failed to boot before any attempt).
+    pub exit_code: i32,
+    /// How many outer restart-loop attempts were spent (1..=3).
+    pub attempts: u32,
+    /// Local path the JUnit report was copied to, if it was produced.
+    pub junit_local_path: Option<PathBuf>,
+    /// Local directory the screenshots were copied to, if any were produced.
+    pub screenshots_local_dir: Option<PathBuf>,
 }
 
 /// iOS-build runner contract.
@@ -313,6 +397,28 @@ mod tart_impl {
                 }
             }
 
+            // 8b. Optional Maestro simulator walkthrough — boot a sim inside
+            // the same VM, install the freshly built `.app`, run the Maestro
+            // suite, and copy the JUnit report + screenshots out as extra
+            // artifacts. Best-effort and gated on the build having succeeded:
+            // a non-zero `xcodebuild` exit already returns earlier via
+            // ssh_run's BuildFailed, so reaching here means exit_code == 0.
+            let maestro_result = match &w.maestro {
+                Some(cfg) => match self.maestro_walkthrough(&ip, &w, cfg).await {
+                    Ok(r) => Some(r),
+                    Err(e) => {
+                        tracing::warn!(%e, "maestro walkthrough failed (non-fatal)");
+                        Some(MaestroResult {
+                            exit_code: -1,
+                            attempts: 0,
+                            junit_local_path: None,
+                            screenshots_local_dir: None,
+                        })
+                    }
+                },
+                None => None,
+            };
+
             // 9. Shutdown + delete.
             let _ = run_child.kill().await;
             let _ = self.tart(["delete", &vm]).await;
@@ -323,6 +429,7 @@ mod tart_impl {
                 logs,
                 artifact_local_path: artifact_local.exists().then_some(artifact_local),
                 timed_out: false,
+                maestro: maestro_result,
             })
         }
 
@@ -385,6 +492,123 @@ mod tart_impl {
                 gref = shell_quote(&w.git_ref),
                 cmd = w.build_command,
             )
+        }
+
+        /// Run the post-build Maestro walkthrough inside the already-booted
+        /// VM (`ip`). Returns a [`MaestroResult`]; never returns an error for
+        /// a *flow* failure (those are reported via `exit_code`), only for
+        /// transport/ssh failures the caller can't act on.
+        async fn maestro_walkthrough(
+            &self,
+            ip: &str,
+            w: &IosBuildWorkload,
+            cfg: &MaestroWalkthrough,
+        ) -> Result<MaestroResult, IosBuildError> {
+            // The walkthrough runs entirely guest-side in one shell snippet:
+            // pick a sim device type + runtime, create+boot, install the
+            // built .app, then run Maestro under an OUTER RESTART LOOP gated
+            // on the stale-XCTest-handle "App crashed or stopped" signature
+            // (per mobile/ios/CONTRIBUTING.md gotcha 23 + the project-memory
+            // `feedback_maestro_stale_xctest_handle`: a mid-suite relaunch
+            // leaves the XCUIApplication handle stale -> every snapshot fails
+            // XCTest error 10001, which Maestro maps to a fatal AppCrash;
+            // in-session `retry:` wrappers inherit the same stale handle and
+            // lose 3/3, so the ONLY cure is a fresh `maestro` invocation).
+            // We do NOT pass any `timeout:` to assertVisible — Maestro 2.6
+            // rejects it suite-wide (gotcha 19); flows use `extendedWaitUntil`
+            // instead. Artifacts (junit + screenshots) are written to fixed
+            // guest paths and scp'd out below.
+            let script = maestro_remote_script(cfg);
+            tracing::info!(%ip, "running maestro walkthrough inside VM");
+            // Maestro + the XCUITest driver spin-up are slow; the supervisor's
+            // outer `run_with_timeout` still bounds total wall-clock, so a hung
+            // sim can't run forever. We capture exit code + logs here and parse
+            // the attempt count from the script's own bookkeeping line.
+            let (code, logs) = self.ssh_run_capture(ip, &script).await?;
+            let attempts = parse_maestro_attempts(&logs);
+
+            // Copy the JUnit report + screenshots dir out of the guest. Both
+            // are best-effort: a sim that never booted produces neither.
+            let junit_local = std::env::temp_dir().join(format!("{}-maestro-junit.xml", w.id));
+            let junit_ok = self
+                .scp_from(ip, MAESTRO_GUEST_JUNIT, &junit_local)
+                .await
+                .is_ok();
+
+            let screenshots_local = std::env::temp_dir().join(format!("{}-maestro-screenshots", w.id));
+            let _ = tokio::fs::create_dir_all(&screenshots_local).await;
+            // `scp -r` the whole screenshots dir; tolerate "no such file".
+            let screenshots_ok = self
+                .scp_recursive_from(ip, MAESTRO_GUEST_SCREENSHOT_DIR, &screenshots_local)
+                .await
+                .is_ok();
+
+            Ok(MaestroResult {
+                exit_code: code,
+                attempts,
+                junit_local_path: junit_ok.then_some(junit_local),
+                screenshots_local_dir: screenshots_ok.then_some(screenshots_local),
+            })
+        }
+
+        /// Like [`ssh_run`] but does NOT treat a non-zero remote exit as a
+        /// hard [`IosBuildError::BuildFailed`] — the Maestro walkthrough
+        /// reports flow failures via the captured exit code instead.
+        async fn ssh_run_capture(
+            &self,
+            ip: &str,
+            remote_cmd: &str,
+        ) -> Result<(i32, Vec<u8>), IosBuildError> {
+            let out = Command::new("sshpass")
+                .args([
+                    "-p",
+                    &self.ssh_password,
+                    "ssh",
+                    "-o",
+                    "StrictHostKeyChecking=no",
+                    "-o",
+                    "UserKnownHostsFile=/dev/null",
+                    &format!("{}@{}", self.ssh_user, ip),
+                    remote_cmd,
+                ])
+                .output()
+                .await
+                .map_err(|e| IosBuildError::Io(format!("spawn sshpass (maestro): {e}")))?;
+            let mut logs = out.stdout;
+            logs.extend_from_slice(&out.stderr);
+            Ok((out.status.code().unwrap_or(-1), logs))
+        }
+
+        async fn scp_recursive_from(
+            &self,
+            ip: &str,
+            remote_path: &str,
+            local_path: &std::path::Path,
+        ) -> Result<(), IosBuildError> {
+            let out = Command::new("sshpass")
+                .args([
+                    "-p",
+                    &self.ssh_password,
+                    "scp",
+                    "-r",
+                    "-o",
+                    "StrictHostKeyChecking=no",
+                    "-o",
+                    "UserKnownHostsFile=/dev/null",
+                    &format!("{}@{}:{}", self.ssh_user, ip, remote_path),
+                    local_path.to_string_lossy().as_ref(),
+                ])
+                .output()
+                .await
+                .map_err(|e| IosBuildError::Io(format!("exec scp -r: {e}")))?;
+            if !out.status.success() {
+                return Err(IosBuildError::Io(format!(
+                    "scp -r failed (exit={}): {}",
+                    out.status.code().unwrap_or(-1),
+                    String::from_utf8_lossy(&out.stderr)
+                )));
+            }
+            Ok(())
         }
 
         async fn ssh_run(
@@ -521,6 +745,109 @@ mod tart_impl {
         let escaped = s.replace('\'', "'\\''");
         format!("'{escaped}'")
     }
+
+    /// Fixed guest path the walkthrough writes the JUnit report to.
+    pub(super) const MAESTRO_GUEST_JUNIT: &str = "/tmp/iogrid-maestro/maestro-junit.xml";
+    /// Fixed guest dir the walkthrough writes Maestro screenshots to.
+    pub(super) const MAESTRO_GUEST_SCREENSHOT_DIR: &str = "/tmp/iogrid-maestro/screenshots";
+
+    /// Build the guest-side shell snippet that boots a simulator, installs
+    /// the built `.app`, and runs the Maestro suite under the outer
+    /// restart loop. The script is intentionally `set +e` around Maestro so
+    /// a flow failure is captured in the exit code rather than aborting.
+    pub(super) fn maestro_remote_script(cfg: &MaestroWalkthrough) -> String {
+        // NOTE: `app_locator` / `flow_path` may contain a `$HOME`-prefixed
+        // glob — we deliberately do NOT shell-quote those so the guest shell
+        // expands them. `bundle_id` is a plain reverse-DNS string (safe).
+        let app_locator = cfg.app_locator();
+        let flow_path = cfg.flow_path();
+        let bundle_id = cfg.bundle_id();
+        format!(
+            r#"set -uo pipefail
+SCREEN_DIR={screen_dir}
+JUNIT_OUT={junit_out}
+mkdir -p "$SCREEN_DIR" "$(dirname "$JUNIT_OUT")"
+
+# Resolve the built simulator .app (explicit path or first glob match).
+APP=$(ls -d {app_locator} 2>/dev/null | head -n1 || true)
+if [ -z "$APP" ] || [ ! -d "$APP" ]; then
+  echo "maestro: no .app found at {app_locator}" >&2
+  exit 64
+fi
+echo "maestro: app=$APP"
+
+# Pick the newest available iPhone device type + iOS runtime.
+DEVICE_TYPE=$(xcrun simctl list devicetypes -j | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+for t in d['devicetypes']:
+    if 'iPhone-16' in t['identifier'] or 'iPhone-15' in t['identifier']:
+        print(t['identifier']); break
+")
+RUNTIME=$(xcrun simctl list runtimes -j | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+ios=[r for r in d['runtimes'] if r.get('isAvailable') and 'iOS' in r.get('name','')]
+ios.sort(key=lambda r:r['version'],reverse=True)
+print(ios[0]['identifier'] if ios else '')
+")
+if [ -z "$DEVICE_TYPE" ] || [ -z "$RUNTIME" ]; then
+  echo "maestro: no usable simulator device-type/runtime" >&2
+  exit 65
+fi
+
+UDID=$(xcrun simctl create "iogrid-maestro-$$" "$DEVICE_TYPE" "$RUNTIME")
+echo "maestro: udid=$UDID"
+cleanup() {{ xcrun simctl delete "$UDID" >/dev/null 2>&1 || true; }}
+trap cleanup EXIT
+xcrun simctl boot "$UDID" || true
+xcrun simctl bootstatus "$UDID" -b || true
+xcrun simctl install "$UDID" "$APP"
+
+export MAESTRO_DRIVER_STARTUP_TIMEOUT=600000
+PATH="$HOME/.maestro/bin:$PATH"; export PATH
+
+# OUTER RESTART LOOP — a fresh `maestro` invocation is the ONLY cure for the
+# stale XCUITest handle (error 10001 -> fatal AppCrash). Re-run only on the
+# 'App crashed or stopped' signature so real assertion failures don't burn
+# two more full chains. (CONTRIBUTING gotcha 23; memory
+# feedback_maestro_stale_xctest_handle.)
+MAESTRO_EXIT=1
+for ATTEMPT in 1 2 3; do
+  echo "maestro-attempt=$ATTEMPT"
+  xcrun simctl terminate "$UDID" {bundle_id} >/dev/null 2>&1 || true
+  sleep 3
+  set +e
+  ( cd "$SCREEN_DIR" && maestro --device "$UDID" test \
+      --format=junit --output="$JUNIT_OUT" \
+      {flow_path} ) 2>&1 | tee "/tmp/iogrid-maestro/stdout-$ATTEMPT.log"
+  MAESTRO_EXIT=${{PIPESTATUS[0]}}
+  set -e
+  [ "$MAESTRO_EXIT" -eq 0 ] && break
+  grep -q "App crashed or stopped" "/tmp/iogrid-maestro/stdout-$ATTEMPT.log" || break
+done
+echo "maestro-exit=$MAESTRO_EXIT"
+exit "$MAESTRO_EXIT"
+"#,
+            screen_dir = MAESTRO_GUEST_SCREENSHOT_DIR,
+            junit_out = MAESTRO_GUEST_JUNIT,
+            app_locator = app_locator,
+            flow_path = flow_path,
+            bundle_id = bundle_id,
+        )
+    }
+
+    /// Parse the `maestro-attempt=N` bookkeeping lines from the captured
+    /// walkthrough logs, returning the highest attempt index seen (1..=3),
+    /// or `0` when Maestro never started.
+    pub(super) fn parse_maestro_attempts(logs: &[u8]) -> u32 {
+        let text = String::from_utf8_lossy(logs);
+        text.lines()
+            .filter_map(|l| l.trim().strip_prefix("maestro-attempt="))
+            .filter_map(|n| n.trim().parse::<u32>().ok())
+            .max()
+            .unwrap_or(0)
+    }
 }
 
 #[cfg(test)]
@@ -540,6 +867,7 @@ mod tests {
             memory_mib: 8192,
             timeout_secs: 1800,
             boot_timeout_secs: 300,
+            maestro: None,
         }
     }
 
@@ -588,5 +916,94 @@ mod tests {
         assert!(w.artifact_path().ends_with("output.ipa"));
         w.artifact_guest_path = "/custom/path.ipa".into();
         assert_eq!(w.artifact_path(), "/custom/path.ipa");
+    }
+
+    #[test]
+    fn maestro_walkthrough_defaults_resolve() {
+        let m = MaestroWalkthrough {
+            app_guest_path: String::new(),
+            app_bundle_id: String::new(),
+            flow_guest_path: String::new(),
+        };
+        assert_eq!(m.bundle_id(), MaestroWalkthrough::DEFAULT_BUNDLE_ID);
+        assert_eq!(m.flow_path(), MaestroWalkthrough::DEFAULT_FLOW);
+        assert_eq!(m.app_locator(), MaestroWalkthrough::DEFAULT_APP_GLOB);
+        assert!(m.flow_path().ends_with("00-all.yaml"));
+        assert_eq!(m.bundle_id(), "io.iogrid.app");
+    }
+
+    #[test]
+    fn maestro_walkthrough_explicit_overrides() {
+        let m = MaestroWalkthrough {
+            app_guest_path: "/explicit/iogrid.app".into(),
+            app_bundle_id: "com.example.app".into(),
+            flow_guest_path: "/explicit/flow.yaml".into(),
+        };
+        assert_eq!(m.app_locator(), "/explicit/iogrid.app");
+        assert_eq!(m.bundle_id(), "com.example.app");
+        assert_eq!(m.flow_path(), "/explicit/flow.yaml");
+    }
+
+    #[test]
+    fn workload_deserializes_without_maestro_field() {
+        // The coordinator's convert.rs JSON path omits `maestro` for builds
+        // that don't request a walkthrough; `#[serde(default)]` must accept
+        // the older shape.
+        let j = r#"{
+            "id":"00000000-0000-0000-0000-000000000000",
+            "tart_image":"img","repo_url":"r","git_ref":"main",
+            "build_command":"x","artifact_guest_path":"","upload_url":"",
+            "cpu":4,"memory_mib":8192,"timeout_secs":1800,"boot_timeout_secs":300
+        }"#;
+        let w: IosBuildWorkload = serde_json::from_str(j).expect("decode without maestro");
+        assert!(w.maestro.is_none());
+    }
+
+    #[test]
+    fn workload_deserializes_with_maestro_field() {
+        let j = r#"{
+            "id":"00000000-0000-0000-0000-000000000000",
+            "tart_image":"img","repo_url":"r","git_ref":"main",
+            "build_command":"x","artifact_guest_path":"","upload_url":"",
+            "cpu":4,"memory_mib":8192,"timeout_secs":1800,"boot_timeout_secs":300,
+            "maestro":{"app_bundle_id":"io.iogrid.app"}
+        }"#;
+        let w: IosBuildWorkload = serde_json::from_str(j).expect("decode with maestro");
+        let m = w.maestro.expect("maestro present");
+        assert_eq!(m.bundle_id(), "io.iogrid.app");
+        // Omitted sub-fields fall back to defaults.
+        assert_eq!(m.flow_path(), MaestroWalkthrough::DEFAULT_FLOW);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn maestro_script_encodes_outer_restart_loop_and_gotchas() {
+        let m = MaestroWalkthrough {
+            app_guest_path: String::new(),
+            app_bundle_id: String::new(),
+            flow_guest_path: String::new(),
+        };
+        let s = tart_impl::maestro_remote_script(&m);
+        // Outer restart loop over 3 attempts.
+        assert!(s.contains("for ATTEMPT in 1 2 3"));
+        // Gated on the stale-XCTest "App crashed or stopped" signature.
+        assert!(s.contains("App crashed or stopped"));
+        // simctl create/boot/install present.
+        assert!(s.contains("simctl create"));
+        assert!(s.contains("simctl boot"));
+        assert!(s.contains("simctl install"));
+        // maestro junit run present.
+        assert!(s.contains("--format=junit"));
+        assert!(s.contains("00-all.yaml"));
+        // No assertVisible timeout key smuggled in.
+        assert!(!s.contains("timeout:"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn parse_maestro_attempts_reads_highest() {
+        let logs = b"maestro-attempt=1\nfoo\nmaestro-attempt=2\nmaestro-exit=0\n";
+        assert_eq!(tart_impl::parse_maestro_attempts(logs), 2);
+        assert_eq!(tart_impl::parse_maestro_attempts(b"no markers"), 0);
     }
 }

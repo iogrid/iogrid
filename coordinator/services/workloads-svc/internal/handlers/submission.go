@@ -266,8 +266,13 @@ func validateWorkload(w *store.Workload) error {
 		if w.IOSBuild == nil {
 			return errors.New("workload.type=ios_build requires ios_build payload")
 		}
-		if w.IOSBuild.SourceTarballS3Key == "" {
-			return errors.New("ios_build.source_tarball_s3_key required")
+		// Two source modes: git-based (repo_url) or legacy tarball
+		// (source_tarball_s3_key). Exactly one source must be supplied.
+		if w.IOSBuild.RepoURL == "" && w.IOSBuild.SourceTarballS3Key == "" {
+			return errors.New("ios_build requires either repo_url or source_tarball_s3_key")
+		}
+		if w.IOSBuild.RepoURL != "" && w.IOSBuild.BuildCommand == "" && len(w.IOSBuild.BuildCommands) == 0 {
+			return errors.New("ios_build.build_command required when repo_url is set")
 		}
 	default:
 		return errors.New("unknown workload.type")

@@ -5,8 +5,11 @@ go 1.23.0
 toolchain go1.23.4
 
 require (
+	connectrpc.com/connect v1.18.1
 	github.com/go-chi/chi/v5 v5.1.0
+	github.com/iogrid/iogrid/coordinator/internal/pb v0.0.0-00010101000000-000000000000
 	github.com/iogrid/iogrid/coordinator/shared v0.0.0-00010101000000-000000000000
+	github.com/jackc/pgx/v5 v5.7.1
 )
 
 require (
@@ -18,6 +21,9 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.22.0 // indirect
+	github.com/jackc/pgpassfile v1.0.0 // indirect
+	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
+	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/klauspost/compress v1.17.11 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/prometheus/client_golang v1.20.5 // indirect
@@ -32,7 +38,9 @@ require (
 	go.opentelemetry.io/otel/sdk v1.31.0 // indirect
 	go.opentelemetry.io/otel/trace v1.31.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.3.1 // indirect
+	golang.org/x/crypto v0.37.0 // indirect
 	golang.org/x/net v0.39.0 // indirect
+	golang.org/x/sync v0.13.0 // indirect
 	golang.org/x/sys v0.32.0 // indirect
 	golang.org/x/text v0.24.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20241007155032-5fefd90f89a9 // indirect
@@ -42,3 +50,5 @@ require (
 )
 
 replace github.com/iogrid/iogrid/coordinator/shared => ../../shared
+
+replace github.com/iogrid/iogrid/coordinator/internal/pb => ../../internal/pb

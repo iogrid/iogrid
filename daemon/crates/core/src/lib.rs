@@ -354,6 +354,30 @@ impl iogrid_scheduler::IdleSource for PlatformIdleSource {
     }
 }
 
+/// Workload-type slugs this daemon advertises in its `DaemonHello`.
+///
+/// Every paired daemon advertises `BANDWIDTH` (Phase 0 proxy/bandwidth
+/// path). On a macOS 15 (Sequoia) or newer host the daemon additionally
+/// advertises `IOS_BUILD`: the Tart-based iOS-build runner requires the
+/// Xcode-26 / iOS-18 SDK that only ships on Sequoia+, so older macOS hosts
+/// (and every non-Mac platform) deliberately omit it. The
+/// [`iogrid_platform_mac::supports_ios_build`] gate encodes the `>= 15`
+/// check; on non-macOS targets the platform-mac crate isn't even linked,
+/// so the `#[cfg]` arm below compiles to the bandwidth-only list.
+pub fn eligible_workload_types() -> Vec<String> {
+    // `mut` is only exercised on the macOS arm; suppress the Linux/Windows
+    // unused-mut warning rather than fork the whole body per-platform.
+    #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
+    let mut types = vec!["BANDWIDTH".to_string()];
+    #[cfg(target_os = "macos")]
+    {
+        if iogrid_platform_mac::supports_ios_build() {
+            types.push("IOS_BUILD".to_string());
+        }
+    }
+    types
+}
+
 /// Supervisor — owns the tokio runtime and subsystem joinset.
 pub struct Supervisor {
     config: DaemonConfig,
@@ -695,9 +719,15 @@ impl Supervisor {
                     provider_id: self.config.provider_id.clone(),
                     // Phase 0: every paired daemon advertises BANDWIDTH so
                     // the proxy-gateway SOCKS5 path can route customer
-                    // traffic. Other workload types (DOCKER/GPU/IOS_BUILD)
-                    // get added by their respective runner wires.
-                    supported_types: vec!["BANDWIDTH".to_string()],
+                    // traffic. IOS_BUILD is added here when the host is a
+                    // macOS 15 (Sequoia) or newer machine — the Tart-based
+                    // iOS-build runner needs the Xcode-26 / iOS-18 SDK that
+                    // only ships on Sequoia+. workloads-svc's scheduler hard-
+                    // filters `ios_build` to providers that both advertise the
+                    // type AND report Platform=macos, so non-Macs that somehow
+                    // advertised it would still be rejected. (DOCKER/GPU get
+                    // added by their respective runner wires.)
+                    supported_types: eligible_workload_types(),
                     max_concurrent: 4,
                 };
                 let handle = iogrid_transport::spawn_live_dispatch(connect_cfg, hello);
@@ -1164,6 +1194,24 @@ mod tests {
     fn supervisor_starts_in_starting_state() {
         let sup = Supervisor::new(DaemonConfig::default());
         assert_eq!(sup.state(), SupervisorState::Starting);
+    }
+
+    #[test]
+    fn eligible_types_always_include_bandwidth() {
+        let t = eligible_workload_types();
+        assert!(t.contains(&"BANDWIDTH".to_string()));
+        // IOS_BUILD is added only on macOS 15+; on the Linux CI runner it
+        // must be absent. On a Sequoia+ Mac the platform gate adds it.
+        #[cfg(not(target_os = "macos"))]
+        assert!(
+            !t.contains(&"IOS_BUILD".to_string()),
+            "non-macOS hosts must not advertise IOS_BUILD"
+        );
+        #[cfg(target_os = "macos")]
+        assert_eq!(
+            t.contains(&"IOS_BUILD".to_string()),
+            iogrid_platform_mac::supports_ios_build()
+        );
     }
 
     #[test]

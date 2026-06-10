@@ -32,6 +32,9 @@ type Deps struct {
 	// traffic — wired through to DispatchHandler.ProviderEndpointTemplate.
 	// Empty == feature off (proxy-gateway uses its dev pool).
 	ProviderEndpointTemplate string
+	// BuildGateway forwards iOS-build status updates to the build-gateway's
+	// internal callback API. nil == not configured.
+	BuildGateway handlers.BuildGatewayForwarder
 }
 
 // Mount attaches the workloads-svc routes onto the shared chi router. Called by main()
@@ -46,6 +49,7 @@ func Mount(deps Deps) func(chi.Router) {
 		sub := handlers.NewSubmissionHandler(deps.Store, deps.Dispatcher, deps.Log)
 		disp := handlers.NewDispatchHandler(deps.Store, deps.Dispatcher, deps.Log)
 		disp.ProviderEndpointTemplate = deps.ProviderEndpointTemplate
+		disp.BuildGateway = deps.BuildGateway
 
 		for _, mount := range []func() (string, http.Handler){
 			func() (string, http.Handler) { return workloadsv1connect.NewWorkloadSubmissionServiceHandler(sub) },

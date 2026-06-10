@@ -101,6 +101,17 @@ type IOSBuildSpec struct {
 	BuildCommands      []string
 	ArtifactBucket     string
 	ArtifactPrefix     string
+
+	// git-based dispatch (preferred; drives the daemon Tart driver). A
+	// submission sets EITHER RepoURL or SourceTarballS3Key.
+	RepoURL           string
+	GitRef            string
+	BuildCommand      string
+	UploadURL         string
+	ArtifactGuestPath string
+	CPU               uint32
+	MemoryMiB         uint32
+	BootTimeoutSecs   uint32
 }
 
 type Result struct {

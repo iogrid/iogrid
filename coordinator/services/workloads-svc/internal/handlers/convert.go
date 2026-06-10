@@ -148,6 +148,14 @@ func workloadFromProto(in *workloadsv1.Workload) *store.Workload {
 			BuildCommands:      append([]string(nil), i.GetBuildCommands()...),
 			ArtifactBucket:     i.GetArtifactS3Bucket(),
 			ArtifactPrefix:     i.GetArtifactS3Prefix(),
+			RepoURL:            i.GetRepoUrl(),
+			GitRef:             i.GetGitRef(),
+			BuildCommand:       i.GetBuildCommand(),
+			UploadURL:          i.GetUploadUrl(),
+			ArtifactGuestPath:  i.GetArtifactGuestPath(),
+			CPU:                i.GetCpu(),
+			MemoryMiB:          i.GetMemoryMib(),
+			BootTimeoutSecs:    i.GetBootTimeoutSecs(),
 		}
 	}
 	return w
@@ -217,6 +225,14 @@ func workloadToProto(w *store.Workload) *workloadsv1.Workload {
 			BuildCommands:      append([]string(nil), w.IOSBuild.BuildCommands...),
 			ArtifactS3Bucket:   w.IOSBuild.ArtifactBucket,
 			ArtifactS3Prefix:   w.IOSBuild.ArtifactPrefix,
+			RepoUrl:            w.IOSBuild.RepoURL,
+			GitRef:             w.IOSBuild.GitRef,
+			BuildCommand:       w.IOSBuild.BuildCommand,
+			UploadUrl:          w.IOSBuild.UploadURL,
+			ArtifactGuestPath:  w.IOSBuild.ArtifactGuestPath,
+			Cpu:                w.IOSBuild.CPU,
+			MemoryMib:          w.IOSBuild.MemoryMiB,
+			BootTimeoutSecs:    w.IOSBuild.BootTimeoutSecs,
 		}}
 	}
 	return out

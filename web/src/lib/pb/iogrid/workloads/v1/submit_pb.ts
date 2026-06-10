@@ -220,11 +220,19 @@ export class DockerRequest extends Message<DockerRequest> {
 /**
  * IosBuildRequest: macOS / iOS CI job.
  *
+ * Two source modes are supported and the daemon picks whichever is set:
+ *   1. git-based (preferred) — the VM `git clone`s `repo_url` and checks out
+ *      `git_ref`, then runs `build_command`. This is what the Tart driver
+ *      (daemon/crates/workload-ios) actually executes today.
+ *   2. tarball-based (legacy) — the VM mounts the source tarball uploaded to
+ *      `source_tarball_s3_key` and runs `build_commands[]`.
+ * Submissions must set EITHER `repo_url` OR `source_tarball_s3_key`.
+ *
  * @generated from message iogrid.workloads.v1.IosBuildRequest
  */
 export class IosBuildRequest extends Message<IosBuildRequest> {
   /**
-   * S3 object key for the uploaded source tarball.
+   * S3 object key for the uploaded source tarball (legacy tarball mode).
    *
    * @generated from field: string source_tarball_s3_key = 1;
    */
@@ -238,7 +246,7 @@ export class IosBuildRequest extends Message<IosBuildRequest> {
   tartImage = "";
 
   /**
-   * Shell command(s) executed inside the VM (typically `xcodebuild ...`).
+   * Shell command(s) executed inside the VM (legacy tarball mode).
    *
    * @generated from field: repeated string build_commands = 3;
    */
@@ -256,6 +264,65 @@ export class IosBuildRequest extends Message<IosBuildRequest> {
    */
   artifactS3Prefix = "";
 
+  /**
+   * --- git-based dispatch (preferred, drives the Tart driver) -------------
+   * Customer git repo URL the VM should `git clone`.
+   *
+   * @generated from field: string repo_url = 6;
+   */
+  repoUrl = "";
+
+  /**
+   * Branch or commit SHA to check out.
+   *
+   * @generated from field: string git_ref = 7;
+   */
+  gitRef = "";
+
+  /**
+   * Single shell/`xcodebuild` command run after clone+checkout. The customer
+   * is responsible for any signing-disable flags.
+   *
+   * @generated from field: string build_command = 8;
+   */
+  buildCommand = "";
+
+  /**
+   * Pre-signed PUT URL for artifact upload after a successful build.
+   *
+   * @generated from field: string upload_url = 9;
+   */
+  uploadUrl = "";
+
+  /**
+   * Path inside the VM holding the produced `.ipa` / `.xcarchive`. Empty
+   * means the daemon default (`/Users/admin/build/output.ipa`).
+   *
+   * @generated from field: string artifact_guest_path = 10;
+   */
+  artifactGuestPath = "";
+
+  /**
+   * VM CPU cores (daemon clamps to >=1).
+   *
+   * @generated from field: uint32 cpu = 11;
+   */
+  cpu = 0;
+
+  /**
+   * VM memory in MiB (daemon clamps to >=2048).
+   *
+   * @generated from field: uint32 memory_mib = 12;
+   */
+  memoryMib = 0;
+
+  /**
+   * How long to poll `tart ip` before giving up on VM boot (seconds).
+   *
+   * @generated from field: uint32 boot_timeout_secs = 13;
+   */
+  bootTimeoutSecs = 0;
+
   constructor(data?: PartialMessage<IosBuildRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -269,6 +336,14 @@ export class IosBuildRequest extends Message<IosBuildRequest> {
     { no: 3, name: "build_commands", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
     { no: 4, name: "artifact_s3_bucket", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 5, name: "artifact_s3_prefix", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 6, name: "repo_url", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 7, name: "git_ref", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 8, name: "build_command", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 9, name: "upload_url", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 10, name: "artifact_guest_path", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 11, name: "cpu", kind: "scalar", T: 13 /* ScalarType.UINT32 */ },
+    { no: 12, name: "memory_mib", kind: "scalar", T: 13 /* ScalarType.UINT32 */ },
+    { no: 13, name: "boot_timeout_secs", kind: "scalar", T: 13 /* ScalarType.UINT32 */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): IosBuildRequest {
