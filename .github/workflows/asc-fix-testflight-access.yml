@@ -102,7 +102,28 @@ jobs:
                       continue
                   r = requests.post(f'{BASE}/v1/betaGroups/{g["id"]}/relationships/betaTesters',
                                     headers=H, json={'data': [{'type': 'betaTesters', 'id': tid}]}, timeout=20)
-                  msg = 'already in group' if r.status_code == 422 else r.text[:120]
-                  print(f'  add founder -> {gname}: HTTP {r.status_code} {msg}')
+                  if r.status_code in (200, 201, 204):
+                      print(f'  add founder -> {gname}: HTTP {r.status_code} ADDED')
+                  elif r.status_code in (409, 422):
+                      print(f'  add founder -> {gname}: HTTP {r.status_code} (already a member — no-op)')
+                  else:
+                      print(f'  add founder -> {gname}: HTTP {r.status_code} {r.text[:200]}')
+
+          # VERIFY (read-only): the founder's ACTUAL group memberships + that
+          # the target build is now attached to each group.
+          print('=== VERIFY ===')
+          if tid:
+              fg = requests.get(f'{BASE}/v1/betaTesters/{tid}/betaGroups',
+                                headers=H, timeout=20).json().get('data', [])
+              print('  founder is in groups:', [x['attributes']['name'] for x in fg])
+          for gname in ('vpn-beta', 'vpn-internal'):
+              g = gmap.get(gname)
+              if not g:
+                  continue
+              gb = requests.get(f'{BASE}/v1/betaGroups/{g["id"]}/builds?limit=200',
+                                headers=H, timeout=20).json().get('data', [])
+              vers = sorted({x['attributes'].get('version') for x in gb if x['attributes'].get('version')},
+                            key=lambda v: int(v) if v.isdigit() else 0, reverse=True)[:6]
+              print(f'  {gname} now has builds (top 6): {vers}')
           print(f'::notice::done — founder should now see/receive build {bver}')
           PY
