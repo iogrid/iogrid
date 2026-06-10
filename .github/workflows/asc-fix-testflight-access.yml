@@ -44,6 +44,11 @@ jobs:
           BUNDLE = 'io.iogrid.app'
           EMAIL = 'emrahbaysal@gmail.com'; FIRST = 'Emrah'; LAST = 'Baysal'
           want = os.environ.get('WANT_VERSION', '').strip()
+          # "Internal Testers" is Apple's default internal group and the ONLY
+          # group the founder (account holder / team member) is actually in.
+          # CI historically assigned builds to vpn-beta only, so the founder
+          # stayed frozen at build 61. Target the founder's real group first.
+          TARGET_GROUPS = ('Internal Testers', 'vpn-beta', 'vpn-internal')
 
           app_id = requests.get(f'{BASE}/v1/apps?filter[bundleId]={BUNDLE}',
                                 headers=H, timeout=20).json()['data'][0]['id']
@@ -67,7 +72,7 @@ jobs:
           groups = requests.get(f'{BASE}/v1/apps/{app_id}/betaGroups',
                                 headers=H, timeout=20).json()['data']
           gmap = {g['attributes']['name']: g for g in groups}
-          for gname in ('vpn-beta', 'vpn-internal'):
+          for gname in TARGET_GROUPS:
               g = gmap.get(gname)
               if not g:
                   print(f'::warning::group {gname} missing'); continue
@@ -87,7 +92,7 @@ jobs:
           if tid:
               print(f'founder tester already exists: {tid}')
           else:
-              gids = [gmap[n]['id'] for n in ('vpn-beta', 'vpn-internal') if n in gmap]
+              gids = [gmap[n]['id'] for n in TARGET_GROUPS if n in gmap]
               payload = {'data': {'type': 'betaTesters',
                   'attributes': {'email': EMAIL, 'firstName': FIRST, 'lastName': LAST},
                   'relationships': {'betaGroups': {'data': [{'type': 'betaGroups', 'id': i} for i in gids]}}}}
@@ -96,7 +101,7 @@ jobs:
               if r.status_code in (200, 201):
                   tid = r.json()['data']['id']
           if tid:
-              for gname in ('vpn-beta', 'vpn-internal'):
+              for gname in TARGET_GROUPS:
                   g = gmap.get(gname)
                   if not g:
                       continue
@@ -116,7 +121,7 @@ jobs:
               fg = requests.get(f'{BASE}/v1/betaTesters/{tid}/betaGroups',
                                 headers=H, timeout=20).json().get('data', [])
               print('  founder is in groups:', [x['attributes']['name'] for x in fg])
-          for gname in ('vpn-beta', 'vpn-internal'):
+          for gname in TARGET_GROUPS:
               g = gmap.get(gname)
               if not g:
                   continue
