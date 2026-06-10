@@ -85,10 +85,69 @@ export function buildVpnMemo(region: string, days: number): string {
   return `iogrid.v1:vpn:${region}:${days}`;
 }
 
+/**
+ * Build the Ping memo for an iOS BUILD pull: `iogrid.v1:build:ios:<spec>`.
+ * `spec` identifies the build (e.g. `<repo>@<ref>` or a build id) and is
+ * validated to avoid smuggling a `:` / whitespace that would corrupt the
+ * colon-delimited schema. billing-svc recognises the `iogrid.v1:build:ios:`
+ * prefix (see coordinator/services/billing-svc/internal/grid/build_meter.go
+ * BuildMemoPrefix) to route the pull to the build-earnings meter, which
+ * pays the provider Mac its 85% share. Refs #700 (iOS builds), #629 (Ping).
+ */
+export function buildBuildMemo(spec: string): string {
+  if (!spec || /[:\s]/.test(spec)) {
+    throw new Error(`ping-pay: invalid build spec for memo: "${spec}"`);
+  }
+  return `iogrid.v1:build:ios:${spec}`;
+}
+
 /** Resolve the delegate vault pubkey. Empty in CI / until the vault lands. */
 export function vpnVault(): string {
   const v = process.env.EXPO_PUBLIC_IOGRID_VPN_VAULT;
   return v && v.length > 0 ? v : '';
+}
+
+/**
+ * Resolve the build-payments delegate vault pubkey. Separate from the VPN
+ * vault so build earnings and VPN top-ups settle to distinct delegates.
+ * Empty in CI / until the vault address lands.
+ */
+export function buildVault(): string {
+  const v = process.env.EXPO_PUBLIC_IOGRID_BUILD_VAULT;
+  return v && v.length > 0 ? v : '';
+}
+
+export interface BuildApproveRequest {
+  /** Whole $GRID amount (integer). Converted to atomic internally. */
+  grid: number;
+  /** Build spec for the memo, e.g. "iogrid@main" or a build id. */
+  spec: string;
+  /** Delegate vault pubkey. Defaults to {@link buildVault} (env-indirected). */
+  delegate?: string;
+}
+
+/**
+ * Build the canonical Ping SPL-Approve Universal Link for an iOS-build pull.
+ * Mirrors buildVpnApproveUrl. Throws if the delegate vault is unset —
+ * callers MUST guard (the vault is empty in CI / until the real address
+ * lands) and surface a "not yet available" message rather than launch a
+ * delegate-less approve.
+ */
+export function buildBuildApproveUrl(req: BuildApproveRequest): string {
+  const delegate = req.delegate ?? buildVault();
+  if (!delegate) {
+    throw new Error(
+      'ping-pay: build vault delegate is unset (EXPO_PUBLIC_IOGRID_BUILD_VAULT)',
+    );
+  }
+  const params = new URLSearchParams({
+    token: 'GRID',
+    delegate,
+    amount: gridToAtomic(req.grid),
+    memo: buildBuildMemo(req.spec),
+    return_url: 'iogrid://build/paid',
+  });
+  return `${PING_APPROVE_URL}?${params.toString()}`;
 }
 
 export interface VpnApproveRequest {
