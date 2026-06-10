@@ -23,3 +23,6 @@ uuid = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 iogrid-platform-mac = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

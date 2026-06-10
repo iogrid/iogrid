@@ -16,6 +16,7 @@ import (
 
 	"github.com/iogrid/iogrid/coordinator/services/workloads-svc/internal/dispatcher"
 	"github.com/iogrid/iogrid/coordinator/services/workloads-svc/internal/forwarder"
+	"github.com/iogrid/iogrid/coordinator/services/workloads-svc/internal/handlers"
 	"github.com/iogrid/iogrid/coordinator/services/workloads-svc/internal/server"
 	"github.com/iogrid/iogrid/coordinator/services/workloads-svc/internal/store"
 	"github.com/iogrid/iogrid/coordinator/shared/health"
@@ -69,6 +70,22 @@ func main() {
 			slog.String("endpoint", providerEndpoint))
 	}
 
+	// BUILD_GATEWAY_INTERNAL_URL is the build-gateway internal base URL
+	// (e.g. http://build-gateway:8080). When set, iOS-build status updates
+	// the daemon reports are forwarded to the build-gateway so the
+	// customer-facing build record advances. BUILD_GATEWAY_DISPATCH_TOKEN is
+	// the shared secret guarding the gateway's internal routes (must match
+	// the gateway's BUILD_GATEWAY_DISPATCH_TOKEN). Empty == forwarding off.
+	buildGatewayURL := os.Getenv("BUILD_GATEWAY_INTERNAL_URL")
+	buildGatewayFwd := handlers.NewHTTPBuildGatewayForwarder(
+		buildGatewayURL,
+		os.Getenv("BUILD_GATEWAY_DISPATCH_TOKEN"),
+	)
+	if buildGatewayURL != "" {
+		logger.Info("build-gateway status forwarding enabled",
+			slog.String("build_gateway_url", buildGatewayURL))
+	}
+
 	// FORWARDER_LISTEN_ADDR controls the TCP-over-DispatchFrame
 	// forwarder's bind address (issue #222). Defaults to ":9091".
 	// When the env var "WORKLOADS_SVC_PROVIDER_ENDPOINT" is empty we
@@ -107,6 +124,7 @@ func main() {
 			Dispatcher:               disp,
 			Log:                      logger,
 			ProviderEndpointTemplate: providerEndpoint,
+			BuildGateway:             buildGatewayFwd,
 		}),
 		LongLivedStreams: true,
 	}); err != nil {

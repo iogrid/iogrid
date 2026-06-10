@@ -39,6 +39,13 @@ type DispatchHandler struct {
 	// proxy-gateway will then fall back to its DEV_PROVIDER_ENDPOINT
 	// static pool.
 	ProviderEndpointTemplate string
+
+	// BuildGateway forwards iOS-build status updates to the build-gateway's
+	// internal callback API. nil == not configured (no BUILD_GATEWAY_INTERNAL_URL);
+	// status updates are then only persisted locally and never reach the
+	// customer-facing build record. Set in main.go from
+	// BUILD_GATEWAY_INTERNAL_URL + BUILD_GATEWAY_DISPATCH_TOKEN.
+	BuildGateway BuildGatewayForwarder
 }
 
 // NewDispatchHandler wires the deps.
@@ -220,6 +227,25 @@ func (h *DispatchHandler) Dispatch(
 					ArtifactS3Keys: append([]string(nil), u.GetArtifactS3Keys()...),
 					CompletedAt:    time.Now().UTC(),
 				})
+			}
+			// Forward iOS-build status updates to the build-gateway so the
+			// customer-facing build record advances (running/succeeded/...).
+			// The build_id label is stamped on submission by the gateway;
+			// non-build workloads (bandwidth/docker/gpu) carry no build_id
+			// and are skipped. Best-effort: a forwarding error never breaks
+			// the daemon's stream.
+			if h.BuildGateway != nil {
+				if w, err := h.Store.GetWorkload(ctx, wid); err == nil {
+					if buildID := buildIDFromWorkload(w); buildID != "" {
+						if ferr := h.BuildGateway.ForwardStatus(ctx, buildID, string(s), u.GetNote(), u.GetExitCode()); ferr != nil {
+							h.Log.Warn("build-gateway status forward failed",
+								slog.String("build_id", buildID),
+								slog.String("workload_id", wid),
+								slog.String("status", string(s)),
+								slog.String("error", ferr.Error()))
+						}
+					}
+				}
 			}
 		case f.GetPing() != nil:
 			// daemon liveness — no-op (otelhttp records the rtt).

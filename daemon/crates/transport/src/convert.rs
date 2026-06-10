@@ -240,6 +240,79 @@ pub fn frame_to_pb(f: &DispatchFrame) -> wlv1::DispatchFrame {
     wlv1::DispatchFrame { frame: Some(frame) }
 }
 
+/// Serialize the proto [`wlv1::Workload`]'s typed `payload` oneof into the
+/// JSON the daemon's runner crates deserialize (see
+/// `iogrid_core::WorkloadRouter::dispatch_assignment` →
+/// `serde_json::from_str::<{Docker,Gpu,IosBuild}Workload>`).
+///
+/// The transport crate deliberately does NOT depend on the `iogrid-workload-*`
+/// crates (that would create a dependency cycle, since `iogrid-core` depends on
+/// both transport and the workload crates). So we hand-roll the JSON shape here
+/// to mirror each runner's `#[derive(Serialize, Deserialize)]` struct field
+/// names exactly. Returns an empty string when the oneof is unset (the router
+/// rejects an empty payload with `payload_decode_failed`).
+fn serialize_workload_payload(w: &wlv1::Workload) -> String {
+    use serde_json::json;
+    use wlv1::workload::Payload;
+
+    // Map the proto `map<string,string> env` into the runner structs' env shape.
+    // Docker/Gpu serde `env` is `Vec<(String, String)>` → JSON array of pairs.
+    fn env_pairs(m: &std::collections::HashMap<String, String>) -> Vec<(String, String)> {
+        let mut v: Vec<(String, String)> = m.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        // Deterministic order so the serialized payload is stable across runs.
+        v.sort_by(|a, b| a.0.cmp(&b.0));
+        v
+    }
+    fn duration_secs(d: &Option<prost_types::Duration>) -> u32 {
+        d.as_ref()
+            .map(|d| d.seconds.max(0) as u32)
+            .unwrap_or_default()
+    }
+
+    let id = uuid_string(&w.id);
+    let value = match w.payload.as_ref() {
+        Some(Payload::Docker(d)) => json!({
+            "id": id,
+            "image": d.image,
+            "cmd": d.command,
+            "env": env_pairs(&d.env),
+            "cpu_millis": d.min_cpu_cores.saturating_mul(1000),
+            "memory_mib": d.min_memory_mib.min(u32::MAX as u64) as u32,
+            "timeout_secs": duration_secs(&d.timeout),
+            "network_name": serde_json::Value::Null,
+        }),
+        Some(Payload::Gpu(g)) => json!({
+            "id": id,
+            "image": g.image,
+            "cmd": g.command,
+            "env": env_pairs(&g.env),
+            "vram_mib": g.min_vram_mib,
+            "timeout_secs": duration_secs(&g.timeout),
+            "mlx": serde_json::Value::Null,
+        }),
+        Some(Payload::IosBuild(i)) => json!({
+            "id": id,
+            "tart_image": i.tart_image,
+            "repo_url": i.repo_url,
+            "git_ref": i.git_ref,
+            "build_command": i.build_command,
+            "artifact_guest_path": i.artifact_guest_path,
+            "upload_url": i.upload_url,
+            "cpu": i.cpu,
+            "memory_mib": i.memory_mib,
+            // The runner has no per-workload wall-clock field on the proto; reuse
+            // the boot timeout as a sane floor when the coordinator omits it.
+            "timeout_secs": i.boot_timeout_secs,
+            "boot_timeout_secs": i.boot_timeout_secs,
+        }),
+        // Bandwidth is routed by the bandwidth crate (not the JSON-payload
+        // WorkloadRouter), and an unset oneof is a protocol violation — either
+        // way there is no daemon serde target, so emit nothing.
+        Some(Payload::Bandwidth(_)) | None => return String::new(),
+    };
+    serde_json::to_string(&value).unwrap_or_default()
+}
+
 /// Convert a wire-form `DispatchFrame` into the daemon-side enum. Returns
 /// `None` if the oneof is unset (which would be a protocol violation).
 pub fn frame_from_pb(pb: wlv1::DispatchFrame) -> Option<DispatchFrame> {
@@ -263,7 +336,7 @@ pub fn frame_from_pb(pb: wlv1::DispatchFrame) -> Option<DispatchFrame> {
                 Some(w) => (
                     uuid_string(&w.id),
                     workload_type_to_slug(w.r#type),
-                    String::new(),
+                    serialize_workload_payload(w),
                 ),
                 None => (String::new(), "UNSPECIFIED".to_string(), String::new()),
             };
@@ -327,4 +400,137 @@ pub fn frame_from_pb(pb: wlv1::DispatchFrame) -> Option<DispatchFrame> {
             return None;
         }
     })
+}
+
+#[cfg(test)]
+mod payload_tests {
+    use super::*;
+    use crate::pb::workloads::v1 as wlv1;
+    use serde_json::Value;
+    use std::collections::HashMap;
+
+    fn assignment(workload: wlv1::Workload) -> wlv1::DispatchFrame {
+        use wlv1::dispatch_frame::Frame;
+        wlv1::DispatchFrame {
+            frame: Some(Frame::Assignment(wlv1::WorkloadAssignment {
+                workload: Some(workload),
+                attempt_id: Some(uuid("attempt-1")),
+                deadline: None,
+                dispatch_token: "tok".into(),
+            })),
+        }
+    }
+
+    fn decoded_payload(workload: wlv1::Workload) -> Value {
+        let frame = frame_from_pb(assignment(workload)).expect("frame decodes");
+        match frame {
+            DispatchFrame::Assignment { payload_json, .. } => {
+                assert!(!payload_json.is_empty(), "payload must not be empty");
+                serde_json::from_str(&payload_json).expect("payload is valid JSON")
+            }
+            other => panic!("expected Assignment, got {other:?}"),
+        }
+    }
+
+    // The daemon's `iogrid_workload_ios::IosBuildWorkload` serde struct requires
+    // exactly these field names — assert convert produces them so the router's
+    // `serde_json::from_str::<IosBuildWorkload>` decode (which we can't call here
+    // without a dependency cycle) cannot silently regress.
+    #[test]
+    fn ios_build_payload_has_all_runner_fields() {
+        let w = wlv1::Workload {
+            id: Some(uuid("11111111-1111-1111-1111-111111111111")),
+            r#type: workload_type_from_slug("IOS_BUILD"),
+            payload: Some(wlv1::workload::Payload::IosBuild(wlv1::IosBuildRequest {
+                tart_image: "ghcr.io/cirruslabs/macos-sequoia-xcode:latest".into(),
+                repo_url: "https://github.com/iogrid/iogrid.git".into(),
+                git_ref: "main".into(),
+                build_command: "xcodebuild archive".into(),
+                upload_url: "https://s3/put".into(),
+                artifact_guest_path: "/Users/admin/build/app.ipa".into(),
+                cpu: 4,
+                memory_mib: 8192,
+                boot_timeout_secs: 300,
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+        let v = decoded_payload(w);
+        for k in [
+            "id",
+            "tart_image",
+            "repo_url",
+            "git_ref",
+            "build_command",
+            "artifact_guest_path",
+            "upload_url",
+            "cpu",
+            "memory_mib",
+            "timeout_secs",
+            "boot_timeout_secs",
+        ] {
+            assert!(v.get(k).is_some(), "ios payload missing field {k}");
+        }
+        assert_eq!(v["repo_url"], "https://github.com/iogrid/iogrid.git");
+        assert_eq!(v["cpu"], 4);
+    }
+
+    #[test]
+    fn docker_payload_maps_cores_to_millis_and_env_to_pairs() {
+        let mut env = HashMap::new();
+        env.insert("A".to_string(), "1".to_string());
+        let w = wlv1::Workload {
+            id: Some(uuid("22222222-2222-2222-2222-222222222222")),
+            r#type: workload_type_from_slug("DOCKER"),
+            payload: Some(wlv1::workload::Payload::Docker(wlv1::DockerRequest {
+                image: "ghcr.io/foo/bar:latest".into(),
+                command: vec!["echo".into(), "hi".into()],
+                env,
+                min_cpu_cores: 2,
+                min_memory_mib: 512,
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+        let v = decoded_payload(w);
+        assert_eq!(v["cpu_millis"], 2000);
+        assert_eq!(v["memory_mib"], 512);
+        assert_eq!(v["cmd"], serde_json::json!(["echo", "hi"]));
+        // Rust serde `env: Vec<(String, String)>` => array of [k, v] pairs.
+        assert_eq!(v["env"], serde_json::json!([["A", "1"]]));
+        assert!(v.get("network_name").is_some());
+    }
+
+    #[test]
+    fn gpu_payload_has_vram_and_optional_mlx() {
+        let w = wlv1::Workload {
+            id: Some(uuid("33333333-3333-3333-3333-333333333333")),
+            r#type: workload_type_from_slug("GPU"),
+            payload: Some(wlv1::workload::Payload::Gpu(wlv1::GpuRequest {
+                image: "ghcr.io/iogrid/cuda:latest".into(),
+                min_vram_mib: 16384,
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+        let v = decoded_payload(w);
+        assert_eq!(v["vram_mib"], 16384u64);
+        assert!(v.get("mlx").is_some());
+    }
+
+    #[test]
+    fn unset_payload_yields_empty_string() {
+        let w = wlv1::Workload {
+            id: Some(uuid("44444444-4444-4444-4444-444444444444")),
+            payload: None,
+            ..Default::default()
+        };
+        let frame = frame_from_pb(assignment(w)).expect("frame decodes");
+        match frame {
+            DispatchFrame::Assignment { payload_json, .. } => {
+                assert!(payload_json.is_empty())
+            }
+            other => panic!("expected Assignment, got {other:?}"),
+        }
+    }
 }

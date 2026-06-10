@@ -57,16 +57,44 @@ message DockerRequest {
 }
 
 // IosBuildRequest: macOS / iOS CI job.
+//
+// Two source modes are supported and the daemon picks whichever is set:
+//   1. git-based (preferred) — the VM `git clone`s `repo_url` and checks out
+//      `git_ref`, then runs `build_command`. This is what the Tart driver
+//      (daemon/crates/workload-ios) actually executes today.
+//   2. tarball-based (legacy) — the VM mounts the source tarball uploaded to
+//      `source_tarball_s3_key` and runs `build_commands[]`.
+// Submissions must set EITHER `repo_url` OR `source_tarball_s3_key`.
 message IosBuildRequest {
-  // S3 object key for the uploaded source tarball.
+  // S3 object key for the uploaded source tarball (legacy tarball mode).
   string source_tarball_s3_key = 1;
   // Tart image slug (e.g. "ghcr.io/cirruslabs/macos-sequoia-xcode:latest").
   string tart_image = 2;
-  // Shell command(s) executed inside the VM (typically `xcodebuild ...`).
+  // Shell command(s) executed inside the VM (legacy tarball mode).
   repeated string build_commands = 3;
   // Where build artifacts should be uploaded after success.
   string artifact_s3_bucket = 4;
   string artifact_s3_prefix = 5;
+
+  // --- git-based dispatch (preferred, drives the Tart driver) -------------
+  // Customer git repo URL the VM should `git clone`.
+  string repo_url = 6;
+  // Branch or commit SHA to check out.
+  string git_ref = 7;
+  // Single shell/`xcodebuild` command run after clone+checkout. The customer
+  // is responsible for any signing-disable flags.
+  string build_command = 8;
+  // Pre-signed PUT URL for artifact upload after a successful build.
+  string upload_url = 9;
+  // Path inside the VM holding the produced `.ipa` / `.xcarchive`. Empty
+  // means the daemon default (`/Users/admin/build/output.ipa`).
+  string artifact_guest_path = 10;
+  // VM CPU cores (daemon clamps to >=1).
+  uint32 cpu = 11;
+  // VM memory in MiB (daemon clamps to >=2048).
+  uint32 memory_mib = 12;
+  // How long to poll `tart ip` before giving up on VM boot (seconds).
+  uint32 boot_timeout_secs = 13;
 }
 
 // GpuRequest: compute-heavy GPU workload (CUDA, MLX, ROCm).

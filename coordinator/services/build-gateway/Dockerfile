@@ -17,6 +17,11 @@ WORKDIR /src
 
 # Copy the shared module first so layer caching survives service-only edits.
 COPY coordinator/shared /src/coordinator/shared
+# build-gateway now dispatches to workloads-svc via the generated protobuf
+# client (internal/workloadclient → coordinator/internal/pb), whose go.mod
+# replace directive points at ../../internal/pb — so that tree must be in
+# the build context, exactly as workloads-svc's Dockerfile does it.
+COPY coordinator/internal /src/coordinator/internal
 COPY coordinator/services/build-gateway /src/coordinator/services/build-gateway
 
 WORKDIR /src/coordinator/services/build-gateway

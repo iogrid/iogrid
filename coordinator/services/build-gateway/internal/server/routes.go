@@ -105,10 +105,107 @@ func (h *handlers) mount(r chi.Router) {
 		})
 	})
 
+	// Internal provider/runner-facing subtree — dispatch-token guarded, NEVER
+	// a customer API key. This is the path the daemon's build progress reaches
+	// the gateway:
+	//   - workloads-svc forwards each WorkloadStatusUpdate to .../status
+	//   - the runner streams stdout/stderr lines to .../logs
+	//   - the runner pings .../heartbeat for liveness
+	r.Route("/internal/v1/builds", func(r chi.Router) {
+		r.Use(h.dispatchTokenMiddleware)
+		r.Post("/{id}/status", h.internalUpdateStatus)
+		r.Post("/{id}/logs", h.internalAppendLog)
+		r.Post("/{id}/heartbeat", h.internalHeartbeat)
+	})
+
 	// Bare /v1/ root: surface-area introspection for service-discovery
 	// probes and the stub envelope that the scaffold tests already pin.
 	r.Get("/v1", indexHandler)
 	r.Get("/v1/", indexHandler)
+}
+
+// --- POST /internal/v1/builds/{id}/status (internal) ------------------------
+
+type internalStatusBody struct {
+	// Status is the new build status (queued|dispatched|running|succeeded|
+	// failed|timed_out|cancelled|rejected).
+	Status string `json:"status"`
+	// Note is a human-readable status detail propagated to the customer.
+	Note string `json:"note,omitempty"`
+	// ExitCode is the provider process exit code (0 on success), where
+	// applicable.
+	ExitCode int32 `json:"exit_code,omitempty"`
+}
+
+func (h *handlers) internalUpdateStatus(w http.ResponseWriter, r *http.Request) {
+	buildID := chi.URLParam(r, "id")
+	var body internalStatusBody
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_body", err.Error())
+		return
+	}
+	if body.Status == "" {
+		writeError(w, http.StatusBadRequest, "missing_status", "status required")
+		return
+	}
+	updated, err := h.deps.Service.UpdateStatus(r.Context(), buildID, builds.Status(body.Status), body.Note, body.ExitCode)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, redact(updated))
+}
+
+// --- POST /internal/v1/builds/{id}/logs (internal) --------------------------
+
+type internalLogBody struct {
+	// Stream is "stdout" or "stderr".
+	Stream string `json:"stream"`
+	// Text is the single log line (no trailing newline required).
+	Text string `json:"text"`
+	// Lines, when set, batches multiple lines in one POST (each appended in
+	// order). Text is appended first if both are set.
+	Lines []string `json:"lines,omitempty"`
+}
+
+func (h *handlers) internalAppendLog(w http.ResponseWriter, r *http.Request) {
+	buildID := chi.URLParam(r, "id")
+	var body internalLogBody
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_body", err.Error())
+		return
+	}
+	stream := body.Stream
+	if stream == "" {
+		stream = "stdout"
+	}
+	var lastSeq uint64
+	if body.Text != "" {
+		lastSeq = h.deps.Service.AppendLog(buildID, stream, body.Text)
+	}
+	for _, line := range body.Lines {
+		lastSeq = h.deps.Service.AppendLog(buildID, stream, line)
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"build_id": buildID,
+		"seq":      lastSeq,
+	})
+}
+
+// --- POST /internal/v1/builds/{id}/heartbeat (internal) ---------------------
+
+func (h *handlers) internalHeartbeat(w http.ResponseWriter, r *http.Request) {
+	buildID := chi.URLParam(r, "id")
+	b, err := h.deps.Service.Heartbeat(r.Context(), buildID)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	// The runner consults `status` to detect a server-side cancel.
+	writeJSON(w, http.StatusOK, map[string]any{
+		"build_id": b.ID,
+		"status":   b.Status,
+	})
 }
 
 // --- POST /v1/builds --------------------------------------------------------
@@ -125,11 +222,11 @@ type submitBody struct {
 }
 
 type submitResponse struct {
-	BuildID   string         `json:"build_id"`
-	Status    builds.Status  `json:"status"`
-	StatusURL string         `json:"status_url"`
-	LogsURL   string         `json:"logs_url"`
-	Build     *builds.Build  `json:"build"`
+	BuildID   string        `json:"build_id"`
+	Status    builds.Status `json:"status"`
+	StatusURL string        `json:"status_url"`
+	LogsURL   string        `json:"logs_url"`
+	Build     *builds.Build `json:"build"`
 }
 
 func (h *handlers) submitBuild(w http.ResponseWriter, r *http.Request) {
