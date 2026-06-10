@@ -62,19 +62,17 @@ ssh -i ~/.ssh/openova_migration openova@144.91.121.182 'ss -tln | grep :2223'
 
 **Yes for the code tracks** (VPN deploy/repro, iOS D/E) — scoped above with specific files. **No for the headline** until you (a) free the Mac disk and (b) decide the mainnet mint. A regular agent following §4 + `ios-build-pipeline-plan.md` can complete the code; only the two decisions and the deploy-approval are yours.
 
-## 7. How to proceed — model / effort / topology verdict
+## 7. How to proceed — see `EXECUTION-MODEL.md`
 
-The remaining work is **two different shapes**; one setting is not right for both.
+The agreed operating model is **[`EXECUTION-MODEL.md`](EXECUTION-MODEL.md)** (multi-model orchestration: the orchestrator holds live state and routes work *per dispatch*). Applied to the two remaining tasks:
 
-| Remaining task | Shape | Right tool |
+| Remaining task | Shape | Per the routing rule |
 |---|---|---|
-| Root-cause the CLI black-hole (e2e red despite a proven *manual* tunnel) | **Discovery** | one workflow (multi-angle live repro) |
-| iOS Phase D (`build_meter.go`) + E (dogfood) + the deploy | **Execution** | single agent, commit-per-step |
+| Root-cause the CLI black-hole (e2e red despite a proven *manual* tunnel) | **Discovery, STATEFUL** (probe → result → next probe) | **Orchestrator drives it** (main loop) — *not* a workflow; never fan out shared live state. |
+| iOS Phase D (`build_meter.go`) + E (dogfood) + deploy | **Execution** (design decided) | Orchestrator + `opus` subagents, **worktree-isolated**, commit-per-step. |
 
-- **Model: Opus 4.8 for all of it.** Fable's 2× per-token cost is poor value for mirroring existing files / writing YAML; spend the saved tokens on extra verification passes (more reliability than a pricier model). No evidence Fable changes any outcome on this work.
-- **Effort:** regular→high for execution; ultracode only for the single discovery task.
-- **Topology:** single coherent agent for coupled sequential code; sub-agents only for isolated read-only checks; a workflow only for the CLI black-hole. Parallel agents on coupled code create inconsistency, not speed.
-- **Reliability multiplier = incremental commits + build-verify each step**, not the model or topology. The tmux crash lost nothing precisely because A–C was committed.
+- **Model:** the main loop does the judgment → keep it strong (Fable is fine *there*); **implementation routes to `opus` subagents** (half cost, reliable on a decided brief). Escalate model strength on *evidence*, downgrade when mechanical.
+- **Reliability multiplier = incremental commits + build-verify each step + re-query live state** (anti-theater invariant), not the model. The tmux crash lost nothing because A–C was committed.
 
 ### The gate above all knobs
-The headline (a live iOS build) is blocked on the **Mac disk: ~2.9 GiB free, needs ~60 GiB** for the Tart runner. *Every* model/effort/topology combination is blocked there equally. Resolve the disk (free real space / bigger Mac) before optimizing the engine behind the handbrake.
+The headline (a live iOS build) is blocked on the **Mac disk: ~2.9 GiB free, needs ~60 GiB** for the Tart runner. *Every* model/effort/topology combination is blocked there equally. Resolve the disk first.
