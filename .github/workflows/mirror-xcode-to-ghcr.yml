@@ -1,0 +1,73 @@
+# Mirror the GitHub macOS runner's latest-stable Xcode into our ghcr as an
+# OCI artifact, so a provider Mac (which can't fit the ~80 GB cirruslabs
+# full image, and has no Apple-ID to run `xcodes`) can pull Xcode into a
+# base Tart VM and bake an iOS-build image (#700, base-up path #734).
+#
+# The runner ships Xcode pre-installed + pre-authenticated by GitHub — we
+# only READ it, no Apple credentials involved. Result is an OCI artifact
+# the Mac pulls with `oras`. Internal single-org use.
+name: mirror-xcode-to-ghcr
+
+on:
+  workflow_dispatch:
+    inputs:
+      xcode_version:
+        description: 'Exact Xcode version to select (blank = latest-stable on the runner)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  mirror:
+    runs-on: macos-latest
+    steps:
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          if [ -n "${{ inputs.xcode_version }}" ]; then
+            sudo xcode-select -s "/Applications/Xcode_${{ inputs.xcode_version }}.app" || true
+          fi
+          # Resolve whatever is now selected (latest-stable on the runner by default).
+          XCODE_PATH="$(xcode-select -p)"            # …/Xcode.app/Contents/Developer
+          APP="${XCODE_PATH%/Contents/Developer}"    # …/Xcode.app
+          VER="$(xcodebuild -version | awk 'NR==1{print $2}')"
+          echo "selected Xcode $VER at $APP"
+          echo "XCODE_APP=$APP" >> "$GITHUB_ENV"
+          echo "XCODE_VER=$VER" >> "$GITHUB_ENV"
+
+      - name: Package Xcode.app (tar + zstd)
+        run: |
+          set -euo pipefail
+          brew list zstd >/dev/null 2>&1 || brew install zstd
+          mkdir -p out
+          # -C the app's parent so the archive expands to "Xcode.app".
+          tar -C "$(dirname "$XCODE_APP")" -cf - "$(basename "$XCODE_APP")" \
+            | zstd -T0 -3 -o out/Xcode-${XCODE_VER}.tar.zst
+          ls -lh out/
+          shasum -a 256 out/Xcode-${XCODE_VER}.tar.zst | tee out/Xcode-${XCODE_VER}.sha256
+
+      - name: Install oras
+        run: |
+          set -euo pipefail
+          brew list oras >/dev/null 2>&1 || brew install oras
+
+      - name: Push to ghcr as an OCI artifact
+        env:
+          REG: ghcr.io
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login "$REG" -u "${{ github.actor }}" --password-stdin
+          REPO="$REG/$OWNER/iogrid-xcode"
+          cd out
+          # Tag by version + a moving 'latest'. annotations record the version.
+          oras push "$REPO:${XCODE_VER}" \
+            --annotation "org.iogrid.xcode.version=${XCODE_VER}" \
+            "Xcode-${XCODE_VER}.tar.zst:application/zstd" \
+            "Xcode-${XCODE_VER}.sha256:text/plain"
+          oras tag "$REPO:${XCODE_VER}" latest
+          echo "pushed $REPO:${XCODE_VER} (+ :latest)"
+          echo "## Xcode $XCODE_VER mirrored → \`$REPO:${XCODE_VER}\`" >> "$GITHUB_STEP_SUMMARY"
