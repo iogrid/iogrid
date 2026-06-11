@@ -2,6 +2,21 @@
 
 Status: accepted · 2026-06-11
 
+## Contents
+- **Decision** — Tart VM (untrusted) vs native (trusted) vs containers (impossible for macOS)
+- **Footprint** — what's in the ~80 GB, slimmable to ~35 GB
+- **Per-provider prerequisites** — Apple Silicon · macOS 13+ · ~35 GB free
+- **Add. 1** — customer-source confidentiality (the other threat direction) + the truth about stranger Macs
+- **Add. 2** — avoiding the "two Xcodes" double footprint (route runner to provider type)
+- **Add. 3** — **DX scorecard** (native ~82 vs dev-in-Tart ~50)
+- **Add. 4** — the 2-VM kernel cap + the commercial-license **risk**
+- **Add. 5** — **max-security stack** (no Apple-Silicon TEE → defense-in-depth)
+- **Add. 6** — **security-measure applicability scorecard** (native vs Tart, per measure)
+- **Add. 7** — sealed/encrypted VM: HW memory isolation correction (strong, not attestable)
+- Plus the **native-vs-Tart runner scorecard** + **confidentiality scorecard** in the body.
+
+Scripts: `daemon/scripts/provision-mac-provider.sh` (#722) · `bake-slim-ios-image.sh` (#724, unvalidated).
+
 ## Context
 iogrid runs customers' iOS builds on third-party Mac owners' machines. We need
 isolation (untrusted customer build commands run on a stranger's Mac),
