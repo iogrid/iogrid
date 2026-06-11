@@ -1,0 +1,58 @@
+# Diagnose why a TestFlight build isn't installable: query App Store Connect
+# for the recent builds' processingState + TestFlight (beta) state + export
+# compliance. Build 173 uploaded OK but the founder still sees 172 — this
+# tells us if 173 is PROCESSING / INVALID / MISSING_EXPORT_COMPLIANCE.
+name: asc-build-diagnose
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query ASC build states
+        env:
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+        run: |
+          pip3 install --quiet pyjwt cryptography 2>&1 | tail -1 || true
+          python3 - <<'PY'
+          import os, time, json, urllib.request, urllib.parse
+          import jwt as pyjwt
+          key_id=os.environ['ASC_KEY_ID']; issuer=os.environ['ASC_ISSUER_ID']
+          pem=os.environ['ASC_PRIVATE_KEY']
+          if 'BEGIN' not in pem:  # secret may be base64 of the .p8
+              import base64
+              try: pem=base64.b64decode(pem).decode()
+              except Exception: pass
+          tok=pyjwt.encode({'iss':issuer,'iat':int(time.time()),'exp':int(time.time())+1200,'aud':'appstoreconnect-v1'},
+                           pem, algorithm='ES256', headers={'kid':key_id,'typ':'JWT'})
+          def api(path):
+              req=urllib.request.Request('https://api.appstoreconnect.apple.com'+path,
+                                         headers={'Authorization':f'Bearer {tok}'})
+              return json.load(urllib.request.urlopen(req, timeout=30))
+          # 1) app id from bundle
+          apps=api('/v1/apps?filter[bundleId]=io.iogrid.app&limit=1')['data']
+          if not apps: print('NO APP for io.iogrid.app'); raise SystemExit
+          app_id=apps[0]['id']; print(f'app io.iogrid.app id={app_id} name={apps[0]["attributes"].get("name")}')
+          # 2) recent builds + beta detail + compliance
+          q=(f'/v1/builds?filter[app]={app_id}&sort=-version&limit=8'
+             '&include=buildBetaDetail'
+             '&fields[builds]=version,processingState,expired,uploadedDate,usesNonExemptEncryption'
+             '&fields[buildBetaDetails]=internalBuildState,externalBuildState')
+          r=api(q)
+          beta={b['id']:b['attributes'] for b in r.get('included',[]) if b['type']=='buildBetaDetails'}
+          print('\n=== RECENT BUILDS (newest first) ===')
+          for b in r['data']:
+              a=b['attributes']; bid=b['id']
+              bd=None
+              rel=b.get('relationships',{}).get('buildBetaDetail',{}).get('data')
+              if rel: bd=beta.get(rel['id'],{})
+              print(f"  build {a.get('version'):>5} | processing={a.get('processingState'):<10} "
+                    f"expired={a.get('expired')} encryption={a.get('usesNonExemptEncryption')} "
+                    f"| internal={ (bd or {}).get('internalBuildState') } external={ (bd or {}).get('externalBuildState') } "
+                    f"| uploaded={a.get('uploadedDate')}")
+          print('\nLegend: processing PROCESSING=server still working, VALID=ready, INVALID/FAILED=bad binary.')
+          print('internalBuildState READY_FOR_BETA_TESTING=installable; PROCESSING/MISSING_EXPORT_COMPLIANCE=not yet.')
+          PY
