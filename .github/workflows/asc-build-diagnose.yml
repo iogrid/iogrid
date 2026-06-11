@@ -55,4 +55,26 @@ jobs:
                     f"| uploaded={a.get('uploadedDate')}")
           print('\nLegend: processing PROCESSING=server still working, VALID=ready, INVALID/FAILED=bad binary.')
           print('internalBuildState READY_FOR_BETA_TESTING=installable; PROCESSING/MISSING_EXPORT_COMPLIANCE=not yet.')
+
+          # Deep-dive the NEWEST build: its beta detail + bundle-level issues
+          # (why INVALID). buildBundles carries per-bundle validation issues.
+          newest=r['data'][0]['id']; ver=r['data'][0]['attributes'].get('version')
+          print(f'\n=== DEEP DIVE build {ver} (id {newest}) ===')
+          try:
+              bd=api(f'/v1/builds/{newest}/buildBetaDetail')
+              print('  buildBetaDetail:', json.dumps(bd['data']['attributes']))
+          except Exception as e: print('  betaDetail:', e)
+          try:
+              bb=api(f'/v1/builds/{newest}/buildBundles?include=betaAppReviewSubmission')
+              for b in bb.get('data',[]):
+                  a=b['attributes']
+                  print(f"  bundle: id={a.get('bundleId')} type={a.get('bundleType')} "
+                        f"hasSizes={a.get('deviceProtocols')} usesLocationBg={a.get('usesLocationBackgroundMode')} "
+                        f"includesSymbols={a.get('includesSymbols')} dSYMs={a.get('dSYMsUrl') is not None}")
+          except Exception as e: print('  buildBundles:', e)
+          # The actual ITMS invalid reason often lands only in email; surface what the API has.
+          try:
+              full=api(f'/v1/builds/{newest}?fields[builds]=processingState,version,iconAssetToken,minOsVersion,lsMinimumSystemVersion,buildAudienceType')
+              print('  build attrs:', json.dumps(full['data']['attributes']))
+          except Exception as e: print('  build attrs:', e)
           PY
