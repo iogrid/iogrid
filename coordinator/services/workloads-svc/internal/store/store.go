@@ -171,6 +171,12 @@ type Store interface {
 	GetAssignment(ctx context.Context, id string) (*Assignment, error)
 	UpdateAssignment(ctx context.Context, a *Assignment) error
 	AssignmentsForWorkload(ctx context.Context, workloadID string) ([]*Assignment, error)
+	// ListPendingAssignments returns assignments for a provider that have
+	// been dispatched but not yet picked up (LatestStatus==dispatched) —
+	// the poll-based delivery path (#705) for daemons whose server→client
+	// push half is dropped by the edge. Mirrors the VPN binder's
+	// /assigned-sessions.
+	ListPendingAssignments(ctx context.Context, providerID string) ([]*Assignment, error)
 
 	AppendEvent(ctx context.Context, e Event) error
 	SubscribeWorkloadEvents(workloadID string) (<-chan Event, func())
@@ -354,6 +360,24 @@ func (m *memStore) AssignmentsForWorkload(_ context.Context, workloadID string) 
 	out := []*Assignment{}
 	for _, a := range m.assignments {
 		if a.WorkloadID == workloadID {
+			cp := *a
+			out = append(out, &cp)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
+	return out, nil
+}
+
+func (m *memStore) ListPendingAssignments(_ context.Context, providerID string) ([]*Assignment, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := []*Assignment{}
+	for _, a := range m.assignments {
+		// Dispatched-but-not-yet-running: the daemon hasn't reported back
+		// (no RUNNING/terminal update). Once it polls + starts the work it
+		// reports RUNNING, which moves LatestStatus off "dispatched" and
+		// drops the row from this list.
+		if a.ProviderID == providerID && a.LatestStatus == StatusDispatched {
 			cp := *a
 			out = append(out, &cp)
 		}
