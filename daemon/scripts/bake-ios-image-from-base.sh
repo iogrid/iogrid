@@ -148,18 +148,17 @@ else
   ssh_vm "$IP" "sudo xcodebuild -license accept && sudo xcodebuild -runFirstLaunch"
 fi
 
-# ── Install ONLY the iOS platform + the one simulator runtime we keep ──────
-echo "[bake] installing the iOS platform + '$KEEP_SIM' runtime; nothing else…"
-ssh_vm "$IP" "xcodebuild -downloadPlatform iOS" || true
-ssh_vm "$IP" "
-  want='$KEEP_SIM'
-  if ! xcrun simctl runtime list 2>/dev/null | grep -q \"\$want\"; then
-    xcodebuild -downloadPlatform iOS -buildVersion \"\${want#iOS }\" 2>/dev/null || true
-  fi
-  xcrun simctl delete unavailable || true
-"
-# Strip anything non-iOS Xcode dragged in (defense-in-depth — base shouldn't
-# have them, but -downloadPlatform can pull extras).
+# NOTE: we deliberately SKIP `xcodebuild -downloadPlatform iOS` (the iOS
+# SIMULATOR runtime, ~8.7 GB). An archive/device build needs the iOS DEVICE
+# SDK (iPhoneOS.platform), which already ships inside Xcode.app — the runtime
+# is only for running tests in the simulator and cost ~20 min + 8.7 GB of
+# disk pressure for nothing. Re-enable with --with-sim when a sim-test image
+# is needed.
+if [ "${WITH_SIM:-0}" = "1" ]; then
+  echo "[bake] (--with-sim) downloading the iOS simulator runtime…"
+  ssh_vm "$IP" "xcodebuild -downloadPlatform iOS" || true
+fi
+# Strip non-iOS Xcode platforms (smaller image; an iOS build never uses them).
 ssh_vm "$IP" "
   XC=\$(xcode-select -p)
   for p in AppleTVOS AppleTVSimulator WatchOS WatchSimulator XROS XRSimulator; do
@@ -172,10 +171,16 @@ echo "[bake] shutting the guest down cleanly…"
 ssh_vm "$IP" "sudo shutdown -h now" || true
 wait "$RUN_PID" 2>/dev/null || true
 
-echo "[bake] tagging → $OUT (measure real size: tart list)"
-tart clone "$VM" "$OUT"
+# `tart clone <vm> <new>` requires a LOCAL name (no registry/tag) — derive one
+# from --out (e.g. ghcr.io/iogrid/iogrid-ios-builder:16.2 → iogrid-ios-builder-16.2).
+# Clone the finished VM to the keeper FIRST, so the EXIT trap deleting the temp
+# $VM never throws away the baked toolchain (the bug that lost the first bake).
+LOCAL_OUT="$(printf '%s' "$OUT" | sed -E 's#.*/##; s#:#-#')"
+echo "[bake] tagging → local image '$LOCAL_OUT' (from $VM)…"
+tart delete "$LOCAL_OUT" >/dev/null 2>&1 || true
+tart clone "$VM" "$LOCAL_OUT"
 if [ "$PUSH" -eq 1 ]; then
-  echo "[bake] pushing $OUT (requires tart login to the registry)…"
-  tart push "$OUT"
+  echo "[bake] pushing $LOCAL_OUT → $OUT (requires tart login)…"
+  tart push "$LOCAL_OUT" "$OUT"
 fi
-echo "[bake] DONE. iOS-build image: $OUT"
+echo "[bake] DONE. iOS-build image: $LOCAL_OUT  (measure: tart list)"
