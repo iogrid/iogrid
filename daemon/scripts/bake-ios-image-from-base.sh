@@ -65,7 +65,10 @@ command -v tart >/dev/null 2>&1 || { echo "tart not found" >&2; exit 1; }
 
 VM="iogrid-base-bake-$$"
 # cirruslabs base images auto-login admin/admin (same as the xcode images).
-ssh_vm() { sshpass -p admin ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null admin@"$1" "$2"; }
+# Prepend Homebrew to PATH in every guest command — the base images ship brew
+# at /opt/homebrew/bin but a non-interactive ssh shell doesn't load it, so
+# `brew install zstd` (etc.) fails with "command not found: brew" otherwise.
+ssh_vm() { sshpass -p admin ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null admin@"$1" "export PATH=/opt/homebrew/bin:\$PATH; $2"; }
 scp_vm() { sshpass -p admin scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$1" admin@"$2":"$3"; }
 cleanup() { tart delete "$VM" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
