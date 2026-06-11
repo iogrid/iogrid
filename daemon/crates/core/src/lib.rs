@@ -749,7 +749,10 @@ impl Supervisor {
                     && !self.config.provider_id.trim().is_empty()
                 {
                     let (tx, rx) = tokio::sync::watch::channel(false);
-                    let _ = iogrid_workload_ios::build_poller::spawn_build_poller(
+                    // The JoinHandle is intentionally dropped: the poll task
+                    // runs detached for the daemon's lifetime and is stopped
+                    // via the watch sender below, not by joining.
+                    let _poller_task = iogrid_workload_ios::build_poller::spawn_build_poller(
                         iogrid_workload_ios::build_poller::BuildPollerConfig {
                             provider_id: self.config.provider_id.clone(),
                             coordinator_base_url: self.config.coordinator_url.clone(),
