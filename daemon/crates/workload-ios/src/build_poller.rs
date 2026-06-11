@@ -249,4 +249,80 @@ mod tests {
         assert_eq!(w.cpu, 4);
         assert_eq!(w.timeout_secs, DEFAULT_BUILD_TIMEOUT_SECS);
     }
+
+    // End-to-end (in-process): a mock HTTP server returns one assignment;
+    // the poller must GET it and invoke the runner with that build command.
+    // This is the daemon-side counterpart to the live server-side proof
+    // (the prod poll endpoint returning a real assignment).
+    #[tokio::test]
+    async fn poller_runs_assignment_from_server() {
+        use std::sync::Mutex;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        struct MockRunner {
+            got: Arc<Mutex<Option<String>>>,
+        }
+        #[async_trait::async_trait]
+        impl IosBuildRunner for MockRunner {
+            async fn run(
+                &self,
+                w: IosBuildWorkload,
+            ) -> Result<crate::IosBuildResult, crate::IosBuildError> {
+                *self.got.lock().unwrap() = Some(w.build_command.clone());
+                Ok(crate::IosBuildResult {
+                    id: w.id,
+                    exit_code: 0,
+                    logs: vec![],
+                    artifact_local_path: None,
+                    timed_out: false,
+                    maestro: None,
+                })
+            }
+        }
+
+        // Mock workloads-svc: answer one GET with the assignment JSON.
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            if let Ok((mut sock, _)) = listener.accept().await {
+                let mut buf = [0u8; 2048];
+                let _ = sock.read(&mut buf).await;
+                let body = r#"{"count":1,"assignments":[{"attempt_id":"34516759-df8f-42ee-9dbb-eff9e199ab4c","repo_url":"https://github.com/iogrid/iogrid.git","git_ref":"main","build_command":"echo hi"}]}"#;
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = sock.write_all(resp.as_bytes()).await;
+            }
+        });
+
+        let got = Arc::new(Mutex::new(None));
+        let runner = Arc::new(MockRunner { got: got.clone() });
+        let (_tx, rx) = tokio::sync::watch::channel(false);
+        // First interval tick fires immediately, so the poll happens at once.
+        spawn_build_poller(
+            BuildPollerConfig {
+                provider_id: "p".into(),
+                coordinator_base_url: format!("http://{addr}"),
+            },
+            reqwest::Client::new(),
+            runner,
+            rx,
+        );
+
+        // The runner should be invoked with the assignment's build command.
+        for _ in 0..60 {
+            if got.lock().unwrap().is_some() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert_eq!(
+            got.lock().unwrap().as_deref(),
+            Some("echo hi"),
+            "poller should have GET the assignment and run it via the runner"
+        );
+    }
 }
