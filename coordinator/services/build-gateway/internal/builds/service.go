@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/iogrid/iogrid/coordinator/services/build-gateway/internal/gridsettle"
 	"github.com/iogrid/iogrid/coordinator/services/build-gateway/internal/metering"
 	"github.com/iogrid/iogrid/coordinator/services/build-gateway/internal/s3artifact"
 	"github.com/iogrid/iogrid/coordinator/services/build-gateway/internal/webhook"
@@ -86,6 +87,7 @@ type Service struct {
 	storage    s3artifact.Storage
 	webhooks   webhook.Dispatcher
 	metering   metering.Emitter
+	gridSettle gridsettle.Settler
 	logs       *LogHub
 	logger     *slog.Logger
 	now        func() time.Time
@@ -103,6 +105,7 @@ type Options struct {
 	Storage    s3artifact.Storage
 	Webhooks   webhook.Dispatcher
 	Metering   metering.Emitter
+	GridSettle gridsettle.Settler
 	Logs       *LogHub
 	Logger     *slog.Logger
 	Now        func() time.Time
@@ -121,6 +124,9 @@ func NewService(opts Options) *Service {
 	}
 	if opts.Metering == nil {
 		opts.Metering = metering.NewInMemory()
+	}
+	if opts.GridSettle == nil {
+		opts.GridSettle = gridsettle.Noop{}
 	}
 	if opts.Logs == nil {
 		opts.Logs = NewLogHub(0)
@@ -143,6 +149,7 @@ func NewService(opts Options) *Service {
 		storage:    opts.Storage,
 		webhooks:   opts.Webhooks,
 		metering:   opts.Metering,
+		gridSettle: opts.GridSettle,
 		logs:       opts.Logs,
 		logger:     opts.Logger,
 		now:        opts.Now,
@@ -327,6 +334,7 @@ func (s *Service) UpdateStatus(ctx context.Context, id string, next Status, note
 	s.fireWebhook(ctx, updated, note)
 	if next.Terminal() {
 		s.emitMetering(ctx, updated)
+		s.settleGrid(ctx, updated)
 		// Keep log buffer alive briefly so late tails can still read.
 		// Production has a reaper goroutine; tests use Drop() directly.
 		go func(id string) {
@@ -466,6 +474,32 @@ func (s *Service) fireWebhook(ctx context.Context, b *Build, note string) {
 		AttemptID:   b.ProviderAttemptID,
 	}
 	s.webhooks.Enqueue(ctx, b.Webhook.URL, b.Webhook.Secret, ev)
+}
+
+// settleGrid pays the provider's devnet $GRID for a finished build (#700/
+// #712). It computes consumed = billable-minutes × rate and POSTs it to
+// billing-svc. The customer wallet isn't resolvable from a build yet (it
+// carries a WorkspaceID, not a wallet) — the HTTPSettler treats an empty
+// wallet as a no-op, so this is wired + exercised ahead of the
+// workspace→wallet binding + build escrow tracked in #718.
+func (s *Service) settleGrid(ctx context.Context, b *Build) {
+	if s.gridSettle == nil || b == nil || b.StartedAt == nil || b.FinishedAt == nil {
+		return
+	}
+	consumed := gridsettle.BillableToAtomic(b.BillableMinutes(s.now()), gridsettle.DefaultRatePerMinuteAtomic)
+	in := gridsettle.BuildSettleInput{
+		BuildID:        b.ID,
+		AttemptID:      b.ProviderAttemptID,
+		CustomerWallet: b.CustomerWallet, // empty until #718 — no-op then
+		EscrowedAtomic: consumed,
+		ConsumedAtomic: consumed,
+	}
+	if err := s.gridSettle.SettleBuild(ctx, in); err != nil {
+		s.logger.Warn("grid settle failed",
+			slog.String("build_id", b.ID),
+			slog.String("error", err.Error()),
+		)
+	}
 }
 
 func (s *Service) emitMetering(ctx context.Context, b *Build) {

@@ -108,25 +108,30 @@ type Webhook struct {
 // Build is the canonical persisted record of an in-flight or completed iOS
 // build job.
 type Build struct {
-	ID                string            `json:"id"`
-	WorkspaceID       string            `json:"workspace_id"`
-	SubmittedByUserID string            `json:"submitted_by_user_id,omitempty"`
-	GitURL            string            `json:"git_url"`
-	GitRef            string            `json:"git_ref"`
-	XcodeVersion      string            `json:"xcode_version"`
-	BuildCommand      string            `json:"build_command"`
-	SigningTeamID     string            `json:"signing_team_id,omitempty"`
-	EnvVars           map[string]string `json:"env_vars,omitempty"`
-	Status            Status            `json:"status"`
-	StatusNote        string            `json:"status_note,omitempty"`
-	ExitCode          int32             `json:"exit_code"`
-	ArtifactBucket    string            `json:"-"`
-	ArtifactPrefix    string            `json:"-"`
-	Artifacts         []Artifact        `json:"artifacts,omitempty"`
-	Webhook           *Webhook          `json:"webhook,omitempty"`
-	SubmittedAt       time.Time         `json:"submitted_at"`
-	StartedAt         *time.Time        `json:"started_at,omitempty"`
-	FinishedAt        *time.Time        `json:"finished_at,omitempty"`
+	ID                string `json:"id"`
+	WorkspaceID       string `json:"workspace_id"`
+	SubmittedByUserID string `json:"submitted_by_user_id,omitempty"`
+	// CustomerWallet is the devnet $GRID address the provider's build
+	// earnings settle against. Resolved from the workspace→wallet binding
+	// (iogrid/iogrid#718); empty until then, which makes settlement a
+	// no-op rather than an error.
+	CustomerWallet string            `json:"customer_wallet,omitempty"`
+	GitURL         string            `json:"git_url"`
+	GitRef         string            `json:"git_ref"`
+	XcodeVersion   string            `json:"xcode_version"`
+	BuildCommand   string            `json:"build_command"`
+	SigningTeamID  string            `json:"signing_team_id,omitempty"`
+	EnvVars        map[string]string `json:"env_vars,omitempty"`
+	Status         Status            `json:"status"`
+	StatusNote     string            `json:"status_note,omitempty"`
+	ExitCode       int32             `json:"exit_code"`
+	ArtifactBucket string            `json:"-"`
+	ArtifactPrefix string            `json:"-"`
+	Artifacts      []Artifact        `json:"artifacts,omitempty"`
+	Webhook        *Webhook          `json:"webhook,omitempty"`
+	SubmittedAt    time.Time         `json:"submitted_at"`
+	StartedAt      *time.Time        `json:"started_at,omitempty"`
+	FinishedAt     *time.Time        `json:"finished_at,omitempty"`
 	// ProviderAttemptID is the attempt_id workloads-svc gave us when we
 	// dispatched. Embedded so /artifacts uploads can be tied back to the
 	// originating run.

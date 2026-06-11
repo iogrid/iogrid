@@ -47,6 +47,7 @@ import (
 
 	"github.com/iogrid/iogrid/coordinator/services/build-gateway/internal/auth"
 	"github.com/iogrid/iogrid/coordinator/services/build-gateway/internal/builds"
+	"github.com/iogrid/iogrid/coordinator/services/build-gateway/internal/gridsettle"
 	"github.com/iogrid/iogrid/coordinator/services/build-gateway/internal/s3artifact"
 	"github.com/iogrid/iogrid/coordinator/services/build-gateway/internal/server"
 	"github.com/iogrid/iogrid/coordinator/services/build-gateway/internal/store"
@@ -101,11 +102,20 @@ func main() {
 	hub := builds.NewLogHub(2048)
 	webhookDisp := webhook.NewAsyncDispatcher(ctx, logger, 4, 256)
 
+	// $GRID build settlement (#700/#712): POST /v1/grid/build-end to
+	// billing-svc on terminal status. Empty BILLING_SVC_URL → Noop (dev).
+	var gridSettler gridsettle.Settler = gridsettle.Noop{}
+	if billingURL := os.Getenv("BILLING_SVC_URL"); billingURL != "" {
+		gridSettler = &gridsettle.HTTPSettler{BaseURL: billingURL}
+		logger.Info("grid build settlement enabled", slog.String("billing_svc", billingURL))
+	}
+
 	svc := builds.NewService(builds.Options{
 		Store:      st,
 		Dispatcher: disp,
 		Storage:    storage,
 		Webhooks:   webhookDisp,
+		GridSettle: gridSettler,
 		Logs:       hub,
 		Logger:     logger,
 	})
