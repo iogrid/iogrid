@@ -128,3 +128,65 @@ VMs, not host↔VM). To avoid 2×, the owner picks ONE:
 
 Net: nobody carries two Xcodes. The double only occurs if an owner insists on
 *both* native-for-self and Tart-for-iogrid, which this routing makes unnecessary.
+
+## Addendum 3 — developer-experience scorecard (a dev doing their OWN work)
+
+For a Mac owner who is also an iOS dev deciding whether to live inside a Tart
+VM vs work natively (0-100, higher = better):
+
+| Dimension | Native | Dev-in-Tart |
+|---|:--:|:--:|
+| IDE/UI responsiveness | 95 | 45 |
+| Physical iPhone debug (USB) | 95 | 10 |
+| Simulator performance | 90 | 60 |
+| Build / compile speed | 90 | 75 |
+| Full macOS (Continuity/iCloud/notifications) | 95 | 40 |
+| Peripherals (Touch ID/camera/displays/USB) | 95 | 25 |
+| Reproducible / resettable env | 50 | 95 |
+| Multiple Xcode versions side-by-side | 50 | 95 |
+| Isolation (work doesn't pollute the Mac) | 40 | 90 |
+| Setup effort | 70 | 60 |
+| Single-env disk footprint | 65 | 70 |
+| **Overall — daily interactive iOS dev** | **~82** | **~50** |
+| **Overall — CI / sim-only / multi-version** | **~62** | **~80** |
+
+Decisive for daily interactive dev: native (no physical-device debug in a VM,
+laggy IDE over screen-share). Tart wins only for non-interactive/CI work. →
+confirms "dev providers reuse native; non-devs run Tart."
+
+## Addendum 4 — the 2-VM cap + commercial-license RISK
+Apple enforces **max 2 macOS VMs per Mac** at the KERNEL level
+(`hv_apple_isa_vm_quota`), from macOS license §2B(iii) ("up to two instances …
+within virtual operating system environments … for software development,
+testing, and personal **non-commercial** use").
+- **Economic:** a provider Mac caps at **2 concurrent builds** — the per-Mac
+  earnings ceiling, regardless of how powerful the Mac is.
+- **Legal RISK (unresolved):** running macOS VMs commercially-for-hire on
+  third-party *consumer* Macs is a gray area Apple polices. The legit Mac
+  clouds (AWS EC2 Mac, MacStadium) use dedicated Apple hardware + special Apple
+  agreements + 24h minimums to comply. Needs real legal review before scale;
+  may force iOS-build providers into a vetted/contracted tier vs the open pool.
+
+## Addendum 5 — MAXIMUM security for the customer's source (threat: malicious host)
+Fundamental limit: code must be plaintext to compile; the provider owns the
+hardware; **Apple Silicon has no workload TEE** (Secure Enclave guards keys, not
+workloads), and FHE/MPC are too slow to compile. So **no cryptographic
+confidentiality is possible on a stranger's Mac.** Max security = defense in
+depth, biggest lever first:
+1. **Tier providers (the only real lever):** sensitive code → trusted tier
+   (iogrid-operated Apple HW, or KYC'd + bonded + NDA'd providers); open
+   consumer pool only for OSS/non-sensitive.
+2. **Customer keeps crown jewels:** signing keys/secrets NEVER leave the
+   customer (sign customer-side / HSM). Stolen source can't ship as their app.
+3. **Minimize exposure:** ephemeral VM; source decrypted only into VM
+   memory/tmpfs (never plaintext on provider disk); egress locked to iogrid
+   only; image-digest attestation (no silent backdoor of the build env).
+4. **Economic+legal deterrence (uses the $GRID layer):** providers stake $GRID
+   collateral → slashed + banned if caught snooping; KYC/NDA for the tier.
+5. **Detection + accountability:** per-build canary watermarks unique to
+   (customer, provider, build) → trace any leak to the provider → slash.
+
+**Implementable now on every tier (no business decision needed):** #2
+customer-side signing, #3 in-memory/no-disk source + egress lockdown +
+attestation, #5 canary watermarks. #1 + #4-KYC are product/business decisions.
+**Never market** cryptographic confidentiality on the open pool.
