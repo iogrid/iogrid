@@ -44,6 +44,13 @@ func Mount(deps Deps) func(chi.Router) {
 	return func(r chi.Router) {
 		r.Route("/v1", func(r chi.Router) {
 			r.Get("/", indexHandler)
+			// #705: poll-based dispatch. The bidi-stream Assignment push is
+			// dropped by the mothership edge for a REMOTE daemon (only the
+			// first server→client frame traverses). A daemon can instead
+			// POLL this endpoint (client→server, which traverses fine —
+			// the VPN binder works the same way) to pick up its assigned
+			// iOS builds.
+			r.Get("/providers/{providerID}/assigned-workloads", assignedWorkloadsHandler(deps))
 		})
 
 		sub := handlers.NewSubmissionHandler(deps.Store, deps.Dispatcher, deps.Log)
@@ -58,6 +65,54 @@ func Mount(deps Deps) func(chi.Router) {
 			path, h := mount()
 			r.Mount(path, h)
 		}
+	}
+}
+
+// assignedWorkloadsHandler serves a provider's dispatched-but-not-yet-
+// running iOS-build assignments (#705 poll-based delivery). The daemon
+// polls this, runs each build, and reports RUNNING via the existing
+// dispatch status path — which moves the assignment off "dispatched" so
+// it stops being served here.
+func assignedWorkloadsHandler(deps Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		providerID := chi.URLParam(r, "providerID")
+		if providerID == "" {
+			http.Error(w, "providerID required", http.StatusBadRequest)
+			return
+		}
+		assigns, err := deps.Store.ListPendingAssignments(r.Context(), providerID)
+		if err != nil {
+			http.Error(w, "list assignments failed", http.StatusInternalServerError)
+			return
+		}
+		out := make([]map[string]any, 0, len(assigns))
+		for _, a := range assigns {
+			wl, err := deps.Store.GetWorkload(r.Context(), a.WorkloadID)
+			if err != nil || wl == nil || wl.IOSBuild == nil {
+				continue // only iOS builds are pollable; skip others/missing
+			}
+			b := wl.IOSBuild
+			out = append(out, map[string]any{
+				"attempt_id":          a.ID,
+				"workload_id":         wl.ID,
+				"deadline":            a.Deadline,
+				"repo_url":            b.RepoURL,
+				"git_ref":             b.GitRef,
+				"build_command":       b.BuildCommand,
+				"tart_image":          b.TartImage,
+				"upload_url":          b.UploadURL,
+				"artifact_guest_path": b.ArtifactGuestPath,
+				"artifact_bucket":     b.ArtifactBucket,
+				"artifact_prefix":     b.ArtifactPrefix,
+				"cpu":                 b.CPU,
+			})
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"provider_id": providerID,
+			"count":       len(out),
+			"assignments": out,
+		})
 	}
 }
 
