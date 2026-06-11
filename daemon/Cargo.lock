@@ -1423,6 +1423,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "iogrid-platform-mac",
+ "reqwest",
  "serde",
  "serde_json",
  "thiserror",
