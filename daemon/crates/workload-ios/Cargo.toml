@@ -19,7 +19,11 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 uuid = { workspace = true }
+# #705: the build poller GETs the coordinator's assigned-workloads endpoint
+# (client→server, which traverses the edge — unlike the dropped server-push).
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 iogrid-platform-mac = { workspace = true }
