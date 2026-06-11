@@ -190,3 +190,38 @@ depth, biggest lever first:
 customer-side signing, #3 in-memory/no-disk source + egress lockdown +
 attestation, #5 canary watermarks. #1 + #4-KYC are product/business decisions.
 **Never market** cryptographic confidentiality on the open pool.
+
+## Addendum 6 — security-measure applicability: native Xcode vs Tart (0-100)
+
+How well each hardening measure can actually be APPLIED in each runner.
+
+| Security measure | Native | Tart | Note |
+|---|:--:|:--:|---|
+| **Runner-dependent (Tart wins)** | | | |
+| Ephemeral env (fresh + wiped per build) | 35 | 95 | Host persists state; clone/delete VM is ephemeral by design |
+| Source never plaintext on provider disk | 25 | 70 | Host swap/Spotlight/TimeMachine capture vs VM tmpfs + ephemeral disk |
+| Network egress lockdown (iogrid-only) | 30 | 90 | Firewalling the host hurts the owner; VM has its own controllable NIC |
+| Build isolated from host filesystem | 20 | 85 | Native runs as host user (sees owner files + vice-versa); VM sandboxed |
+| Multi-tenant safety (build A can't see B) | 30 | 95 | Shared host vs per-build VM |
+| Build-env attestation (non-backdoored toolchain) | 20 | 70 | Can't attest a host's Xcode; can pin+measure a VM image digest |
+| Instant kill + clean wipe of a bad build | 45 | 90 | Kill+clean vs delete the whole VM |
+| **Fundamental limit (NEITHER solves)** | | | |
+| Memory confidentiality (host can't dump build RAM) | 10 | 15 | No TEE on Apple Silicon; host owns the hardware/hypervisor |
+| **Runner-independent (equal — the real deterrents)** | | | |
+| Customer-side signing (keys never leave customer) | 90 | 90 | Applies regardless of runner |
+| Per-build canary watermark (trace leaks) | 85 | 85 | Inject into source regardless of runner |
+| $GRID staking / slashing deterrence | 85 | 85 | Economic layer, runner-independent |
+| Provider KYC / trusted-tier routing | 85 | 85 | Business layer, runner-independent |
+| **Overall — runner-dependent isolation only** | **~27** | **~85** | Tart dominates where the runner matters |
+| **Overall — incl. runner-independent layers** | **~45** | **~75** | Economic/key/legal layers lift both equally |
+
+**Three reads:**
+1. Where the runner actually matters (ephemerality, egress, host-FS isolation,
+   multi-tenant, attestation, kill/wipe), **Tart wins decisively (~85 vs ~27).**
+2. The fundamental ceiling — **memory dump by the host — NEITHER solves** (~10-15
+   both); no Apple-Silicon TEE. This is why truly secret code needs the trusted
+   tier, not just a better runner.
+3. The **decisive real-world protections are runner-independent** — customer-side
+   signing, canary watermarks, $GRID staking/slashing, KYC/tiering. They protect
+   equally under either runner, and they're where iogrid's actual security
+   posture comes from given no runner can cryptographically stop a malicious host.
