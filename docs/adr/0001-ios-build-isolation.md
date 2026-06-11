@@ -316,3 +316,42 @@ artifacts, memory) trivially; a sealed VM blocks casual access and forces active
 introspection (strong, not provable); only the trusted tier (host you control)
 is safe for crown-jewel source. → **Tart-only for the untrusted pool; native
 gated to trusted; trusted tier for secret source** (Addendum 8).
+
+## Addendum 10 — the host-macOS-version constraint (a third provider-eligibility axis)
+
+Discovered live baking the dog-food Mac (2026-06-11): the bake failed with
+`host macOS version is outdated to run this virtual machine`. The rule is
+Apple Virtualization.framework's, not Tart's: **a macOS guest VM requires the
+host macOS to be ≥ the guest macOS.** You cannot run a newer macOS guest on an
+older host.
+
+This adds a THIRD hard eligibility axis for an iOS-build provider, alongside
+"Apple Silicon" and "enough disk":
+
+| Host macOS | Max guest macOS | Max Xcode (→ max iOS SDK) |
+|---|---|---|
+| Sonoma (14) | Sonoma (14) | **Xcode 16.2** |
+| Sequoia (15) | Sequoia (15) | Xcode 26.x |
+| Tahoe (26) | Tahoe (26) | Xcode 26.x+ |
+
+**Why it bites:** Apple has required the iOS 26 SDK (Xcode 26+) for App Store
+uploads since ~2026-04. So a customer who needs an uploadable build can ONLY
+be served by a provider whose host is **Sequoia or newer**. A Sonoma provider
+can compile/test but cannot produce a current-SDK shippable build. The
+dog-food Mac (Hatice's M1) is on Sonoma 14.6.1 → it proves the pipeline with
+Xcode 16.2 but needs a host OS upgrade for production parity.
+
+**Consequences:**
+- **Scheduling:** the daemon must advertise `host_macos_version` → derived
+  `max_xcode`, and workloads-svc must route a job only to providers whose
+  max_xcode ≥ the job's required Xcode. Without this, jobs fail at build time
+  on under-versioned hosts. (New capability field; follow-up issue.)
+- **Trusted tier:** iogrid-operated build Macs must be kept on a current macOS
+  to serve current-SDK customers — an ongoing ops cost, not a one-time setup.
+- **Open pool fragmentation:** provider macOS-version diversity partitions the
+  fleet by buildable-Xcode; the effective capacity for the newest SDK is only
+  the Sequoia+ subset. Onboarding should surface "upgrade macOS to earn from
+  current-SDK jobs."
+- **Security note:** none of this changes the isolation model (Addenda 5–9);
+  it constrains WHICH providers can take WHICH jobs. The sealed-VM guarantees
+  are identical across host versions.
