@@ -45,6 +45,12 @@ func (m *Memory) CreateSession(ctx context.Context, session *Session) error {
 	if _, exists := m.sessions[session.ID]; exists {
 		return fmt.Errorf("session %s already exists", session.ID)
 	}
+	if session.CreatedAt.IsZero() {
+		// Parity with the Postgres schema's `created_at DEFAULT now()` —
+		// without this a zero CreatedAt reads as ancient and the #730
+		// bring-up cutoff would hide the session from the daemon poll.
+		session.CreatedAt = time.Now()
+	}
 	m.sessions[session.ID] = session
 	return nil
 }
