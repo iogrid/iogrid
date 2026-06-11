@@ -44,12 +44,13 @@
 #     [--push]                  # push the result to --out's registry
 set -euo pipefail
 
-BASE=""; OUT=""; XCODE_OCI=""; XCODE_XIP=""; XCODES_VERSION=""; KEEP_SIM="iOS 18.2"; DISK_GB=90; PUSH=0
+BASE=""; OUT=""; XCODE_OCI=""; XCODE_TAR=""; XCODE_XIP=""; XCODES_VERSION=""; KEEP_SIM="iOS 18.2"; DISK_GB=90; PUSH=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --base) BASE="$2"; shift 2 ;;
     --out)  OUT="$2";  shift 2 ;;
     --xcode-oci) XCODE_OCI="$2"; shift 2 ;;
+    --xcode-tar) XCODE_TAR="$2"; shift 2 ;;
     --xcode-xip) XCODE_XIP="$2"; shift 2 ;;
     --xcodes-version) XCODES_VERSION="$2"; shift 2 ;;
     --keep-sim) KEEP_SIM="$2"; shift 2 ;;
@@ -58,8 +59,8 @@ while [ $# -gt 0 ]; do
     *) echo "unknown arg: $1" >&2; exit 1 ;;
   esac
 done
-[ -n "$BASE" ] && [ -n "$OUT" ] || { echo "usage: --base <img> --out <img> (--xcode-oci <ref> | --xcode-xip <f> | --xcodes-version <v>) [--keep-sim ..] [--disk-gb N] [--push]" >&2; exit 1; }
-[ -n "$XCODE_OCI" ] || [ -n "$XCODE_XIP" ] || [ -n "$XCODES_VERSION" ] || { echo "need an Xcode source: --xcode-oci <ref> (+ GHCR_USER/GHCR_TOKEN) OR --xcode-xip <file> OR --xcodes-version <v>" >&2; exit 1; }
+[ -n "$BASE" ] && [ -n "$OUT" ] || { echo "usage: --base <img> --out <img> (--xcode-oci <ref> | --xcode-tar <file.tar.zst> | --xcode-xip <f> | --xcodes-version <v>) [--keep-sim ..] [--disk-gb N] [--push]" >&2; exit 1; }
+[ -n "$XCODE_OCI" ] || [ -n "$XCODE_TAR" ] || [ -n "$XCODE_XIP" ] || [ -n "$XCODES_VERSION" ] || { echo "need an Xcode source: --xcode-oci <ref> | --xcode-tar <file.tar.zst> | --xcode-xip <file> | --xcodes-version <v>" >&2; exit 1; }
 command -v tart >/dev/null 2>&1 || { echo "tart not found" >&2; exit 1; }
 
 VM="iogrid-base-bake-$$"
@@ -84,7 +85,24 @@ for _ in $(seq 1 90); do IP="$(tart ip "$VM" 2>/dev/null || true)"; [ -n "$IP" ]
 echo "[bake] guest up at $IP"
 
 # ── Install Xcode into the guest ──────────────────────────────────────────
-if [ -n "$XCODE_OCI" ]; then
+if [ -n "$XCODE_TAR" ]; then
+  # A local slim Xcode tarball (Xcode-<ver>.tar.zst from mirror-xcode-to-ghcr.yml,
+  # relayed onto this Mac). scp it into the guest, decompress straight into
+  # /Applications (stream — no intermediate .tar kept), then first-launch.
+  [ -f "$XCODE_TAR" ] || { echo "[bake] --xcode-tar not found: $XCODE_TAR" >&2; exit 1; }
+  echo "[bake] copying $(basename "$XCODE_TAR") into the guest…"
+  scp_vm "$XCODE_TAR" "$IP" "/tmp/xcode.tar.zst"
+  echo "[bake] expanding Xcode into /Applications + first-launch…"
+  ssh_vm "$IP" "
+    set -e
+    command -v zstd >/dev/null 2>&1 || brew install zstd
+    sudo rm -rf /Applications/Xcode.app
+    zstd -dc /tmp/xcode.tar.zst | sudo tar -C /Applications -xf - && rm -f /tmp/xcode.tar.zst
+    sudo xcode-select -s /Applications/Xcode.app
+    sudo xcodebuild -license accept
+    sudo xcodebuild -runFirstLaunch
+  "
+elif [ -n "$XCODE_OCI" ]; then
   # Pull the mirrored Xcode OCI artifact INSIDE the guest (it has the grown
   # disk; avoids a triple copy through the host). cirruslabs base images
   # ship Homebrew, so oras/zstd install cleanly.

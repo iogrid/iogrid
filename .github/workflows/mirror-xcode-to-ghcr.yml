@@ -73,6 +73,18 @@ jobs:
             | zstd -T0 -3 -o out/Xcode-${XCODE_VER}.tar.zst
           ls -lh out/
           shasum -a 256 out/Xcode-${XCODE_VER}.tar.zst | tee out/Xcode-${XCODE_VER}.sha256
+          echo "XCODE_TARBALL=out/Xcode-${XCODE_VER}.tar.zst" >> "$GITHUB_ENV"
+
+      # Also expose the tarball as a downloadable Actions artifact, so a
+      # provider Mac WITHOUT a ghcr read:packages token can still get it
+      # (operator relays it). ~3 GB compressed — well under the artifact cap.
+      - name: Upload Xcode tarball as an Actions artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcode-slim
+          path: out/
+          retention-days: 3
+          compression-level: 0
 
       - name: Install oras
         run: |
