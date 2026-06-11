@@ -240,12 +240,23 @@ export default function MainScreen() {
       // branches show. Fourth instance of the failure-masking
       // pattern (#675/#685/#686) had lived right here.
       console.warn('vpn start failed', e);
+      // #701: surface the REAL failing leg, not a generic sentence. The
+      // founder's device reproducibly lands here while the server side is
+      // verified healthy (session created, key registered, peer bound) —
+      // so the only way to find the failing leg (NEVPN SAVE_FAILED /
+      // RELOAD_FAILED / START_FAILED vs an HTTP/parse error) is for the
+      // alert itself to say which. Same honesty pattern as #684/#690.
+      const errCode = (e as { code?: string } | null)?.code;
+      const errMsg = e instanceof Error ? e.message : String(e);
+      console.warn(
+        `[iogrid/vpn] start failed code=${errCode ?? 'none'} msg=${errMsg}`,
+      );
       failActiveStep();
       await holdConnectingVisible();
       setState('OFF');
       Alert.alert(
         'Could not connect',
-        'Something went wrong starting the session. Check your connection and try again.',
+        `Something went wrong starting the session. Check your connection and try again.\n\nDiagnostic: ${errCode ? `[${errCode}] ` : ''}${errMsg}`,
       );
     }
   }, [state]);
