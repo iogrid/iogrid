@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -76,6 +77,33 @@ func TestAssignedWorkloadsPoll(t *testing.T) {
 		}
 		if out.Assignments[0].AttemptID != "att-1" || out.Assignments[0].BuildCommand != "xcodebuild build" {
 			t.Fatalf("unexpected assignment payload: %+v", out.Assignments[0])
+		}
+	})
+
+	t.Run("status report drains the assignment from the poll list", func(t *testing.T) {
+		// report terminal status for att-1 → it should leave the poll list.
+		body := `{"status":"succeeded","exit_code":0}`
+		resp, err := http.Post(srv.URL+"/v1/providers/"+provA+"/assigned-workloads/att-1/status",
+			"application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("status POST: want 200, got %d", resp.StatusCode)
+		}
+		// poll again → att-1 no longer dispatched.
+		r2, err := http.Get(srv.URL + "/v1/providers/" + provA + "/assigned-workloads")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r2.Body.Close()
+		var out struct {
+			Count int `json:"count"`
+		}
+		_ = json.NewDecoder(r2.Body).Decode(&out)
+		if out.Count != 0 {
+			t.Fatalf("after status drain, count = %d, want 0", out.Count)
 		}
 	})
 

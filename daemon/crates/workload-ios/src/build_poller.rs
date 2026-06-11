@@ -145,11 +145,15 @@ async fn run_poll_loop(
     runner: Arc<dyn IosBuildRunner>,
     mut shutdown_rx: tokio::sync::watch::Receiver<bool>,
 ) {
+    let base = config
+        .coordinator_base_url
+        .trim_end_matches('/')
+        .to_string();
     let url = format!(
         "{}/v1/providers/{}/assigned-workloads",
-        config.coordinator_base_url.trim_end_matches('/'),
-        config.provider_id
+        base, config.provider_id
     );
+    let provider_id = config.provider_id.clone();
     // Dedup so a build that's still RUNNING (and thus still listed until the
     // status update lands server-side) isn't started twice.
     let mut started: HashSet<String> = HashSet::new();
@@ -181,21 +185,49 @@ async fn run_poll_loop(
                     started.insert(a.attempt_id.clone());
                     let runner = Arc::clone(&runner);
                     let attempt = a.attempt_id.clone();
+                    let http2 = http.clone();
+                    let status_url = format!(
+                        "{}/v1/providers/{}/assigned-workloads/{}/status",
+                        base, provider_id, attempt
+                    );
                     // Run each build concurrently so the poll loop keeps
                     // ticking; the dedup guard prevents a re-start.
                     tokio::spawn(async move {
                         tracing::info!(attempt_id = %attempt, repo = %a.repo_url, "iOS build picked up via poll — running");
-                        match run_with_timeout(runner.as_ref(), a.to_workload()).await {
-                            Ok(res) => tracing::info!(
-                                attempt_id = %attempt, exit_code = res.exit_code,
-                                "iOS build finished"),
-                            Err(e) => tracing::warn!(
-                                attempt_id = %attempt, error = %e, "iOS build failed"),
-                        }
+                        // Report RUNNING so the assignment drains off the
+                        // server's "dispatched" poll list immediately (#705).
+                        report_status(&http2, &status_url, "running", 0).await;
+                        let (status, code) = match run_with_timeout(runner.as_ref(), a.to_workload()).await {
+                            Ok(res) => {
+                                tracing::info!(attempt_id = %attempt, exit_code = res.exit_code, "iOS build finished");
+                                (if res.exit_code == 0 { "succeeded" } else { "failed" }, res.exit_code)
+                            }
+                            Err(e) => {
+                                tracing::warn!(attempt_id = %attempt, error = %e, "iOS build failed");
+                                ("failed", 1)
+                            }
+                        };
+                        report_status(&http2, &status_url, status, code).await;
                     });
                 }
             }
         }
+    }
+}
+
+/// POST the build outcome so the assignment drains off the server's
+/// "dispatched" poll list (#705). Best-effort: a failure only means the
+/// assignment lingers + is re-served, which the local dedup guard already
+/// prevents within this daemon's lifetime — so we log + move on.
+async fn report_status(http: &reqwest::Client, url: &str, status: &str, exit_code: i32) {
+    let body = serde_json::json!({ "status": status, "exit_code": exit_code });
+    match tokio::time::timeout(TICK_TIMEOUT, http.post(url).json(&body).send()).await {
+        Ok(Ok(r)) if r.status().is_success() => {}
+        Ok(Ok(r)) => {
+            tracing::warn!(url = %url, status = %r.status(), "report build status: non-2xx")
+        }
+        Ok(Err(e)) => tracing::warn!(url = %url, error = %e, "report build status failed"),
+        Err(_) => tracing::warn!(url = %url, "report build status timed out"),
     }
 }
 

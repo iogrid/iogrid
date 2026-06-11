@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -51,6 +52,12 @@ func Mount(deps Deps) func(chi.Router) {
 			// the VPN binder works the same way) to pick up its assigned
 			// iOS builds.
 			r.Get("/providers/{providerID}/assigned-workloads", assignedWorkloadsHandler(deps))
+			// #705: the poll path's status report. After a polling daemon
+			// picks up + runs a build it POSTs the outcome here (client→
+			// server, traverses the edge) so the assignment drains off
+			// "dispatched" — otherwise it lingers in the poll list and a
+			// daemon restart would re-run it.
+			r.Post("/providers/{providerID}/assigned-workloads/{attemptID}/status", assignedWorkloadStatusHandler(deps))
 		})
 
 		sub := handlers.NewSubmissionHandler(deps.Store, deps.Dispatcher, deps.Log)
@@ -113,6 +120,58 @@ func assignedWorkloadsHandler(deps Deps) http.HandlerFunc {
 			"count":       len(out),
 			"assignments": out,
 		})
+	}
+}
+
+// assignedWorkloadStatusHandler drains a poll-dispatched assignment: it
+// records the daemon-reported status on both the assignment (so it leaves
+// the "dispatched" poll list) and the workload (so the customer-facing
+// record advances). Mirrors the dispatch-stream status path (dispatch.go).
+func assignedWorkloadStatusHandler(deps Deps) http.HandlerFunc {
+	type statusReq struct {
+		Status   string `json:"status"`
+		ExitCode int    `json:"exit_code"`
+		Note     string `json:"note"`
+	}
+	// known terminal states (mirror handlers.isTerminal without the import).
+	terminal := map[store.Status]bool{
+		store.StatusSucceeded: true, store.StatusFailed: true,
+		store.StatusTimedOut: true, store.StatusCancelled: true, store.StatusRejected: true,
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		providerID := chi.URLParam(r, "providerID")
+		attemptID := chi.URLParam(r, "attemptID")
+		var in statusReq
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			http.Error(w, "invalid body", http.StatusBadRequest)
+			return
+		}
+		st := store.Status(in.Status)
+		if st != store.StatusRunning && !terminal[st] {
+			http.Error(w, "unknown status", http.StatusBadRequest)
+			return
+		}
+		a, err := deps.Store.GetAssignment(r.Context(), attemptID)
+		if err != nil || a == nil {
+			http.Error(w, "assignment not found", http.StatusNotFound)
+			return
+		}
+		if providerID != "" && a.ProviderID != providerID {
+			http.Error(w, "assignment belongs to another provider", http.StatusForbidden)
+			return
+		}
+		a.LatestStatus = st // drops it from ListPendingAssignments (== dispatched)
+		_ = deps.Store.UpdateAssignment(r.Context(), a)
+		_ = deps.Store.UpdateWorkloadStatus(r.Context(), a.WorkloadID, st, in.Note)
+		if terminal[st] {
+			_ = deps.Store.SetWorkloadResult(r.Context(), a.WorkloadID, &store.Result{
+				TerminalStatus: string(st),
+				ExitCode:       int32(in.ExitCode),
+				CompletedAt:    time.Now().UTC(),
+			})
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"attempt_id": attemptID, "status": string(st), "drained": true})
 	}
 }
 
