@@ -109,6 +109,16 @@ func main() {
 		gridSettler = &gridsettle.HTTPSettler{BaseURL: billingURL}
 		logger.Info("grid build settlement enabled", slog.String("billing_svc", billingURL))
 	}
+	// Wallet resolution (#718): identity-svc internal endpoint. Empty
+	// IDENTITY_SVC_URL → Noop (builds settle to no wallet = no-op).
+	var walletResolver gridsettle.WalletResolver = gridsettle.NoopWalletResolver{}
+	if idURL := os.Getenv("IDENTITY_SVC_URL"); idURL != "" {
+		walletResolver = &gridsettle.HTTPWalletResolver{
+			IdentityURL: idURL,
+			Token:       os.Getenv("IDENTITY_INTERNAL_TOKEN"),
+		}
+		logger.Info("grid wallet resolution enabled", slog.String("identity_svc", idURL))
+	}
 
 	svc := builds.NewService(builds.Options{
 		Store:      st,
@@ -116,6 +126,7 @@ func main() {
 		Storage:    storage,
 		Webhooks:   webhookDisp,
 		GridSettle: gridSettler,
+		Wallets:    walletResolver,
 		Logs:       hub,
 		Logger:     logger,
 	})
