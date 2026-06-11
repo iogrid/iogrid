@@ -183,6 +183,17 @@ spec:
         flushInterval: 100ms
       scheme: h2c
       serversTransport: long-lived-bidi
+  # #705: poll-based iOS-build dispatch. A REMOTE daemon polls this plain
+  # REST endpoint (the bidi-stream Assignment server-push is dropped by the
+  # edge). Specific PathRegexp so it doesn't shadow providers-svc's
+  # /v1/providers namespace; plain http (the GET is h1, not the gRPC h2c).
+  # Applied + verified live (returns 200 from workloads-svc).
+  - kind: Rule
+    match: Host(`api.iogrid.org`) && PathRegexp(`^/v1/providers/[^/]+/assigned-workloads$`)
+    priority: 110
+    services:
+    - name: workloads-svc
+      port: 8080
   tls:
     secretName: iogrid-tls
 
