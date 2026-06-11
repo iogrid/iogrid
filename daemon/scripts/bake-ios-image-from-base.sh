@@ -30,20 +30,26 @@
 #   bake-ios-image-from-base.sh \
 #     --base ghcr.io/cirruslabs/macos-sequoia-base:latest \
 #     --out  ghcr.io/emrahbaysal/iogrid-ios-builder:16.4 \
-#     --xcode-xip /path/to/Xcode_16.4.xip          # option A: a provided .xip
+#     --xcode-oci ghcr.io/iogrid/iogrid-xcode:latest  # option A (DEFAULT, autonomous):
+#       # an oras OCI artifact baked by .github/workflows/mirror-xcode-to-ghcr.yml
+#       # (a runner's latest-stable Xcode 26, tar+zstd). No Apple login. Needs
+#       # GHCR_USER + GHCR_TOKEN in the env for the private pull.
 #       # --- OR ---
-#     --xcodes-version 16.4                          # option B: xcodes downloads it
+#     --xcode-xip /path/to/Xcode.xip                 # option B: a provided .xip
+#       # --- OR ---
+#     --xcodes-version 26.4                           # option C: xcodes downloads it
 #       # (needs XCODES_APPLE_ID + XCODES_PASSWORD in the env; Apple auth)
 #     [--keep-sim "iOS 18.2"]   # which iOS runtime to install (default: latest iOS)
 #     [--disk-gb 90]            # grow the guest disk to this (sparse) size
 #     [--push]                  # push the result to --out's registry
 set -euo pipefail
 
-BASE=""; OUT=""; XCODE_XIP=""; XCODES_VERSION=""; KEEP_SIM="iOS 18.2"; DISK_GB=90; PUSH=0
+BASE=""; OUT=""; XCODE_OCI=""; XCODE_XIP=""; XCODES_VERSION=""; KEEP_SIM="iOS 18.2"; DISK_GB=90; PUSH=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --base) BASE="$2"; shift 2 ;;
     --out)  OUT="$2";  shift 2 ;;
+    --xcode-oci) XCODE_OCI="$2"; shift 2 ;;
     --xcode-xip) XCODE_XIP="$2"; shift 2 ;;
     --xcodes-version) XCODES_VERSION="$2"; shift 2 ;;
     --keep-sim) KEEP_SIM="$2"; shift 2 ;;
@@ -52,8 +58,8 @@ while [ $# -gt 0 ]; do
     *) echo "unknown arg: $1" >&2; exit 1 ;;
   esac
 done
-[ -n "$BASE" ] && [ -n "$OUT" ] || { echo "usage: --base <img> --out <img> (--xcode-xip <f> | --xcodes-version <v>) [--keep-sim ..] [--disk-gb N] [--push]" >&2; exit 1; }
-[ -n "$XCODE_XIP" ] || [ -n "$XCODES_VERSION" ] || { echo "need an Xcode source: --xcode-xip <file> OR --xcodes-version <v> (+ XCODES_APPLE_ID/XCODES_PASSWORD)" >&2; exit 1; }
+[ -n "$BASE" ] && [ -n "$OUT" ] || { echo "usage: --base <img> --out <img> (--xcode-oci <ref> | --xcode-xip <f> | --xcodes-version <v>) [--keep-sim ..] [--disk-gb N] [--push]" >&2; exit 1; }
+[ -n "$XCODE_OCI" ] || [ -n "$XCODE_XIP" ] || [ -n "$XCODES_VERSION" ] || { echo "need an Xcode source: --xcode-oci <ref> (+ GHCR_USER/GHCR_TOKEN) OR --xcode-xip <file> OR --xcodes-version <v>" >&2; exit 1; }
 command -v tart >/dev/null 2>&1 || { echo "tart not found" >&2; exit 1; }
 
 VM="iogrid-base-bake-$$"
@@ -78,7 +84,28 @@ for _ in $(seq 1 90); do IP="$(tart ip "$VM" 2>/dev/null || true)"; [ -n "$IP" ]
 echo "[bake] guest up at $IP"
 
 # ── Install Xcode into the guest ──────────────────────────────────────────
-if [ -n "$XCODE_XIP" ]; then
+if [ -n "$XCODE_OCI" ]; then
+  # Pull the mirrored Xcode OCI artifact INSIDE the guest (it has the grown
+  # disk; avoids a triple copy through the host). cirruslabs base images
+  # ship Homebrew, so oras/zstd install cleanly.
+  : "${GHCR_USER:?set GHCR_USER for the ghcr pull}"; : "${GHCR_TOKEN:?set GHCR_TOKEN}"
+  echo "[bake] installing oras+zstd in the guest, pulling $XCODE_OCI…"
+  ssh_vm "$IP" "command -v oras >/dev/null 2>&1 || brew install oras; command -v zstd >/dev/null 2>&1 || brew install zstd"
+  ssh_vm "$IP" "echo '$GHCR_TOKEN' | oras login ghcr.io -u '$GHCR_USER' --password-stdin"
+  echo "[bake] pulling + expanding Xcode (slow — ~15 GB pull, ~35 GB expand)…"
+  ssh_vm "$IP" "
+    set -e
+    cd /tmp && rm -rf xc && mkdir xc && cd xc
+    oras pull '$XCODE_OCI'
+    TZ=\$(ls Xcode-*.tar.zst | head -1)
+    zstd -d -T0 \"\$TZ\" -o xcode.tar && rm -f \"\$TZ\"
+    sudo rm -rf /Applications/Xcode.app
+    sudo tar -C /Applications -xf xcode.tar && rm -f xcode.tar
+    sudo xcode-select -s /Applications/Xcode.app
+    sudo xcodebuild -license accept
+    sudo xcodebuild -runFirstLaunch
+  "
+elif [ -n "$XCODE_XIP" ]; then
   [ -f "$XCODE_XIP" ] || { echo "[bake] --xcode-xip not found: $XCODE_XIP" >&2; exit 1; }
   echo "[bake] copying $(basename "$XCODE_XIP") into the guest (~8 GB)…"
   scp_vm "$XCODE_XIP" "$IP" "/tmp/Xcode.xip"
