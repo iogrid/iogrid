@@ -49,6 +49,7 @@ type persistedBuild struct {
 	ID                string              `json:"id"`
 	WorkspaceID       string              `json:"workspace_id"`
 	SubmittedByUserID string              `json:"submitted_by_user_id"`
+	CustomerWallet    string              `json:"customer_wallet,omitempty"`
 	GitURL            string              `json:"git_url"`
 	GitRef            string              `json:"git_ref"`
 	XcodeVersion      string              `json:"xcode_version"`
@@ -87,6 +88,7 @@ func toPersisted(b *builds.Build) *persistedBuild {
 		ID:                b.ID,
 		WorkspaceID:       b.WorkspaceID,
 		SubmittedByUserID: b.SubmittedByUserID,
+		CustomerWallet:    b.CustomerWallet,
 		GitURL:            b.GitURL,
 		GitRef:            b.GitRef,
 		XcodeVersion:      b.XcodeVersion,
@@ -124,6 +126,7 @@ func (p *persistedBuild) toBuild() *builds.Build {
 		ID:                p.ID,
 		WorkspaceID:       p.WorkspaceID,
 		SubmittedByUserID: p.SubmittedByUserID,
+		CustomerWallet:    p.CustomerWallet,
 		GitURL:            p.GitURL,
 		GitRef:            p.GitRef,
 		XcodeVersion:      p.XcodeVersion,
