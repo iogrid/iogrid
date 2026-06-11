@@ -37,10 +37,11 @@ func (p *Postgres) CreateSession(ctx context.Context, session *Session) error {
 		INSERT INTO vpn_sessions (
 			id, customer_id, region, primary_provider_id, current_provider_id,
 			state, created_at, last_activity_at,
-			customer_wg_public_key, client_public_key, inner_ip, expires_at
+			customer_wg_public_key, client_public_key, inner_ip, expires_at,
+			payment_authorization
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8,
-			$9, $10, $11, $12
+			$9, $10, $11, $12, $13
 		)
 	`
 	// inner_ip is INET — an empty string is not a valid INET literal, so
@@ -48,6 +49,13 @@ func (p *Postgres) CreateSession(ctx context.Context, session *Session) error {
 	var innerIP any
 	if session.InnerIP != "" {
 		innerIP = session.InnerIP
+	}
+	// payment_authorization is JSONB — empty bytes are not valid JSON, so
+	// pass NULL for sessions without an escrow body (#726 audit: this
+	// column was silently dropped by the INSERT, the #709 bug class).
+	var paymentAuth any
+	if len(session.PaymentAuthorization) > 0 {
+		paymentAuth = session.PaymentAuthorization
 	}
 	_, err := p.pool.Exec(ctx, query,
 		session.ID,
@@ -62,6 +70,7 @@ func (p *Postgres) CreateSession(ctx context.Context, session *Session) error {
 		session.ClientPublicKey,
 		innerIP,
 		session.ExpiresAt,
+		paymentAuth,
 	)
 	return err
 }
@@ -74,7 +83,7 @@ func (p *Postgres) GetSession(ctx context.Context, sessionID uuid.UUID) (*Sessio
 		       ice_candidate_count, ice_time_ms, wg_establish_time_ms,
 		       created_at, terminated_at, last_activity_at, exit_reason,
 		       COALESCE(provider_wg_public_key, ''), COALESCE(customer_wg_public_key, ''),
-		       billed_at, COALESCE(host(inner_ip), '')
+		       billed_at, COALESCE(host(inner_ip), ''), payment_authorization
 		FROM vpn_sessions
 		WHERE id = $1
 	`
@@ -124,7 +133,7 @@ func (p *Postgres) ListActiveSessionsByRegion(ctx context.Context, region string
 		       ice_candidate_count, ice_time_ms, wg_establish_time_ms,
 		       created_at, terminated_at, last_activity_at, exit_reason,
 		       COALESCE(provider_wg_public_key, ''), COALESCE(customer_wg_public_key, ''),
-		       billed_at, COALESCE(host(inner_ip), '')
+		       billed_at, COALESCE(host(inner_ip), ''), payment_authorization
 		FROM vpn_sessions
 		WHERE region = $1 AND terminated_at IS NULL
 		ORDER BY created_at DESC
@@ -154,7 +163,7 @@ func (p *Postgres) ListSessionsByCustomer(ctx context.Context, customerID uuid.U
 		       ice_candidate_count, ice_time_ms, wg_establish_time_ms,
 		       created_at, terminated_at, last_activity_at, exit_reason,
 		       COALESCE(provider_wg_public_key, ''), COALESCE(customer_wg_public_key, ''),
-		       billed_at, COALESCE(host(inner_ip), '')
+		       billed_at, COALESCE(host(inner_ip), ''), payment_authorization
 		FROM vpn_sessions
 		WHERE customer_id = $1
 		ORDER BY created_at DESC
@@ -568,7 +577,7 @@ func (p *Postgres) ListAssignedSessions(ctx context.Context, providerID uuid.UUI
 		       ice_candidate_count, ice_time_ms, wg_establish_time_ms,
 		       created_at, terminated_at, last_activity_at, exit_reason,
 		       COALESCE(provider_wg_public_key, ''), COALESCE(customer_wg_public_key, ''),
-		       billed_at, COALESCE(host(inner_ip), '')
+		       billed_at, COALESCE(host(inner_ip), ''), payment_authorization
 		FROM vpn_sessions
 		WHERE current_provider_id = $1
 		  AND terminated_at IS NULL
@@ -644,7 +653,7 @@ func (p *Postgres) ListUnbilledTerminatedSessions(ctx context.Context, limit int
 		       ice_candidate_count, ice_time_ms, wg_establish_time_ms,
 		       created_at, terminated_at, last_activity_at, exit_reason,
 		       COALESCE(provider_wg_public_key, ''), COALESCE(customer_wg_public_key, ''),
-		       billed_at, COALESCE(host(inner_ip), '')
+		       billed_at, COALESCE(host(inner_ip), ''), payment_authorization
 		FROM vpn_sessions
 		WHERE terminated_at IS NOT NULL AND billed_at IS NULL
 		ORDER BY terminated_at ASC
@@ -722,6 +731,7 @@ func (p *Postgres) scanSession(row interface {
 		&session.CustomerWgPublicKey,
 		&session.BilledAt,
 		&session.InnerIP, // #701: the daemon's #695 return-routing needs it
+		&session.PaymentAuthorization, // #726 audit: was silently dropped
 	)
 	if err != nil {
 		return nil, fmt.Errorf("scan session: %w", err)
