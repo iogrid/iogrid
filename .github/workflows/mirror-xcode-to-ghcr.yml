@@ -24,13 +24,18 @@ jobs:
   mirror:
     runs-on: macos-latest
     steps:
-      - name: Select Xcode
+      # Use the SAME selector mobile-ios-ci.yml uses (latest-stable) so the
+      # mirrored Xcode EXACTLY matches what the real TestFlight build uses
+      # (Xcode 26.3 as of 2026-06). The runner's *default* xcode-select is an
+      # older pinned 16.4 — taking that produced the wrong major version.
+      - name: Select Xcode (latest-stable, matching production CI)
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: ${{ inputs.xcode_version != '' && inputs.xcode_version || 'latest-stable' }}
+
+      - name: Resolve selected Xcode
         run: |
           set -euo pipefail
-          if [ -n "${{ inputs.xcode_version }}" ]; then
-            sudo xcode-select -s "/Applications/Xcode_${{ inputs.xcode_version }}.app" || true
-          fi
-          # Resolve whatever is now selected (latest-stable on the runner by default).
           XCODE_PATH="$(xcode-select -p)"            # …/Xcode.app/Contents/Developer
           APP="${XCODE_PATH%/Contents/Developer}"    # …/Xcode.app
           VER="$(xcodebuild -version | awk 'NR==1{print $2}')"
