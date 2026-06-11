@@ -102,3 +102,29 @@ Xcode and never touch (or depend on) the host's. No conflict.
 layer + a trusted tier for sensitive source. For first-party/dog-food on a Mac you
 already control → native is fine and lighter. Crucially, **no runner makes a random
 stranger's Mac safe for truly secret source** — that requires the trusted tier.
+
+## Addendum 2 — avoiding the "two Xcodes" double footprint (match runner to person)
+
+A Mac owner who is ALSO an iOS dev must not be forced to carry both a native
+Xcode (~40 GB on the host) AND a Tart image (~35 GB) — those are separate
+storage (~75 GB total; Tart's copy-on-write sharing only helps *between* Tart
+VMs, not host↔VM). To avoid 2×, the owner picks ONE:
+
+- **All-Tart:** do their own dev inside a persistent Tart VM; iogrid builds are
+  throwaway clones of the SAME base image → one ~35 GB image + thin deltas.
+  Catch: laggy GUI over screen-sharing + **no physical-device debugging** (no
+  USB passthrough in macOS VMs). OK for simulator-only/casual devs, painful as a
+  daily driver for serious iOS devs.
+- **Reuse native:** if they already have Xcode, iogrid runs builds on it (native
+  runner) → ZERO extra footprint. Lower isolation → trusted/OSS tier; the
+  scheduler only routes builds whose required Xcode **matches** theirs (so the
+  version mismatch still never surfaces).
+
+**Decision — route the runner to the provider type:**
+- *Already an iOS dev (has Xcode):* reuse native, one footprint, keeps device
+  debugging, serves version-matched builds in the trusted/OSS pool.
+- *Non-dev / wants isolation / version flexibility:* Tart (and may do light dev
+  inside the same VM, still one footprint).
+
+Net: nobody carries two Xcodes. The double only occurs if an owner insists on
+*both* native-for-self and Tart-for-iogrid, which this routing makes unnecessary.
