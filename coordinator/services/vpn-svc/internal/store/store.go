@@ -8,6 +8,13 @@ import (
 	pb "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/vpn/v1"
 )
 
+// AssignedSessionMaxAge is the bring-up window for ListAssignedSessions:
+// a session the daemon hasn't been able to bind within this window is an
+// abandoned connect attempt (the mobile app's attempt lives ~30s), and
+// returning it forever floods the binder log + grows the poll unbounded
+// (#730). Generous so slow clients / retries still bind.
+const AssignedSessionMaxAge = 15 * time.Minute
+
 // Store defines the interface for VPN session and ICE candidate persistence.
 type Store interface {
 	// --- VPN Sessions ---
@@ -104,7 +111,11 @@ type Store interface {
 
 	// ListAssignedSessions returns sessions assigned to a provider that
 	// don't yet have ProviderWgPublicKey set. Daemon polls this every
-	// ~5s to find new customers to allocate peer slots for.
+	// ~5s to find new customers to allocate peer slots for. Sessions
+	// older than AssignedSessionMaxAge are excluded: a session that
+	// hasn't been bound within the bring-up window is an abandoned
+	// connect attempt, and without the cutoff the daemon polls it
+	// forever (#730 — 9 day-old zombies, every 5s, unbounded growth).
 	ListAssignedSessions(ctx context.Context, providerID uuid.UUID) ([]*Session, error)
 
 	// ListRegions aggregates provider counts per region for the customer

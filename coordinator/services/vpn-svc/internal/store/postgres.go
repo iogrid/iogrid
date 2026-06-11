@@ -573,9 +573,10 @@ func (p *Postgres) ListAssignedSessions(ctx context.Context, providerID uuid.UUI
 		WHERE current_provider_id = $1
 		  AND terminated_at IS NULL
 		  AND (provider_wg_public_key IS NULL OR provider_wg_public_key = '')
+		  AND created_at > now() - make_interval(secs => $2)
 		ORDER BY created_at ASC
 	`
-	rows, err := p.pool.Query(ctx, query, providerID)
+	rows, err := p.pool.Query(ctx, query, providerID, AssignedSessionMaxAge.Seconds())
 	if err != nil {
 		return nil, fmt.Errorf("query assigned sessions: %w", err)
 	}

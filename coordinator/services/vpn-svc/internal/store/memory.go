@@ -45,6 +45,12 @@ func (m *Memory) CreateSession(ctx context.Context, session *Session) error {
 	if _, exists := m.sessions[session.ID]; exists {
 		return fmt.Errorf("session %s already exists", session.ID)
 	}
+	if session.CreatedAt.IsZero() {
+		// Parity with the Postgres schema's `created_at DEFAULT now()` —
+		// without this a zero CreatedAt reads as ancient and the #730
+		// bring-up cutoff would hide the session from the daemon poll.
+		session.CreatedAt = time.Now()
+	}
 	m.sessions[session.ID] = session
 	return nil
 }
@@ -522,6 +528,7 @@ func (m *Memory) ListAssignedSessions(ctx context.Context, providerID uuid.UUID)
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	var result []*Session
+	cutoff := time.Now().Add(-AssignedSessionMaxAge)
 	for _, session := range m.sessions {
 		if session.TerminatedAt != nil {
 			continue
@@ -531,6 +538,9 @@ func (m *Memory) ListAssignedSessions(ctx context.Context, providerID uuid.UUID)
 		}
 		if session.ProviderWgPublicKey != "" {
 			continue // already bound
+		}
+		if session.CreatedAt.Before(cutoff) {
+			continue // abandoned bring-up — never bound, don't poll forever (#730)
 		}
 		result = append(result, session)
 	}
