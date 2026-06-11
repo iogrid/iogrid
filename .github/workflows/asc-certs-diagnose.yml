@@ -1,0 +1,55 @@
+# List the Apple team's signing certificates + their validity, so we can see
+# which are revoked/expired and mint a fresh Distribution cert (build 174
+# failed: "Apple Distribution ... has been revoked"). Read-only query.
+name: asc-certs-diagnose
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  certs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: List certificates
+        env:
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+        run: |
+          pip3 install --quiet pyjwt cryptography 2>&1 | tail -1 || true
+          python3 - <<'PY'
+          import os, time, json, urllib.request, base64
+          import jwt as pyjwt
+          pem=os.environ['ASC_PRIVATE_KEY']
+          if 'BEGIN' not in pem:
+              try: pem=base64.b64decode(pem).decode()
+              except Exception: pass
+          tok=pyjwt.encode({'iss':os.environ['ASC_ISSUER_ID'],'iat':int(time.time()),'exp':int(time.time())+1200,'aud':'appstoreconnect-v1'},
+                           pem, algorithm='ES256', headers={'kid':os.environ['ASC_KEY_ID'],'typ':'JWT'})
+          def api(path):
+              return json.load(urllib.request.urlopen(urllib.request.Request(
+                  'https://api.appstoreconnect.apple.com'+path, headers={'Authorization':f'Bearer {tok}'}), timeout=30))
+          r=api('/v1/certificates?limit=200&fields[certificates]=certificateType,displayName,serialNumber,expirationDate,name')
+          print(f'=== {len(r["data"])} certificates on the team ===')
+          dist=0
+          for c in r['data']:
+              a=c['attributes']
+              t=a.get('certificateType','')
+              if 'DISTRIBUTION' in t or 'DIST' in t: dist+=1
+              print(f"  {t:<28} exp={a.get('expirationDate','')[:10]} serial={a.get('serialNumber','')} name={a.get('displayName','')}")
+          print(f'\nDistribution-type certs present: {dist}')
+          print('NOTE: the ASC API only returns NON-revoked certs (revoked ones are removed).')
+          print('So if the build-revoked serial 56394624642717538190425886816675181187 is NOT listed,')
+          print('it is gone and we must CREATE a fresh Distribution cert + provisioning profile.')
+          # Also report current bundle profiles
+          try:
+              p=api('/v1/profiles?limit=200&fields[profiles]=name,profileType,profileState,expirationDate')
+              print(f'\n=== {len(p["data"])} provisioning profiles ===')
+              for pr in p['data']:
+                  a=pr['attributes']
+                  print(f"  {a.get('profileType',''):<28} {a.get('profileState',''):<8} exp={a.get('expirationDate','')[:10]} {a.get('name','')}")
+          except Exception as e:
+              print('profiles query failed:', e)
+          PY
