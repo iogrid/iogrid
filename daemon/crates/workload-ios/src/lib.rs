@@ -37,6 +37,10 @@
 /// assigned builds instead of relying on the edge-dropped server-push.
 pub mod build_poller;
 
+/// Automatic Tart toolchain provisioning (#700) — install Tart + pull the
+/// pinned Xcode image so the host never installs Xcode by hand.
+pub mod provision;
+
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -352,7 +356,22 @@ pub fn auto_runner() -> std::sync::Arc<dyn IosBuildRunner> {
     if tart_present {
         std::sync::Arc::new(TartRunner::default())
     } else {
-        tracing::info!("tart not on PATH — using native host-direct iOS-build runner");
+        // Falling back to native means building against whatever Xcode the
+        // host has (the version-mismatch trap). On a Mac that CAN run Tart,
+        // make the gap loud + actionable instead of silent — the daemon's
+        // onboarding should `provision::ensure_provisioned()` (run
+        // provision-mac-provider.sh) to install Tart + the pinned image. See
+        // `provision` module + ADR 0001.
+        if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+            tracing::warn!(
+                "tart not installed on an Apple-Silicon Mac — falling back to the NATIVE \
+                 host-direct runner, which builds against the host's Xcode (version-mismatch \
+                 risk). Run provision-mac-provider.sh (provision::ensure_provisioned) for \
+                 isolated, version-pinned builds."
+            );
+        } else {
+            tracing::info!("tart not on PATH — using native host-direct iOS-build runner");
+        }
         std::sync::Arc::new(NativeRunner::default())
     }
 }
