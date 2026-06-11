@@ -4,6 +4,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -82,5 +83,63 @@ func TestPostgres_CreateSession_PersistsCustomerWgKey(t *testing.T) {
 	}
 	if got.CustomerWgPublicKey != deviceKey {
 		t.Fatalf("GetSession CustomerWgPublicKey=%q, want %q", got.CustomerWgPublicKey, deviceKey)
+	}
+}
+
+// TestPostgres_CreateSession_PersistsPaymentAuthorization is the #726-audit
+// regression test: the CreateSession INSERT silently dropped
+// payment_authorization (the #709 bug class — in-memory kept the struct,
+// Postgres dropped the column), which would break the #596 escrow flow the
+// moment anything reads the authorization back from the DB.
+func TestPostgres_CreateSession_PersistsPaymentAuthorization(t *testing.T) {
+	pool, cleanup := newPostgresFixture(t)
+	defer cleanup()
+	p := &Postgres{pool: pool}
+	ctx := context.Background()
+
+	providerID := uuid.New()
+	seedProviderRow(t, ctx, p, providerID)
+
+	auth := []byte(`{"wallet_address":"7g1sQ","max_grid_per_min":"1000","nonce":"n-1"}`)
+	sess := &Session{
+		ID:                   uuid.New(),
+		CustomerID:           uuid.New(),
+		Region:               "us-east-1",
+		PrimaryProvider:      providerID,
+		CurrentProvider:      providerID,
+		State:                pb.VpnSessionState_VPN_SESSION_STATE_CREATING,
+		CreatedAt:            time.Now().UTC(),
+		LastActivityAt:       time.Now().UTC(),
+		PaymentAuthorization: auth,
+	}
+	if err := p.CreateSession(ctx, sess); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	got, err := p.GetSession(ctx, sess.ID)
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+	if len(got.PaymentAuthorization) == 0 {
+		t.Fatalf("payment_authorization dropped by the Postgres round-trip (#726)")
+	}
+	// JSONB normalizes formatting — compare semantically, not byte-for-byte.
+	if string(got.PaymentAuthorization) == "" || !json.Valid(got.PaymentAuthorization) {
+		t.Fatalf("payment_authorization came back invalid: %q", got.PaymentAuthorization)
+	}
+
+	// A session WITHOUT an authorization must still insert (NULL path).
+	bare := &Session{
+		ID:              uuid.New(),
+		CustomerID:      uuid.New(),
+		Region:          "us-east-1",
+		PrimaryProvider: providerID,
+		CurrentProvider: providerID,
+		State:           pb.VpnSessionState_VPN_SESSION_STATE_CREATING,
+		CreatedAt:       time.Now().UTC(),
+		LastActivityAt:  time.Now().UTC(),
+	}
+	if err := p.CreateSession(ctx, bare); err != nil {
+		t.Fatalf("CreateSession without payment_authorization: %v", err)
 	}
 }
