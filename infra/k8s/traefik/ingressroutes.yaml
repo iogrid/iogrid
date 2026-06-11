@@ -189,7 +189,7 @@ spec:
   # /v1/providers namespace; plain http (the GET is h1, not the gRPC h2c).
   # Applied + verified live (returns 200 from workloads-svc).
   - kind: Rule
-    match: Host(`api.iogrid.org`) && PathRegexp(`^/v1/providers/[^/]+/assigned-workloads$`)
+    match: Host(`api.iogrid.org`) && PathRegexp(`^/v1/providers/[^/]+/assigned-workloads(/[^/]+/status)?$`)
     priority: 110
     services:
     - name: workloads-svc
