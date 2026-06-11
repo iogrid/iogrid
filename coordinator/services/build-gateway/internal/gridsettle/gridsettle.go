@@ -118,3 +118,64 @@ func trimSlash(s string) string {
 	}
 	return s
 }
+
+// WalletResolver maps a user id to their bound $GRID wallet (#718). The
+// build Service calls it at submission so a finished build can settle to the
+// right provider/customer. Implementations return "" (not an error) when the
+// user has no bound wallet, so submission never fails on settlement plumbing.
+type WalletResolver interface {
+	ResolveWallet(ctx context.Context, userID string) (string, error)
+}
+
+// NoopWalletResolver always returns "" (dev / no identity-svc wiring).
+type NoopWalletResolver struct{}
+
+// ResolveWallet implements WalletResolver.
+func (NoopWalletResolver) ResolveWallet(context.Context, string) (string, error) { return "", nil }
+
+// HTTPWalletResolver calls identity-svc's internal wallet endpoint (#718
+// step 1): GET {IdentityURL}/internal/v1/users/{id}/wallet with the shared
+// X-Internal-Token. A 404 (no binding) yields "" with no error.
+type HTTPWalletResolver struct {
+	// IdentityURL is identity-svc's base, e.g. http://identity-svc.iogrid:8080.
+	IdentityURL string
+	// Token is the shared secret matching identity-svc's IDENTITY_INTERNAL_TOKEN.
+	Token string
+	// Client defaults to a 5s-timeout client when nil.
+	Client *http.Client
+}
+
+// ResolveWallet implements WalletResolver.
+func (h *HTTPWalletResolver) ResolveWallet(ctx context.Context, userID string) (string, error) {
+	if h.IdentityURL == "" || userID == "" {
+		return "", nil
+	}
+	cl := h.Client
+	if cl == nil {
+		cl = &http.Client{Timeout: 5 * time.Second}
+	}
+	url := fmt.Sprintf("%s/internal/v1/users/%s/wallet", trimSlash(h.IdentityURL), userID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("X-Internal-Token", h.Token)
+	resp, err := cl.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return "", nil // no bound wallet — settle becomes a no-op
+	}
+	if resp.StatusCode/100 != 2 {
+		return "", errors.New("identity-svc wallet lookup returned " + resp.Status)
+	}
+	var body struct {
+		WalletAddress string `json:"wallet_address"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return "", err
+	}
+	return body.WalletAddress, nil
+}

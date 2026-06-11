@@ -70,3 +70,29 @@ func TestHTTPSettler_NoWalletIsNoop(t *testing.T) {
 		t.Fatal("billing-svc was called despite an empty wallet")
 	}
 }
+
+func TestHTTPWalletResolver(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Internal-Token") != "tok" {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		if r.URL.Path == "/internal/v1/users/u1/wallet" {
+			_, _ = w.Write([]byte(`{"wallet_address":"Wallet111","wallet_provider":"phantom"}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound) // unbound user
+	}))
+	defer srv.Close()
+	r := &HTTPWalletResolver{IdentityURL: srv.URL, Token: "tok"}
+
+	got, err := r.ResolveWallet(context.Background(), "u1")
+	if err != nil || got != "Wallet111" {
+		t.Fatalf("bound: got %q err %v, want Wallet111", got, err)
+	}
+	// unbound user → "" no error (settle no-ops)
+	got, err = r.ResolveWallet(context.Background(), "u2")
+	if err != nil || got != "" {
+		t.Fatalf("unbound: got %q err %v, want empty", got, err)
+	}
+}

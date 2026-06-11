@@ -88,6 +88,7 @@ type Service struct {
 	webhooks   webhook.Dispatcher
 	metering   metering.Emitter
 	gridSettle gridsettle.Settler
+	wallets    gridsettle.WalletResolver
 	logs       *LogHub
 	logger     *slog.Logger
 	now        func() time.Time
@@ -106,6 +107,7 @@ type Options struct {
 	Webhooks   webhook.Dispatcher
 	Metering   metering.Emitter
 	GridSettle gridsettle.Settler
+	Wallets    gridsettle.WalletResolver
 	Logs       *LogHub
 	Logger     *slog.Logger
 	Now        func() time.Time
@@ -127,6 +129,9 @@ func NewService(opts Options) *Service {
 	}
 	if opts.GridSettle == nil {
 		opts.GridSettle = gridsettle.Noop{}
+	}
+	if opts.Wallets == nil {
+		opts.Wallets = gridsettle.NoopWalletResolver{}
 	}
 	if opts.Logs == nil {
 		opts.Logs = NewLogHub(0)
@@ -150,6 +155,7 @@ func NewService(opts Options) *Service {
 		webhooks:   opts.Webhooks,
 		metering:   opts.Metering,
 		gridSettle: opts.GridSettle,
+		wallets:    opts.Wallets,
 		logs:       opts.Logs,
 		logger:     opts.Logger,
 		now:        opts.Now,
@@ -202,6 +208,17 @@ func (s *Service) Submit(ctx context.Context, workspaceID, userID, plan string, 
 	}
 	if req.WebhookURL != "" {
 		b.Webhook = &Webhook{URL: req.WebhookURL, Secret: req.WebhookSecret}
+	}
+	// Resolve the customer's $GRID wallet so the finished build can settle
+	// the provider's earnings (#718). Best-effort: an empty wallet (no
+	// binding / resolver error) just makes settlement a no-op later.
+	if s.wallets != nil && userID != "" {
+		if wallet, werr := s.wallets.ResolveWallet(ctx, userID); werr != nil {
+			s.logger.Warn("wallet resolve failed; build will not settle",
+				slog.String("build_id", id), slog.String("error", werr.Error()))
+		} else {
+			b.CustomerWallet = wallet
+		}
 	}
 	if err := s.store.Create(ctx, b); err != nil {
 		return nil, err
