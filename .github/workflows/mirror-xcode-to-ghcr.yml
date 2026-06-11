@@ -43,13 +43,33 @@ jobs:
           echo "XCODE_APP=$APP" >> "$GITHUB_ENV"
           echo "XCODE_VER=$VER" >> "$GITHUB_ENV"
 
+      - name: Slim Xcode to iOS-only (on the runner, before packaging)
+        run: |
+          set -euo pipefail
+          # The full Xcode.app is ~40 GB — too big to install into a VM on a
+          # real provider Mac (~50 GB free). An iOS build never touches the
+          # watchOS/tvOS/visionOS/DriverKit platforms, so strip them HERE
+          # (the runner has the disk) → the mirrored artifact is ~22-25 GB and
+          # the VM install fits. We copy to a slim tree so the runner's own
+          # Xcode stays intact for later steps. (ADR 0001 slim-image goal.)
+          STAGE="$RUNNER_TEMP/stage"
+          mkdir -p "$STAGE"
+          echo "before: $(du -sh "$XCODE_APP" | cut -f1)"
+          # Name the slim copy literally Xcode.app so the archive expands cleanly.
+          sudo cp -c -R "$XCODE_APP" "$STAGE/Xcode.app" 2>/dev/null || sudo cp -R "$XCODE_APP" "$STAGE/Xcode.app"
+          PLAT="$STAGE/Xcode.app/Contents/Developer/Platforms"
+          for p in AppleTVOS AppleTVSimulator WatchOS WatchSimulator XROS XRSimulator DriverKit; do
+            sudo rm -rf "$PLAT/$p.platform" || true
+          done
+          echo "after:  $(du -sh "$STAGE/Xcode.app" | cut -f1)"
+          echo "XCODE_STAGE=$STAGE" >> "$GITHUB_ENV"
+
       - name: Package Xcode.app (tar + zstd)
         run: |
           set -euo pipefail
           brew list zstd >/dev/null 2>&1 || brew install zstd
           mkdir -p out
-          # -C the app's parent so the archive expands to "Xcode.app".
-          tar -C "$(dirname "$XCODE_APP")" -cf - "$(basename "$XCODE_APP")" \
+          sudo tar -C "$XCODE_STAGE" -cf - Xcode.app \
             | zstd -T0 -3 -o out/Xcode-${XCODE_VER}.tar.zst
           ls -lh out/
           shasum -a 256 out/Xcode-${XCODE_VER}.tar.zst | tee out/Xcode-${XCODE_VER}.sha256
