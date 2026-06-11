@@ -263,3 +263,32 @@ lockdown + ephemeral wipe) — enough for most proprietary code against the
 realistic threat. NOT cryptographically provable / attestable against a
 determined expert → crown-jewel code still needs the trusted tier (iogrid HW),
 until/unless Apple exposes PCC-style confidential VMs to third parties.
+
+## Addendum 8 — DECISION: drop native for the untrusted pool (native-max vs sealed-VM)
+
+The question: if a provider wants to use his OWN native Xcode, what's the max
+customer-source security vs a sealed VM — and do we keep native?
+
+**Structural fact:** native has **no isolation boundary** between the build and
+the Mac owner (the owner is root on the machine the build runs on). A sealed VM
+has a real one. You cannot harden native into having a boundary.
+
+| Approach (max-hardened) | What you can do | Customer-source confidentiality |
+|---|---|:--:|
+| **Native** | dedicated restricted build user + sandbox-exec/Seatbelt (FS+net) + best-effort wipe | **~20** — owner is root → reads the build user's files + dumps its memory. Hardening protects the PROVIDER from customer code, not the customer from the provider. |
+| **Sealed VM** | encrypted disk + HW guest-memory isolation + egress lockdown + ephemeral wipe + attestation | **~60** — a real boundary the owner must actively defeat. Strong, not cryptographically provable. |
+| **Trusted tier (iogrid HW)** | the host IS trusted | **~95** |
+
+**DECISION:**
+- **Drop native for the untrusted / open provider pool — Tart-only there.** Native
+  offers ~no protection from the very provider you don't trust, plus the Xcode
+  version-mismatch trap. No reason to keep it for customer builds on strangers' Macs.
+- **Keep native only as a trusted/first-party fast path** (iogrid-operated Macs, the
+  dog-food, or a bonded trusted tier where the owner is already trusted) — there it's
+  lighter and fine.
+- A provider's own native Xcode is for HIS work; to host CUSTOMERS' builds he runs
+  Tart (sealed). The two coexist with no conflict.
+
+Consequence: `auto_runner()`'s native fallback (#727 warns on it) should be
+gated to trusted providers only; the open pool requires a provisioned Tart
+toolchain (provision-mac-provider.sh / provision::ensure_provisioned).
