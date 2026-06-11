@@ -26,6 +26,14 @@ var approved = map[string]string{
 	"15.3":   "ghcr.io/cirruslabs/macos-sonoma-xcode:15.3",
 	"15.2":   "ghcr.io/cirruslabs/macos-sonoma-xcode:15.2",
 	"latest": "ghcr.io/cirruslabs/macos-sequoia-xcode:latest",
+	// iogrid-16.2 targets the iogrid-baked slim image by its LOCAL tart
+	// name (bake-ios-image-from-base.sh output). Unlike the ghcr refs
+	// above it is NOT pullable — only providers that pre-baked it can run
+	// it (today: the dog-food Mac, whose Sonoma host cannot run the
+	// sequoia images anyway — ADR 0001 Add. 10). Dispatch routing by
+	// provider capability is #737; until then submit with this version
+	// only when targeting a baked provider.
+	"iogrid-16.2": "iogrid-ios-builder-16.2",
 }
 
 // DefaultVersion is the version the gateway uses when a customer leaves the
