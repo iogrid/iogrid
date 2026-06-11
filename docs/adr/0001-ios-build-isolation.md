@@ -225,3 +225,26 @@ How well each hardening measure can actually be APPLIED in each runner.
    signing, canary watermarks, $GRID staking/slashing, KYC/tiering. They protect
    equally under either runner, and they're where iogrid's actual security
    posture comes from given no runner can cryptographically stop a malicious host.
+
+## Addendum 7 — CORRECTION: can we run a sealed/encrypted VM? (memory isolation revised)
+
+Research correction to Addendum 6. I under-scored Tart's memory confidentiality.
+- **Apple Silicon Virtualization.framework gives hardware-enforced guest-memory
+  isolation:** a guest VM's RAM is NOT readable by ordinary host processes /
+  EDR / casual scanning. Against the realistic provider threat this is strong.
+  Revise the "Memory confidentiality" row: **native ~10, Tart ~50** (was 15) —
+  strong isolation, not casual-readable.
+- **But it is NOT formal confidential computing.** Apple does not expose
+  (to third parties) memory ENCRYPTION with a host-excluded key, nor remote
+  ATTESTATION — unlike AMD SEV-SNP / Intel TDX / AWS Nitro. So you cannot
+  CRYPTOGRAPHICALLY PROVE to a customer/auditor that a *determined* owner
+  (custom VMM on the low-level Hypervisor.framework, or kernel tooling) can't
+  extract guest memory. Apple HAS attestable confidential computing on Apple
+  Silicon — **Private Cloud Compute** — but it's internal-only, not a VF feature.
+
+**A "completely sealed lockdown encrypted VM" on a stranger's Mac:** buildable
+and STRONG (encrypted disk + HW memory isolation + no SSH/console + egress
+lockdown + ephemeral wipe) — enough for most proprietary code against the
+realistic threat. NOT cryptographically provable / attestable against a
+determined expert → crown-jewel code still needs the trusted tier (iogrid HW),
+until/unless Apple exposes PCC-style confidential VMs to third parties.
