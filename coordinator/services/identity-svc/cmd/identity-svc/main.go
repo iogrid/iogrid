@@ -221,11 +221,12 @@ func main() {
 		Health:      hr,
 		ListenAddr:  cfg.ListenAddr,
 		Mount: server.MountFunc(server.MountConfig{
-			API:       api,
-			Workspace: wsHandler,
-			Identity:  idHandler,
-			Auth:      authHandler,
-			Signer:    signer,
+			API:           api,
+			Workspace:     wsHandler,
+			Identity:      idHandler,
+			Auth:          authHandler,
+			Signer:        signer,
+			InternalToken: os.Getenv("IDENTITY_INTERNAL_TOKEN"),
 		}),
 	}); err != nil {
 		logger.Error("server exited with error", slog.String("error", err.Error()))

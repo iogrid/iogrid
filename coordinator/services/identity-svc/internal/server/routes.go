@@ -34,6 +34,10 @@ type MountConfig struct {
 	// so existing test wiring without sessions keeps compiling.
 	Auth   *handlers.AuthHandler
 	Signer *tokens.Signer
+	// InternalToken guards the cluster-internal, NON-bearer endpoints
+	// (e.g. build-gateway wallet resolution, #718). Empty disables them
+	// (fail closed). Wired from IDENTITY_INTERNAL_TOKEN in main.
+	InternalToken string
 }
 
 // MountFunc returns the function the shared bootstrap will hand to its
@@ -79,5 +83,13 @@ func MountFunc(cfg MountConfig) func(r chi.Router) {
 				r.Mount(path, hh)
 			}
 		})
+		// Cluster-internal, NON-bearer endpoints (token-guarded). Added to
+		// the parent OUTSIDE the bearer Group above — these are reached by
+		// trusted services, not user sessions. #718: build-gateway wallet
+		// resolution for $GRID build settlement.
+		if cfg.Auth != nil {
+			r.Get("/internal/v1/users/{userID}/wallet",
+				handlers.InternalAuth(cfg.InternalToken, cfg.Auth.InternalGetUserWallet))
+		}
 	}
 }
