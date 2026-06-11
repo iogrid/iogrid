@@ -49,3 +49,56 @@ After reclaiming iogrid's own build cruft it has ~21 GB free; her personal data
 real iOS build needs either freeing ~15 GB more of her data or a dedicated Mac
 with ~100 GB free. The blocker is disk, not Xcode — and not a founder "decision"
 about Xcode versions.
+
+## Addendum — confidentiality of the CUSTOMER's source (the other threat direction)
+
+There are TWO opposite threats, and they need different answers:
+- **Provider host ← malicious customer build.** Tart's ephemeral VM solves this well.
+- **Customer source ← malicious Mac owner.** This is harder, and the honest truth:
+  **neither native nor Tart gives a cryptographic guarantee on a stranger's Mac**,
+  because the build runs on hardware the provider physically controls.
+  - *Native:* the cloned source is plain files in the provider's home dir. The
+    owner reads them trivially. Confidentiality ≈ nil.
+  - *Tart:* the source lives inside the guest VM — but the VM's disk is a `.tart`
+    bundle ON the host filesystem (host owner can mount it) and the host owns the
+    hypervisor (can snapshot/dump guest memory). So a *determined, technical*
+    owner can still extract it. Tart raises the bar from "sitting in plain sight"
+    to "you must actively introspect a VM," but it is obscurity + effort, not a
+    TEE. Apple Silicon has no general confidential-computing mode (the Secure
+    Enclave is not a workload TEE like SGX/SEV/Nitro), so there is no hardware
+    fix available on Mac.
+
+**Therefore the protection for sensitive source is NOT the runner — it is the
+trust layer:** vetted + economically-bonded (staked) providers, ToS forbidding
+introspection, reputation/slashing on misbehavior, AND a **trusted-provider tier**
+(iogrid-operated or bonded Macs) that customers with proprietary code opt into.
+OSS / non-sensitive builds can use the open provider pool; sensitive apps use the
+trusted tier. Signing identity never leaves the customer regardless (the IPA is
+signed customer-side / via a secure signing step), so a provider can never steal
+the signing key even if they see source.
+
+## Can a Mac owner who uses Xcode for their own work also run Tart? Yes.
+Host Xcode and Tart VMs are independent. The owner keeps using their host Xcode
+normally; iogrid builds run in separate throwaway VMs that carry their own pinned
+Xcode and never touch (or depend on) the host's. No conflict.
+
+## Scorecard — native vs Tart (0-100; higher = better)
+
+| Dimension (weight)                          | Native | Tart | Note |
+|---------------------------------------------|:------:|:----:|------|
+| Customer-source confidentiality (high)      |   15   |  55  | Neither is cryptographic on a stranger's Mac; Tart needs active VM introspection to steal vs plain files |
+| Provider-host safety from customer code (hi)|   15   |  90  | Native runs customer code as the host user; Tart = ephemeral VM |
+| Never surfaces Xcode version mismatch (high)|   10   | 100  | Only Tart pins Xcode in the image |
+| Reproducibility                             |   20   |  95  | Host's Xcode vs a pinned image |
+| Scales to thousands of providers            |   25   |  92  | Version chaos + no isolation vs uniform |
+| Disk footprint (lighter better)             |   85   |  35  | Just host Xcode vs a 35-80 GB image |
+| Build performance                           |   90   |  75  | Bare metal vs ~10-20% VM overhead + boot |
+| Provider onboarding                         |   55   |  75  | Needs the right Xcode (manual) vs automated but a big one-time pull |
+| Concurrency per Mac                         |   40   |  70  | ~1 shared host vs up to 2 VMs (Apple license cap) |
+| **Weighted overall (untrusted network)**    | **~33**|**~80**| Tart wins decisively where providers are untrusted |
+| **Weighted overall (trusted/first-party)**  | **~70**|**~72**| Roughly a tie when you already trust the host; native is lighter/faster |
+
+**Read:** for the public untrusted network → **Tart**, plus the trust/economic
+layer + a trusted tier for sensitive source. For first-party/dog-food on a Mac you
+already control → native is fine and lighter. Crucially, **no runner makes a random
+stranger's Mac safe for truly secret source** — that requires the trusted tier.
