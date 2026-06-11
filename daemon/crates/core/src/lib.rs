@@ -389,6 +389,9 @@ pub struct Supervisor {
     // supervisor so the bridge's `run_with_reconnect` cancel-receiver
     // doesn't see a closed channel and spin-loop. See #482.
     dispatch_cancel: Option<tokio::sync::watch::Sender<bool>>,
+    // #705: holds the iOS-build poller's shutdown sender for the daemon's
+    // lifetime (same rationale as dispatch_cancel). None until spawned.
+    build_poller_cancel: Option<tokio::sync::watch::Sender<bool>>,
 }
 
 impl std::fmt::Debug for Supervisor {
@@ -464,6 +467,7 @@ impl Supervisor {
             bridge,
             runners,
             dispatch_cancel: None,
+            build_poller_cancel: None,
         }
     }
 
@@ -734,6 +738,35 @@ impl Supervisor {
                     coordinator = %self.config.coordinator_url,
                     "live dispatch bridge spawned"
                 );
+                // #705: poll-based iOS-build dispatch. The dispatch stream's
+                // server→client Assignment push is dropped by the edge for a
+                // REMOTE daemon; the poller fetches assignments over a plain
+                // GET (which traverses the edge, like the VPN binder) and
+                // runs them through the same iOS-build runner. Only spawned
+                // on a host that can actually build iOS (advertises the type)
+                // and that has a real provider id.
+                if eligible_workload_types().iter().any(|t| t == "IOS_BUILD")
+                    && !self.config.provider_id.trim().is_empty()
+                {
+                    let (tx, rx) = tokio::sync::watch::channel(false);
+                    // The JoinHandle is intentionally dropped: the poll task
+                    // runs detached for the daemon's lifetime and is stopped
+                    // via the watch sender below, not by joining.
+                    let _poller_task = iogrid_workload_ios::build_poller::spawn_build_poller(
+                        iogrid_workload_ios::build_poller::BuildPollerConfig {
+                            provider_id: self.config.provider_id.clone(),
+                            coordinator_base_url: self.config.coordinator_url.clone(),
+                        },
+                        reqwest::Client::new(),
+                        self.runners.ios.clone(),
+                        rx,
+                    );
+                    self.build_poller_cancel = Some(tx);
+                    tracing::info!(
+                        provider_id = %self.config.provider_id,
+                        "iOS-build poller spawned (#705 poll-based dispatch)"
+                    );
+                }
                 // Keep `cancel_tx` alive on the supervisor stack for the
                 // lifetime of the daemon. Dropping the watch sender closes
                 // the channel; the bridge's `run_with_reconnect` then sees

@@ -33,6 +33,10 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+/// Poll-based iOS-build dispatch (#705): the daemon polls workloads-svc for
+/// assigned builds instead of relying on the edge-dropped server-push.
+pub mod build_poller;
+
 use std::path::PathBuf;
 use std::time::Duration;
 
