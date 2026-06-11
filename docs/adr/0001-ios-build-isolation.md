@@ -292,3 +292,27 @@ has a real one. You cannot harden native into having a boundary.
 Consequence: `auto_runner()`'s native fallback (#727 warns on it) should be
 gated to trusted providers only; the open pool requires a provisioned Tart
 toolchain (provision-mac-provider.sh / provision::ensure_provisioned).
+
+## Addendum 9 — consolidated "can the Mac owner access X?" comparison
+
+One table answering the operator's actual question per approach (max-hardened).
+
+| Can the Mac owner access… / capability | Native (host) | Sealed VM (Tart + hardening) | Trusted tier (iogrid HW) |
+|---|---|---|---|
+| **Customer source code** | **YES** — plain files in the home dir, trivially | **Hard** — must mount the VM disk / dump guest RAM (HW-isolated) | **No** — you control the host |
+| **Build artifacts (.ipa)** | YES — on host disk | Hard — inside the VM, wiped after | No |
+| **Signing credentials / certs** | n/a — **never sent** (customer-side/HSM signing) | n/a — never sent | n/a — never sent |
+| **Build process memory** | YES — root reads any process | Hard — Apple-Silicon HW guest-memory isolation | No |
+| Full-disk encryption at rest | weak — owner holds the key | yes — encrypted VM disk | yes |
+| Network egress control | weak — host network, owner can change rules | strong — VM's own NIC, locked to iogrid | strong |
+| Filesystem sealing (build ↔ host) | none — same user/FS | strong — VM sandbox | strong |
+| Attestation (prove env un-tampered) | no — can't attest a host's Xcode | partial — pin/measure image digest | yes — you run it |
+| Memory encryption / TEE | no | no — Apple exposes none to 3rd parties | n/a — host is trusted |
+| Ephemeral / wiped per build | no — host persists state | yes — VM deleted | yes |
+| **Customer-source confidentiality (0-100)** | **~20** | **~60** | **~95** |
+
+**The one-line answer:** on native the owner can read **everything** (source,
+artifacts, memory) trivially; a sealed VM blocks casual access and forces active
+introspection (strong, not provable); only the trusted tier (host you control)
+is safe for crown-jewel source. → **Tart-only for the untrusted pool; native
+gated to trusted; trusted tier for secret source** (Addendum 8).
