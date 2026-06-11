@@ -93,7 +93,10 @@ func TestAssignedWorkloadsPoll(t *testing.T) {
 			t.Fatalf("status POST: want 200, got %d", resp.StatusCode)
 		}
 		// poll again → att-1 no longer dispatched.
-		r2, _ := http.Get(srv.URL + "/v1/providers/" + provA + "/assigned-workloads")
+		r2, err := http.Get(srv.URL + "/v1/providers/" + provA + "/assigned-workloads")
+		if err != nil {
+			t.Fatal(err)
+		}
 		defer r2.Body.Close()
 		var out struct {
 			Count int `json:"count"`
