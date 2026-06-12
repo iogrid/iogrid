@@ -143,6 +143,20 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             return
         }
 
+        // #G1-DIAG (2026-06-12): log the public key the NE will actually
+        // handshake with (WireGuardKit-derived from clientPrivateKey) next to
+        // the peer key it dials. On a real device this is the only way to
+        // confirm whether the key the app REGISTERED with vpn-svc equals the
+        // key the tunnel actually presents — the "resolving peer" failure is a
+        // registered-key≠handshake-key mismatch and this pins which side is
+        // wrong. Compare `ne_client_pub` here against the session's
+        // customer_wg_public_key in vpn_svc.vpn_sessions.
+        os_log("WG-DIAG ne_client_pub=%{public}@ peer_pub=%{public}@ session=%{public}@",
+               log: logger, type: .default,
+               clientPrivateKey.publicKey.base64Key,
+               (providerConfig["peerPublicKey"] as? String) ?? "nil",
+               (providerConfig["sessionId"] as? String) ?? "nil")
+
         // Decode the typed peer config.
         let sessionConfig: SessionPeerConfig
         do {
