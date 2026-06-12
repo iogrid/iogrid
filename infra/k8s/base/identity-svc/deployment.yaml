@@ -31,7 +31,7 @@ spec:
         # cache-identical. Treated as an opaque ISO-8601 string by the
         # deploy-bot — do not hand-edit unless you intend to roll the
         # pods. Refs #335.
-        kubectl.kubernetes.io/restartedAt: "2026-06-11T17:21:16Z"
+        kubectl.kubernetes.io/restartedAt: "2026-06-12T09:02:50Z"
         prometheus.io/port: "9090"
         prometheus.io/path: "/metrics"
     spec:
@@ -47,7 +47,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: identity-svc
-          image: harbor.openova.io/iogrid/identity-svc@sha256:65d250a26b018935bbfb42afd143487025408b5311d52398482e9f85925794b3
+          image: harbor.openova.io/iogrid/identity-svc@sha256:f3bca47d01c3609041a29014e7976dc3189b0221cc33e7ec074541e667bfa64b
           imagePullPolicy: Always
           ports:
             - name: http
