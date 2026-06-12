@@ -170,6 +170,26 @@ func assignedWorkloadStatusHandler(deps Deps) http.HandlerFunc {
 				CompletedAt:    time.Now().UTC(),
 			})
 		}
+		// Propagate to the build-gateway so the customer-facing build record
+		// advances — mirroring the dispatch-stream path (dispatch.go). Without
+		// this, the poll path updated workloads-svc's OWN store but the build
+		// stayed "dispatched" in the gateway forever: the daemon ran the build
+		// to exit 0 via poll, yet the gateway never learned it succeeded, so
+		// no metering/settle ever fired (#740). The routing key is the
+		// workload's "build_id" label, stamped by the gateway on submit.
+		if deps.BuildGateway != nil {
+			if wl, gerr := deps.Store.GetWorkload(r.Context(), a.WorkloadID); gerr == nil && wl != nil {
+				if buildID := wl.Labels["build_id"]; buildID != "" {
+					if ferr := deps.BuildGateway.ForwardStatus(r.Context(), buildID, string(st), in.Note, int32(in.ExitCode)); ferr != nil && deps.Log != nil {
+						deps.Log.Warn("poll status forward to build-gateway failed",
+							slog.String("build_id", buildID),
+							slog.String("attempt_id", attemptID),
+							slog.String("status", string(st)),
+							slog.String("error", ferr.Error()))
+					}
+				}
+			}
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"attempt_id": attemptID, "status": string(st), "drained": true})
 	}
