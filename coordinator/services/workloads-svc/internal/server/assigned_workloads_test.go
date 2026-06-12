@@ -22,14 +22,15 @@ type recordingForwarder struct {
 }
 
 type fwdCall struct {
-	buildID  string
-	status   string
-	note     string
-	exitCode int32
+	buildID    string
+	providerID string
+	status     string
+	note       string
+	exitCode   int32
 }
 
-func (f *recordingForwarder) ForwardStatus(_ context.Context, buildID, status, note string, exitCode int32) error {
-	f.calls = append(f.calls, fwdCall{buildID, status, note, exitCode})
+func (f *recordingForwarder) ForwardStatus(_ context.Context, buildID, providerID, status, note string, exitCode int32) error {
+	f.calls = append(f.calls, fwdCall{buildID, providerID, status, note, exitCode})
 	return nil
 }
 
@@ -82,7 +83,7 @@ func TestAssignedWorkloadStatusForwardsToBuildGateway(t *testing.T) {
 	if len(fwd.calls) != 1 {
 		t.Fatalf("want exactly 1 forward to build-gateway, got %d", len(fwd.calls))
 	}
-	if c := fwd.calls[0]; c.buildID != "bld-1" || c.status != "succeeded" || c.exitCode != 0 {
+	if c := fwd.calls[0]; c.buildID != "bld-1" || c.providerID != prov || c.status != "succeeded" || c.exitCode != 0 {
 		t.Fatalf("unexpected forward: %+v", c)
 	}
 }

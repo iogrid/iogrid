@@ -263,7 +263,7 @@ func (h *DispatchHandler) Dispatch(
 			if h.BuildGateway != nil {
 				if w, err := h.Store.GetWorkload(ctx, wid); err == nil {
 					if buildID := buildIDFromWorkload(w); buildID != "" {
-						if ferr := h.BuildGateway.ForwardStatus(ctx, buildID, string(s), u.GetNote(), u.GetExitCode()); ferr != nil {
+						if ferr := h.BuildGateway.ForwardStatus(ctx, buildID, providerID, string(s), u.GetNote(), u.GetExitCode()); ferr != nil {
 							h.Log.Warn("build-gateway status forward failed",
 								slog.String("build_id", buildID),
 								slog.String("workload_id", wid),

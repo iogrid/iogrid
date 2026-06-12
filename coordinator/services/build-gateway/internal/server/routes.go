@@ -135,6 +135,9 @@ type internalStatusBody struct {
 	// ExitCode is the provider process exit code (0 on success), where
 	// applicable.
 	ExitCode int32 `json:"exit_code,omitempty"`
+	// ProviderID is the daemon that ran the attempt (set by workloads-svc).
+	// Recorded so a finished build meters to the right provider (#744).
+	ProviderID string `json:"provider_id,omitempty"`
 }
 
 func (h *handlers) internalUpdateStatus(w http.ResponseWriter, r *http.Request) {
@@ -148,7 +151,7 @@ func (h *handlers) internalUpdateStatus(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "missing_status", "status required")
 		return
 	}
-	updated, err := h.deps.Service.UpdateStatus(r.Context(), buildID, builds.Status(body.Status), body.Note, body.ExitCode)
+	updated, err := h.deps.Service.UpdateStatus(r.Context(), buildID, builds.Status(body.Status), body.Note, body.ProviderID, body.ExitCode)
 	if err != nil {
 		writeServiceError(w, err)
 		return

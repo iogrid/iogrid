@@ -180,7 +180,7 @@ func assignedWorkloadStatusHandler(deps Deps) http.HandlerFunc {
 		if deps.BuildGateway != nil {
 			if wl, gerr := deps.Store.GetWorkload(r.Context(), a.WorkloadID); gerr == nil && wl != nil {
 				if buildID := wl.Labels["build_id"]; buildID != "" {
-					if ferr := deps.BuildGateway.ForwardStatus(r.Context(), buildID, string(st), in.Note, int32(in.ExitCode)); ferr != nil && deps.Log != nil {
+					if ferr := deps.BuildGateway.ForwardStatus(r.Context(), buildID, a.ProviderID, string(st), in.Note, int32(in.ExitCode)); ferr != nil && deps.Log != nil {
 						deps.Log.Warn("poll status forward to build-gateway failed",
 							slog.String("build_id", buildID),
 							slog.String("attempt_id", attemptID),

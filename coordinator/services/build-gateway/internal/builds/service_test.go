@@ -221,7 +221,7 @@ func TestLifecycle_RunSucceed(t *testing.T) {
 	}
 	// Provider goes running.
 	fx.clock.Advance(5 * time.Second)
-	if _, err := svc.UpdateStatus(ctx, b.ID, builds.StatusRunning, "vm-booted", 0); err != nil {
+	if _, err := svc.UpdateStatus(ctx, b.ID, builds.StatusRunning, "vm-booted", "", 0); err != nil {
 		t.Fatalf("running update: %v", err)
 	}
 	// Append some log lines.
@@ -230,7 +230,7 @@ func TestLifecycle_RunSucceed(t *testing.T) {
 	}
 	// Provider succeeds 7m later.
 	fx.clock.Advance(7 * time.Minute)
-	final, err := svc.UpdateStatus(ctx, b.ID, builds.StatusSucceeded, "ok", 0)
+	final, err := svc.UpdateStatus(ctx, b.ID, builds.StatusSucceeded, "ok", "", 0)
 	if err != nil {
 		t.Fatalf("succeed update: %v", err)
 	}
@@ -260,10 +260,10 @@ func TestLifecycle_TerminalIsSticky(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
-	if _, err := svc.UpdateStatus(ctx, b.ID, builds.StatusSucceeded, "", 0); err != nil {
+	if _, err := svc.UpdateStatus(ctx, b.ID, builds.StatusSucceeded, "", "", 0); err != nil {
 		t.Fatalf("succeed: %v", err)
 	}
-	if _, err := svc.UpdateStatus(ctx, b.ID, builds.StatusFailed, "", 1); !errors.Is(err, builds.ErrInvalidTransition) {
+	if _, err := svc.UpdateStatus(ctx, b.ID, builds.StatusFailed, "", "", 1); !errors.Is(err, builds.ErrInvalidTransition) {
 		t.Fatalf("expected ErrInvalidTransition, got %v", err)
 	}
 }
@@ -276,7 +276,7 @@ func TestCancel_BlocksOnceTerminal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
-	if _, err := svc.UpdateStatus(ctx, b.ID, builds.StatusSucceeded, "", 0); err != nil {
+	if _, err := svc.UpdateStatus(ctx, b.ID, builds.StatusSucceeded, "", "", 0); err != nil {
 		t.Fatalf("succeed: %v", err)
 	}
 	if _, err := svc.Cancel(ctx, "ws-1", b.ID, "test"); !errors.Is(err, workloadclient.ErrAlreadyTerminal) {
