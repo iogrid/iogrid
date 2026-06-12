@@ -170,6 +170,68 @@ func (p *PostgresStore) MarkAttemptFailed(ctx context.Context, ids []uuid.UUID, 
 	return err
 }
 
+// ListUnsettledBuildsByWallet mirrors ListUnsettledByWallet for iOS-build
+// settlements (#748): the settlement-cron drained only grid_settlement
+// (VPN sessions), so build provider-shares never reached the chain and
+// providers' wallets stayed empty. Returns provider_wallet → []rows; the cron
+// batches one TransferChecked per wallet, identical to the session path.
+func (p *PostgresStore) ListUnsettledBuildsByWallet(ctx context.Context, limit int) (map[string][]*BuildSettlement, error) {
+	if limit <= 0 {
+		limit = 500
+	}
+	rows, err := p.pool.Query(ctx, `
+		SELECT id, build_id, attempt_id, customer_wallet, COALESCE(provider_wallet,''),
+		       COALESCE(provider_id, '00000000-0000-0000-0000-000000000000'::uuid),
+		       escrowed_atomic, consumed_atomic, refund_atomic,
+		       provider_share, iogrid_share, COALESCE(tx_signature,'')
+		  FROM grid_build_settlement
+		 WHERE settled_at IS NULL
+		   AND provider_wallet IS NOT NULL
+		   AND provider_wallet <> ''
+		   AND provider_share >= $2
+		 ORDER BY id
+		 LIMIT $1`,
+		limit, int64(MinSettlementAtomic))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string][]*BuildSettlement)
+	for rows.Next() {
+		s := &BuildSettlement{}
+		var esc, cons, refund, ps, ic int64
+		if err := rows.Scan(
+			&s.ID, &s.BuildID, &s.AttemptID, &s.CustomerWallet, &s.ProviderWallet, &s.ProviderID,
+			&esc, &cons, &refund, &ps, &ic, &s.TxSignature,
+		); err != nil {
+			return nil, err
+		}
+		s.EscrowedAtomic = uint64(esc)
+		s.ConsumedAtomic = uint64(cons)
+		s.RefundAtomic = uint64(refund)
+		s.ProviderShare = uint64(ps)
+		s.IogridShare = uint64(ic)
+		out[s.ProviderWallet] = append(out[s.ProviderWallet], s)
+	}
+	return out, rows.Err()
+}
+
+// MarkBuildSettled stamps settled_at + tx_signature on build-settlement rows
+// after a successful on-chain confirm. Mirrors MarkSettled (#748).
+func (p *PostgresStore) MarkBuildSettled(ctx context.Context, ids []uuid.UUID, txSig string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	_, err := p.pool.Exec(ctx, `
+		UPDATE grid_build_settlement
+		   SET settled_at = COALESCE(settled_at, NOW()),
+		       tx_signature = COALESCE(NULLIF($2,''), tx_signature)
+		 WHERE id = ANY($1::uuid[])
+		   AND settled_at IS NULL`,
+		ids, txSig)
+	return err
+}
+
 // SumGraceOverageOwedByCustomer returns the total prepaid-overage arrears
 // (atomic $GRID) the customer wallet has accrued but not yet cleared — the
 // "amount owed" surfaced on /customer/billing (#632).
