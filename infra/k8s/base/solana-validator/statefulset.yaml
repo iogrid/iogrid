@@ -38,7 +38,10 @@ spec:
             - --rpc-port=8899
             - --bind-address=0.0.0.0
             - --faucet-port=9900
-            - --reset
+            # NO --reset (2026-06-12): it wiped the persistent /ledger — and the
+            # minted $GRID token + treasury — on EVERY pod restart, which (with the
+            # OOMKills below) was the root cause of "$GRID earnings = 0". Resume
+            # from the /ledger PVC instead so minted $GRID survives restarts.
           ports:
             - name: rpc
               containerPort: 8899
@@ -59,13 +62,14 @@ spec:
           resources:
             requests:
               # Minimum to fit on a saturated single-node phase-0 cluster.
-              # Limit remains generous so the validator can grow into real
-              # memory once the kernel actually hands it out.
+              # 2Gi limit OOMKilled the validator (exit137, 8×) → constant
+              # restarts. 4Gi gives ledger-resume headroom; request stays small
+              # so it still schedules on the constrained node.
               cpu: 50m
-              memory: 64Mi
+              memory: 512Mi
             limits:
               cpu: 1000m
-              memory: 2Gi
+              memory: 4Gi
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: false
