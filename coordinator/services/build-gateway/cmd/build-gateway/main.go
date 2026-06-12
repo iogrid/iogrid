@@ -205,12 +205,19 @@ func buildValidator(logger *slog.Logger) auth.Validator {
 		if plan == "" {
 			plan = "free"
 		}
+		// UserID is the submitter the build is attributed to. Without it the
+		// service skips wallet resolution (Submit: `userID != ""`), so $GRID
+		// settlement no-ops — the static key must carry a real user for the
+		// dog-food to settle (#718/#740).
+		userID := os.Getenv("BUILD_GATEWAY_STATIC_USER")
 		static.Add(key, auth.Identity{
 			WorkspaceID: ws,
+			UserID:      userID,
 			Plan:        plan,
 		})
 		logger.Info("static api key registered",
 			slog.String("workspace_id", ws),
+			slog.String("user_id", userID),
 			slog.String("plan", plan),
 		)
 	} else {
