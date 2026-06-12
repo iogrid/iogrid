@@ -57,6 +57,40 @@ type stubMetrics struct {
 func (s *stubMetrics) SettledOK(n int)     { s.mu.Lock(); s.ok += n; s.mu.Unlock() }
 func (s *stubMetrics) SettledFailed(n int) { s.mu.Lock(); s.fail += n; s.mu.Unlock() }
 
+// #748: the cron must drain iOS-BUILD settlements too. Before this it only
+// drained grid_settlement (VPN sessions), so build provider-shares never
+// reached the chain and providers' wallets stayed empty. Asserts
+// buildBatchesByWallet aggregates correctly and drainBatches transfers the
+// share + marks the rows settled with the tx signature.
+func TestDrainBatches_BuildSettlements(t *testing.T) {
+	const wallet = "3TuRAZPs7YUpcigdjoZsyQ7f7iLf6ZGbjcpsMfwhxbmT" // valid base58 so it round-trips
+	stub := &stubTransferer{balance: 1_000_000_000, nextSig: "buildsig"}
+	groups := map[string][]*BuildSettlement{
+		wallet: {{ID: uuid.New(), ProviderWallet: wallet, ProviderShare: 425_000_000}},
+	}
+	batches := buildBatchesByWallet(groups)
+	if len(batches) != 1 || batches[wallet].sum != 425_000_000 || len(batches[wallet].ids) != 1 {
+		t.Fatalf("buildBatchesByWallet wrong: %+v", batches)
+	}
+	var markedIDs []uuid.UUID
+	var markedSig string
+	c := &SettlementCron{Solana: stub}
+	ok, fail, err := c.drainBatches(context.Background(), batches,
+		func(_ context.Context, ids []uuid.UUID, sig string) error {
+			markedIDs, markedSig = ids, sig
+			return nil
+		}, nil)
+	if err != nil || ok != 1 || fail != 0 {
+		t.Fatalf("drainBatches: ok=%d fail=%d err=%v", ok, fail, err)
+	}
+	if len(stub.calls) != 1 || stub.calls[0].amount != 425_000_000 || stub.calls[0].dest != wallet {
+		t.Fatalf("transfer wrong: %+v", stub.calls)
+	}
+	if len(markedIDs) != 1 || markedSig != "buildsig" {
+		t.Fatalf("mark wrong: ids=%v sig=%q", markedIDs, markedSig)
+	}
+}
+
 // stubStore is a tiny in-memory grid store implementing what the cron uses.
 // The cron only calls ListUnsettledByWallet + MarkSettled + MarkAttemptFailed,
 // so we plug a fake at the *PostgresStore field… but cron expects

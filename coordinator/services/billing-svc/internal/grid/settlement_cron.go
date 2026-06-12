@@ -98,21 +98,32 @@ func (c *SettlementCron) RunOnce(ctx context.Context) error {
 	if limit <= 0 {
 		limit = 500
 	}
-	groups, err := c.Store.ListUnsettledByWallet(ctx, limit)
+	// Drain BOTH ledgers: VPN-session settlements (grid_settlement) AND
+	// iOS-build settlements (grid_build_settlement). Before #748 only the
+	// session table was drained, so build provider-shares never reached the
+	// chain and providers' wallets stayed empty.
+	sessionGroups, err := c.Store.ListUnsettledByWallet(ctx, limit)
 	if err != nil {
-		return fmt.Errorf("list unsettled: %w", err)
+		return fmt.Errorf("list unsettled sessions: %w", err)
 	}
-	if len(groups) == 0 {
+	buildGroups, err := c.Store.ListUnsettledBuildsByWallet(ctx, limit)
+	if err != nil {
+		return fmt.Errorf("list unsettled builds: %w", err)
+	}
+	sessionBatches := sessionBatchesByWallet(sessionGroups)
+	buildBatches := buildBatchesByWallet(buildGroups)
+	if len(sessionBatches) == 0 && len(buildBatches) == 0 {
 		c.logInfo("no unsettled rows")
 		c.failuresInARow = 0
 		return nil
 	}
-	// Pre-flight: treasury balance >= sum of all provider shares?
+	// Pre-flight: treasury balance >= sum of ALL provider shares (both ledgers)?
 	var grandTotal uint64
-	for _, rows := range groups {
-		for _, r := range rows {
-			grandTotal += r.ProviderShare
-		}
+	for _, b := range sessionBatches {
+		grandTotal += b.sum
+	}
+	for _, b := range buildBatches {
+		grandTotal += b.sum
 	}
 	bal, err := c.Solana.GRIDAtomicTreasuryBalance(ctx)
 	if err != nil {
@@ -125,42 +136,15 @@ func (c *SettlementCron) RunOnce(ctx context.Context) error {
 		return errors.New("treasury balance insufficient")
 	}
 
-	var firstErr error
-	totalOK := 0
-	totalFail := 0
-	for wallet, rows := range groups {
-		var sum uint64
-		ids := make([]uuid.UUID, 0, len(rows))
-		for _, r := range rows {
-			sum += r.ProviderShare
-			ids = append(ids, r.ID)
-		}
-		if sum == 0 {
-			continue
-		}
-		recipient := common.PublicKeyFromString(wallet)
-		sig, err := c.Solana.TransferGRID(ctx, recipient, sum)
-		if err != nil {
-			c.logErr("transfer failed",
-				fmt.Errorf("wallet=%s sum=%d: %w", wallet, sum, err))
-			if firstErr == nil {
-				firstErr = err
-			}
-			_ = c.Store.MarkAttemptFailed(ctx, ids, err.Error())
-			totalFail += len(ids)
-			continue
-		}
-		if err := c.Store.MarkSettled(ctx, ids, sig); err != nil {
-			c.logErr("mark settled failed", err)
-			if firstErr == nil {
-				firstErr = err
-			}
-			totalFail += len(ids)
-			continue
-		}
-		totalOK += len(ids)
-		c.logInfo("settlement batch confirmed",
-			"wallet", wallet, "rows", len(ids), "sum_atomic", sum, "sig", sig)
+	sOK, sFail, sErr := c.drainBatches(ctx, sessionBatches, c.Store.MarkSettled, c.Store.MarkAttemptFailed)
+	// Build settlements have no settle_attempts/last_error columns, so failures
+	// simply retry next tick (markFailed = nil).
+	bOK, bFail, bErr := c.drainBatches(ctx, buildBatches, c.Store.MarkBuildSettled, nil)
+	totalOK := sOK + bOK
+	totalFail := sFail + bFail
+	firstErr := sErr
+	if firstErr == nil {
+		firstErr = bErr
 	}
 	if c.Metrics != nil {
 		if totalOK > 0 {
@@ -176,6 +160,87 @@ func (c *SettlementCron) RunOnce(ctx context.Context) error {
 	}
 	c.failuresInARow = 0
 	return nil
+}
+
+// walletBatch is the per-wallet aggregate the cron transfers in one tx.
+type walletBatch struct {
+	ids []uuid.UUID
+	sum uint64
+}
+
+// sessionBatchesByWallet aggregates session settlements into per-wallet
+// (ids, sum) batches, dropping zero-share groups.
+func sessionBatchesByWallet(groups map[string][]*Settlement) map[string]walletBatch {
+	out := make(map[string]walletBatch, len(groups))
+	for wallet, rows := range groups {
+		var b walletBatch
+		for _, r := range rows {
+			b.sum += r.ProviderShare
+			b.ids = append(b.ids, r.ID)
+		}
+		if b.sum > 0 {
+			out[wallet] = b
+		}
+	}
+	return out
+}
+
+// buildBatchesByWallet is the build-settlement analogue (#748).
+func buildBatchesByWallet(groups map[string][]*BuildSettlement) map[string]walletBatch {
+	out := make(map[string]walletBatch, len(groups))
+	for wallet, rows := range groups {
+		var b walletBatch
+		for _, r := range rows {
+			b.sum += r.ProviderShare
+			b.ids = append(b.ids, r.ID)
+		}
+		if b.sum > 0 {
+			out[wallet] = b
+		}
+	}
+	return out
+}
+
+// drainBatches submits one TransferChecked per wallet and marks the rows
+// settled (or failed). markFailed may be nil (build-settlement rows have no
+// attempt-tracking columns — they simply retry on the next tick).
+func (c *SettlementCron) drainBatches(
+	ctx context.Context,
+	batches map[string]walletBatch,
+	markSettled func(context.Context, []uuid.UUID, string) error,
+	markFailed func(context.Context, []uuid.UUID, string) error,
+) (okN int, failN int, firstErr error) {
+	for wallet, b := range batches {
+		if b.sum == 0 {
+			continue
+		}
+		recipient := common.PublicKeyFromString(wallet)
+		sig, err := c.Solana.TransferGRID(ctx, recipient, b.sum)
+		if err != nil {
+			c.logErr("transfer failed",
+				fmt.Errorf("wallet=%s sum=%d: %w", wallet, b.sum, err))
+			if firstErr == nil {
+				firstErr = err
+			}
+			if markFailed != nil {
+				_ = markFailed(ctx, b.ids, err.Error())
+			}
+			failN += len(b.ids)
+			continue
+		}
+		if err := markSettled(ctx, b.ids, sig); err != nil {
+			c.logErr("mark settled failed", err)
+			if firstErr == nil {
+				firstErr = err
+			}
+			failN += len(b.ids)
+			continue
+		}
+		okN += len(b.ids)
+		c.logInfo("settlement batch confirmed",
+			"wallet", wallet, "rows", len(b.ids), "sum_atomic", b.sum, "sig", sig)
+	}
+	return okN, failN, firstErr
 }
 
 func (c *SettlementCron) bumpFailure(ctx context.Context, body string) {
