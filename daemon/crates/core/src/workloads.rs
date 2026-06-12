@@ -200,6 +200,21 @@ impl WorkloadRouter {
                 dispatch_token: _,
                 payload_json,
             } => {
+                // iOS builds are delivered AND driven by the poll path
+                // (build_poller, #705) — the canonical, reliable dispatch for
+                // them since the stream drops their assignments at the edge.
+                // The stream path must neither run nor reject an iOS build:
+                //   * running it here too would double-build the same attempt
+                //     (the poll picks up the identical Assignment row), and
+                //   * the old scheduler-pause gate below rejected it with
+                //     "scheduler_paused" (a bandwidth/idle-sharing policy that
+                //     has no business blocking customer-paid compute). That
+                //     terminal rejection raced ahead of the poll's success, so
+                //     the build showed "rejected/-1" and $GRID never settled.
+                // Leave it to the poll; the stream stays out of the way (#740).
+                if workload_type == workload_type::IOS_BUILD {
+                    return;
+                }
                 if !matches!(self.scheduler.current(), SchedState::Active) {
                     self.send_rejection(&workload_id, &attempt_id, "scheduler_paused")
                         .await;
@@ -545,6 +560,34 @@ mod tests {
             }
             other => panic!("expected Update; got {other:?}"),
         }
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    // #740: the stream path must stay out of the way for iOS builds — they are
+    // owned by the poll path (build_poller). With the scheduler paused, an
+    // IOS_BUILD assignment on the stream must produce NO frame at all: no
+    // "scheduler_paused" rejection (the split-brain that beat the poll's
+    // success and left $GRID unsettled) and no run (which would double-build
+    // the same attempt the poll already picks up).
+    #[tokio::test]
+    async fn stream_ignores_ios_build_assignment() {
+        let (router, calls, mut rx) = router_with_counter(paused_scheduler());
+        router
+            .handle(DispatchFrame::Assignment {
+                workload_id: "w1".into(),
+                attempt_id: "a1".into(),
+                workload_type: "IOS_BUILD".into(),
+                deadline_rfc3339: "now".into(),
+                dispatch_token: "".into(),
+                payload_json: "{}".into(),
+            })
+            .await;
+        // No outbound frame: the poll path, not the stream, drives iOS builds.
+        assert!(
+            rx.try_recv().is_err(),
+            "stream must emit no frame for an iOS build (poll owns it)"
+        );
+        // And it never invoked a runner.
         assert_eq!(calls.load(Ordering::SeqCst), 0);
     }
 
