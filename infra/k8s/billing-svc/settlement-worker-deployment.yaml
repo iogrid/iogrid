@@ -57,9 +57,10 @@ spec:
           # digest in lockstep with the billing-svc deployment.
           image: harbor.openova.io/iogrid/billing-svc@sha256:7f4c85b761b00481b86064041ad4879f9b3445f5fcec5f1840496d2f9a3b2cb6
           imagePullPolicy: Always
-          # The image's entrypoint is /app/billing-svc by default; for
-          # this Deployment we override to the settlement-worker binary.
-          command: ["/app/settlement-worker"]
+          # The image's entrypoint is /usr/local/bin/billing-svc by default;
+          # for this Deployment we override to the settlement-worker binary
+          # (both are built + COPY'd by the billing-svc Dockerfile).
+          command: ["/usr/local/bin/settlement-worker"]
           ports:
             - name: http
               containerPort: 8080
