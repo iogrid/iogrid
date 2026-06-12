@@ -24,11 +24,20 @@ COPY coordinator/internal/pb /src/coordinator/internal/pb
 COPY coordinator/services/billing-svc /src/coordinator/services/billing-svc
 
 WORKDIR /src/coordinator/services/billing-svc
+# Build BOTH entrypoints: the billing-svc API server AND the settlement-worker
+# ($GRID provider-payout cron, cmd/settlement-worker). The
+# settlement-worker-deployment.yaml runs the same image with the worker binary
+# as its command — without this second build the worker pod CrashLoops on
+# "exec: settlement-worker: no such file or directory" and no on-chain $GRID
+# transfer ever happens (the grid_build_settlement rows stay tx=pending). #598.
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build -trimpath -ldflags='-s -w' \
-        -o /out/billing-svc ./cmd/billing-svc
+        -o /out/billing-svc ./cmd/billing-svc \
+ && CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+    go build -trimpath -ldflags='-s -w' \
+        -o /out/settlement-worker ./cmd/settlement-worker
 
 # ---- runtime ----------------------------------------------------------------
 # distroless/static-debian12:nonroot — no shell, no package manager, runs as
@@ -36,6 +45,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 FROM gcr.io/distroless/static-debian12:nonroot
 
 COPY --from=builder /out/billing-svc /usr/local/bin/billing-svc
+COPY --from=builder /out/settlement-worker /usr/local/bin/settlement-worker
 
 USER nonroot:nonroot
 EXPOSE 8080
