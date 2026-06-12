@@ -325,7 +325,7 @@ func (s *Service) Cancel(ctx context.Context, workspaceID, id, reason string) (*
 // lifecycle directly. workspaceID is OPTIONAL — passing "" skips the
 // tenancy check so the dispatcher (which doesn't know the workspace) can
 // hand us updates.
-func (s *Service) UpdateStatus(ctx context.Context, id string, next Status, note string, exitCode int32) (*Build, error) {
+func (s *Service) UpdateStatus(ctx context.Context, id string, next Status, note, providerID string, exitCode int32) (*Build, error) {
 	if !next.Valid() {
 		return nil, &ErrValidation{Field: "status", Message: "unknown status " + string(next)}
 	}
@@ -336,6 +336,12 @@ func (s *Service) UpdateStatus(ctx context.Context, id string, next Status, note
 		curr.Status = next
 		curr.StatusNote = note
 		curr.ExitCode = exitCode
+		// Record the running provider (atomic with the status write so the
+		// terminal emitMetering below sees it). Don't clobber a known id with
+		// an empty one if a later callback omits it (#744).
+		if providerID != "" {
+			curr.ProviderID = providerID
+		}
 		now := s.now()
 		if next == StatusRunning && curr.StartedAt == nil {
 			curr.StartedAt = &now
@@ -527,6 +533,7 @@ func (s *Service) emitMetering(ctx context.Context, b *Build) {
 		BuildID:         b.ID,
 		WorkspaceID:     b.WorkspaceID,
 		AttemptID:       b.ProviderAttemptID,
+		ProviderID:      b.ProviderID,
 		TerminalStatus:  string(b.Status),
 		StartedAt:       *b.StartedAt,
 		FinishedAt:      *b.FinishedAt,

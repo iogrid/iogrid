@@ -64,7 +64,7 @@ func TestService_TerminalStatus_FiresGridSettle(t *testing.T) {
 	}
 
 	clock.Advance(5 * time.Second)
-	if _, err := svc.UpdateStatus(ctx, b.ID, builds.StatusRunning, "vm-booted", 0); err != nil {
+	if _, err := svc.UpdateStatus(ctx, b.ID, builds.StatusRunning, "vm-booted", "", 0); err != nil {
 		t.Fatalf("running update: %v", err)
 	}
 	// Not terminal yet → no settle.
@@ -73,7 +73,7 @@ func TestService_TerminalStatus_FiresGridSettle(t *testing.T) {
 	}
 
 	clock.Advance(7 * time.Minute)
-	if _, err := svc.UpdateStatus(ctx, b.ID, builds.StatusSucceeded, "ok", 0); err != nil {
+	if _, err := svc.UpdateStatus(ctx, b.ID, builds.StatusSucceeded, "ok", "", 0); err != nil {
 		t.Fatalf("succeed update: %v", err)
 	}
 
@@ -121,7 +121,7 @@ func TestService_NonTerminal_NoSettle(t *testing.T) {
 		t.Fatalf("Submit: %v", err)
 	}
 	clock.Advance(5 * time.Second)
-	if _, err := svc.UpdateStatus(ctx, b.ID, builds.StatusRunning, "vm-booted", 0); err != nil {
+	if _, err := svc.UpdateStatus(ctx, b.ID, builds.StatusRunning, "vm-booted", "", 0); err != nil {
 		t.Fatalf("running update: %v", err)
 	}
 	if len(rec.calls) != 0 {

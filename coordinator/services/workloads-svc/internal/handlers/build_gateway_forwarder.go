@@ -23,9 +23,11 @@ import (
 // on every submission (see build-gateway workloadclient ConnectClient).
 type BuildGatewayForwarder interface {
 	// ForwardStatus POSTs a status transition to the build-gateway for the
-	// given build id. Best-effort: a forwarding error is logged by the
-	// caller, never fails the daemon's stream.
-	ForwardStatus(ctx context.Context, buildID string, status string, note string, exitCode int32) error
+	// given build id. providerID is the daemon that ran the attempt — the
+	// gateway records it so a finished build can be metered to the right
+	// provider's earnings (#744); "" when unknown. Best-effort: a forwarding
+	// error is logged by the caller, never fails the daemon's stream.
+	ForwardStatus(ctx context.Context, buildID, providerID, status, note string, exitCode int32) error
 }
 
 // HTTPBuildGatewayForwarder is the production BuildGatewayForwarder: it POSTs
@@ -57,13 +59,14 @@ func NewHTTPBuildGatewayForwarder(baseURL, dispatchToken string) BuildGatewayFor
 }
 
 type buildGatewayStatusBody struct {
-	Status   string `json:"status"`
-	Note     string `json:"note,omitempty"`
-	ExitCode int32  `json:"exit_code,omitempty"`
+	Status     string `json:"status"`
+	Note       string `json:"note,omitempty"`
+	ExitCode   int32  `json:"exit_code,omitempty"`
+	ProviderID string `json:"provider_id,omitempty"`
 }
 
 // ForwardStatus implements BuildGatewayForwarder.
-func (f *HTTPBuildGatewayForwarder) ForwardStatus(ctx context.Context, buildID, status, note string, exitCode int32) error {
+func (f *HTTPBuildGatewayForwarder) ForwardStatus(ctx context.Context, buildID, providerID, status, note string, exitCode int32) error {
 	if f == nil {
 		return nil
 	}
@@ -72,7 +75,7 @@ func (f *HTTPBuildGatewayForwarder) ForwardStatus(ctx context.Context, buildID, 
 		client = &http.Client{Timeout: 5 * time.Second}
 	}
 	url := fmt.Sprintf("%s/internal/v1/builds/%s/status", f.BaseURL, buildID)
-	raw, err := json.Marshal(buildGatewayStatusBody{Status: status, Note: note, ExitCode: exitCode})
+	raw, err := json.Marshal(buildGatewayStatusBody{Status: status, Note: note, ExitCode: exitCode, ProviderID: providerID})
 	if err != nil {
 		return fmt.Errorf("build-gateway forward: marshal: %w", err)
 	}

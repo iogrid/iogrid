@@ -136,6 +136,11 @@ type Build struct {
 	// dispatched. Embedded so /artifacts uploads can be tied back to the
 	// originating run.
 	ProviderAttemptID string `json:"-"`
+	// ProviderID is the daemon that ran the build, learned from the
+	// workloads-svc status callback. Needed to attribute the build's metered
+	// minutes to the right provider's earnings (#744). "" until a status
+	// callback that carries it arrives.
+	ProviderID string `json:"-"`
 }
 
 // BillableMinutes is the wall-clock duration the build occupied a provider,

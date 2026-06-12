@@ -44,10 +44,12 @@ import (
 	"os"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/nats-io/nats.go"
 
 	"github.com/iogrid/iogrid/coordinator/services/build-gateway/internal/auth"
 	"github.com/iogrid/iogrid/coordinator/services/build-gateway/internal/builds"
 	"github.com/iogrid/iogrid/coordinator/services/build-gateway/internal/gridsettle"
+	"github.com/iogrid/iogrid/coordinator/services/build-gateway/internal/metering"
 	"github.com/iogrid/iogrid/coordinator/services/build-gateway/internal/s3artifact"
 	"github.com/iogrid/iogrid/coordinator/services/build-gateway/internal/server"
 	"github.com/iogrid/iogrid/coordinator/services/build-gateway/internal/store"
@@ -127,6 +129,7 @@ func main() {
 		Webhooks:   webhookDisp,
 		GridSettle: gridSettler,
 		Wallets:    walletResolver,
+		Metering:   buildMeteringEmitter(logger),
 		Logs:       hub,
 		Logger:     logger,
 	})
@@ -189,6 +192,44 @@ func buildDispatcher(logger *slog.Logger) workloadclient.Dispatcher {
 	logger.Info("dispatching builds to workloads-svc over Connect-Go",
 		slog.String("workloads_svc_url", url))
 	return workloadclient.NewConnect(url, nil)
+}
+
+// natsMeteringPublisher adapts *nats.Conn to metering.Publisher. Publish +
+// Flush so the caller sees a delivery error synchronously (a finished build is
+// rare enough that the flush cost is irrelevant).
+type natsMeteringPublisher struct{ nc *nats.Conn }
+
+func (p *natsMeteringPublisher) Publish(subject string, data []byte) error {
+	if err := p.nc.Publish(subject, data); err != nil {
+		return err
+	}
+	return p.nc.Flush()
+}
+
+// buildMeteringEmitter selects the metering backend. NATS_URL set → publish
+// per-build usage to the BILLING stream so billing-svc writes a
+// provider-attributed usage_event (the row /provide earnings sums, #744);
+// empty → in-memory (builds are never metered, earnings stay 0 — dev/test).
+func buildMeteringEmitter(logger *slog.Logger) metering.Emitter {
+	natsURL := os.Getenv("NATS_URL")
+	if natsURL == "" {
+		logger.Warn("no NATS_URL set; build metering events are NOT published",
+			slog.String("impact", "finished builds never write a usage_event → /provide earnings stay 0 for builds; set NATS_URL for prod"))
+		return metering.NewInMemory()
+	}
+	nc, err := nats.Connect(natsURL,
+		nats.Name("build-gateway-metering"),
+		nats.MaxReconnects(-1),
+	)
+	if err != nil {
+		logger.Error("metering NATS connect failed; builds will NOT meter",
+			slog.String("error", err.Error()))
+		return metering.NewInMemory()
+	}
+	logger.Info("build metering → NATS enabled",
+		slog.String("nats_url", natsURL),
+		slog.String("subject", metering.Subject))
+	return &metering.NATSEmitter{Pub: &natsMeteringPublisher{nc: nc}}
 }
 
 // buildValidator wires the API-key validator. Production substitutes a
