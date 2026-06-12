@@ -124,7 +124,7 @@ export const withNetworkExtension: ConfigPlugin = (config) => {
 \t<key>CFBundlePackageType</key>
 \t<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
 \t<key>CFBundleShortVersionString</key>
-\t<string>${config.version ?? '1.0.0'}</string>
+\t<string>1.0</string>
 \t<key>CFBundleVersion</key>
 \t<string>1</string>
 \t<key>NSExtension</key>
