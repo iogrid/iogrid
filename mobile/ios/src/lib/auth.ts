@@ -35,11 +35,20 @@ const WALLET_ADDRESS_KEY = 'iogrid.auth.walletAddress';
 
 // Keychain access-group MUST match what NetworkExtension reads — same
 // rationale as src/lib/account.ts.
-const KEYCHAIN_ACCESS_GROUP = 'group.io.iogrid.app';
-
+// NO `accessGroup` here. We used to scope the keychain to the App Group
+// `group.io.iogrid.app` (so the NetworkExtension could share it), but that
+// App Group is NOT provisioned — Apple's API can't CREATE App Groups (#701),
+// so the matching `keychain-access-groups` entitlement is intentionally absent
+// from the build (mobile/ios/plugins/with-network-extension.ts). Requesting an
+// access group the build has no entitlement for makes SecureStore.getItemAsync
+// (native `getValueWithKeyAsync`) throw "a required entitlement isn't present"
+// on the FIRST call (loadStoredAuth at app start) — so the app died at launch,
+// before any screen rendered. The default (bundle-scoped) keychain needs no
+// entitlement; the NE reads the WG private key via providerConfiguration /
+// the App-Group UserDefaults, not this keychain. Restore the accessGroup only
+// once the App Group is actually provisioned in the signing profile.
 const KEYCHAIN_OPTIONS: SecureStore.SecureStoreOptions = {
   keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
-  accessGroup: KEYCHAIN_ACCESS_GROUP,
 };
 
 const DEFAULT_BASE_URL = 'https://api.iogrid.org';

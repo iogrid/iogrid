@@ -46,11 +46,16 @@ const CUSTOMER_ID_KEY = 'iogrid.account.customerId';
 // NE extension process can't read the same Keychain entry the main
 // app writes — and we'd have to send the customer_id over the
 // providerConfiguration IPC instead (less secure, more plumbing).
-const KEYCHAIN_ACCESS_GROUP = 'group.io.iogrid.app';
-
+// NO `accessGroup`. The App Group `group.io.iogrid.app` is NOT provisioned
+// (Apple's API can't CREATE App Groups, #701) and the matching
+// `keychain-access-groups` entitlement is absent from the build. Requesting it
+// made SecureStore.getItemAsync (native `getValueWithKeyAsync`) throw "a
+// required entitlement isn't present" on the FIRST launch call
+// (loadOrCreateIdentity here) — killing the app before any screen. The default
+// bundle-scoped keychain needs no entitlement. Restore the accessGroup only
+// once the App Group is provisioned in the signing profile.
 const KEYCHAIN_OPTIONS: SecureStore.SecureStoreOptions = {
   keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
-  accessGroup: KEYCHAIN_ACCESS_GROUP,
 };
 
 /** A loaded iogrid identity — what every coordinator call needs. */
