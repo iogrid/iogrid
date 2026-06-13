@@ -8,6 +8,8 @@ import (
 	"github.com/iogrid/iogrid/coordinator/services/gateway-bff/internal/auth"
 
 	abusev1 "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/antiabuse/v1"
+	billingv1 "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/billing/v1"
+	commonv1 "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/common/v1"
 )
 
 // ListAbuseQueue returns the active anti-abuse filter rules and (when
@@ -30,6 +32,53 @@ func (a *API) ListAbuseQueue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// GetAdminProviderEarnings returns the billing-svc earnings headline
+// (lifetime / last_30d / last_7d / pending + settled on-chain $GRID +
+// settled-build count) for ANY provider, by path UUID. This is the
+// operator surface: unlike /provide/earnings/summary it is NOT gated on
+// ownership (the caller is staff, not the provider's owner) — the gate
+// is RequireRole("ADMIN") at the router plus the mustAdmin re-check
+// here (defence-in-depth, fail-closed).
+//
+// Why this exists (#758): the founder is the platform operator and his
+// own account owns a DIFFERENT provider than the one that ran the real
+// iOS builds — so /provide/earnings legitimately shows $0 for him, and
+// there was previously NO UI path to see another provider's settled
+// $GRID. The admin /providers list calls this per row to surface the
+// real on-chain earnings (e.g. Hatice's provider 808ce330 = 11.05 $GRID
+// across 14 settled builds).
+//
+//	GET /api/v1/admin/providers/{id}/earnings
+//	-> 200 { summary: { totalEarned, settledGrid, settledBuilds, ... } }
+//
+// Reuses billing-svc.EarningsService.GetEarningsSummary — the SAME RPC
+// the owner-scoped surface uses — so the operator and the provider see
+// an identical number for the same provider (no parallel computation to
+// drift). protojson so the web/admin protobuf-shaped client reads
+// camelCase Money fields (#633).
+func (a *API) GetAdminProviderEarnings(w http.ResponseWriter, r *http.Request) {
+	if !mustAdmin(w, r) {
+		return
+	}
+	if a.Clients == nil || a.Clients.BillingEarnings == nil {
+		writeError(w, http.StatusServiceUnavailable, "earnings_client_unwired",
+			"billing-svc Earnings client not configured")
+		return
+	}
+	pid, ok := parseUUIDParam(w, chi.URLParam(r, "id"), "id")
+	if !ok {
+		return
+	}
+	resp, err := a.Clients.BillingEarnings.GetEarningsSummary(r.Context(), &billingv1.GetEarningsSummaryRequest{
+		ProviderId: &commonv1.UUID{Value: pid.String()},
+	})
+	if err != nil {
+		writeUpstreamError(w, err)
+		return
+	}
+	writeProtoJSON(w, http.StatusOK, resp)
 }
 
 // ResolveAbuseEvent is the manual reviewer's "allow" / "block"
