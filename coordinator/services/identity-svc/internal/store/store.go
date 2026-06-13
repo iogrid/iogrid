@@ -539,8 +539,12 @@ func (s *Store) FindSessionByRefreshHash(ctx context.Context, q Querier, hash st
 	}
 	sess := &Session{}
 	var ipStr *string
+	// host(ip) strips the INET prefix length: ip::text yields
+	// "203.0.113.42/32", which net.ParseIP REJECTS (returns nil) — that
+	// silently dropped the session IP on every Postgres read (#726 bug
+	// class). host() returns the bare "203.0.113.42" that ParseIP accepts.
 	err := q.QueryRow(ctx, `
-		SELECT id, user_id, refresh_token_hash, ip::text, user_agent, created_at, last_used_at,
+		SELECT id, user_id, refresh_token_hash, host(ip), user_agent, created_at, last_used_at,
 		       expires_at, revoked_at, step_up_until
 		  FROM sessions
 		 WHERE refresh_token_hash = $1
@@ -605,8 +609,10 @@ func (s *Store) ListSessionsForUser(ctx context.Context, q Querier, userID uuid.
 	if q == nil {
 		q = s.Pool
 	}
+	// host(ip) strips the INET "/32" prefix so net.ParseIP accepts it (see
+	// FindSessionByRefreshHash — ip::text would round-trip to nil). #726.
 	rows, err := q.Query(ctx, `
-		SELECT id, user_id, refresh_token_hash, ip::text, user_agent,
+		SELECT id, user_id, refresh_token_hash, host(ip), user_agent,
 		       created_at, last_used_at, expires_at, revoked_at, step_up_until
 		  FROM sessions
 		 WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > now()
