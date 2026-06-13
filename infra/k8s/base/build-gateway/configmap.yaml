@@ -1,0 +1,38 @@
+# build-gateway non-secret config (#757) — CAPTURED FROM LIVE prod 2026-06-14.
+#
+# This existed ONLY in the live cluster (applied out-of-band, like the Traefik
+# middlewares per #637); captured here so the build-gateway wiring survives a
+# cluster rebuild. Secrets (BUILD_GATEWAY_STATIC_API_KEY,
+# BUILD_GATEWAY_DISPATCH_TOKEN) live in the `build-gateway-secrets` Secret
+# (secretRef in deployment.yaml) and are NOT committed.
+#
+# Each URL turns on a real production path (see cmd/build-gateway/main.go):
+#   WORKLOADS_SVC_URL  -> ConnectClient dispatches builds to workloads-svc (the
+#                         REAL Mac-provider path; empty = in-mem, never reaches
+#                         a provider).
+#   BILLING_SVC_URL    -> HTTPSettler POSTs terminal builds to /v1/grid/build-end
+#                         ($GRID provider settlement, #718).
+#   IDENTITY_SVC_URL   -> wallet resolution for the customer/provider payout.
+#   PROVIDERS_SVC_URL  -> provider_id -> owner -> $GRID payout wallet (#748).
+#   NATS_URL           -> build metering -> provider-attributed usage_event (#744).
+#   BUILD_GATEWAY_STATIC_WORKSPACE / _USER / _PLAN -> the workspace+user the
+#                         static API key is bound to (so $GRID settlement
+#                         attributes correctly until per-customer billing-svc
+#                         key issuance lands).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: build-gateway-config
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/name: build-gateway
+    app.kubernetes.io/part-of: iogrid
+data:
+  WORKLOADS_SVC_URL: "http://workloads-svc.iogrid.svc.cluster.local:8080"
+  BILLING_SVC_URL: "http://billing-svc.iogrid.svc.cluster.local:8080"
+  IDENTITY_SVC_URL: "http://identity-svc.iogrid.svc.cluster.local:8080"
+  PROVIDERS_SVC_URL: "http://providers-svc.iogrid.svc.cluster.local:8080"
+  NATS_URL: "nats://nats.iogrid.svc.cluster.local:4222"
+  BUILD_GATEWAY_STATIC_WORKSPACE: "18c9fd5d-2427-4335-90cb-a024da462edf"
+  BUILD_GATEWAY_STATIC_USER: "a7a93576-aebb-453e-bfc5-f9c31514e9da"
+  BUILD_GATEWAY_STATIC_PLAN: "enterprise"
