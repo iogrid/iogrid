@@ -89,9 +89,12 @@ type Service struct {
 	metering   metering.Emitter
 	gridSettle gridsettle.Settler
 	wallets    gridsettle.WalletResolver
-	logs       *LogHub
-	logger     *slog.Logger
-	now        func() time.Time
+	// providerWallets resolves a build's provider_id to the provider owner's
+	// $GRID payout wallet so settlement pays the provider on-chain (#748).
+	providerWallets gridsettle.ProviderWalletResolver
+	logs            *LogHub
+	logger          *slog.Logger
+	now             func() time.Time
 	// idGen produces a new opaque build id. Defaults to a 16-byte random
 	// hex string; overridden in tests for deterministic ids.
 	idGen func() string
@@ -101,18 +104,19 @@ type Service struct {
 
 // Options bundles dependencies for NewService.
 type Options struct {
-	Store      Store
-	Dispatcher workloadclient.Dispatcher
-	Storage    s3artifact.Storage
-	Webhooks   webhook.Dispatcher
-	Metering   metering.Emitter
-	GridSettle gridsettle.Settler
-	Wallets    gridsettle.WalletResolver
-	Logs       *LogHub
-	Logger     *slog.Logger
-	Now        func() time.Time
-	IDGen      func() string
-	PresignTTL time.Duration
+	Store           Store
+	Dispatcher      workloadclient.Dispatcher
+	Storage         s3artifact.Storage
+	Webhooks        webhook.Dispatcher
+	Metering        metering.Emitter
+	GridSettle      gridsettle.Settler
+	Wallets         gridsettle.WalletResolver
+	ProviderWallets gridsettle.ProviderWalletResolver
+	Logs            *LogHub
+	Logger          *slog.Logger
+	Now             func() time.Time
+	IDGen           func() string
+	PresignTTL      time.Duration
 }
 
 // NewService builds a Service. All required dependencies (store, dispatcher,
@@ -133,6 +137,9 @@ func NewService(opts Options) *Service {
 	if opts.Wallets == nil {
 		opts.Wallets = gridsettle.NoopWalletResolver{}
 	}
+	if opts.ProviderWallets == nil {
+		opts.ProviderWallets = gridsettle.NoopProviderWalletResolver{}
+	}
 	if opts.Logs == nil {
 		opts.Logs = NewLogHub(0)
 	}
@@ -149,18 +156,19 @@ func NewService(opts Options) *Service {
 		opts.PresignTTL = 15 * time.Minute
 	}
 	return &Service{
-		store:      opts.Store,
-		dispatcher: opts.Dispatcher,
-		storage:    opts.Storage,
-		webhooks:   opts.Webhooks,
-		metering:   opts.Metering,
-		gridSettle: opts.GridSettle,
-		wallets:    opts.Wallets,
-		logs:       opts.Logs,
-		logger:     opts.Logger,
-		now:        opts.Now,
-		idGen:      opts.IDGen,
-		presignTTL: opts.PresignTTL,
+		store:           opts.Store,
+		dispatcher:      opts.Dispatcher,
+		storage:         opts.Storage,
+		webhooks:        opts.Webhooks,
+		metering:        opts.Metering,
+		gridSettle:      opts.GridSettle,
+		wallets:         opts.Wallets,
+		providerWallets: opts.ProviderWallets,
+		logs:            opts.Logs,
+		logger:          opts.Logger,
+		now:             opts.Now,
+		idGen:           opts.IDGen,
+		presignTTL:      opts.PresignTTL,
 	}
 }
 
@@ -510,10 +518,30 @@ func (s *Service) settleGrid(ctx context.Context, b *Build) {
 		return
 	}
 	consumed := gridsettle.BillableToAtomic(b.BillableMinutes(s.now()), gridsettle.DefaultRatePerMinuteAtomic)
+	// Resolve the provider's payout wallet (provider_id → owner user → bound
+	// $GRID wallet) so the settlement row carries a non-empty provider_wallet.
+	// The settlement-worker only drains rows WHERE provider_wallet <> '', so
+	// without this the provider is never paid on-chain (#748). Best-effort: an
+	// unresolved wallet stays empty (logged) and settlement still records the
+	// row for later reconciliation.
+	var providerWallet string
+	if s.providerWallets != nil && b.ProviderID != "" {
+		if w, err := s.providerWallets.ResolveProviderWallet(ctx, b.ProviderID); err != nil {
+			s.logger.Warn("provider wallet resolve failed; build settles without provider payout",
+				slog.String("build_id", b.ID),
+				slog.String("provider_id", b.ProviderID),
+				slog.String("error", err.Error()),
+			)
+		} else {
+			providerWallet = w
+		}
+	}
 	in := gridsettle.BuildSettleInput{
 		BuildID:        b.ID,
 		AttemptID:      b.ProviderAttemptID,
 		CustomerWallet: b.CustomerWallet, // empty until #718 — no-op then
+		ProviderWallet: providerWallet,
+		ProviderID:     b.ProviderID,
 		EscrowedAtomic: consumed,
 		ConsumedAtomic: consumed,
 	}
