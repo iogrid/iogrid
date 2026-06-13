@@ -13,7 +13,10 @@ import { browserApi } from "@/lib/api";
 import { formatBytes, formatMoneyProto } from "@/lib/format";
 import { schedulerStateShortName } from "@/lib/proto-enum";
 import { cn } from "@/lib/utils";
-import type { ProviderDashboard } from "@/lib/types";
+import type {
+  BillingGetEarningsSummaryResponse,
+  ProviderDashboard,
+} from "@/lib/types";
 
 /**
  * Read a numeric field that may arrive on the wire under either its
@@ -41,6 +44,15 @@ function pickNum(
 
 export function ProvideOverview() {
   const [dash, setDash] = React.useState<ProviderDashboard | null>(null);
+  // Headline earnings from billing-svc (#758) — the SAME source the
+  // /provider/earnings page reads. The providers-svc dashboard above
+  // sums `usage_event.cost_cents` only, which is ~0 for a provider whose
+  // revenue is on-chain $GRID build settlements (grid_build_settlement).
+  // We keep the dashboard for scheduler/bandwidth/CPU but take the
+  // earnings HEADLINE from here so the home card matches the earnings
+  // page (e.g. Hatice's 5.95 $GRID / 7 builds) instead of showing $0.
+  const [headline, setHeadline] =
+    React.useState<BillingGetEarningsSummaryResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [err, setErr] = React.useState<string | null>(null);
 
@@ -74,6 +86,27 @@ export function ProvideOverview() {
     return () => {
       cancelled = true;
       if (timerId !== null) clearInterval(timerId);
+    };
+  }, []);
+
+  // Fetch the billing-svc earnings headline once on mount — mirrors
+  // exactly how /provider/earnings (earnings/view.tsx) loads it: same
+  // bff route, same session-cookie auth via browserApi(). On error we
+  // leave `headline` null and the card falls back to the providers-svc
+  // dashboard total, so a billing-svc blip never breaks the overview.
+  React.useEffect(() => {
+    let cancelled = false;
+    browserApi()
+      .get<BillingGetEarningsSummaryResponse>("/api/v1/provide/earnings/summary")
+      .then((res) => {
+        if (!cancelled) setHeadline(res);
+      })
+      .catch(() => {
+        // Non-fatal: the headline card degrades to the providers-svc
+        // window total; the rest of the dashboard is unaffected.
+      });
+    return () => {
+      cancelled = true;
     };
   }, []);
 
@@ -113,6 +146,20 @@ export function ProvideOverview() {
   const recent = dash?.recent_events ?? [];
   const providers = dash?.providers ?? [];
 
+  // Earnings HEADLINE — prefer the billing-svc lifetime total (folds the
+  // on-chain grid_build_settlement ledger, #758) so the home card matches
+  // /provider/earnings; fall back to the providers-svc dashboard total
+  // (usage_event-only) until/if billing responds. `settledBuilds` drives
+  // the hint when the provider has on-chain settlements.
+  const headlineSummary = headline?.summary;
+  const headlineTotal = headlineSummary?.totalEarned;
+  const earningsTotal = headlineTotal ?? earnings?.totalEarned;
+  const settled = settledBuildCount(headlineSummary);
+  const earningsHint =
+    settled > 0
+      ? `${formatMoneyProto(headlineSummary?.settledGrid)} from ${settled} build${settled === 1 ? "" : "s"} settled on-chain`
+      : "So far this period";
+
   return (
     <div className="space-y-6">
       {/*
@@ -133,8 +180,8 @@ export function ProvideOverview() {
         />
         <StatsCard
           label="Earnings this month"
-          value={formatMoneyProto(earnings?.totalEarned)}
-          hint="So far this period"
+          value={formatMoneyProto(earningsTotal)}
+          hint={earningsHint}
         />
         <StatsCard
           label="Bandwidth used"
@@ -189,6 +236,20 @@ export function ProvideOverview() {
       </section>
     </div>
   );
+}
+
+/**
+ * Coerce the int64 settled-build count (proto3-JSON arrives as a string
+ * OR number) to a finite number; 0 when absent. Mirrors the same helper
+ * on /provider/earnings (earnings/view.tsx). See #758.
+ */
+function settledBuildCount(
+  s: BillingGetEarningsSummaryResponse["summary"] | undefined,
+): number {
+  const v = s?.settledBuilds;
+  if (v === undefined || v === null) return 0;
+  const n = typeof v === "string" ? Number(v) : v;
+  return Number.isFinite(n) ? n : 0;
 }
 
 function QuickLink({
