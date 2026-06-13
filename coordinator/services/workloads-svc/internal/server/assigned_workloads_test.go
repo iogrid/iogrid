@@ -16,9 +16,11 @@ import (
 )
 
 // recordingForwarder is a fake handlers.BuildGatewayForwarder that captures
-// every ForwardStatus call so a test can assert the poll path propagates.
+// every ForwardStatus / ForwardLogs call so a test can assert the poll path
+// propagates.
 type recordingForwarder struct {
-	calls []fwdCall
+	calls    []fwdCall
+	logCalls []logCall
 }
 
 type fwdCall struct {
@@ -29,8 +31,19 @@ type fwdCall struct {
 	exitCode   int32
 }
 
+type logCall struct {
+	buildID string
+	stream  string
+	lines   []string
+}
+
 func (f *recordingForwarder) ForwardStatus(_ context.Context, buildID, providerID, status, note string, exitCode int32) error {
 	f.calls = append(f.calls, fwdCall{buildID, providerID, status, note, exitCode})
+	return nil
+}
+
+func (f *recordingForwarder) ForwardLogs(_ context.Context, buildID, stream string, lines []string) error {
+	f.logCalls = append(f.logCalls, logCall{buildID, stream, lines})
 	return nil
 }
 
@@ -85,6 +98,56 @@ func TestAssignedWorkloadStatusForwardsToBuildGateway(t *testing.T) {
 	}
 	if c := fwd.calls[0]; c.buildID != "bld-1" || c.providerID != prov || c.status != "succeeded" || c.exitCode != 0 {
 		t.Fatalf("unexpected forward: %+v", c)
+	}
+}
+
+// #763: the poll-dispatch log relay must forward build stdout/stderr to the
+// build-gateway, routed by the workload's "build_id" label, so the customer's
+// GET /v1/builds/{id}/logs SSE tail is non-empty (it was empty before — the
+// runner captured logs but nothing forwarded them).
+func TestAssignedWorkloadLogsForwardsToBuildGateway(t *testing.T) {
+	st := store.NewInMemory()
+	ctx := context.Background()
+	const prov = "44444444-4444-4444-4444-444444444444"
+
+	wl := &store.Workload{
+		ID:       "wl-logs",
+		Type:     store.TypeIOSBuild,
+		Status:   store.StatusRunning,
+		Labels:   map[string]string{"build_id": "bld-logs"},
+		IOSBuild: &store.IOSBuildSpec{RepoURL: "https://github.com/iogrid/iogrid.git", GitRef: "main", BuildCommand: "xcodebuild build"},
+	}
+	if err := st.CreateWorkload(ctx, wl); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreateAssignment(ctx, &store.Assignment{
+		ID: "att-logs", WorkloadID: "wl-logs", ProviderID: prov, LatestStatus: store.StatusRunning,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	fwd := &recordingForwarder{}
+	r := chi.NewRouter()
+	r.Group(Mount(Deps{Store: st, Dispatcher: dispatcher.New(st, nil), BuildGateway: fwd, Log: slog.Default()}))
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	body := `{"stream":"stdout","lines":["Xcode 26.5","Build version 17F42"]}`
+	resp, err := http.Post(srv.URL+"/v1/providers/"+prov+"/assigned-workloads/att-logs/logs",
+		"application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("logs POST: want 202, got %d", resp.StatusCode)
+	}
+	if len(fwd.logCalls) != 1 {
+		t.Fatalf("want exactly 1 log forward, got %d", len(fwd.logCalls))
+	}
+	c := fwd.logCalls[0]
+	if c.buildID != "bld-logs" || c.stream != "stdout" || len(c.lines) != 2 || c.lines[0] != "Xcode 26.5" {
+		t.Fatalf("unexpected log forward: %+v", c)
 	}
 }
 

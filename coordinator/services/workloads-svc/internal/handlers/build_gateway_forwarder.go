@@ -28,6 +28,11 @@ type BuildGatewayForwarder interface {
 	// provider's earnings (#744); "" when unknown. Best-effort: a forwarding
 	// error is logged by the caller, never fails the daemon's stream.
 	ForwardStatus(ctx context.Context, buildID, providerID, status, note string, exitCode int32) error
+	// ForwardLogs POSTs one or more build-log lines to the build-gateway's
+	// internal log endpoint for the given build id, so the customer's
+	// `GET /v1/builds/{id}/logs` SSE tail shows them live (#763). stream is
+	// "stdout" or "stderr". Best-effort, like ForwardStatus.
+	ForwardLogs(ctx context.Context, buildID, stream string, lines []string) error
 }
 
 // HTTPBuildGatewayForwarder is the production BuildGatewayForwarder: it POSTs
@@ -97,6 +102,49 @@ func (f *HTTPBuildGatewayForwarder) ForwardStatus(ctx context.Context, buildID, 
 		// the build-gateway may have already advanced or cancelled the
 		// build. Surface the code so the caller can log at the right level.
 		return fmt.Errorf("build-gateway forward: status %d", resp.StatusCode)
+	}
+	return nil
+}
+
+type buildGatewayLogBody struct {
+	Stream string   `json:"stream"`
+	Text   string   `json:"text,omitempty"`
+	Lines  []string `json:"lines,omitempty"`
+}
+
+// ForwardLogs implements BuildGatewayForwarder. Posts the lines as a single
+// batch to {baseURL}/internal/v1/builds/{id}/logs.
+func (f *HTTPBuildGatewayForwarder) ForwardLogs(ctx context.Context, buildID, stream string, lines []string) error {
+	if f == nil || len(lines) == 0 {
+		return nil
+	}
+	client := f.Client
+	if client == nil {
+		client = &http.Client{Timeout: 5 * time.Second}
+	}
+	if stream == "" {
+		stream = "stdout"
+	}
+	url := fmt.Sprintf("%s/internal/v1/builds/%s/logs", f.BaseURL, buildID)
+	raw, err := json.Marshal(buildGatewayLogBody{Stream: stream, Lines: lines})
+	if err != nil {
+		return fmt.Errorf("build-gateway forward logs: marshal: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(raw))
+	if err != nil {
+		return fmt.Errorf("build-gateway forward logs: new request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if f.DispatchToken != "" {
+		req.Header.Set("X-Iogrid-Dispatch-Token", f.DispatchToken)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("build-gateway forward logs: post: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("build-gateway forward logs: status %d", resp.StatusCode)
 	}
 	return nil
 }

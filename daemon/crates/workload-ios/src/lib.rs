@@ -252,11 +252,41 @@ pub struct MaestroResult {
     pub screenshots_local_dir: Option<PathBuf>,
 }
 
+/// Live log sink — the runner calls [`LogSink::emit`] for each chunk of
+/// build stdout/stderr AS IT ARRIVES so the customer's `GET
+/// /v1/builds/{id}/logs` SSE tail shows real-time output rather than only a
+/// dump at terminal state. The poll path supplies an HTTP-posting sink
+/// (`build_poller`); tests / the in-VM Tart path can pass `None` to get the
+/// old buffer-and-return behaviour.
+#[async_trait]
+pub trait LogSink: Send + Sync {
+    /// Emit one log chunk. `stream` is `"stdout"` or `"stderr"`. `text` may
+    /// contain multiple newline-separated lines (the sink splits as needed).
+    /// Best-effort: a sink error must NOT fail the build — implementers log
+    /// and move on.
+    async fn emit(&self, stream: &str, text: &str);
+}
+
+/// A boxed, shareable log sink.
+pub type SharedLogSink = std::sync::Arc<dyn LogSink>;
+
 /// iOS-build runner contract.
 #[async_trait]
 pub trait IosBuildRunner: Send + Sync {
     /// Run the build to completion. Returns [`IosBuildResult`] on success.
     async fn run(&self, workload: IosBuildWorkload) -> Result<IosBuildResult, IosBuildError>;
+
+    /// Run the build, streaming stdout/stderr to `sink` live as it arrives.
+    /// The default implementation ignores the sink and delegates to [`run`]
+    /// (so the Tart driver + tests keep working unchanged); the native
+    /// host-direct runner overrides this to tail lines out in real time.
+    async fn run_with_sink(
+        &self,
+        workload: IosBuildWorkload,
+        _sink: Option<SharedLogSink>,
+    ) -> Result<IosBuildResult, IosBuildError> {
+        self.run(workload).await
+    }
 }
 
 /// Tart-based runner. Real implementation lives in [`tart_impl`]; on non-mac
@@ -325,16 +355,24 @@ impl Default for NativeRunner {
 #[async_trait]
 impl IosBuildRunner for NativeRunner {
     async fn run(&self, workload: IosBuildWorkload) -> Result<IosBuildResult, IosBuildError> {
+        self.run_with_sink(workload, None).await
+    }
+
+    async fn run_with_sink(
+        &self,
+        workload: IosBuildWorkload,
+        sink: Option<SharedLogSink>,
+    ) -> Result<IosBuildResult, IosBuildError> {
         #[cfg(target_os = "macos")]
         {
             let driver = native_impl::NativeDriver {
                 work_root: self.work_root.clone(),
             };
-            return driver.run(workload).await;
+            return driver.run(workload, sink).await;
         }
         #[cfg(not(target_os = "macos"))]
         {
-            let _ = workload;
+            let _ = (workload, sink);
             Err(IosBuildError::UnsupportedPlatform)
         }
     }
@@ -383,10 +421,20 @@ pub async fn run_with_timeout<R: IosBuildRunner + ?Sized>(
     runner: &R,
     workload: IosBuildWorkload,
 ) -> Result<IosBuildResult, IosBuildError> {
+    run_with_timeout_sink(runner, workload, None).await
+}
+
+/// Like [`run_with_timeout`] but streams stdout/stderr to `sink` live (the
+/// poll path passes an HTTP sink so the customer sees a real-time log tail).
+pub async fn run_with_timeout_sink<R: IosBuildRunner + ?Sized>(
+    runner: &R,
+    workload: IosBuildWorkload,
+    sink: Option<SharedLogSink>,
+) -> Result<IosBuildResult, IosBuildError> {
     let total = Duration::from_secs(workload.timeout_secs as u64);
     let id = workload.id;
     let after_secs = workload.timeout_secs;
-    match tokio::time::timeout(total, runner.run(workload)).await {
+    match tokio::time::timeout(total, runner.run_with_sink(workload, sink)).await {
         Ok(res) => res,
         Err(_) => Err(IosBuildError::TimedOut { id, after_secs }),
     }
@@ -959,7 +1007,11 @@ mod native_impl {
     }
 
     impl NativeDriver {
-        pub async fn run(&self, w: IosBuildWorkload) -> Result<IosBuildResult, IosBuildError> {
+        pub async fn run(
+            &self,
+            w: IosBuildWorkload,
+            sink: Option<super::SharedLogSink>,
+        ) -> Result<IosBuildResult, IosBuildError> {
             // 0. A usable Xcode toolchain is the native equivalent of the
             // VM base image: hard-require it up front.
             if !xcode_present().await {
@@ -976,17 +1028,30 @@ mod native_impl {
             // driver's in-VM command, rooted at the workspace instead of the
             // VM's $HOME/build. Non-zero exit returns BuildFailed (parity
             // with ssh_run).
+            //
+            // The daemon process is often launched with a MINIMAL env
+            // (`PATH=/usr/bin:/bin:/usr/sbin:/sbin`, no DEVELOPER_DIR, and
+            // `/usr/local/bin/node` shadowing the real node@22). `/bin/bash
+            // -lc` recovers most of PATH via /etc/profile's path_helper, but
+            // two things still bite a real customer build (e.g. ping's
+            // Expo/RN app): (a) DEVELOPER_DIR is unset so `xcodebuild`
+            // resolves to whatever `xcode-select` last pointed at — pin it to
+            // the proven Xcode 26 so the toolchain is deterministic; (b)
+            // node resolves to a stale system node — prepend node@22 so RN
+            // tooling runs. `xcode_env_preamble()` emits these exports
+            // (guarded by existence checks) BEFORE the customer command.
             let snippet = format!(
-                "set -euo pipefail; cd {ws}; \
+                "set -euo pipefail; {preamble} cd {ws}; \
                  if [ ! -d repo ]; then git clone --depth 50 {repo} repo; fi; \
                  cd repo && git fetch origin {gref} && git checkout {gref}; \
                  {cmd}",
+                preamble = xcode_env_preamble(),
                 ws = shell_quote(&ws.to_string_lossy()),
                 repo = shell_quote(&w.repo_url),
                 gref = shell_quote(&w.git_ref),
                 cmd = w.build_command,
             );
-            let (exit_code, logs) = run_local(&snippet).await?;
+            let (exit_code, logs) = run_local(&snippet, sink.clone()).await?;
 
             // 3. Artifact: relative paths resolve against the repo checkout;
             // absolute paths are used as-is. (No VM-convention default — a
@@ -1043,7 +1108,7 @@ mod native_impl {
         ) -> Result<MaestroResult, IosBuildError> {
             let script = maestro_remote_script(cfg);
             tracing::info!(id = %w.id, "running maestro walkthrough natively on host");
-            let (code, logs) = run_local_no_fail(&script).await?;
+            let (code, logs) = run_local_no_fail(&script, None).await?;
             let attempts = parse_maestro_attempts(&logs);
             let junit = std::path::Path::new(MAESTRO_GUEST_JUNIT);
             let screenshots = std::path::Path::new(MAESTRO_GUEST_SCREENSHOT_DIR);
@@ -1069,11 +1134,38 @@ mod native_impl {
             .unwrap_or(false)
     }
 
+    /// Shell preamble exporting a deterministic Xcode + node toolchain into
+    /// the build's `/bin/bash -lc` environment. Each export is guarded by an
+    /// existence check so a Mac that doesn't have the pinned paths simply
+    /// falls back to whatever `xcode-select` / PATH already resolve (the
+    /// build still runs; it just isn't pinned). Emitted verbatim ahead of
+    /// the customer's build command.
+    ///
+    /// - `DEVELOPER_DIR` → the proven Xcode 26 bundle when present, so
+    ///   `xcodebuild` is deterministic regardless of the global
+    ///   `xcode-select` state.
+    /// - node@22 prepended to PATH so RN/Expo tooling doesn't pick up a
+    ///   stale `/usr/local/bin/node`.
+    pub(super) fn xcode_env_preamble() -> &'static str {
+        // `command -v xcodebuild`-independent: we point DEVELOPER_DIR at the
+        // pinned bundle if it exists, else leave it to xcode-select. Keep it
+        // to plain POSIX so `set -e` never trips on the guards.
+        "if [ -d /Applications/Xcode-26.5.0.app/Contents/Developer ]; then \
+           export DEVELOPER_DIR=/Applications/Xcode-26.5.0.app/Contents/Developer; \
+         fi; \
+         if [ -d /opt/homebrew/opt/node@22/bin ]; then \
+           export PATH=/opt/homebrew/opt/node@22/bin:$PATH; \
+         fi;"
+    }
+
     /// Run `snippet` via `/bin/bash -lc`; non-zero exit is
     /// [`IosBuildError::BuildFailed`] (parity with the Tart driver's
-    /// `ssh_run`).
-    async fn run_local(snippet: &str) -> Result<(i32, Vec<u8>), IosBuildError> {
-        let (code, logs) = run_local_no_fail(snippet).await?;
+    /// `ssh_run`). Streams stdout/stderr to `sink` live when one is given.
+    async fn run_local(
+        snippet: &str,
+        sink: Option<super::SharedLogSink>,
+    ) -> Result<(i32, Vec<u8>), IosBuildError> {
+        let (code, logs) = run_local_no_fail(snippet, sink).await?;
         if code != 0 {
             return Err(IosBuildError::BuildFailed(code));
         }
@@ -1082,8 +1174,13 @@ mod native_impl {
 
     /// Run `snippet` via `/bin/bash -lc`, capturing interleaved
     /// stdout+stderr capped at 1 MiB; the exit code is returned, never an
-    /// error (Maestro flow failures are data, not transport errors).
-    async fn run_local_no_fail(snippet: &str) -> Result<(i32, Vec<u8>), IosBuildError> {
+    /// error (Maestro flow failures are data, not transport errors). When
+    /// `sink` is `Some`, every chunk is also forwarded live (line-split) so
+    /// the customer's SSE tail shows real-time output.
+    async fn run_local_no_fail(
+        snippet: &str,
+        sink: Option<super::SharedLogSink>,
+    ) -> Result<(i32, Vec<u8>), IosBuildError> {
         const CAP: usize = 1024 * 1024;
         let mut child = Command::new("/bin/bash")
             .args(["-lc", snippet])
@@ -1098,6 +1195,9 @@ mod native_impl {
         let mut out_buf = [0u8; 8192];
         let mut err_buf = [0u8; 8192];
         let (mut out_done, mut err_done) = (out.is_none(), err.is_none());
+        // Per-stream partial-line carry so we forward whole lines to the sink.
+        let mut out_carry = String::new();
+        let mut err_carry = String::new();
         while !(out_done && err_done) {
             tokio::select! {
                 r = async { out.as_mut().unwrap().read(&mut out_buf).await }, if !out_done => {
@@ -1106,6 +1206,9 @@ mod native_impl {
                         Ok(n) => {
                             if logs.len() + n <= CAP {
                                 logs.extend_from_slice(&out_buf[..n]);
+                            }
+                            if let Some(s) = &sink {
+                                forward_lines(s, "stdout", &out_buf[..n], &mut out_carry).await;
                             }
                         }
                         Err(_) => out_done = true,
@@ -1118,10 +1221,22 @@ mod native_impl {
                             if logs.len() + n <= CAP {
                                 logs.extend_from_slice(&err_buf[..n]);
                             }
+                            if let Some(s) = &sink {
+                                forward_lines(s, "stderr", &err_buf[..n], &mut err_carry).await;
+                            }
                         }
                         Err(_) => err_done = true,
                     }
                 }
+            }
+        }
+        // Flush any trailing partial line (no newline at EOF).
+        if let Some(s) = &sink {
+            if !out_carry.is_empty() {
+                s.emit("stdout", &out_carry).await;
+            }
+            if !err_carry.is_empty() {
+                s.emit("stderr", &err_carry).await;
             }
         }
         let status = child
@@ -1129,6 +1244,29 @@ mod native_impl {
             .await
             .map_err(|e| IosBuildError::Io(format!("wait build shell: {e}")))?;
         Ok((status.code().unwrap_or(-1), logs))
+    }
+
+    /// Append `chunk` to `carry`, emit each COMPLETE line (split on `\n`) to
+    /// the sink, and retain any trailing partial line in `carry` for the next
+    /// chunk. Lossy UTF-8 so binary noise in compiler output can't panic.
+    async fn forward_lines(
+        sink: &super::SharedLogSink,
+        stream: &str,
+        chunk: &[u8],
+        carry: &mut String,
+    ) {
+        carry.push_str(&String::from_utf8_lossy(chunk));
+        loop {
+            match carry.find('\n') {
+                Some(idx) => {
+                    let line: String = carry.drain(..=idx).collect();
+                    // Strip the trailing '\n' (and a CR if present).
+                    let line = line.trim_end_matches(['\n', '\r']);
+                    sink.emit(stream, line).await;
+                }
+                None => break,
+            }
+        }
     }
 
     /// `curl --upload-file` to the coordinator's pre-signed PUT URL (same
