@@ -14,11 +14,13 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/iogrid/iogrid/coordinator/services/workloads-svc/internal/db"
 	"github.com/iogrid/iogrid/coordinator/services/workloads-svc/internal/dispatcher"
 	"github.com/iogrid/iogrid/coordinator/services/workloads-svc/internal/forwarder"
 	"github.com/iogrid/iogrid/coordinator/services/workloads-svc/internal/handlers"
 	"github.com/iogrid/iogrid/coordinator/services/workloads-svc/internal/server"
 	"github.com/iogrid/iogrid/coordinator/services/workloads-svc/internal/store"
+	shareddb "github.com/iogrid/iogrid/coordinator/shared/db"
 	"github.com/iogrid/iogrid/coordinator/shared/health"
 	"github.com/iogrid/iogrid/coordinator/shared/log"
 	"github.com/iogrid/iogrid/coordinator/shared/otel"
@@ -49,14 +51,44 @@ func main() {
 	}()
 
 	hr := health.New()
+
+	// Store selection (#771). The poll-dispatch path (#705) is split-brain
+	// across replicas with the in-memory store: a long iOS build's
+	// terminal-status POST can land on a different replica than the one that
+	// created the assignment → GetAssignment 404 → the build-gateway
+	// ForwardStatus never fires → the build stays "running" and metering /
+	// $GRID settle never run (ping's #770 Ping.app built but never settled).
+	//
+	// DATABASE_URL set → Postgres-backed store (shared `workloads` database in
+	// the CNPG cluster — every replica reads the same assignments) + embedded
+	// migrations. DATABASE_URL empty → in-memory store (unit tests, local dev)
+	// with a WARN, because multi-replica + in-memory is exactly the bug.
+	var st store.Store
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL != "" {
+		pool, perr := shareddb.NewPool(ctx, shareddb.Config{URL: databaseURL})
+		if perr != nil {
+			logger.Error("db pool failed", slog.String("error", perr.Error()))
+			os.Exit(1)
+		}
+		defer pool.Close()
+		hr.AddProbe("db", shareddb.PingProbe(pool))
+
+		logger.Info("running migrations", slog.String("backend", "postgres"))
+		if merr := db.Apply(ctx, databaseURL); merr != nil {
+			logger.Error("db migrations failed", slog.String("error", merr.Error()))
+			os.Exit(1)
+		}
+		st = store.NewPostgres(pool)
+		logger.Info("workloads store ready", slog.String("store", "postgres"))
+	} else {
+		st = store.NewInMemory()
+		logger.Warn("workloads store ready", slog.String("store", "memory"),
+			slog.String("impact", "assignments are PER-REPLICA + LOST on restart; long iOS builds' terminal status 404s across replicas (#771) — set DATABASE_URL for prod"))
+	}
 	hr.MarkReady()
 
-	// In-memory store + dispatcher for the local-dev binary. The
-	// pg-backed store lives behind the `postgres` build tag — see
-	// internal/store/store_pg.go (TBD) and ../identity-svc for the
-	// migration pattern.
-	memStore := store.NewInMemory()
-	disp := dispatcher.New(memStore, logger)
+	disp := dispatcher.New(st, logger)
 
 	// WORKLOADS_SVC_PROVIDER_ENDPOINT is the host:port the
 	// proxy-gateway should dial when forwarding customer bytes to any
@@ -120,7 +152,7 @@ func main() {
 		Logger:      logger,
 		Health:      hr,
 		Mount: server.Mount(server.Deps{
-			Store:                    memStore,
+			Store:                    st,
 			Dispatcher:               disp,
 			Log:                      logger,
 			ProviderEndpointTemplate: providerEndpoint,
