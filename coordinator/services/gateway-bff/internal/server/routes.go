@@ -270,6 +270,14 @@ func Mount(deps Deps) func(chi.Router) {
 				r.Use(auth.RequireRole("ADMIN"))
 				r.Get("/abuse-queue", api.ListAbuseQueue)
 				r.Post("/abuse/{id}/resolve", api.ResolveAbuseEvent)
+				// Operator earnings lookup (#758): the headline earnings
+				// + settled on-chain $GRID for ANY provider by UUID — the
+				// cross-provider visibility the founder needs to SEE a
+				// provider's grids (e.g. Hatice's 808ce330 = 11.05 $GRID)
+				// when his own account owns a different daemon. Not
+				// ownership-gated; ADMIN is the gate. Reuses
+				// billing-svc.GetEarningsSummary.
+				r.Get("/providers/{id}/earnings", api.GetAdminProviderEarnings)
 			})
 
 			// /transparency ----------------------------------------------

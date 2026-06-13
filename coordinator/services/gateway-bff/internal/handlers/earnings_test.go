@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/iogrid/iogrid/coordinator/services/gateway-bff/internal/clients"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -185,6 +186,96 @@ func TestGetProviderEarningsSummary_OwnedProvider(t *testing.T) {
 	}
 	if got := resp.Summary.GetTotalEarned().GetCurrency(); got != "GRID" {
 		t.Fatalf("totalEarned.currency = %q, want GRID", got)
+	}
+}
+
+// TestGetAdminProviderEarnings_AnyProvider verifies the operator
+// surface (#758): an ADMIN caller can read ANY provider's earnings by
+// path UUID — NOT gated on ownership — and the on-chain settled $GRID +
+// settled-build count survive the proto3-JSON round-trip. This is the
+// regression guard for "the founder can't SEE Hatice's grids": the
+// provider whose builds settled (808ce330) is owned by a DIFFERENT
+// account than the operator, so the owner-scoped /provide path returns
+// the operator's own zero — this admin path returns the real number.
+func TestGetAdminProviderEarnings_AnyProvider(t *testing.T) {
+	const pid = "808ce330-79c1-4390-8cc6-87c5ce5a94d8"
+	called := false
+	set := &clients.Set{
+		// Deliberately NO ProvidersRegistration: the admin handler must
+		// not consult ownership at all. If it tried, it would nil-panic
+		// or 403 — either way the test fails, proving the path is
+		// ownership-independent.
+		BillingEarnings: &mockBillingEarnings{
+			getSummary: func(_ context.Context, req *billingv1.GetEarningsSummaryRequest) (*billingv1.GetEarningsSummaryResponse, error) {
+				called = true
+				if got := req.GetProviderId().GetValue(); got != pid {
+					t.Fatalf("provider_id = %q, want %q", got, pid)
+				}
+				return &billingv1.GetEarningsSummaryResponse{
+					Summary: &billingv1.EarningsSummary{
+						ProviderId:    &commonv1.UUID{Value: pid},
+						TotalEarned:   &commonv1.Money{Currency: "GRID", Micros: 11_050_000},
+						SettledGrid:   &commonv1.Money{Currency: "GRID", Micros: 11_050_000},
+						SettledBuilds: 14,
+					},
+				}, nil
+			},
+		},
+	}
+	api := newAPI(t, set)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/providers/"+pid+"/earnings", nil)
+	// chi normally injects the {id} URL param from the route pattern; in
+	// a direct handler unit-test we wire it by hand via a RouteContext.
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", pid)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	r := withAuth(req, "ADMIN")
+	w := httptest.NewRecorder()
+	api.GetAdminProviderEarnings(w, r)
+	if !called {
+		t.Fatal("billing-svc was not called")
+	}
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	body := w.Body.Bytes()
+	assertCamelEarningsKeys(t, body)
+	var resp billingv1.GetEarningsSummaryResponse
+	mustReadProtoJSON(t, body, &resp)
+	if got := resp.Summary.GetSettledGrid().GetMicros(); got != 11_050_000 {
+		t.Fatalf("settledGrid.micros = %d, want 11050000 (body=%s)", got, body)
+	}
+	if got := resp.Summary.GetSettledBuilds(); got != 14 {
+		t.Fatalf("settledBuilds = %d, want 14 (body=%s)", got, body)
+	}
+}
+
+// TestGetAdminProviderEarnings_RequiresAdmin locks the gate: a
+// non-admin authenticated caller (no ADMIN role) must get 403 and the
+// billing client must never be reached. RequireRole("ADMIN") gates the
+// router, but mustAdmin re-checks inside the handler (defence-in-depth)
+// — this test exercises that inner check directly.
+func TestGetAdminProviderEarnings_RequiresAdmin(t *testing.T) {
+	set := &clients.Set{
+		BillingEarnings: &mockBillingEarnings{
+			getSummary: func(_ context.Context, _ *billingv1.GetEarningsSummaryRequest) (*billingv1.GetEarningsSummaryResponse, error) {
+				t.Fatal("billing-svc must not be called for a non-admin caller")
+				return nil, nil
+			},
+		},
+	}
+	api := newAPI(t, set)
+	const pid = "808ce330-79c1-4390-8cc6-87c5ce5a94d8"
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/providers/"+pid+"/earnings", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", pid)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	// withAuth with NO roles → authenticated but not ADMIN.
+	r := withAuth(req)
+	w := httptest.NewRecorder()
+	api.GetAdminProviderEarnings(w, r)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("want 403, got %d body=%s", w.Code, w.Body.String())
 	}
 }
 

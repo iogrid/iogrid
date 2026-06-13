@@ -2,6 +2,8 @@
 
 import * as React from "react";
 
+import { formatMoney } from "@/lib/format";
+
 type Provider = {
   id?: { value: string };
   ownerUserId?: { value: string };
@@ -13,6 +15,29 @@ type Provider = {
 };
 
 type ListResp = { providers?: Provider[] };
+
+// Money crosses the wire as proto3-JSON {currency, micros} where micros
+// is the unit value × 1e6 (e.g. 11.05 $GRID == "11050000"). settledGrid
+// is always $GRID; settledBuilds is the count of on-chain-settled iOS
+// builds attributed to the provider.
+type Money = { currency?: string; micros?: string };
+type EarningsSummary = {
+  settledGrid?: Money;
+  settledBuilds?: string;
+  totalEarned?: Money;
+};
+type EarningsResp = { summary?: EarningsSummary };
+
+// Per-provider earnings cell state: undefined = not fetched yet,
+// null = fetch failed (render "—"), else the parsed summary.
+type EarningsCell = EarningsSummary | null | undefined;
+
+/** micros → $GRID display string ("11050000" → "11.05 $GRID"). */
+function gridFromMicros(m: Money | undefined): string {
+  const micros = Number(m?.micros ?? 0);
+  if (!Number.isFinite(micros) || micros === 0) return "0 $GRID";
+  return formatMoney(micros / 1_000_000, "GRID");
+}
 
 /**
  * /providers list — fetches the registered-daemon roster from
@@ -27,10 +52,22 @@ type ListResp = { providers?: Provider[] };
  * RequireRole check accepts the materialised Claims. Going same-origin
  * makes the NextAuth cookie ride the request and dodges the CORS
  * preflight that the previous cross-origin Connect-RPC call required.
+ *
+ * Earnings columns (#758): for each listed provider we additionally
+ * fetch `/api/v1/admin/providers/{id}/earnings` (gateway-bff
+ * GetAdminProviderEarnings → billing-svc.GetEarningsSummary, ADMIN-
+ * gated, NOT ownership-gated) so the operator SEES the real settled
+ * on-chain $GRID + build count for ANY provider — the founder's own
+ * account owns a different daemon than the one that ran the builds, so
+ * this is the only UI path to e.g. Hatice's 11.05 $GRID / 14 builds.
  */
 export function ProviderList() {
   const [providers, setProviders] = React.useState<Provider[] | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  // providerId → settled-$GRID earnings (lazily fetched after the list).
+  const [earnings, setEarnings] = React.useState<Record<string, EarningsCell>>(
+    {},
+  );
 
   React.useEffect(() => {
     let cancelled = false;
@@ -56,6 +93,38 @@ export function ProviderList() {
       cancelled = true;
     };
   }, []);
+
+  // Once the roster is in, fan out one earnings fetch per provider. Each
+  // resolves independently so a single failure renders "—" for that row
+  // without blocking the others or the roster itself.
+  React.useEffect(() => {
+    if (!providers || providers.length === 0) return;
+    let cancelled = false;
+    for (const p of providers) {
+      const id = p.id?.value;
+      if (!id) continue;
+      (async () => {
+        try {
+          const res = await fetch(
+            `/api/v1/admin/providers/${encodeURIComponent(id)}/earnings`,
+            { credentials: "include", headers: { accept: "application/json" } },
+          );
+          if (!res.ok) {
+            if (!cancelled) setEarnings((e) => ({ ...e, [id]: null }));
+            return;
+          }
+          const json: EarningsResp = await res.json();
+          if (!cancelled)
+            setEarnings((e) => ({ ...e, [id]: json.summary ?? {} }));
+        } catch {
+          if (!cancelled) setEarnings((e) => ({ ...e, [id]: null }));
+        }
+      })();
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [providers]);
 
   if (error) {
     return (
@@ -87,6 +156,8 @@ export function ProviderList() {
             <th className="px-3 py-2 text-left font-medium">Provider</th>
             <th className="px-3 py-2 text-left font-medium">Owner</th>
             <th className="px-3 py-2 text-left font-medium">Status</th>
+            <th className="px-3 py-2 text-right font-medium">Settled $GRID</th>
+            <th className="px-3 py-2 text-right font-medium">Builds</th>
             <th className="px-3 py-2 text-left font-medium">Registered</th>
             <th className="px-3 py-2 text-left font-medium">Last seen</th>
           </tr>
@@ -95,6 +166,7 @@ export function ProviderList() {
           {providers.map((p) => {
             const id = p.id?.value ?? "";
             const owner = p.ownerUserId?.value ?? "";
+            const e = earnings[id];
             return (
               <tr key={id} className="border-t">
                 <td className="px-3 py-2 font-mono text-xs">
@@ -108,6 +180,24 @@ export function ProviderList() {
                   {(p.status ?? "")
                     .replace("PROVIDER_STATUS_", "")
                     .toLowerCase()}
+                </td>
+                <td className="px-3 py-2 text-right font-mono text-xs tabular-nums">
+                  {e === undefined ? (
+                    <span className="text-muted-foreground">…</span>
+                  ) : e === null ? (
+                    <span className="text-muted-foreground">—</span>
+                  ) : (
+                    gridFromMicros(e.settledGrid)
+                  )}
+                </td>
+                <td className="px-3 py-2 text-right font-mono text-xs tabular-nums">
+                  {e === undefined ? (
+                    <span className="text-muted-foreground">…</span>
+                  ) : e === null ? (
+                    <span className="text-muted-foreground">—</span>
+                  ) : (
+                    Number(e.settledBuilds ?? 0)
+                  )}
                 </td>
                 <td className="px-3 py-2 text-xs">
                   {p.registeredAt
