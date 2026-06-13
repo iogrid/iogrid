@@ -51,6 +51,12 @@ type ProviderSnapshot struct {
 	CPULogicalCores  uint32
 	MemoryMiB        uint64
 	Platform         string // macos | linux | windows
+	// HostMacosVersion is the provider's host macOS MAJOR version (14 =
+	// Sonoma, 15 = Sequoia); 0 = unknown / not macOS. Advertised by the
+	// daemon in DaemonHello (#737). Gates iOS-build dispatch: Apple
+	// Virtualization.framework requires host macOS >= guest macOS, so a
+	// Sonoma host cannot run a Sequoia-Xcode Tart image.
+	HostMacosVersion uint32
 	RegionSlug       string
 	CountryCode      string
 	AllowedCategories []string
@@ -74,6 +80,12 @@ type WorkloadRequest struct {
 	MinMemoryMiB     uint64
 	MinGPUMemoryMiB  uint64
 	RequiredPlatform string // "" = any
+	// RequiredMacosVersion is the minimum host macOS MAJOR version a
+	// provider needs to run this job, derived from the iOS-build job's
+	// Tart image (the image's guest-macOS family — e.g. a
+	// macos-sequoia-xcode image needs host macOS >= 15). 0 = no
+	// constraint (any macOS host, or a non-iOS-build job). #737.
+	RequiredMacosVersion uint32
 }
 
 // Candidate is the scheduler output — one provider with its score and the
@@ -115,6 +127,21 @@ func (s *Scheduler) MatchCapability(p ProviderSnapshot, w WorkloadRequest) float
 		}
 	case "ios_build":
 		if !p.IOSBuildEnabled || !strings.EqualFold(p.Platform, "macos") {
+			return 0
+		}
+		// #737: route by host macOS version. Apple Virtualization.framework
+		// requires host macOS >= guest macOS, so a Sonoma (14) host cannot
+		// run a Sequoia-Xcode (15) Tart image. Reject when the provider's
+		// host is demonstrably too old for the job's required guest macOS.
+		//
+		// Fail-open on an UNKNOWN host version (HostMacosVersion == 0): a
+		// daemon that predates the host_macos_version advertisement, or one
+		// where sw_vers couldn't be read, keeps today's behaviour (matched
+		// on Platform=macos alone) rather than being silently de-scheduled.
+		// Once the daemon advertises a real version the gate engages.
+		if w.RequiredMacosVersion > 0 &&
+			p.HostMacosVersion > 0 &&
+			p.HostMacosVersion < w.RequiredMacosVersion {
 			return 0
 		}
 	case "docker":
@@ -246,6 +273,47 @@ func contains(haystack []string, needle string) bool {
 		}
 	}
 	return false
+}
+
+// RequiredMacosForTartImage derives the minimum host macOS MAJOR version a
+// provider needs to run an iOS-build job, from the job's Tart image name.
+//
+// The cirruslabs image names encode the guest macOS family, and Apple
+// Virtualization.framework requires host macOS >= guest macOS (ADR 0001
+// Addendum 10), so the guest family IS the host minimum:
+//
+//	ghcr.io/cirruslabs/macos-sequoia-xcode:16.2 → 15 (Sequoia guest)
+//	ghcr.io/cirruslabs/macos-sonoma-xcode:15.4   → 14 (Sonoma guest)
+//	ghcr.io/cirruslabs/macos-tahoe-*             → 16 (Tahoe guest)
+//
+// Returns 0 (no constraint) for an empty image, an unrecognised family
+// (so we don't accidentally de-schedule a custom/locally-baked image such
+// as the native-runner `iogrid-ios-builder-16.2`, which runs host-direct
+// with no guest VM), or a non-iOS-build job. The map is intentionally
+// permissive: an unknown image falls through to today's Platform=macos
+// gate rather than blocking dispatch.
+func RequiredMacosForTartImage(image string) uint32 {
+	img := strings.ToLower(strings.TrimSpace(image))
+	if img == "" {
+		return 0
+	}
+	// Newest-first so a name that (improbably) contained two family tokens
+	// resolves to the newer requirement.
+	families := []struct {
+		token string
+		major uint32
+	}{
+		{"tahoe", 16},
+		{"sequoia", 15},
+		{"sonoma", 14},
+		{"ventura", 13},
+	}
+	for _, f := range families {
+		if strings.Contains(img, "macos-"+f.token) || strings.Contains(img, "macos_"+f.token) {
+			return f.major
+		}
+	}
+	return 0
 }
 
 // matchesAnyGlob does case-insensitive suffix matching with one

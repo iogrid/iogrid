@@ -18,6 +18,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+pub mod capability_report;
 pub mod tunnel;
 pub mod vpn_wiring;
 pub mod workloads;
@@ -377,6 +378,24 @@ pub fn eligible_workload_types() -> Vec<String> {
     types
 }
 
+/// Host macOS MAJOR version to advertise (e.g. 14 = Sonoma, 15 = Sequoia).
+/// Returns 0 on non-macOS hosts and on a macOS host where `sw_vers` can't
+/// be read. Carried in `DispatchHello`/the providers-svc capability upsert
+/// so workloads-svc can route iOS-build jobs by the required Xcode /
+/// guest-macOS image: Apple Virtualization.framework requires the host
+/// macOS to be at least the guest macOS, so a Sonoma (14) host can't run a
+/// Sequoia (15) image (#737, ADR 0001 Addendum 10).
+pub fn host_macos_major() -> u32 {
+    #[cfg(target_os = "macos")]
+    {
+        iogrid_platform_mac::macos_major_version().unwrap_or(0)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        0
+    }
+}
+
 /// Supervisor — owns the tokio runtime and subsystem joinset.
 pub struct Supervisor {
     config: DaemonConfig,
@@ -732,12 +751,43 @@ impl Supervisor {
                     // added by their respective runner wires.)
                     supported_types: eligible_workload_types(),
                     max_concurrent: 4,
+                    // #737: advertise the host macOS major version so the
+                    // scheduler can reject iOS-build jobs whose required
+                    // Xcode/guest-macOS image this host is too old to run.
+                    host_macos_version: host_macos_major(),
                 };
                 let handle = iogrid_transport::spawn_live_dispatch(connect_cfg, hello);
                 tracing::info!(
                     coordinator = %self.config.coordinator_url,
                     "live dispatch bridge spawned"
                 );
+                // #746: refresh the providers-svc capability record on
+                // startup. Pairing only writes the CSR/display-name; the
+                // capabilities (supported_types, ios_build_enabled,
+                // host_macos_version) were never populated afterwards, so a
+                // Mac that gains iOS-build capability after first pairing
+                // stayed stale in the admin/provider dashboard. Fire-and-
+                // forget on a detached task so a cold edge never blocks
+                // boot; best-effort, retried next startup.
+                if !self.config.provider_id.trim().is_empty() {
+                    let report = capability_report::CapabilityReport {
+                        coordinator_base_url: self.config.coordinator_url.clone(),
+                        provider_id: self.config.provider_id.clone(),
+                        supported_types: eligible_workload_types(),
+                        host_macos_version: host_macos_major(),
+                    };
+                    tokio::spawn(async move {
+                        let http = reqwest::Client::new();
+                        if let Err(e) = capability_report::report_capabilities(&report, &http).await
+                        {
+                            tracing::warn!(
+                                error = %e,
+                                "providers-svc capability refresh failed (#746); \
+                                 dispatch is unaffected, retried next startup"
+                            );
+                        }
+                    });
+                }
                 // #705: poll-based iOS-build dispatch. The dispatch stream's
                 // server→client Assignment push is dropped by the edge for a
                 // REMOTE daemon; the poller fetches assignments over a plain

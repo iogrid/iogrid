@@ -56,6 +56,13 @@ func Mount(deps Deps) func(chi.Router) {
 		// surfaces. See handlers/rest_pair.go for the wire shapes.
 		r.Route("/api/v1/providers", func(r chi.Router) {
 			r.Post("/pair", reg.PairDaemonREST)
+			// #746: the daemon POSTs its live capability snapshot here on
+			// startup so the providers row (supported_types,
+			// ios_build_enabled, host_macos_version) stays fresh after the
+			// one-shot pairing handshake — otherwise a Mac that gains
+			// iOS-build capability post-pairing under-reports in the admin
+			// dashboard. Translates to UpdateCapabilityInventory in-process.
+			r.Post("/{id}/capabilities", reg.CapabilityReportREST)
 		})
 
 		// Connect-Go handlers return (path, http.Handler) — the path is the

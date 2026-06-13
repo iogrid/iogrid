@@ -33,6 +33,36 @@ func TestExtractHost(t *testing.T) {
 	}
 }
 
+// #737: an iOS-build workload must derive RequiredMacosVersion from its
+// Tart image so the scheduler can route it to a host recent enough to run
+// the guest macOS. A Sequoia-Xcode image floors the host at macOS 15.
+func TestWorkloadToRequest_IOSBuildDerivesRequiredMacos(t *testing.T) {
+	w := &store.Workload{
+		ID:       "wl-ios",
+		Type:     store.TypeIOSBuild,
+		IOSBuild: &store.IOSBuildSpec{TartImage: "ghcr.io/cirruslabs/macos-sequoia-xcode:16.2"},
+		Status:   store.StatusQueued,
+	}
+	req := workloadToRequest(w)
+	if req.RequiredPlatform != "macos" {
+		t.Fatalf("RequiredPlatform = %q, want macos", req.RequiredPlatform)
+	}
+	if req.RequiredMacosVersion != 15 {
+		t.Fatalf("RequiredMacosVersion = %d, want 15 (Sequoia image floors host at 15)", req.RequiredMacosVersion)
+	}
+
+	// A locally-baked native image carries no guest-VM constraint.
+	native := &store.Workload{
+		ID:       "wl-native",
+		Type:     store.TypeIOSBuild,
+		IOSBuild: &store.IOSBuildSpec{TartImage: "iogrid-ios-builder-16.2"},
+		Status:   store.StatusQueued,
+	}
+	if got := workloadToRequest(native).RequiredMacosVersion; got != 0 {
+		t.Fatalf("native-image RequiredMacosVersion = %d, want 0 (no constraint)", got)
+	}
+}
+
 func TestTryAssign_NoProvidersConnected(t *testing.T) {
 	s := store.NewInMemory()
 	d := New(s, nil)

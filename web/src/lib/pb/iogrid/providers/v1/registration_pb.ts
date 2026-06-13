@@ -342,6 +342,16 @@ export class CapabilityInventory extends Message<CapabilityInventory> {
    */
   iosBuildEnabled = false;
 
+  /**
+   * Host macOS MAJOR version (e.g. 14 for Sonoma, 15 for Sequoia). 0 on
+   * non-macOS hosts or when it cannot be determined. Lets the admin /
+   * provider dashboard show which Xcode a Mac can actually run and keeps
+   * the providers-svc record version-bearing (#737, #746).
+   *
+   * @generated from field: uint32 host_macos_version = 4;
+   */
+  hostMacosVersion = 0;
+
   constructor(data?: PartialMessage<CapabilityInventory>) {
     super();
     proto3.util.initPartial(data, this);
@@ -353,6 +363,7 @@ export class CapabilityInventory extends Message<CapabilityInventory> {
     { no: 1, name: "supported_workload_types", kind: "enum", T: proto3.getEnumType(WorkloadType), repeated: true },
     { no: 2, name: "gpu_enabled", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
     { no: 3, name: "ios_build_enabled", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 4, name: "host_macos_version", kind: "scalar", T: 13 /* ScalarType.UINT32 */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): CapabilityInventory {

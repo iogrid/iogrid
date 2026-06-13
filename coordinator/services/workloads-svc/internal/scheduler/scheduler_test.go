@@ -76,6 +76,75 @@ func TestMatchCapability_IOSBuildRequiresMac(t *testing.T) {
 	}
 }
 
+// #737: an iOS-build job that needs a recent guest macOS (e.g. a
+// Sequoia-Xcode image) must NOT be dispatched to a Sonoma (14) host, but a
+// Sequoia (15) host must accept it.
+func TestMatchCapability_IOSBuildRoutesByHostMacosVersion(t *testing.T) {
+	s := New()
+	// Job derived (by the dispatcher) to need host macOS >= 15.
+	job := WorkloadRequest{Type: "ios_build", RequiredMacosVersion: 15}
+
+	sonoma := iosProvider("sonoma")
+	sonoma.HostMacosVersion = 14
+	if got := s.MatchCapability(sonoma, job); got != 0 {
+		t.Fatalf("Sonoma(14) host must be rejected for a macOS>=15 job, got %v", got)
+	}
+
+	sequoia := iosProvider("sequoia")
+	sequoia.HostMacosVersion = 15
+	if got := s.MatchCapability(sequoia, job); got != 1 {
+		t.Fatalf("Sequoia(15) host must accept a macOS>=15 job, got %v", got)
+	}
+
+	// Exact-equal host satisfies the floor (>=, not >).
+	tahoe := iosProvider("tahoe")
+	tahoe.HostMacosVersion = 16
+	if got := s.MatchCapability(tahoe, job); got != 1 {
+		t.Fatalf("Tahoe(16) host must accept a macOS>=15 job, got %v", got)
+	}
+}
+
+// #737 back-compat: a daemon that doesn't advertise its host macOS version
+// (HostMacosVersion==0, e.g. a build predating the field) must keep today's
+// behaviour — matched on Platform=macos alone, NOT silently de-scheduled.
+// Likewise a job with no derived requirement (RequiredMacosVersion==0, e.g.
+// a locally-baked image) accepts any macOS host.
+func TestMatchCapability_IOSBuildVersionGateFailsOpen(t *testing.T) {
+	s := New()
+
+	// Unknown host version + a versioned job → fail open (accept).
+	unknownHost := iosProvider("unknown")
+	unknownHost.HostMacosVersion = 0
+	if got := s.MatchCapability(unknownHost, WorkloadRequest{Type: "ios_build", RequiredMacosVersion: 15}); got != 1 {
+		t.Fatalf("unknown host version must fail open and be accepted, got %v", got)
+	}
+
+	// Known (old) host + a job with no requirement → accept.
+	sonoma := iosProvider("sonoma")
+	sonoma.HostMacosVersion = 14
+	if got := s.MatchCapability(sonoma, WorkloadRequest{Type: "ios_build", RequiredMacosVersion: 0}); got != 1 {
+		t.Fatalf("no-requirement job must accept any macOS host, got %v", got)
+	}
+}
+
+func TestRequiredMacosForTartImage(t *testing.T) {
+	cases := map[string]uint32{
+		"ghcr.io/cirruslabs/macos-sequoia-xcode:16.2": 15,
+		"ghcr.io/cirruslabs/macos-sequoia-xcode:latest": 15,
+		"ghcr.io/cirruslabs/macos-sonoma-xcode:15.4": 14,
+		"ghcr.io/cirruslabs/macos-tahoe-xcode:26.0": 16,
+		"GHCR.IO/CIRRUSLABS/MACOS-SEQUOIA-XCODE:16.0": 15, // case-insensitive
+		"":                          0, // empty → no constraint
+		"iogrid-ios-builder-16.2":   0, // locally-baked native image → no guest-VM constraint
+		"some/unknown-image:latest": 0, // unrecognised → fall through to Platform=macos
+	}
+	for img, want := range cases {
+		if got := RequiredMacosForTartImage(img); got != want {
+			t.Errorf("RequiredMacosForTartImage(%q) = %d, want %d", img, got, want)
+		}
+	}
+}
+
 func TestMatchCapability_DockerCPUMemory(t *testing.T) {
 	s := New()
 	p := bandwidthProvider("p")
