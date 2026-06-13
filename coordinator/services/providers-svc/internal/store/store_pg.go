@@ -150,7 +150,7 @@ func (p *pgStore) CreateProvider(ctx context.Context, pr *Provider) error {
 			region_slug, region_name, country_code,
 			supported_types, gpu_enabled, ios_build_enabled,
 			public_key, registered_at, last_seen_at,
-			is_primary
+			is_primary, host_macos_version
 		) VALUES (
 			$1, $2, $3, $4,
 			$5, $6, $7, $8,
@@ -160,7 +160,7 @@ func (p *pgStore) CreateProvider(ctx context.Context, pr *Provider) error {
 			$20, $21, $22,
 			$23, $24, $25,
 			$26, $27, $28,
-			$29
+			$29, $30
 		)`,
 		id, owner, pr.DisplayName, string(pr.Status),
 		nullString(string(pr.HostInfo.Platform)), nullString(pr.HostInfo.Architecture), nullString(pr.HostInfo.OSVersion), nullString(pr.HostInfo.DaemonVersion),
@@ -170,7 +170,7 @@ func (p *pgStore) CreateProvider(ctx context.Context, pr *Provider) error {
 		nullString(pr.NetworkInfo.RegionSlug), nullString(pr.NetworkInfo.RegionName), nullString(pr.NetworkInfo.CountryCode),
 		emptyStrings(pr.Capabilities.SupportedTypes), pr.Capabilities.GPUEnabled, pr.Capabilities.IOSBuildEnabled,
 		pr.PublicKey, pr.RegisteredAt, pr.LastSeenAt,
-		pr.IsPrimary,
+		pr.IsPrimary, int32(pr.Capabilities.HostMacosVersion),
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -219,7 +219,8 @@ func (p *pgStore) UpdateProvider(ctx context.Context, pr *Provider) error {
 			public_ip = $14, asn = $15, isp = $16, throughput_mbps = $17, latency_ms = $18,
 			region_slug = $19, region_name = $20, country_code = $21,
 			supported_types = $22, gpu_enabled = $23, ios_build_enabled = $24,
-			public_key = $25, last_seen_at = $26
+			public_key = $25, last_seen_at = $26,
+			host_macos_version = $27
 		WHERE id = $1`,
 		id, pr.DisplayName, string(pr.Status),
 		nullString(string(pr.HostInfo.Platform)), nullString(pr.HostInfo.Architecture), nullString(pr.HostInfo.OSVersion), nullString(pr.HostInfo.DaemonVersion),
@@ -228,7 +229,7 @@ func (p *pgStore) UpdateProvider(ctx context.Context, pr *Provider) error {
 		nullString(pr.NetworkInfo.PublicIP), int32(pr.NetworkInfo.ASN), nullString(pr.NetworkInfo.ISP), int32(pr.NetworkInfo.ThroughputMbps), int32(pr.NetworkInfo.LatencyMs),
 		nullString(pr.NetworkInfo.RegionSlug), nullString(pr.NetworkInfo.RegionName), nullString(pr.NetworkInfo.CountryCode),
 		emptyStrings(pr.Capabilities.SupportedTypes), pr.Capabilities.GPUEnabled, pr.Capabilities.IOSBuildEnabled,
-		pr.PublicKey, time.Now().UTC(),
+		pr.PublicKey, time.Now().UTC(), int32(pr.Capabilities.HostMacosVersion),
 	)
 	if err != nil {
 		return fmt.Errorf("update provider: %w", err)
@@ -266,6 +267,7 @@ func scanProvider(row pgx.Row) (*Provider, error) {
 		registeredAt         time.Time
 		lastSeenAt           time.Time
 		isPrimary            bool
+		hostMacosVersion     int32
 	)
 	if err := row.Scan(
 		&id, &owner, &displayName, &status,
@@ -276,7 +278,7 @@ func scanProvider(row pgx.Row) (*Provider, error) {
 		&regionSlug, &regionName, &countryCode,
 		&supportedTypes, &gpuEnabled, &iosBuild,
 		&publicKey, &registeredAt, &lastSeenAt,
-		&isPrimary,
+		&isPrimary, &hostMacosVersion,
 	); err != nil {
 		return nil, err
 	}
@@ -312,9 +314,10 @@ func scanProvider(row pgx.Row) (*Provider, error) {
 			CountryCode:    strPtr(countryCode),
 		},
 		Capabilities: Capability{
-			SupportedTypes:  supportedTypes,
-			GPUEnabled:      gpuEnabled,
-			IOSBuildEnabled: iosBuild,
+			SupportedTypes:   supportedTypes,
+			GPUEnabled:       gpuEnabled,
+			IOSBuildEnabled:  iosBuild,
+			HostMacosVersion: uint32(hostMacosVersion),
 		},
 	}
 	return p, nil
@@ -329,7 +332,7 @@ const selectProviderCols = `
 	region_slug, region_name, country_code,
 	supported_types, gpu_enabled, ios_build_enabled,
 	public_key, registered_at, last_seen_at,
-	is_primary`
+	is_primary, host_macos_version`
 
 func (p *pgStore) GetProvider(ctx context.Context, idStr string) (*Provider, error) {
 	id, err := parseUUID("id", idStr)

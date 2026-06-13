@@ -158,6 +158,7 @@ pub fn frame_to_pb(f: &DispatchFrame) -> wlv1::DispatchFrame {
             provider_id,
             eligible_types,
             max_concurrent,
+            host_macos_version,
         } => Frame::DaemonHello(wlv1::DaemonHello {
             provider_id: Some(uuid(provider_id)),
             eligible_types: eligible_types
@@ -165,6 +166,7 @@ pub fn frame_to_pb(f: &DispatchFrame) -> wlv1::DispatchFrame {
                 .map(|s| workload_type_from_slug(s))
                 .collect(),
             max_concurrent: *max_concurrent,
+            host_macos_version: *host_macos_version,
         }),
         DispatchFrame::CoordinatorHello {
             provider_id,
@@ -326,6 +328,7 @@ pub fn frame_from_pb(pb: wlv1::DispatchFrame) -> Option<DispatchFrame> {
                 .map(workload_type_to_slug)
                 .collect(),
             max_concurrent: dh.max_concurrent,
+            host_macos_version: dh.host_macos_version,
         },
         Frame::CoordinatorHello(ch) => DispatchFrame::CoordinatorHello {
             provider_id: uuid_string(&ch.provider_id),
@@ -531,6 +534,35 @@ mod payload_tests {
                 assert!(payload_json.is_empty())
             }
             other => panic!("expected Assignment, got {other:?}"),
+        }
+    }
+
+    /// #737: the host macOS version the daemon advertises must survive the
+    /// encode→wire→decode round-trip so workloads-svc can route iOS-build
+    /// jobs by it. A regression here silently drops the routing signal.
+    #[test]
+    fn daemon_hello_round_trips_host_macos_version() {
+        let frame = DispatchFrame::DaemonHello {
+            provider_id: "55555555-5555-5555-5555-555555555555".into(),
+            eligible_types: vec!["BANDWIDTH".into(), "IOS_BUILD".into()],
+            max_concurrent: 4,
+            host_macos_version: 15,
+        };
+        let pb = frame_to_pb(&frame);
+        // The wire message carries the version verbatim.
+        match pb.frame.clone().expect("frame set") {
+            wlv1::dispatch_frame::Frame::DaemonHello(ref dh) => {
+                assert_eq!(dh.host_macos_version, 15);
+            }
+            other => panic!("expected DaemonHello, got {other:?}"),
+        }
+        // And it decodes back unchanged.
+        let back = frame_from_pb(pb).expect("frame decodes");
+        match back {
+            DispatchFrame::DaemonHello {
+                host_macos_version, ..
+            } => assert_eq!(host_macos_version, 15),
+            other => panic!("expected DaemonHello, got {other:?}"),
         }
     }
 }

@@ -232,6 +232,11 @@ pub enum DispatchFrame {
         eligible_types: Vec<String>,
         /// Max concurrent workloads.
         max_concurrent: u32,
+        /// Host macOS major version (e.g. 14 = Sonoma, 15 = Sequoia); 0
+        /// on non-macOS or when undetectable. Lets workloads-svc route
+        /// iOS-build jobs to a host recent enough for the required Xcode
+        /// / guest-macOS image (#737).
+        host_macos_version: u32,
     },
     /// Coordinator → daemon ack of hello.
     CoordinatorHello {
@@ -1442,6 +1447,10 @@ pub struct DispatchHello {
     pub supported_types: Vec<String>,
     /// Max concurrent workloads.
     pub max_concurrent: u32,
+    /// Host macOS major version (e.g. 14 = Sonoma, 15 = Sequoia); 0 on
+    /// non-macOS or when undetectable. Advertised so workloads-svc can
+    /// route iOS-build jobs by required Xcode / guest-macOS (#737).
+    pub host_macos_version: u32,
 }
 
 /// Spawn the production dispatch bridge: opens an mTLS [`Channel`] to the
@@ -1562,6 +1571,7 @@ async fn run_dispatch_stream(
         provider_id: hello.provider_id.clone(),
         eligible_types: hello.supported_types.clone(),
         max_concurrent: hello.max_concurrent,
+        host_macos_version: hello.host_macos_version,
     };
     req_tx
         .send(convert::frame_to_pb(&daemon_hello))
@@ -2267,6 +2277,7 @@ mod tests {
             provider_id: "00000000-0000-0000-0000-000000000001".into(),
             supported_types: vec!["BANDWIDTH".into()],
             max_concurrent: 4,
+            host_macos_version: 0,
         };
         let handle = spawn_live_dispatch(cfg, hello);
         // The daemon-side tx must accept frames even before any
@@ -2303,6 +2314,7 @@ mod tests {
             provider_id: "p".into(),
             eligible_types: vec!["BANDWIDTH".into()],
             max_concurrent: 3,
+            host_macos_version: 0,
         })
         .await
         .unwrap();
@@ -2465,6 +2477,7 @@ mod tests {
             provider_id: "00000000-0000-0000-0000-0000000000aa".into(),
             supported_types: vec!["BANDWIDTH".into()],
             max_concurrent: 4,
+            host_macos_version: 0,
         };
 
         let pump = tokio::spawn(run_dispatch_stream(
@@ -2537,6 +2550,7 @@ mod tests {
             provider_id: "00000000-0000-0000-0000-0000000000bb".into(),
             supported_types: vec!["BANDWIDTH".into()],
             max_concurrent: 1,
+            host_macos_version: 0,
         };
 
         let pump = tokio::spawn(run_dispatch_stream(

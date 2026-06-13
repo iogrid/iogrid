@@ -277,6 +277,18 @@ export class DaemonHello extends Message<DaemonHello> {
    */
   maxConcurrent = 0;
 
+  /**
+   * Host macOS MAJOR version (e.g. 14 for Sonoma, 15 for Sequoia), as
+   * reported by `sw_vers -productVersion`. 0 on non-macOS hosts or when
+   * it cannot be determined. The scheduler uses this to route iOS-build
+   * jobs only to hosts whose macOS is recent enough to run the required
+   * Xcode / guest-macOS Tart image (Apple Virtualization.framework
+   * requires host macOS >= guest macOS — ADR 0001 Addendum 10, #737).
+   *
+   * @generated from field: uint32 host_macos_version = 4;
+   */
+  hostMacosVersion = 0;
+
   constructor(data?: PartialMessage<DaemonHello>) {
     super();
     proto3.util.initPartial(data, this);
@@ -288,6 +300,7 @@ export class DaemonHello extends Message<DaemonHello> {
     { no: 1, name: "provider_id", kind: "message", T: UUID },
     { no: 2, name: "eligible_types", kind: "enum", T: proto3.getEnumType(WorkloadType), repeated: true },
     { no: 3, name: "max_concurrent", kind: "scalar", T: 13 /* ScalarType.UINT32 */ },
+    { no: 4, name: "host_macos_version", kind: "scalar", T: 13 /* ScalarType.UINT32 */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DaemonHello {

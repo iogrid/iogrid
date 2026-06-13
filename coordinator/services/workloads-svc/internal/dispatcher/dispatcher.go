@@ -305,6 +305,11 @@ func workloadToRequest(w *store.Workload) scheduler.WorkloadRequest {
 		req.MinGPUMemoryMiB = w.GPU.MinVRAMMiB
 	case w.IOSBuild != nil:
 		req.RequiredPlatform = "macos"
+		// #737: derive the minimum host macOS version from the job's Tart
+		// image (the image's guest-macOS family is the host floor under
+		// Apple Virtualization.framework). 0 for an unrecognised/locally-
+		// baked image → no extra constraint beyond Platform=macos.
+		req.RequiredMacosVersion = scheduler.RequiredMacosForTartImage(w.IOSBuild.TartImage)
 	}
 	return req
 }

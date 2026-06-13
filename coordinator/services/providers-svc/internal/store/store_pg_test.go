@@ -142,8 +142,9 @@ func TestPgStore_ProviderCRUD(t *testing.T) {
 		DisplayName: "my mac",
 		HostInfo:    HostInfo{Platform: PlatformMacOS, CPULogicalCores: 8},
 		Capabilities: Capability{
-			SupportedTypes:  []string{"bandwidth", "ios_build"},
-			IOSBuildEnabled: true,
+			SupportedTypes:   []string{"bandwidth", "ios_build"},
+			IOSBuildEnabled:  true,
+			HostMacosVersion: 15, // #746: migration 0003 column round-trip
 		},
 	}
 	if err := s.CreateProvider(ctx, p); err != nil {
@@ -165,6 +166,9 @@ func TestPgStore_ProviderCRUD(t *testing.T) {
 	}
 	if len(got.Capabilities.SupportedTypes) != 2 || !got.Capabilities.IOSBuildEnabled {
 		t.Fatalf("capabilities round-trip: %+v", got.Capabilities)
+	}
+	if got.Capabilities.HostMacosVersion != 15 {
+		t.Fatalf("host_macos_version round-trip: %d", got.Capabilities.HostMacosVersion)
 	}
 
 	got.DisplayName = "renamed"

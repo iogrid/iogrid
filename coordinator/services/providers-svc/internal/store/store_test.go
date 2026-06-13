@@ -53,8 +53,9 @@ func TestMemStore_ProviderCRUD(t *testing.T) {
 		DisplayName: "my mac",
 		HostInfo:    HostInfo{Platform: PlatformMacOS, CPULogicalCores: 8},
 		Capabilities: Capability{
-			SupportedTypes:  []string{"bandwidth", "ios_build"},
-			IOSBuildEnabled: true,
+			SupportedTypes:   []string{"bandwidth", "ios_build"},
+			IOSBuildEnabled:  true,
+			HostMacosVersion: 15, // #746: version-bearing capability record
 		},
 	}
 	if err := s.CreateProvider(ctx, p); err != nil {
@@ -70,6 +71,9 @@ func TestMemStore_ProviderCRUD(t *testing.T) {
 	}
 	if got.DisplayName != "my mac" {
 		t.Fatalf("wrong display name %q", got.DisplayName)
+	}
+	if got.Capabilities.HostMacosVersion != 15 {
+		t.Fatalf("host_macos_version did not round-trip: %d", got.Capabilities.HostMacosVersion)
 	}
 
 	got.DisplayName = "renamed"

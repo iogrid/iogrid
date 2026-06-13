@@ -80,6 +80,12 @@ type Capability struct {
 	SupportedTypes  []string // e.g. "bandwidth", "docker", "gpu", "ios_build"
 	GPUEnabled      bool
 	IOSBuildEnabled bool
+	// HostMacosVersion is the provider's host macOS MAJOR version (14 =
+	// Sonoma, 15 = Sequoia); 0 = unknown / not macOS. Reported by the
+	// daemon's startup capability refresh (#746) so the admin/provider
+	// dashboard can show which Xcode a Mac can run and scheduling can
+	// route iOS-build jobs by it (#737).
+	HostMacosVersion uint32
 }
 
 // Provider is the persisted projection used by the registration RPCs.

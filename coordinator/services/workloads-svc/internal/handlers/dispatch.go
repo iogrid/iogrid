@@ -380,6 +380,9 @@ func snapshotFromHello(providerID string, dh *workloadsv1.DaemonHello) scheduler
 		Platform:        platform,
 		IOSBuildEnabled: iosBuild,
 		GPUEnabled:      slices.Contains(supportedTypes, store.TypeGPU),
+		// #737: carry the host macOS version the daemon advertised so the
+		// scheduler can route iOS-build jobs by required Xcode/guest-macOS.
+		HostMacosVersion: dh.GetHostMacosVersion(),
 	}
 }
 

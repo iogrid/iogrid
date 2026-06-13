@@ -221,9 +221,10 @@ func capabilityFromProto(c *providersv1.CapabilityInventory) store.Capability {
 		}
 	}
 	return store.Capability{
-		SupportedTypes:  slugs,
-		GPUEnabled:      c.GetGpuEnabled(),
-		IOSBuildEnabled: c.GetIosBuildEnabled(),
+		SupportedTypes:   slugs,
+		GPUEnabled:       c.GetGpuEnabled(),
+		IOSBuildEnabled:  c.GetIosBuildEnabled(),
+		HostMacosVersion: c.GetHostMacosVersion(),
 	}
 }
 
@@ -236,6 +237,7 @@ func capabilityToProto(c store.Capability) *providersv1.CapabilityInventory {
 		SupportedWorkloadTypes: types,
 		GpuEnabled:             c.GPUEnabled,
 		IosBuildEnabled:        c.IOSBuildEnabled,
+		HostMacosVersion:       c.HostMacosVersion,
 	}
 }
 

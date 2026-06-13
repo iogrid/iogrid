@@ -76,6 +76,11 @@ message CapabilityInventory {
   bool gpu_enabled = 2;
   // True iff macOS+Tart is available AND opt-in.
   bool ios_build_enabled = 3;
+  // Host macOS MAJOR version (e.g. 14 for Sonoma, 15 for Sequoia). 0 on
+  // non-macOS hosts or when it cannot be determined. Lets the admin /
+  // provider dashboard show which Xcode a Mac can actually run and keeps
+  // the providers-svc record version-bearing (#737, #746).
+  uint32 host_macos_version = 4;
 }
 
 // ProviderStatus is the lifecycle of a provider account on the platform.
