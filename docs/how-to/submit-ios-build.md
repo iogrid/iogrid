@@ -92,7 +92,10 @@ curl -sS -N https://build.iogrid.org/v1/builds/$BUILD_ID/logs \
 ```
 
 Server-Sent Events; each line is `data: {"seq":N,"stream":"stdout","text":"..."}`.
-Reconnect with `Last-Event-ID: <seq>` to resume.
+Reconnect with `Last-Event-ID: <seq>` to resume. The provider streams the
+build's **real stdout/stderr live** as it runs — the clone, the checkout, and
+every line of `xcodebuild` output — so you can watch and debug a failure
+without SSH. (#763)
 
 ### 3. Poll status
 
@@ -161,6 +164,32 @@ You never touch the Mac. The whole interaction is the four HTTP calls above.
 - **Xcode version match:** the build runs against the provider's installed
   Xcode. Pin `xcode_version` from `GET /v1/xcode-versions`; routing by host
   Xcode version is tracked in #737.
+
+## Build environment
+
+Your `build_command` runs after `git clone` + `git checkout` inside a real
+`/bin/bash -lc` shell on the provider Mac. The native runner hardens the
+environment before your command so the toolchain is deterministic (#763):
+
+| Variable | Value | Why |
+|---|---|---|
+| `DEVELOPER_DIR` | `/Applications/Xcode-26.5.0.app/Contents/Developer` (when present) | `xcodebuild` resolves to a known **Xcode 26** regardless of the host's global `xcode-select`. |
+| `PATH` | `/opt/homebrew/opt/node@22/bin` prepended (when present) | RN/Expo tooling sees **node 22**, not a stale system node. |
+
+Both are existence-guarded: on a Mac without the pinned paths the build still
+runs against whatever `xcode-select` / `PATH` already resolve. A quick way to
+confirm the live toolchain in your own build:
+
+```bash
+--cmd 'sw_vers && xcodebuild -version && node --version'
+# streams (via GET /v1/builds/{id}/logs):
+#   ProductVersion:	26.5.1
+#   Xcode 26.5
+#   v22.22.3
+```
+
+The reported `exit_code` is the **real** exit status of your command — a
+non-zero `xcodebuild` fails the build (no phantom success).
 
 ## See also
 

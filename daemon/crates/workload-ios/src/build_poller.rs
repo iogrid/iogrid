@@ -20,12 +20,14 @@ use std::time::Duration;
 use serde::Deserialize;
 use uuid::Uuid;
 
-use crate::{run_with_timeout, IosBuildRunner, IosBuildWorkload};
+use crate::{run_with_timeout_sink, IosBuildRunner, IosBuildWorkload, LogSink};
 
 /// How often to poll for new assignments.
 pub const POLL_INTERVAL: Duration = Duration::from_secs(10);
 /// Per-tick GET budget.
 pub const TICK_TIMEOUT: Duration = Duration::from_secs(15);
+/// Per-log-POST budget — keep small so a slow gateway never stalls the build.
+const LOG_POST_TIMEOUT: Duration = Duration::from_secs(10);
 /// Default wall-clock build time-box when the assignment doesn't pin one.
 const DEFAULT_BUILD_TIMEOUT_SECS: u32 = 3600;
 const DEFAULT_BOOT_TIMEOUT_SECS: u32 = 600;
@@ -127,6 +129,41 @@ impl AssignedWorkload {
     }
 }
 
+/// A [`LogSink`] that POSTs each build-log line to workloads-svc's poll-path
+/// log endpoint, which forwards it to the build-gateway so the customer's
+/// `GET /v1/builds/{id}/logs` SSE tail shows it live. Routed by `attempt_id`
+/// (the same key the status path uses); the server resolves attempt → build.
+///
+/// Best-effort by contract: a POST failure is logged and dropped — a flaky
+/// log hop must never fail or stall the build. We fire each line on a
+/// detached task so the build's stdout pump is never blocked on the network.
+struct HttpLogSink {
+    http: reqwest::Client,
+    url: String,
+}
+
+#[async_trait::async_trait]
+impl LogSink for HttpLogSink {
+    async fn emit(&self, stream: &str, text: &str) {
+        // Skip empty keepalive lines — they add no value to the tail.
+        if text.is_empty() {
+            return;
+        }
+        let http = self.http.clone();
+        let url = self.url.clone();
+        let body = serde_json::json!({ "stream": stream, "text": text });
+        // Detach: never block the read loop on the log hop.
+        tokio::spawn(async move {
+            match tokio::time::timeout(LOG_POST_TIMEOUT, http.post(&url).json(&body).send()).await {
+                Ok(Ok(r)) if r.status().is_success() => {}
+                Ok(Ok(r)) => tracing::debug!(url = %url, status = %r.status(), "log POST: non-2xx"),
+                Ok(Err(e)) => tracing::debug!(url = %url, error = %e, "log POST failed"),
+                Err(_) => tracing::debug!(url = %url, "log POST timed out"),
+            }
+        });
+    }
+}
+
 /// Spawn the poll loop. Shuts down cleanly when `shutdown_rx` flips true.
 pub fn spawn_build_poller(
     config: BuildPollerConfig,
@@ -190,6 +227,17 @@ async fn run_poll_loop(
                         "{}/v1/providers/{}/assigned-workloads/{}/status",
                         base, provider_id, attempt
                     );
+                    // Live-log endpoint (sibling of the status path). The
+                    // server forwards each line to the build-gateway so the
+                    // customer's SSE tail shows real-time output (#763).
+                    let logs_url = format!(
+                        "{}/v1/providers/{}/assigned-workloads/{}/logs",
+                        base, provider_id, attempt
+                    );
+                    let log_sink: Arc<dyn LogSink> = Arc::new(HttpLogSink {
+                        http: http.clone(),
+                        url: logs_url,
+                    });
                     // Run each build concurrently so the poll loop keeps
                     // ticking; the dedup guard prevents a re-start.
                     tokio::spawn(async move {
@@ -197,7 +245,7 @@ async fn run_poll_loop(
                         // Report RUNNING so the assignment drains off the
                         // server's "dispatched" poll list immediately (#705).
                         report_status(&http2, &status_url, "running", 0).await;
-                        let (status, code) = match run_with_timeout(runner.as_ref(), a.to_workload()).await {
+                        let (status, code) = match run_with_timeout_sink(runner.as_ref(), a.to_workload(), Some(log_sink)).await {
                             Ok(res) => {
                                 tracing::info!(attempt_id = %attempt, exit_code = res.exit_code, "iOS build finished");
                                 (if res.exit_code == 0 { "succeeded" } else { "failed" }, res.exit_code)

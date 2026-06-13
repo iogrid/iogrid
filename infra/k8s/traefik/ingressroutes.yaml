@@ -183,13 +183,16 @@ spec:
         flushInterval: 100ms
       scheme: h2c
       serversTransport: long-lived-bidi
-  # #705: poll-based iOS-build dispatch. A REMOTE daemon polls this plain
+  # #705/#763: poll-based iOS-build dispatch. A REMOTE daemon polls this plain
   # REST endpoint (the bidi-stream Assignment server-push is dropped by the
   # edge). Specific PathRegexp so it doesn't shadow providers-svc's
   # /v1/providers namespace; plain http (the GET is h1, not the gRPC h2c).
-  # Applied + verified live (returns 200 from workloads-svc).
+  # Matches the poll GET, the /status drain (#705), AND the /logs live-tail
+  # relay (#763) — the daemon streams build stdout/stderr to /logs and
+  # workloads-svc forwards it to the build-gateway so the customer's SSE log
+  # tail is non-empty. Applied + verified live (returns 200 from workloads-svc).
   - kind: Rule
-    match: Host(`api.iogrid.org`) && PathRegexp(`^/v1/providers/[^/]+/assigned-workloads(/[^/]+/status)?$`)
+    match: Host(`api.iogrid.org`) && PathRegexp(`^/v1/providers/[^/]+/assigned-workloads(/[^/]+/(status|logs))?$`)
     priority: 110
     services:
     - name: workloads-svc

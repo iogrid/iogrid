@@ -58,6 +58,14 @@ func Mount(deps Deps) func(chi.Router) {
 			// "dispatched" — otherwise it lingers in the poll list and a
 			// daemon restart would re-run it.
 			r.Post("/providers/{providerID}/assigned-workloads/{attemptID}/status", assignedWorkloadStatusHandler(deps))
+			// #763: the poll path's live-log relay. A polling daemon streams
+			// the running build's stdout/stderr here (client→server, traverses
+			// the edge); workloads-svc resolves attempt→workload→build_id and
+			// forwards each batch to the build-gateway's internal log endpoint
+			// so the customer's GET /v1/builds/{id}/logs SSE tail shows real
+			// build output live (it was empty before — logs were captured by
+			// the runner but never forwarded).
+			r.Post("/providers/{providerID}/assigned-workloads/{attemptID}/logs", assignedWorkloadLogsHandler(deps))
 		})
 
 		sub := handlers.NewSubmissionHandler(deps.Store, deps.Dispatcher, deps.Log)
@@ -192,6 +200,71 @@ func assignedWorkloadStatusHandler(deps Deps) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"attempt_id": attemptID, "status": string(st), "drained": true})
+	}
+}
+
+// assignedWorkloadLogsHandler relays a poll-dispatched build's live
+// stdout/stderr to the build-gateway (#763). The daemon POSTs
+// {stream,text?,lines?}; we resolve the attempt → workload → build_id label
+// (the same routing key the status path uses) and forward via the
+// BuildGatewayForwarder so the customer's SSE log tail is non-empty.
+//
+// Best-effort: a missing forwarder, an unresolvable build_id, or a gateway
+// error all return 202 (accepted) so the daemon never retries-storms on a
+// transient log hop — the canonical record is still the status path + the
+// final artifact.
+func assignedWorkloadLogsHandler(deps Deps) http.HandlerFunc {
+	type logReq struct {
+		Stream string   `json:"stream"`
+		Text   string   `json:"text"`
+		Lines  []string `json:"lines"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		providerID := chi.URLParam(r, "providerID")
+		attemptID := chi.URLParam(r, "attemptID")
+		var in logReq
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			http.Error(w, "invalid body", http.StatusBadRequest)
+			return
+		}
+		// Coalesce text + lines into one ordered batch.
+		lines := make([]string, 0, len(in.Lines)+1)
+		if in.Text != "" {
+			lines = append(lines, in.Text)
+		}
+		lines = append(lines, in.Lines...)
+		if len(lines) == 0 || deps.BuildGateway == nil {
+			w.WriteHeader(http.StatusAccepted)
+			_ = json.NewEncoder(w).Encode(map[string]any{"attempt_id": attemptID, "forwarded": 0})
+			return
+		}
+		a, err := deps.Store.GetAssignment(r.Context(), attemptID)
+		if err != nil || a == nil {
+			http.Error(w, "assignment not found", http.StatusNotFound)
+			return
+		}
+		if providerID != "" && a.ProviderID != providerID {
+			http.Error(w, "assignment belongs to another provider", http.StatusForbidden)
+			return
+		}
+		forwarded := 0
+		if wl, gerr := deps.Store.GetWorkload(r.Context(), a.WorkloadID); gerr == nil && wl != nil {
+			if buildID := wl.Labels["build_id"]; buildID != "" {
+				if ferr := deps.BuildGateway.ForwardLogs(r.Context(), buildID, in.Stream, lines); ferr != nil {
+					if deps.Log != nil {
+						deps.Log.Warn("poll log forward to build-gateway failed",
+							slog.String("build_id", buildID),
+							slog.String("attempt_id", attemptID),
+							slog.String("error", ferr.Error()))
+					}
+				} else {
+					forwarded = len(lines)
+				}
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]any{"attempt_id": attemptID, "forwarded": forwarded})
 	}
 }
 
