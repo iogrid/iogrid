@@ -31,7 +31,7 @@ spec:
         # Bumped by .github/workflows/coordinator-ci.yml on every push to
         # main so the rolling update fires even when the image digest is
         # cache-identical.
-        kubectl.kubernetes.io/restartedAt: "2026-06-13T19:36:37Z"
+        kubectl.kubernetes.io/restartedAt: "2026-06-13T20:17:50Z"
     spec:
       priorityClassName: iogrid-serving
       serviceAccountName: vpn-svc
@@ -45,7 +45,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: vpn-svc
-          image: harbor.openova.io/iogrid/vpn-svc@sha256:7ac68338dcb44d49d04d1a6fafd7ed87b90b4d1970870fcb48c496653b8a91c2
+          image: harbor.openova.io/iogrid/vpn-svc@sha256:479c02f1255482e849162c0b5cf90f892ab6927beb0bedb9aadee654f5bd159c
           imagePullPolicy: Always
           ports:
             - name: http
