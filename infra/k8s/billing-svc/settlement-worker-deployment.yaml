@@ -87,7 +87,13 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: iogrid-solana-payout
-                  key: grid_token_mint_address
+                  # #748: the secret's actual key is UPPERCASE
+                  # (GRID_TOKEN_MINT_ADDRESS, 44 bytes — verified live). With
+                  # the old lowercase key + optional:true this resolved to
+                  # empty and the worker booted in stub (non-transferring)
+                  # mode; the live fix had been a `kubectl set env` workaround.
+                  # Matching the real key makes live mode durable across rerolls.
+                  key: GRID_TOKEN_MINT_ADDRESS
                   optional: true
           envFrom:
             - configMapRef:

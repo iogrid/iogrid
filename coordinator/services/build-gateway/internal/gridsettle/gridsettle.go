@@ -133,6 +133,25 @@ type NoopWalletResolver struct{}
 // ResolveWallet implements WalletResolver.
 func (NoopWalletResolver) ResolveWallet(context.Context, string) (string, error) { return "", nil }
 
+// ProviderWalletResolver maps a provider id to the provider owner's bound
+// $GRID payout wallet (#748). The build Service calls it at terminal status so
+// a finished build's grid_build_settlement row carries a non-empty
+// provider_wallet — the settlement-worker only drains rows WHERE
+// provider_wallet <> ”, so without this the provider is never paid on-chain.
+// Implementations return "" (not an error) when unresolvable so settlement
+// degrades to a no-op rather than failing the build's status transition.
+type ProviderWalletResolver interface {
+	ResolveProviderWallet(ctx context.Context, providerID string) (string, error)
+}
+
+// NoopProviderWalletResolver always returns "" (dev / no providers-svc wiring).
+type NoopProviderWalletResolver struct{}
+
+// ResolveProviderWallet implements ProviderWalletResolver.
+func (NoopProviderWalletResolver) ResolveProviderWallet(context.Context, string) (string, error) {
+	return "", nil
+}
+
 // HTTPWalletResolver calls identity-svc's internal wallet endpoint (#718
 // step 1): GET {IdentityURL}/internal/v1/users/{id}/wallet with the shared
 // X-Internal-Token. A 404 (no binding) yields "" with no error.

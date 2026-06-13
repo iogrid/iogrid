@@ -41,15 +41,18 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net/http"
 	"os"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nats-io/nats.go"
 
+	"github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/providers/v1/providersv1connect"
 	"github.com/iogrid/iogrid/coordinator/services/build-gateway/internal/auth"
 	"github.com/iogrid/iogrid/coordinator/services/build-gateway/internal/builds"
 	"github.com/iogrid/iogrid/coordinator/services/build-gateway/internal/gridsettle"
 	"github.com/iogrid/iogrid/coordinator/services/build-gateway/internal/metering"
+	"github.com/iogrid/iogrid/coordinator/services/build-gateway/internal/providerwallet"
 	"github.com/iogrid/iogrid/coordinator/services/build-gateway/internal/s3artifact"
 	"github.com/iogrid/iogrid/coordinator/services/build-gateway/internal/server"
 	"github.com/iogrid/iogrid/coordinator/services/build-gateway/internal/store"
@@ -122,16 +125,31 @@ func main() {
 		logger.Info("grid wallet resolution enabled", slog.String("identity_svc", idURL))
 	}
 
+	// Provider payout-wallet resolution (#748): chain providers-svc GetProvider
+	// (provider_id → owner_user_id) into the identity wallet resolver so a
+	// finished build's settlement row carries a non-empty provider_wallet —
+	// the only rows the settlement-worker drains on-chain. Empty
+	// PROVIDERS_SVC_URL → Noop (provider settles to no wallet = no payout).
+	var providerWalletResolver gridsettle.ProviderWalletResolver = gridsettle.NoopProviderWalletResolver{}
+	if provURL := os.Getenv("PROVIDERS_SVC_URL"); provURL != "" {
+		providerWalletResolver = &providerwallet.Resolver{
+			Providers: providersv1connect.NewProviderRegistrationServiceClient(http.DefaultClient, provURL),
+			Wallets:   walletResolver,
+		}
+		logger.Info("grid provider payout-wallet resolution enabled", slog.String("providers_svc", provURL))
+	}
+
 	svc := builds.NewService(builds.Options{
-		Store:      st,
-		Dispatcher: disp,
-		Storage:    storage,
-		Webhooks:   webhookDisp,
-		GridSettle: gridSettler,
-		Wallets:    walletResolver,
-		Metering:   buildMeteringEmitter(logger),
-		Logs:       hub,
-		Logger:     logger,
+		Store:           st,
+		Dispatcher:      disp,
+		Storage:         storage,
+		Webhooks:        webhookDisp,
+		GridSettle:      gridSettler,
+		Wallets:         walletResolver,
+		ProviderWallets: providerWalletResolver,
+		Metering:        buildMeteringEmitter(logger),
+		Logs:            hub,
+		Logger:          logger,
 	})
 
 	validator := buildValidator(logger)
