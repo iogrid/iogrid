@@ -27,6 +27,17 @@ type fixedWallet struct{ wallet string }
 
 func (f fixedWallet) ResolveWallet(context.Context, string) (string, error) { return f.wallet, nil }
 
+// fixedProviderWallet is a ProviderWalletResolver that maps any non-empty
+// provider id to a fixed payout wallet (the #748 provider-payout leg).
+type fixedProviderWallet struct{ wallet string }
+
+func (f fixedProviderWallet) ResolveProviderWallet(_ context.Context, providerID string) (string, error) {
+	if providerID == "" {
+		return "", nil
+	}
+	return f.wallet, nil
+}
+
 // TestService_TerminalStatus_FiresGridSettle is the G3 wiring test (#718):
 // gridsettle_test covers the Settler in isolation and grid_build_end_test
 // covers billing-svc's endpoint, but nothing proved the build-gateway
@@ -126,5 +137,63 @@ func TestService_NonTerminal_NoSettle(t *testing.T) {
 	}
 	if len(rec.calls) != 0 {
 		t.Fatalf("settle fired for a non-terminal build: %d calls", len(rec.calls))
+	}
+}
+
+// TestService_TerminalStatus_ThreadsProviderWallet is the #748 coverage:
+// the provider-payout leg. The Service must resolve the provider's payout
+// wallet from the build's provider_id and thread BOTH provider_wallet +
+// provider_id into the BuildSettleInput — otherwise the settlement-worker
+// (which only drains rows WHERE provider_wallet <> ”) never pays the
+// provider on-chain. A regression in the settleGrid resolution must fail CI.
+func TestService_TerminalStatus_ThreadsProviderWallet(t *testing.T) {
+	clock := newClock(time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC))
+	rec := &recordingSettler{}
+	const custWallet = "7gWxQ3iogridCustomerWalletXXXXXXXXXXXXXXXXXX"
+	const provWallet = "2ctXibVyProviderPayoutWalletXXXXXXXXXXXXXXXX"
+	const providerID = "prov-c0138910"
+
+	svc := builds.NewService(builds.Options{
+		Store:           store.NewInMemory(clock.Now),
+		Dispatcher:      workloadclient.NewInMemory(clock.Now),
+		Storage:         s3artifact.NewInMemory(clock.Now, ""),
+		Webhooks:        webhook.NewRecorder(),
+		Metering:        metering.NewInMemory(),
+		Logs:            builds.NewLogHub(64),
+		Now:             clock.Now,
+		GridSettle:      rec,
+		Wallets:         fixedWallet{wallet: custWallet},
+		ProviderWallets: fixedProviderWallet{wallet: provWallet},
+	})
+	ctx := context.Background()
+
+	b, err := svc.Submit(ctx, "ws-1", "u-1", "free", validSubmit())
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+
+	clock.Advance(5 * time.Second)
+	// Provider is assigned when the build goes running (providerID arg).
+	if _, err := svc.UpdateStatus(ctx, b.ID, builds.StatusRunning, "vm-booted", providerID, 0); err != nil {
+		t.Fatalf("running update: %v", err)
+	}
+	clock.Advance(7 * time.Minute)
+	if _, err := svc.UpdateStatus(ctx, b.ID, builds.StatusSucceeded, "ok", "", 0); err != nil {
+		t.Fatalf("succeed update: %v", err)
+	}
+
+	if len(rec.calls) != 1 {
+		t.Fatalf("expected exactly 1 settle on terminal, got %d", len(rec.calls))
+	}
+	got := rec.calls[0]
+	if got.ProviderID != providerID {
+		t.Errorf("settle provider_id = %q, want %q (threaded from the build)", got.ProviderID, providerID)
+	}
+	if got.ProviderWallet != provWallet {
+		t.Errorf("settle provider_wallet = %q, want %q (the resolved provider payout wallet — #748)", got.ProviderWallet, provWallet)
+	}
+	// The customer leg must still be intact (regression guard).
+	if got.CustomerWallet != custWallet {
+		t.Errorf("settle customer_wallet = %q, want %q", got.CustomerWallet, custWallet)
 	}
 }
