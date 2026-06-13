@@ -229,6 +229,17 @@ export interface BillingEarningsSummary {
   /** int64 → JSON-canonical string. */
   lifetimeWorkloads?: string | number;
   computedAt?: string;
+  /**
+   * Count of settled iOS-build settlement rows (grid_build_settlement)
+   * paid to this provider on-chain — the dashboard "builds" number. int64
+   * → JSON-canonical string. See #758/#748.
+   */
+  settledBuilds?: string | number;
+  /**
+   * The slice of totalEarned that is settled on-chain $GRID provider_share.
+   * Always currency "GRID". See #758.
+   */
+  settledGrid?: Money;
 }
 
 export interface BillingGetEarningsSummaryResponse {

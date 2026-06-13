@@ -190,11 +190,7 @@ export function EarningsView() {
         <StatsCard
           label="Total earned (lifetime)"
           value={formatMoneyProto(headline?.summary?.totalEarned)}
-          hint={
-            headline?.summary?.lifetimeWorkloads
-              ? `${headline.summary.lifetimeWorkloads} workloads`
-              : "No workloads yet"
-          }
+          hint={lifetimeHint(headline?.summary)}
           series={chart.map((p) => p.amount)}
         />
         <StatsCard
@@ -209,11 +205,28 @@ export function EarningsView() {
           value={formatMoneyProto(headline?.summary?.pendingPayout)}
           hint={payoutHint(payout)}
         />
-        <StatsCard
-          label="Next payout"
-          value={nextPayout}
-          hint={payoutHint(payout)}
-        />
+        {/*
+         * "Builds settled (on-chain)" — the real $GRID that moved on devnet
+         * for this provider's iOS builds (grid_build_settlement, #748/#758).
+         * Distinct from the legacy usage_event metering basis: this is the
+         * count of builds that actually paid out on-chain, with the settled
+         * $GRID amount as the hint. Falls back to "Next payout" framing only
+         * when nothing has settled yet. A provider who ran real builds sees a
+         * non-zero count here even when usage_event.cost_cents was ~0.
+         */}
+        {settledBuildCount(headline?.summary) > 0 ? (
+          <StatsCard
+            label="Builds settled (on-chain)"
+            value={String(settledBuildCount(headline?.summary))}
+            hint={`${formatMoneyProto(headline?.summary?.settledGrid)} confirmed on devnet`}
+          />
+        ) : (
+          <StatsCard
+            label="Next payout"
+            value={nextPayout}
+            hint={payoutHint(payout)}
+          />
+        )}
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -395,6 +408,39 @@ function payoutHint(m: PayoutMethod): string {
     case "charity":
       return "Charity forward";
   }
+}
+
+/**
+ * Coerce the int64 settled-build count (which arrives proto3-JSON as a
+ * string OR number) to a finite number. 0 when absent. See #758.
+ */
+function settledBuildCount(
+  s: BillingGetEarningsSummaryResponse["summary"] | undefined,
+): number {
+  const v = s?.settledBuilds;
+  if (v === undefined || v === null) return 0;
+  const n = typeof v === "string" ? Number(v) : v;
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * Lifetime-card hint. Prefers the real settled-build count (on-chain
+ * $GRID workloads, #758) when present, since that's the number the
+ * provider actually cares about; falls back to the generic workload
+ * count, then to "No workloads yet".
+ */
+function lifetimeHint(
+  s: BillingGetEarningsSummaryResponse["summary"] | undefined,
+): string {
+  const builds = settledBuildCount(s);
+  if (builds > 0) {
+    return `${builds} build${builds === 1 ? "" : "s"} settled on-chain`;
+  }
+  const workloads = s?.lifetimeWorkloads;
+  if (workloads && Number(workloads) > 0) {
+    return `${workloads} workloads`;
+  }
+  return "No workloads yet";
 }
 
 function nextPayoutDate(): string {

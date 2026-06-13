@@ -68,6 +68,12 @@ func (h *EarningsHandler) GetEarningsSummary(
 		PendingPayout:     &commonv1.Money{Currency: currency, Micros: t.PendingPayoutMicros},
 		LifetimeWorkloads: t.LifetimeWorkloads,
 		ComputedAt:        timestamppb.New(now),
+		// On-chain settled $GRID half (#758): the real money that moved on
+		// devnet for this provider's builds. SettledGrid is always $GRID
+		// (the native settlement currency) regardless of the usage_event
+		// currency default; SettledBuilds is the dashboard "builds" number.
+		SettledBuilds: t.SettledBuilds,
+		SettledGrid:   &commonv1.Money{Currency: "GRID", Micros: t.SettledGridMicros},
 	}
 	return connect.NewResponse(&billingv1.GetEarningsSummaryResponse{Summary: out}), nil
 }

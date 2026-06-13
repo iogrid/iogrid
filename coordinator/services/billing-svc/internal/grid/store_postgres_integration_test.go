@@ -596,3 +596,131 @@ func TestPostgresInsertSettlement_HandlesNullableProviderWallet(t *testing.T) {
 		t.Errorf("provider_wallet round-trip should be empty, got %q", got.ProviderWallet)
 	}
 }
+
+// newBuildSettlement returns a BuildSettlement seeded with deterministic
+// non-zero values + the 85/15 split applied. Mirrors newSettlement for the
+// iOS-build ledger (grid_build_settlement). Tests override fields (notably
+// ProviderID) before InsertBuildSettlement. See #758.
+func newBuildSettlement(consumed, escrowed uint64) *BuildSettlement {
+	provShare, iogridShare := ComputeShares(consumed)
+	refund := ComputeRefund(escrowed, consumed)
+	return &BuildSettlement{
+		ID:             uuid.New(),
+		BuildID:        uuid.New(),
+		AttemptID:      uuid.New(),
+		CustomerWallet: "CustWalletAddrBase58XXXXXXXXXXXXXXXXXXXXXXX",
+		ProviderWallet: "PrvWalletAddrBase58XXXXXXXXXXXXXXXXXXXXXXXX",
+		ProviderID:     uuid.New(),
+		EscrowedAtomic: escrowed,
+		ConsumedAtomic: consumed,
+		RefundAtomic:   refund,
+		ProviderShare:  provShare,
+		IogridShare:    iogridShare,
+	}
+}
+
+// TestSumProviderEarnings_FoldsSettledOnChainGrid is the #758 regression:
+// before the fix, SumProviderEarnings summed only usage_event.cost_cents, so
+// a provider whose entire earnings were real on-chain build settlements (the
+// prod reality — Hatice's Mac earned 4.675 $GRID across 4 settled builds while
+// usage_event.cost_cents summed to ~0) saw "0 $GRID" on the dashboard. This
+// test inserts settled build-settlement rows for a provider with ZERO
+// usage_event rows and asserts the on-chain provider_share surfaces as
+// non-zero TotalEarned (in micros), with the settled-build count + the
+// SettledGrid micros populated and currency flipped to GRID.
+func TestSumProviderEarnings_FoldsSettledOnChainGrid(t *testing.T) {
+	pool, gridStore, cleanup := newPostgresFixture(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	providerID := uuid.New()
+	// Two settled builds: 0.85 GRID + 2.55 GRID provider_share (consumed
+	// 1.0 + 3.0 GRID atomic). Settled NOW so they land in the 30d/7d windows.
+	b1 := newBuildSettlement(1_000_000_000, 1_200_000_000) // provShare 850_000_000
+	b1.ProviderID = providerID
+	b2 := newBuildSettlement(3_000_000_000, 3_000_000_000) // provShare 2_550_000_000
+	b2.ProviderID = providerID
+	for _, b := range []*BuildSettlement{b1, b2} {
+		if err := gridStore.InsertBuildSettlement(ctx, b); err != nil {
+			t.Fatalf("InsertBuildSettlement: %v", err)
+		}
+	}
+	// Mark both settled (stamps settled_at) — only settled rows count.
+	if err := gridStore.MarkBuildSettled(ctx, []uuid.UUID{b1.ID, b2.ID}, "TestTxSigBase58XXXXXXXXXXXXXXXXXXXXXXXXXXXXX"); err != nil {
+		t.Fatalf("MarkBuildSettled: %v", err)
+	}
+
+	// A DIFFERENT provider's settled build must NOT leak into our totals.
+	other := newBuildSettlement(5_000_000_000, 5_000_000_000)
+	if err := gridStore.InsertBuildSettlement(ctx, other); err != nil {
+		t.Fatalf("InsertBuildSettlement(other): %v", err)
+	}
+	if err := gridStore.MarkBuildSettled(ctx, []uuid.UUID{other.ID}, "OtherSigXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"); err != nil {
+		t.Fatalf("MarkBuildSettled(other): %v", err)
+	}
+
+	// SumProviderEarnings lives in the store package; it shares this pool.
+	bs := billingstore.New(pool)
+	tot, err := bs.SumProviderEarnings(ctx, providerID, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("SumProviderEarnings: %v", err)
+	}
+
+	// provider_share atomic = 850_000_000 + 2_550_000_000 = 3_400_000_000.
+	// micros = atomic / 1000 = 3_400_000.
+	const wantMicros int64 = 3_400_000
+	if tot.SettledGridMicros != wantMicros {
+		t.Errorf("SettledGridMicros = %d, want %d", tot.SettledGridMicros, wantMicros)
+	}
+	if tot.LifetimeMicros != wantMicros {
+		t.Errorf("LifetimeMicros = %d, want %d (no usage_event rows, so == settled)", tot.LifetimeMicros, wantMicros)
+	}
+	if tot.PendingPayoutMicros != wantMicros {
+		t.Errorf("PendingPayoutMicros = %d, want %d", tot.PendingPayoutMicros, wantMicros)
+	}
+	if tot.Last30DMicros != wantMicros {
+		t.Errorf("Last30DMicros = %d, want %d (settled now)", tot.Last30DMicros, wantMicros)
+	}
+	if tot.SettledBuilds != 2 {
+		t.Errorf("SettledBuilds = %d, want 2", tot.SettledBuilds)
+	}
+	if tot.LifetimeWorkloads != 2 {
+		t.Errorf("LifetimeWorkloads = %d, want 2 (each settled build is a workload)", tot.LifetimeWorkloads)
+	}
+	if tot.Currency != "GRID" {
+		t.Errorf("Currency = %q, want GRID (real on-chain $GRID present)", tot.Currency)
+	}
+}
+
+// TestSumProviderEarnings_OnlyCountsSettled asserts an UNSETTLED build
+// settlement (settled_at IS NULL — queued but not yet on-chain) does NOT
+// inflate the headline. The dashboard figure must be "confirmed on-chain",
+// not "pending". See #758.
+func TestSumProviderEarnings_OnlyCountsSettled(t *testing.T) {
+	pool, gridStore, cleanup := newPostgresFixture(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	providerID := uuid.New()
+	b := newBuildSettlement(2_000_000_000, 2_000_000_000)
+	b.ProviderID = providerID
+	if err := gridStore.InsertBuildSettlement(ctx, b); err != nil {
+		t.Fatalf("InsertBuildSettlement: %v", err)
+	}
+	// Deliberately NOT marked settled.
+
+	bs := billingstore.New(pool)
+	tot, err := bs.SumProviderEarnings(ctx, providerID, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("SumProviderEarnings: %v", err)
+	}
+	if tot.SettledGridMicros != 0 {
+		t.Errorf("SettledGridMicros = %d, want 0 (row not settled)", tot.SettledGridMicros)
+	}
+	if tot.SettledBuilds != 0 {
+		t.Errorf("SettledBuilds = %d, want 0 (row not settled)", tot.SettledBuilds)
+	}
+	if tot.LifetimeMicros != 0 {
+		t.Errorf("LifetimeMicros = %d, want 0", tot.LifetimeMicros)
+	}
+}
