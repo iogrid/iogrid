@@ -116,6 +116,26 @@ export class EarningsSummary extends Message<EarningsSummary> {
    */
   computedAt?: Timestamp;
 
+  /**
+   * Count of settled iOS-build settlement rows (grid_build_settlement)
+   * attributed to this provider — each is a build that ran AND paid the
+   * provider on-chain in $GRID. Surfaced as the dashboard "builds" number
+   * so a provider who ran real builds sees a non-zero count even when the
+   * legacy usage_event metering basis was ~0. See #758/#748.
+   *
+   * @generated from field: int64 settled_builds = 8;
+   */
+  settledBuilds = protoInt64.zero;
+
+  /**
+   * The slice of total_earned that is settled on-chain $GRID provider_share
+   * (build + session settlements), in the same Money currency/micros. Lets
+   * the UI label "X of which confirmed on-chain". See #758.
+   *
+   * @generated from field: iogrid.common.v1.Money settled_grid = 9;
+   */
+  settledGrid?: Money;
+
   constructor(data?: PartialMessage<EarningsSummary>) {
     super();
     proto3.util.initPartial(data, this);
@@ -131,6 +151,8 @@ export class EarningsSummary extends Message<EarningsSummary> {
     { no: 5, name: "pending_payout", kind: "message", T: Money },
     { no: 6, name: "lifetime_workloads", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
     { no: 7, name: "computed_at", kind: "message", T: Timestamp },
+    { no: 8, name: "settled_builds", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+    { no: 9, name: "settled_grid", kind: "message", T: Money },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): EarningsSummary {
