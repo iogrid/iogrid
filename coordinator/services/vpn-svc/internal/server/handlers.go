@@ -116,7 +116,7 @@ type requestSessionReq struct {
 	CustomerID           string           `json:"customer_id"`
 	Region               string           `json:"region"`
 	APIKey               string           `json:"api_key"`
-	APIKeyHash           string           `json:"api_key_hash"`       // deprecated, ignored
+	APIKeyHash           string           `json:"api_key_hash"` // deprecated, ignored
 	PaymentAuthorization *paymentAuthBody `json:"payment_authorization,omitempty"`
 }
 
@@ -371,21 +371,30 @@ func (h *GetSession) Handle(w http.ResponseWriter, r *http.Request) {
 	qs := computeQuotaState("", used)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"session_id":              session.ID.String(),
-		"customer_id":             session.CustomerID.String(),
-		"region":                  session.Region,
-		"primary_provider_id":     session.PrimaryProvider.String(),
-		"current_provider_id":     session.CurrentProvider.String(),
-		"state":                   session.State.String(),
-		"bytes_in":                session.BytesIn,
-		"bytes_out":               session.BytesOut,
-		"created_at":              session.CreatedAt,
-		"last_activity_at":        session.LastActivityAt,
-		"provider_id":             session.CurrentProvider.String(),
-		"provider_wg_public_key":  session.ProviderWgPublicKey,
-		"customer_wg_public_key":  session.CustomerWgPublicKey,
-		"ice_candidates":          candidates,
-		"quota_state":             qs.String(),
+		"session_id":             session.ID.String(),
+		"customer_id":            session.CustomerID.String(),
+		"region":                 session.Region,
+		"primary_provider_id":    session.PrimaryProvider.String(),
+		"current_provider_id":    session.CurrentProvider.String(),
+		"state":                  session.State.String(),
+		"bytes_in":               session.BytesIn,
+		"bytes_out":              session.BytesOut,
+		"created_at":             session.CreatedAt,
+		"last_activity_at":       session.LastActivityAt,
+		"provider_id":            session.CurrentProvider.String(),
+		"provider_wg_public_key": session.ProviderWgPublicKey,
+		"customer_wg_public_key": session.CustomerWgPublicKey,
+		// #738: surface the per-session tunnel-inner IP here too so the
+		// mobile app can re-fetch it post-connect (issue option b — the
+		// lower-risk re-fetch path) if it ever needs to recover the value
+		// independently of the create response. `inner_ip` is the bare IP
+		// the client reads; `customer_inner_cidr` is the /32 form for the
+		// native WGTunnel.swift path. Both are "" for legacy (non-mobile)
+		// sessions via the innerCIDR helper, so no bogus "/32" leaks.
+		"inner_ip":            session.InnerIP,
+		"customer_inner_cidr": innerCIDR(session.InnerIP),
+		"ice_candidates":      candidates,
+		"quota_state":         qs.String(),
 	})
 }
 
@@ -861,10 +870,10 @@ func (h *ListProvidersInRegion) Handle(w http.ResponseWriter, r *http.Request) {
 		out := make([]map[string]interface{}, 0, len(probes))
 		for _, p := range probes {
 			out = append(out, map[string]interface{}{
-				"provider_id":    p.ProviderID.String(),
-				"wg_public_key":  p.WgPublicKey,
-				"candidate_set":  p.Candidates,
-				"median_rtt_ms":  p.MedianRttMs,
+				"provider_id":   p.ProviderID.String(),
+				"wg_public_key": p.WgPublicKey,
+				"candidate_set": p.Candidates,
+				"median_rtt_ms": p.MedianRttMs,
 			})
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -999,17 +1008,17 @@ func (h *ListAssignedSessions) Handle(w http.ResponseWriter, r *http.Request) {
 	out := make([]map[string]interface{}, 0, len(sessions))
 	for _, s := range sessions {
 		out = append(out, map[string]interface{}{
-			"session_id":              s.ID.String(),
-			"customer_id":             s.CustomerID.String(),
-			"region":                  s.Region,
-			"current_provider_id":     s.CurrentProvider.String(),
-			"customer_wg_public_key":  s.CustomerWgPublicKey,
+			"session_id":             s.ID.String(),
+			"customer_id":            s.CustomerID.String(),
+			"region":                 s.Region,
+			"current_provider_id":    s.CurrentProvider.String(),
+			"customer_wg_public_key": s.CustomerWgPublicKey,
 			// #701: the customer's tunnel-inner IP. The daemon's binder
 			// needs it for #695 multi-customer return-routing — without it
 			// the provider can't tell which connected peer a return packet
 			// belongs to, so general-internet egress doesn't route back.
-			"customer_inner_cidr":     innerCIDR(s.InnerIP),
-			"created_at":              s.CreatedAt,
+			"customer_inner_cidr": innerCIDR(s.InnerIP),
+			"created_at":          s.CreatedAt,
 		})
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -1182,6 +1191,7 @@ func (h *ListRegions) Handle(w http.ResponseWriter, r *http.Request) {
 		"count":   len(out),
 	})
 }
+
 // Track 3 (#588): mobile PacketTunnelProvider session bring-up.
 // -------------------------------------------------------------------
 //
@@ -1250,11 +1260,11 @@ func (h *RequestMobileSession) WithValidator(v APIKeyValidator) *RequestMobileSe
 // raw json.RawMessage so the structure is opaque to vpn-svc (Track 5
 // owns the schema) but still persisted intact for #596 validation.
 type requestMobileSessionReq struct {
-	CustomerID            string          `json:"customer_id"`
-	Region                string          `json:"region"`
-	ClientPublicKey       string          `json:"client_public_key"`
-	APIKey                string          `json:"api_key"`
-	PaymentAuthorization  json.RawMessage `json:"payment_authorization,omitempty"`
+	CustomerID           string          `json:"customer_id"`
+	Region               string          `json:"region"`
+	ClientPublicKey      string          `json:"client_public_key"`
+	APIKey               string          `json:"api_key"`
+	PaymentAuthorization json.RawMessage `json:"payment_authorization,omitempty"`
 }
 
 // Handle implements http.Handler for RequestMobileSession.
@@ -1412,7 +1422,7 @@ func (h *RequestMobileSession) Handle(w http.ResponseWriter, r *http.Request) {
 		// Persist the in-memory copy of the peer config too so the
 		// memory-store-backed tests see it via GetSession even before
 		// PersistSessionPeerConfig overwrites the postgres row.
-		ClientPublicKey:      req.ClientPublicKey,
+		ClientPublicKey: req.ClientPublicKey,
 		// #698: also set CustomerWgPublicKey so the daemon's binder upserts
 		// this customer as a WG peer. The binder reads customer_wg_public_key
 		// from /assigned-sessions; the mobile flow previously set only
@@ -1463,15 +1473,26 @@ func (h *RequestMobileSession) Handle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"session_id":           sessionID.String(),
-		"peer_public_key":      providerInfo.WgPublicKey,
-		"peer_endpoint":        providerInfo.Endpoint,
-		"customer_inner_cidr":  innerIP + "/32",
-		"allowed_ips":          "0.0.0.0/0",
-		"dns_servers":          h.defaults.DNSServers,
-		"expires_at":           expiresAt.UTC().Format(time.RFC3339),
-		"region":               chosenRegion,
-		"quota_state":          computeQuotaState(resolvedTier, usedBytes).String(),
+		"session_id":          sessionID.String(),
+		"peer_public_key":     providerInfo.WgPublicKey,
+		"peer_endpoint":       providerInfo.Endpoint,
+		"customer_inner_cidr": innerIP + "/32",
+		// #738: the iOS coordinator (mobile/ios/src/lib/coordinator.ts)
+		// reads the bare-IP field `inner_ip`, NOT `customer_inner_cidr`.
+		// Before this it always decoded undefined → innerIP:"" → the app
+		// fell back to the hard-coded default 10.66.0.2/32 (which only
+		// happened to work because the peer is registered allowed-ips
+		// 0.0.0.0/0, so return traffic wasn't inner-IP-filtered). Surface
+		// the real inner IP under the name the client already reads;
+		// `customer_inner_cidr` stays for the native WGTunnel.swift path
+		// (it parses the CIDR form). Both keys are additive — the working
+		// connect flow is unaffected.
+		"inner_ip":    innerIP,
+		"allowed_ips": "0.0.0.0/0",
+		"dns_servers": h.defaults.DNSServers,
+		"expires_at":  expiresAt.UTC().Format(time.RFC3339),
+		"region":      chosenRegion,
+		"quota_state": computeQuotaState(resolvedTier, usedBytes).String(),
 	})
 }
 
@@ -1586,11 +1607,11 @@ func NewMobileHeartbeat(st store.Store, logger *slog.Logger) *MobileHeartbeat {
 }
 
 type mobileHeartbeatReq struct {
-	BytesIn               uint64 `json:"bytes_in"`
-	BytesOut              uint64 `json:"bytes_out"`
-	LastHandshakeAgeSec   uint32 `json:"last_handshake_age_seconds"`
-	PathLatencyMs         uint32 `json:"path_latency_ms"`
-	SentAtUnixMs          int64  `json:"sent_at_unix_ms"`
+	BytesIn             uint64 `json:"bytes_in"`
+	BytesOut            uint64 `json:"bytes_out"`
+	LastHandshakeAgeSec uint32 `json:"last_handshake_age_seconds"`
+	PathLatencyMs       uint32 `json:"path_latency_ms"`
+	SentAtUnixMs        int64  `json:"sent_at_unix_ms"`
 }
 
 // Handle implements http.Handler for MobileHeartbeat.
@@ -1635,8 +1656,8 @@ func (h *MobileHeartbeat) Handle(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"session_id":   sessionID.String(),
-		"acked_at":     time.Now().UTC().Format(time.RFC3339Nano),
-		"quota_state":  qs.String(),
+		"session_id":  sessionID.String(),
+		"acked_at":    time.Now().UTC().Format(time.RFC3339Nano),
+		"quota_state": qs.String(),
 	})
 }

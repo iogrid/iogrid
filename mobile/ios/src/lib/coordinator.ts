@@ -101,6 +101,11 @@ export interface SessionState {
   quotaState: QuotaState;
   bytesIn: number;
   bytesOut: number;
+  // #738: the per-session tunnel-inner IP, surfaced by GET /sessions/{id}
+  // so the app can recover it post-connect (the create response also
+  // carries it as `inner_ip`). Empty string when the server hasn't
+  // allocated one (legacy/non-mobile sessions).
+  innerIP: string;
 }
 
 /**
@@ -146,6 +151,7 @@ export async function requestSession(
     quota_state?: string;
     bytes_in?: number;
     bytes_out?: number;
+    inner_ip?: string;
   };
   return {
     sessionId: body.session_id,
@@ -154,6 +160,9 @@ export async function requestSession(
     quotaState: (body.quota_state as QuotaState) ?? 'QUOTA_STATE_UNSPECIFIED',
     bytesIn: body.bytes_in ?? 0,
     bytesOut: body.bytes_out ?? 0,
+    // #738: GET /sessions/{id} now surfaces the inner IP (empty for the
+    // legacy POST /sessions daemon flow, which doesn't allocate one).
+    innerIP: body.inner_ip ?? '',
   };
 }
 
@@ -296,6 +305,7 @@ export async function getSession(sessionId: string, apiKey: string): Promise<Ses
     quota_state?: string;
     bytes_in?: number;
     bytes_out?: number;
+    inner_ip?: string;
   };
   return {
     sessionId: body.session_id,
@@ -304,6 +314,9 @@ export async function getSession(sessionId: string, apiKey: string): Promise<Ses
     quotaState: (body.quota_state as QuotaState) ?? 'QUOTA_STATE_UNSPECIFIED',
     bytesIn: body.bytes_in ?? 0,
     bytesOut: body.bytes_out ?? 0,
+    // #738: GET /sessions/{id} now surfaces the inner IP (empty for the
+    // legacy POST /sessions daemon flow, which doesn't allocate one).
+    innerIP: body.inner_ip ?? '',
   };
 }
 

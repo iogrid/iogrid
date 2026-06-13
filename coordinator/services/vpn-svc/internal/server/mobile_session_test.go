@@ -7,8 +7,10 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -321,6 +323,8 @@ func TestRequestMobileSession_CreatedResponseShape(t *testing.T) {
 		"session_id", "peer_public_key", "peer_endpoint",
 		"customer_inner_cidr", "allowed_ips", "dns_servers",
 		"expires_at", "region", "quota_state",
+		// #738: the bare-IP `inner_ip` field the iOS coordinator reads.
+		"inner_ip",
 	} {
 		if _, ok := out[k]; !ok {
 			t.Errorf("created response missing field %q (body=%s)", k, body)
@@ -334,6 +338,22 @@ func TestRequestMobileSession_CreatedResponseShape(t *testing.T) {
 	}
 	if out["allowed_ips"] != "0.0.0.0/0" {
 		t.Errorf("allowed_ips=%v, want 0.0.0.0/0", out["allowed_ips"])
+	}
+
+	// #738: inner_ip must be the BARE IP the client reads (coordinator.ts
+	// decodes `body.inner_ip`), and it must agree with customer_inner_cidr
+	// (the native /32 form). Before the fix the response carried ONLY
+	// customer_inner_cidr → the client read undefined → fell back to the
+	// hard-coded default 10.66.0.2/32.
+	innerIP, _ := out["inner_ip"].(string)
+	if innerIP == "" {
+		t.Fatalf("inner_ip empty — the client would fall back to the default 10.66.0.2/32 (#738) (body=%s)", body)
+	}
+	if net.ParseIP(innerIP) == nil || strings.Contains(innerIP, "/") {
+		t.Errorf("inner_ip=%q must be a bare IPv4 (no CIDR mask) — the client passes it straight through", innerIP)
+	}
+	if got, want := out["customer_inner_cidr"], innerIP+"/32"; got != want {
+		t.Errorf("customer_inner_cidr=%v, want %q (must agree with inner_ip)", got, want)
 	}
 
 	// The session row must exist + be bound to the seeded provider.
@@ -414,4 +434,74 @@ func TestRequestMobileSession_NoPeerWhenEndpointUnpublished(t *testing.T) {
 	if resp.Header.Get("Retry-After") == "" {
 		t.Errorf("endpoint-unpublished 503 must carry Retry-After header")
 	}
+}
+
+// TestGetSession_SurfacesInnerIP pins the #738 GET-path fix (issue option b,
+// the re-fetch route): after a mobile session is created (which allocates +
+// persists the per-session inner IP), GET /v1/vpn/sessions/{id} must surface
+// the inner IP so the app can recover it independently of the create
+// response. Before the fix the GET handler returned every session field
+// EXCEPT the inner IP, so a re-fetch couldn't repair an empty value.
+//
+// The round-trip here is create-handler → store → GET-handler: the inner IP
+// the POST allocated must come back out of GET unchanged. (The Postgres
+// store-layer round-trip of InnerIP itself is pinned by the integration test
+// TestPostgres_CreateSession_PersistsCustomerWgKey — #726 lesson — so this
+// test focuses on the GET handler's serialization of the field.)
+func TestGetSession_SurfacesInnerIP(t *testing.T) {
+	mem := store.NewMemory().(*store.Memory)
+	seedReadyProvider(t, mem, "us-east-1")
+	srv := mountMobile(t, mem, nil)
+
+	// 1. Create a mobile session — captures the allocated inner IP.
+	resp, body := postMobile(t, srv.URL, map[string]interface{}{
+		"customer_id":       uuid.New().String(),
+		"client_public_key": "CLIENTPUBKEY1111AAAA2222BBBB=",
+		"region":            "us-east-1",
+	}, nil)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s, want 201", resp.StatusCode, body)
+	}
+	var created map[string]interface{}
+	if err := json.Unmarshal(body, &created); err != nil {
+		t.Fatalf("unmarshal create body: %v (%s)", err, body)
+	}
+	sessionID, _ := created["session_id"].(string)
+	wantInnerIP, _ := created["inner_ip"].(string)
+	if sessionID == "" || wantInnerIP == "" {
+		t.Fatalf("create response missing session_id/inner_ip (body=%s)", body)
+	}
+
+	// 2. GET the session back and assert the inner IP surfaces.
+	getResp, getBody := getJSON(t, srv.URL+"/v1/vpn/sessions/"+sessionID)
+	if getResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET status=%d body=%s, want 200", getResp.StatusCode, getBody)
+	}
+	var got map[string]interface{}
+	if err := json.Unmarshal(getBody, &got); err != nil {
+		t.Fatalf("unmarshal GET body: %v (%s)", err, getBody)
+	}
+
+	gotInnerIP, _ := got["inner_ip"].(string)
+	if gotInnerIP != wantInnerIP {
+		t.Errorf("GET inner_ip=%q, want %q (must round-trip create→store→GET, #738)", gotInnerIP, wantInnerIP)
+	}
+	if net.ParseIP(gotInnerIP) == nil || strings.Contains(gotInnerIP, "/") {
+		t.Errorf("GET inner_ip=%q must be a bare IPv4 (no CIDR mask)", gotInnerIP)
+	}
+	if got, want := got["customer_inner_cidr"], wantInnerIP+"/32"; got != want {
+		t.Errorf("GET customer_inner_cidr=%v, want %q", got, want)
+	}
+}
+
+// getJSON fires a GET against url and returns the response + read body.
+func getJSON(t *testing.T, url string) (*http.Response, []byte) {
+	t.Helper()
+	resp, err := http.Get(url)
+	if err != nil {
+		t.Fatalf("GET %s: %v", url, err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	return resp, b
 }
