@@ -115,6 +115,17 @@ public class TunnelControlModule: Module {
 
     AsyncFunction("startTunnel") { (config: TunnelConfig, promise: Promise) in
       Self.loadManager { manager, _ in
+        // INVARIANT: REUSE the existing (already-approved) manager and only
+        // UPDATE its providerConfiguration below — NEVER remove-and-recreate.
+        // A prior branch build (180, never merged to main) removed every
+        // manager and created a fresh one on each Connect. iOS treats a fresh
+        // manager as a NEW VPN config, so it re-shows the system
+        // "iogrid would like to add VPN configurations" prompt EVERY time, and
+        // the rapid remove+re-add races saveToPreferences into failure → an
+        // infinite add-config / re-prompt loop on the device (founder-reported).
+        // Reuse avoids the prompt entirely; the key is still refreshed because
+        // clientPrivateKey is re-set from UserDefaults on every start (below),
+        // so this fixes the stale-key handshake WITHOUT the loop. (#701)
         let mgr = manager ?? NETunnelProviderManager()
         let proto = NETunnelProviderProtocol()
         proto.providerBundleIdentifier = TunnelControlModule.extensionBundleIdentifier
