@@ -325,3 +325,40 @@ spec:
       port: 3000
   tls:
     secretName: iogrid-releases-tls
+
+---
+# build.iogrid.org -> build-gateway:8080 (#757, G2 turnkey iOS-build product).
+#
+# THIS WAS THE MISSING WIRE. Every other host had an IngressRoute; build did
+# not, so build.iogrid.org fell through to Traefik's default 404 even though
+# the build-gateway pod was healthy (200 /healthz, full /v1/builds surface) and
+# all its peer-service env wiring (WORKLOADS_SVC_URL / BILLING_SVC_URL /
+# IDENTITY_SVC_URL / PROVIDERS_SVC_URL / NATS_URL + static API key + dispatch
+# token) was in place. The cert (build-iogrid-org-tls) is cert-manager-issued
+# + ready.
+#
+# Customer-facing iOS-build CI API: POST /v1/builds (Authorization: Bearer
+# <api_key> or X-Iogrid-Api-Key), GET /v1/builds/{id}, GET .../logs (SSE),
+# GET .../artifacts/{name}. No CORS middleware: this is a server-to-server /
+# curl / SDK / CI surface (ping submits from its CI), not a browser origin —
+# the API key is the credential. Default h1 scheme is correct; build-gateway
+# speaks REST/JSON, not gRPC h2c.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: build-iogrid-org
+  namespace: iogrid
+  labels:
+    app.kubernetes.io/part-of: iogrid
+spec:
+  entryPoints:
+  - websecure
+  routes:
+  - kind: Rule
+    match: Host(`build.iogrid.org`)
+    priority: 100
+    services:
+    - name: build-gateway
+      port: 8080
+  tls:
+    secretName: build-iogrid-org-tls
