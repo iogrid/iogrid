@@ -96,6 +96,22 @@ spec:
             - secretRef:
                 name: workloads-svc-secrets
                 optional: true
+            # CNPG Postgres connection — carries DATABASE_URL. #771: without
+            # this, workloads-svc falls back to its in-memory assignment store,
+            # which is split-brain across replicas (HPA maxReplicas:10) — a long
+            # iOS build's terminal-status POST can hit a different replica than
+            # the one that created the assignment → GetAssignment 404 → the
+            # build-gateway ForwardStatus never fires → the build stays "running"
+            # and metering / $GRID settle never run (ping's Ping.app built but
+            # never settled, #770). The `workloads` database + `workloads_user`
+            # role are already provisioned by the CNPG bootstrap
+            # (infra/k8s/base/data/postgres.yaml). Same pattern as vpn-svc
+            # (iogrid-vpn-svc-db) / billing-svc (iogrid-billing-db). optional:
+            # true so the pod still boots (in-memory, WARN) before the
+            # SealedSecret lands; flip to required once it's sealed.
+            - secretRef:
+                name: iogrid-workloads-svc-db
+                optional: true
           resources:
             requests:
               cpu: 50m
