@@ -175,6 +175,9 @@ describe('requestSession', () => {
       quotaState: 'QUOTA_STATE_UNSPECIFIED',
       bytesIn: 0,
       bytesOut: 0,
+      // #738: legacy POST /sessions doesn't allocate an inner IP, so it
+      // defaults to '' — the field is present on every SessionState.
+      innerIP: '',
     });
     // body carries the snake_case request shape the server expects
     expect(lastBody(spy)).toEqual({ api_key: 'key', customer_id: 'cust', region: 'auto' });
@@ -321,5 +324,29 @@ describe('getSession', () => {
     const spy = installFetchMock();
     spy.mockResolvedValue(fakeResponse({ status: 404, ok: false, json: {} }));
     await expect(getSession('x', 'k')).rejects.toThrow('404');
+  });
+
+  it('surfaces inner_ip from the GET response (#738 re-fetch path)', async () => {
+    const spy = installFetchMock();
+    spy.mockResolvedValue(
+      fakeResponse({
+        status: 200,
+        json: { session_id: 'sess-1', state: 'ACTIVE', region: 'us-east', inner_ip: '10.66.42.7' },
+      }),
+    );
+    const out = await getSession('sess-1', 'k');
+    expect(out.innerIP).toBe('10.66.42.7');
+  });
+
+  it('defaults innerIP to empty string when GET omits inner_ip', async () => {
+    const spy = installFetchMock();
+    spy.mockResolvedValue(
+      fakeResponse({
+        status: 200,
+        json: { session_id: 'sess-1', state: 'ACTIVE', region: 'us-east' },
+      }),
+    );
+    const out = await getSession('sess-1', 'k');
+    expect(out.innerIP).toBe('');
   });
 });
