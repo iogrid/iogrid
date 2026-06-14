@@ -1,0 +1,7 @@
+[single peer, under-load] registered_peers=1 preload_underload=true => COMPLETED=false  cookie_replies=1  handshake_responses=0
+[TWO peers, under-load (prod has several)] registered_peers=2 preload_underload=true => COMPLETED=false  cookie_replies=1  handshake_responses=0
+[FOUR peers, under-load (prod-like)] registered_peers=4 preload_underload=true => COMPLETED=false  cookie_replies=1  handshake_responses=0
+[FOUR peers, NOT under-load (fresh daemon, count<10)] registered_peers=4 preload_underload=false => COMPLETED=true  cookie_replies=0  handshake_responses=1
+--- decisive A/B: ONLY difference is whether reset_count() is pumped ---
+[A/B daemon as-is (no reset_count)] pump_reset=false => COMPLETED=false cookie_replies=1 handshake_responses=0
+[A/B with reset_count pumped (the fix)] pump_reset=true => COMPLETED=true cookie_replies=0 handshake_responses=1
