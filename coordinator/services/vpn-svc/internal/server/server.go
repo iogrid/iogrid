@@ -84,6 +84,12 @@ func Mount(h chi.Router, st store.Store, logger *slog.Logger, validator APIKeyVa
 		// public key via /sessions/{id}/bind-provider. Customer SDK
 		// reads the same key via GET /sessions/{id} once bound.
 		r.Get("/providers/{providerID}/assigned-sessions", NewListAssignedSessions(st, logger).Handle)
+		// #788: restart-recovery poll. Returns ALL live bound sessions for
+		// this provider (no already-keyed / 15-min exclusion that
+		// /assigned-sessions applies) so a daemon that lost its in-memory
+		// boringtun peer map on restart can re-upsert every previously-bound
+		// customer and stop stranding them ("did not decapsulate").
+		r.Get("/providers/{providerID}/bound-sessions", NewListBoundSessions(st, logger).Handle)
 		r.Post("/sessions/{sessionID}/bind-provider", NewBindProvider(st, logger).Handle)
 		r.Post("/sessions/{sessionID}/bind-customer-wg-key", NewBindCustomerWgKey(st, logger).Handle)
 	})

@@ -143,6 +143,31 @@ type Store interface {
 	// forever (#730 — 9 day-old zombies, every 5s, unbounded growth).
 	ListAssignedSessions(ctx context.Context, providerID uuid.UUID) ([]*Session, error)
 
+	// ListBoundSessions returns EVERY non-terminated session bound to
+	// this provider whose customer_wg_public_key is set — WITHOUT the
+	// ListAssignedSessions exclusions (no already-keyed filter, no
+	// AssignedSessionMaxAge cutoff). It is the daemon's restart-recovery
+	// query (#788): the binder calls it on startup + on a slow reconcile
+	// tick to re-derive the live WG peer set after its in-memory boringtun
+	// peer map was wiped by a restart.
+	//
+	// Why this is separate from ListAssignedSessions: a daemon restart
+	// drops every per-customer peer Tunn out of boringtun's map. The
+	// normal bind-poll deliberately HIDES already-bound + >15-min-old
+	// sessions (#730), so a still-live customer who bound an hour ago is
+	// invisible to it — and every WG handshake-init that customer sends
+	// after the restart is dropped ("did not decapsulate against any
+	// known peer") forever. Re-upserting the customers this query returns
+	// repopulates the map. Unlike the #762 key-rotation case, the right
+	// remedy here is RE-BIND, not terminate: the session is still valid,
+	// only the daemon's volatile state was lost.
+	//
+	// Only the customer key + inner-IP are needed to upsert the peer, so
+	// rows with an empty customer_wg_public_key (customer hasn't advertised
+	// a key yet) are excluded — there is nothing to upsert for them, and
+	// they are still covered by the live ListAssignedSessions bring-up path.
+	ListBoundSessions(ctx context.Context, providerID uuid.UUID) ([]*Session, error)
+
 	// ListRegions aggregates provider counts per region for the customer
 	// region picker. Returns one entry per known region with healthy +
 	// total counts. Empty regions are filtered out.

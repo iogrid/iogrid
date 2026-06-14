@@ -53,8 +53,9 @@ pub use tun_forward::{TunForwardSink, TunSetupError, DEFAULT_TUN_IFNAME, PROVIDE
 
 pub mod peer_binder;
 pub use peer_binder::{
-    bind_session, spawn_binder as spawn_peer_binder, AssignedSession, AssignedSessionsResponse,
-    BindProviderRequest, BinderError, PeerBinderConfig, POLL_INTERVAL as BINDER_POLL_INTERVAL,
+    bind_session, reconcile_bound_peers, spawn_binder as spawn_peer_binder, AssignedSession,
+    AssignedSessionsResponse, BindProviderRequest, BinderError, PeerBinderConfig,
+    POLL_INTERVAL as BINDER_POLL_INTERVAL, RECONCILE_INTERVAL as BINDER_RECONCILE_INTERVAL,
 };
 
 pub mod ice;
