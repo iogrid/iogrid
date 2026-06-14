@@ -76,6 +76,8 @@ The full matrix runs in `.github/workflows/daemon-ci.yml` on every push or pull 
 
 Default builds do NOT enable these — the scaffold compiles and passes tests on every supported target with zero vendor dependencies. CI exercises the default profile across all five targets, plus a sanity-check job that flips `routing-real` + `docker-real` on Linux.
 
+> **Local-test gotcha:** modules gated behind `routing-real` (e.g. `boringtun_impl` — the real WireGuard data plane) **and their unit tests** are compiled *out* of a bare `cargo test -p iogrid-routing`, which then reports green **without ever running them**. To actually exercise them locally, run `cargo test -p iogrid-routing --features routing-real` (or `cargo test --workspace --all-targets`, what CI runs — `crates/core` pulls in `routing-real` via feature unification). A green `-p iogrid-routing` on its own does **not** mean the boringtun code was tested.
+
 ## Workload runners
 
 The daemon ships three workload-execution engines (PRs #12, #13, #14):
