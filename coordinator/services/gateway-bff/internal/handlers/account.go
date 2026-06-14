@@ -29,7 +29,17 @@ func (a *API) GetMe(w http.ResponseWriter, r *http.Request) {
 		writeUpstreamError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, resp)
+	// #801: marshal with protojson (canonical proto3-JSON: camelCase +
+	// enum-as-string) rather than stdlib encoding/json. stdlib emits the
+	// protoc-gen-go struct tags — snake_case fields and the enum as its
+	// numeric tag (`"kind":2`) — which forced /account/identifiers' web
+	// panel to hand-decode the wire shape (#372). That coupling is the
+	// proto3-JSON enum-as-int masking class #630/#633/#758 converged away
+	// from. EmitUnpopulated keeps proto3-default fields present so the web
+	// can distinguish "empty" from "absent". Identifiers now arrive as
+	// {"kind":"IDENTIFIER_KIND_MAGIC_LINK","verifiedEmail":"…"} — the shape
+	// the web protobuf-es mapping expects.
+	writeProtoJSON(w, http.StatusOK, resp)
 }
 
 // StartGoogleSignIn kicks off the Google OAuth flow. The body is
