@@ -19,7 +19,7 @@ default = []
 # compiles `NoopTunnel` only — the scaffold path tests + cargo check use.
 # See iogrid#529 for what's gated behind this feature and what the
 # follow-up SNAT/forwarding PR will plug in on top.
-routing-real = ["dep:boringtun", "dep:x25519-dalek", "dep:base64", "dep:rand", "dep:parking_lot"]
+routing-real = ["dep:boringtun", "dep:x25519-dalek", "dep:base64", "dep:rand", "dep:parking_lot", "dep:blake2"]
 # `routing-tun-forward` plugs a Linux TUN device + iptables MASQUERADE
 # rule under the BoringTun decap path, so decapsulated customer packets
 # get NAT'd out the daemon's WAN interface and replies routed back
@@ -70,6 +70,16 @@ rand = { version = "0.8", optional = true }
 # each Tunn::decapsulate call holds the write lock briefly + a panic
 # inside boringtun would otherwise poison the whole peer table.
 parking_lot = { version = "0.12", optional = true }
+
+# G1 decap-fail diagnostic (#762/#701). On the RARE path where an inbound
+# WG datagram fails to decapsulate against every registered peer, we
+# recompute the handshake-init MAC1 keyed on OUR server static public key
+# to tell apart a stale-SERVER-key client (mac1_ok=false → the NE baked an
+# old server pubkey, the #760/build-186 class) from an unregistered/wrong
+# CLIENT key (mac1_ok=true → a binding issue). `0.10` matches the version
+# boringtun already pins (its `Blake2sMac<U16>` is the exact WG MAC1
+# primitive), so cargo unifies to a single copy — no extra link-map churn.
+blake2 = { version = "0.10", optional = true }
 
 # Linux TUN setup syscalls (open, ioctl TUNSETIFF, read/write on the fd).
 # Optional + Linux-only via `#[cfg(target_os = "linux")]` gates inside the

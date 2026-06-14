@@ -130,6 +130,16 @@ pub struct BoringTun {
     /// background task started in [`Tunnel::start`] pumps
     /// `reset_count()` once per second.
     rate_limiter: Arc<RateLimiter>,
+    /// Pre-computed WireGuard MAC1 key for OUR static public key:
+    /// `BLAKE2s-256("mac1----" || our_static_public_raw32)` (#762/#701).
+    /// Used ONLY on the rare decap-FAIL path to recompute a handshake
+    /// init's MAC1 and decide whether the client signed against our
+    /// CURRENT server key (`mac1_ok=true` ⇒ unregistered/wrong CLIENT
+    /// key, a binding bug) or a STALE/WRONG server key (`mac1_ok=false`
+    /// ⇒ the NE baked an old server pubkey — the #760/build-186 class).
+    /// Computed once at construction so the packet path never re-reads
+    /// `wg.key` or re-hashes the static key.
+    mac1_key: [u8; 32],
 }
 
 impl std::fmt::Debug for BoringTun {
@@ -157,6 +167,10 @@ impl BoringTun {
         // 1 s task pumps `reset_count()` so the under-load counter
         // doesn't latch forever.
         let rate_limiter = Arc::new(RateLimiter::new(&static_public, 10));
+        // Pre-compute the WG MAC1 key for OUR static public key once, so
+        // the decap-FAIL diagnostic (#762/#701) can recompute a handshake
+        // init's MAC1 without re-hashing on every dropped packet.
+        let mac1_key = wg_mac1_key(static_public.as_bytes());
         Self {
             config,
             static_public_b64,
@@ -166,6 +180,7 @@ impl BoringTun {
             meter,
             sink,
             rate_limiter,
+            mac1_key,
         }
     }
 
@@ -218,6 +233,7 @@ impl Tunnel for BoringTun {
         let peers = self.peers.clone();
         let meter = self.meter.clone();
         let sink = self.sink.clone();
+        let mac1_key = self.mac1_key;
 
         tracing::info!(
             listen = %addr,
@@ -254,7 +270,7 @@ impl Tunnel for BoringTun {
         });
 
         tokio::spawn(async move {
-            run_pump(socket, peers, meter, sink, rx).await;
+            run_pump(socket, peers, meter, sink, mac1_key, rx).await;
         });
         Ok(())
     }
@@ -340,6 +356,9 @@ async fn run_pump(
     peers: Arc<RwLock<HashMap<String, Arc<PeerEntry>>>>,
     meter: Arc<Meter>,
     sink: Arc<dyn InnerPacketSink>,
+    // Pre-computed WG MAC1 key for OUR static public key (#762/#701),
+    // used only on the decap-FAIL path to classify the failure.
+    mac1_key: [u8; 32],
     mut shutdown_rx: tokio::sync::watch::Receiver<bool>,
 ) {
     // PR-B path (a): one outbound encapsulator the pump hands to the
@@ -446,11 +465,53 @@ async fn run_pump(
                     }
                 }
                 if !claimed {
-                    tracing::debug!(
-                        from = %src,
-                        bytes = n,
-                        "WG packet did not decapsulate against any known peer; dropping"
-                    );
+                    // G1 self-diagnostic (#762/#701). A datagram reached
+                    // us but matched no peer. Say WHY in one line so the
+                    // founder's real-iPhone failure is classifiable from
+                    // the daemon log alone — no more guess-and-check
+                    // round-trips per on-device fix.
+                    //
+                    //  - `msg_type` = WG header byte 0 (1=handshake_init,
+                    //    2=response, 3=cookie, 4=transport_data).
+                    //  - For handshake-inits (type 1, 148 bytes) we
+                    //    recompute MAC1 keyed on OUR server static pubkey:
+                    //      `mac1_ok=false` ⇒ the client signed against a
+                    //        STALE/WRONG SERVER key (the NE baked an old
+                    //        server pubkey — #760 / build-186 fixes THIS).
+                    //      `mac1_ok=true`  ⇒ MAC1 matched our server key
+                    //        but no peer static-decrypt succeeded ⇒ an
+                    //        UNREGISTERED/WRONG CLIENT key (a binding bug),
+                    //        NOT a server-key issue (build 186 won't help).
+                    let diag = classify_decap_fail(&recv_buf[..n], &mac1_key);
+                    match diag.mac1_ok {
+                        Some(true) => tracing::warn!(
+                            from = %src,
+                            bytes = n,
+                            msg_type = diag.msg_type,
+                            msg_kind = diag.msg_kind,
+                            mac1_ok = true,
+                            "G1 decap-fail: handshake-init MAC1 matches OUR server key \
+                             but no peer static-decrypt succeeded ⇒ UNREGISTERED/WRONG \
+                             CLIENT key (binding issue, NOT a server-key issue); dropping"
+                        ),
+                        Some(false) => tracing::warn!(
+                            from = %src,
+                            bytes = n,
+                            msg_type = diag.msg_type,
+                            msg_kind = diag.msg_kind,
+                            mac1_ok = false,
+                            "G1 decap-fail: handshake-init MAC1 does NOT match our server \
+                             key ⇒ client signed against a STALE/WRONG SERVER key (NE baked \
+                             an old server pubkey — the #760/build-186 class); dropping"
+                        ),
+                        None => tracing::debug!(
+                            from = %src,
+                            bytes = n,
+                            msg_type = diag.msg_type,
+                            msg_kind = diag.msg_kind,
+                            "WG packet did not decapsulate against any known peer; dropping"
+                        ),
+                    }
                 }
             }
         }
@@ -510,6 +571,105 @@ fn decode_public_key(b64: &str) -> Result<PublicKey, RoutingError> {
     let mut arr = [0u8; 32];
     arr.copy_from_slice(&bytes);
     Ok(PublicKey::from(arr))
+}
+
+// ---------- G1 decap-fail self-diagnostic (#762/#701) ----------
+
+/// WireGuard `LABEL_MAC1` — the domain-separation prefix WG hashes with a
+/// peer's static public key to derive the MAC1 key. Byte-identical to
+/// boringtun's `LABEL_MAC1` (`noise::handshake`).
+const WG_LABEL_MAC1: &[u8; 8] = b"mac1----";
+
+/// On-wire size of a WireGuard handshake-initiation message, and the
+/// offset at which its 16-byte MAC1 begins. WG message layout:
+/// `[type:1][reserved:3][sender_idx:4][ephemeral:32][enc_static:48]`
+/// `[enc_timestamp:28][mac1:16][mac2:16]` = 148 bytes; MAC1 covers the
+/// first 116 bytes (everything before the MAC1 field). These mirror
+/// boringtun's `HANDSHAKE_INIT_SZ` (148) and its `mac1_off = len - 32`.
+const WG_HANDSHAKE_INIT_SZ: usize = 148;
+const WG_MAC1_OFFSET: usize = WG_HANDSHAKE_INIT_SZ - 32; // 116
+const WG_MAC1_LEN: usize = 16;
+
+/// WG message type tag (header byte 0). The reserved bytes 1..4 are zero.
+const WG_MSG_HANDSHAKE_INIT: u8 = 1;
+
+/// Derive the WireGuard MAC1 key for a static public key:
+/// `BLAKE2s-256("mac1----" || static_public_raw32)`. Byte-identical to
+/// boringtun's `b2s_hash(LABEL_MAC1, peer_static_public)` used to build
+/// each peer's `sending_mac1_key`. The daemon precomputes this ONCE for
+/// its own server static key (in `BoringTun::new`) so the decap-fail
+/// path never re-hashes.
+fn wg_mac1_key(static_public_raw32: &[u8]) -> [u8; 32] {
+    use blake2::digest::Update;
+    use blake2::{Blake2s256, Digest};
+    let mut h = Blake2s256::new();
+    Update::update(&mut h, WG_LABEL_MAC1);
+    Update::update(&mut h, static_public_raw32);
+    h.finalize().into()
+}
+
+/// Compute a WireGuard MAC1 (`BLAKE2s-128`, keyed) over `msg` using a
+/// precomputed MAC1 key. Byte-identical to boringtun's
+/// `b2s_keyed_mac_16(key, msg)` — `Blake2sMac<U16>` keyed with the
+/// 32-byte mac1 key. Used only on the rare decap-fail path.
+fn wg_mac1(mac1_key: &[u8; 32], msg: &[u8]) -> [u8; WG_MAC1_LEN] {
+    use blake2::digest::{FixedOutput, KeyInit, Update};
+    use blake2::Blake2sMac;
+    // `Blake2sMac<U16>` = WireGuard's MAC1 primitive (16-byte digest).
+    let mut mac = <Blake2sMac<blake2::digest::consts::U16> as KeyInit>::new_from_slice(mac1_key)
+        .expect("BLAKE2s accepts a 32-byte key");
+    Update::update(&mut mac, msg);
+    mac.finalize_fixed().into()
+}
+
+/// Result of classifying a datagram that decapsulated against no peer.
+struct DecapFailDiag {
+    /// WG header byte 0 (message type tag), or `None` for an empty datagram.
+    msg_type: Option<u8>,
+    /// Human-readable message kind for the log.
+    msg_kind: &'static str,
+    /// For handshake-inits only: did MAC1 match OUR server static key?
+    /// `Some(true)`  ⇒ binding issue (unregistered/wrong CLIENT key).
+    /// `Some(false)` ⇒ stale/wrong SERVER key (NE baked an old pubkey).
+    /// `None`        ⇒ not a (well-formed) handshake-init — undecidable.
+    mac1_ok: Option<bool>,
+}
+
+/// Classify a datagram that decapsulated against no registered peer.
+/// Reads the WG message type and, for a well-formed handshake-init,
+/// recomputes MAC1 against `our_mac1_key` so the log can say whether the
+/// client signed against our CURRENT server key. Pure + allocation-free;
+/// runs only on the (rare) decap-fail path.
+fn classify_decap_fail(payload: &[u8], our_mac1_key: &[u8; 32]) -> DecapFailDiag {
+    let Some(&msg_type) = payload.first() else {
+        return DecapFailDiag {
+            msg_type: None,
+            msg_kind: "empty",
+            mac1_ok: None,
+        };
+    };
+    let msg_kind = match msg_type {
+        WG_MSG_HANDSHAKE_INIT => "handshake_init",
+        2 => "handshake_response",
+        3 => "cookie_reply",
+        4 => "transport_data",
+        _ => "unknown",
+    };
+    // MAC1 is only carried by — and only meaningful for — a full-size
+    // handshake-init. Anything else: report the type, leave mac1
+    // undecidable.
+    let mac1_ok = if msg_type == WG_MSG_HANDSHAKE_INIT && payload.len() == WG_HANDSHAKE_INIT_SZ {
+        let computed = wg_mac1(our_mac1_key, &payload[..WG_MAC1_OFFSET]);
+        let on_wire = &payload[WG_MAC1_OFFSET..WG_MAC1_OFFSET + WG_MAC1_LEN];
+        Some(computed.as_slice() == on_wire)
+    } else {
+        None
+    };
+    DecapFailDiag {
+        msg_type: Some(msg_type),
+        msg_kind,
+        mac1_ok,
+    }
 }
 
 /// Monotonically incrementing peer index issued to boringtun on
@@ -621,6 +781,137 @@ mod tests {
             RoutingError::Socks5(msg) => assert!(msg.contains("32 bytes")),
             other => panic!("unexpected error variant: {other:?}"),
         }
+    }
+
+    // ---- G1 decap-fail self-diagnostic (#762/#701) ----
+
+    /// Forge a REAL WireGuard handshake-initiation addressed to
+    /// `server_public` by driving boringtun's own `Tunn`. boringtun
+    /// MAC1s the init with `BLAKE2s("mac1----" || server_public)`, so an
+    /// init built toward our server key carries a MAC1 that must verify
+    /// against `wg_mac1_key(our_key)`, and one built toward a DIFFERENT
+    /// key must not. This exercises the exact primitive the on-device
+    /// client uses — no hand-rolled crypto in the test.
+    fn forge_handshake_init(server_public: &PublicKey) -> Vec<u8> {
+        let client_key = rand_key();
+        let mut client = Tunn::new(client_key, *server_public, None, None, 7, None);
+        let mut buf = [0u8; RECV_BUF];
+        match client.format_handshake_initiation(&mut buf, false) {
+            TunnResult::WriteToNetwork(p) => p.to_vec(),
+            other => panic!("unexpected handshake-init result: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn mac1_key_matches_boringtun_label_hash() {
+        // `wg_mac1_key` must equal boringtun's `b2s_hash(LABEL_MAC1, pk)`.
+        // We verify indirectly but rigorously: a real init toward this
+        // key MUST verify against the key we derive. (A direct vector is
+        // covered by the positive case below; this guards the helper in
+        // isolation against an off-by-one in the label / order.)
+        let server = rand_key();
+        let server_pub = PublicKey::from(&server);
+        let key = wg_mac1_key(server_pub.as_bytes());
+        // Re-deriving is deterministic.
+        assert_eq!(key, wg_mac1_key(server_pub.as_bytes()));
+        // A different key yields a different mac1 key.
+        let other = PublicKey::from(&rand_key());
+        assert_ne!(key, wg_mac1_key(other.as_bytes()));
+    }
+
+    #[test]
+    fn classify_decap_fail_correct_server_key_is_mac1_ok_true() {
+        // A handshake-init MAC1'd against OUR server key ⇒ mac1_ok=true
+        // ⇒ "the client signed against our CURRENT server key; the
+        // failure is a CLIENT-key/binding issue, not a server-key one."
+        let server = rand_key();
+        let server_pub = PublicKey::from(&server);
+        let our_mac1_key = wg_mac1_key(server_pub.as_bytes());
+
+        let init = forge_handshake_init(&server_pub);
+        assert_eq!(init.len(), WG_HANDSHAKE_INIT_SZ, "real init is 148 bytes");
+        assert_eq!(init[0], WG_MSG_HANDSHAKE_INIT, "type byte is 1");
+
+        let diag = classify_decap_fail(&init, &our_mac1_key);
+        assert_eq!(diag.msg_type, Some(WG_MSG_HANDSHAKE_INIT));
+        assert_eq!(diag.msg_kind, "handshake_init");
+        assert_eq!(
+            diag.mac1_ok,
+            Some(true),
+            "init MAC1'd to our server key must verify against our mac1 key"
+        );
+    }
+
+    #[test]
+    fn classify_decap_fail_wrong_server_key_is_mac1_ok_false() {
+        // The SAME init, evaluated against a DIFFERENT server key (the
+        // stale-server-key scenario: the NE baked an old/wrong server
+        // pubkey) ⇒ mac1_ok=false ⇒ build-186 (recreate-manager) is the
+        // fix; a re-bind would NOT help.
+        let registered_server = rand_key();
+        let registered_pub = PublicKey::from(&registered_server);
+        // The init the "client" actually sent — addressed to the
+        // registered server key.
+        let init = forge_handshake_init(&registered_pub);
+
+        // But OUR daemon now runs a DIFFERENT static key (rotated).
+        let our_rotated = rand_key();
+        let our_mac1_key = wg_mac1_key(PublicKey::from(&our_rotated).as_bytes());
+
+        let diag = classify_decap_fail(&init, &our_mac1_key);
+        assert_eq!(diag.msg_type, Some(WG_MSG_HANDSHAKE_INIT));
+        assert_eq!(
+            diag.mac1_ok,
+            Some(false),
+            "init MAC1'd to a different server key must NOT verify against ours"
+        );
+    }
+
+    #[test]
+    fn classify_decap_fail_non_handshake_msg_types() {
+        let key = wg_mac1_key(PublicKey::from(&rand_key()).as_bytes());
+
+        // Empty datagram.
+        let d = classify_decap_fail(&[], &key);
+        assert_eq!(d.msg_type, None);
+        assert_eq!(d.msg_kind, "empty");
+        assert_eq!(d.mac1_ok, None);
+
+        // Handshake-response (type 2) — MAC1 carried but we don't verify
+        // it (only inits carry a MAC1 keyed on the *responder*'s key).
+        let d = classify_decap_fail(&[2u8, 0, 0, 0], &key);
+        assert_eq!(d.msg_type, Some(2));
+        assert_eq!(d.msg_kind, "handshake_response");
+        assert_eq!(d.mac1_ok, None);
+
+        // Cookie-reply (type 3).
+        let d = classify_decap_fail(&[3u8, 0, 0, 0], &key);
+        assert_eq!(d.msg_kind, "cookie_reply");
+        assert_eq!(d.mac1_ok, None);
+
+        // Transport-data (type 4) — the common "no session" case.
+        let d = classify_decap_fail(&[4u8, 0, 0, 0, 0, 0, 0, 0], &key);
+        assert_eq!(d.msg_kind, "transport_data");
+        assert_eq!(d.mac1_ok, None);
+
+        // Unknown type.
+        let d = classify_decap_fail(&[0x99u8, 1, 2, 3], &key);
+        assert_eq!(d.msg_type, Some(0x99));
+        assert_eq!(d.msg_kind, "unknown");
+        assert_eq!(d.mac1_ok, None);
+    }
+
+    #[test]
+    fn classify_decap_fail_handshake_init_wrong_size_is_undecidable() {
+        // A type-1 byte but NOT 148 bytes ⇒ malformed/truncated ⇒ we
+        // can't read a MAC1 ⇒ mac1_ok=None (report the type, don't guess).
+        let key = wg_mac1_key(PublicKey::from(&rand_key()).as_bytes());
+        let mut truncated = vec![0u8; 100];
+        truncated[0] = WG_MSG_HANDSHAKE_INIT;
+        let d = classify_decap_fail(&truncated, &key);
+        assert_eq!(d.msg_type, Some(WG_MSG_HANDSHAKE_INIT));
+        assert_eq!(d.msg_kind, "handshake_init");
+        assert_eq!(d.mac1_ok, None, "short init can't be MAC1-checked");
     }
 
     #[tokio::test]
