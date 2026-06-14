@@ -321,6 +321,14 @@ func TestGetMe_ForwardsToIdentity(t *testing.T) {
 						Id:           &commonv1.UUID{Value: fakeUserID},
 						PrimaryEmail: "test@iogrid.org",
 					},
+					Identifiers: []*identityv1.Identifier{
+						{
+							Id:            &commonv1.UUID{Value: "720a2323-8f8f-43a9-a90d-ed5202800dd7"},
+							UserId:        &commonv1.UUID{Value: fakeUserID},
+							Kind:          identityv1.IdentifierKind_IDENTIFIER_KIND_MAGIC_LINK,
+							VerifiedEmail: "test@iogrid.org",
+						},
+					},
 				}, nil
 			},
 		},
@@ -336,10 +344,37 @@ func TestGetMe_ForwardsToIdentity(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d body=%s", w.Code, w.Body.String())
 	}
+
+	// #801 regression guard: /api/v1/me MUST be canonical proto3-JSON
+	// (protojson) — camelCase field names + enum-as-string — so the web's
+	// /account/identifiers panel deserializes the row instead of collapsing
+	// to its empty "No identifiers bound" state. The pre-#801 stdlib
+	// encoding/json path emitted snake_case + the enum as a numeric tag
+	// (`"kind":2`, `"verified_email":…`); assert that shape is GONE.
+	raw := w.Body.String()
+	if !strings.Contains(raw, `"verifiedEmail":"test@iogrid.org"`) {
+		t.Fatalf("expected camelCase verifiedEmail in proto3-JSON, got: %s", raw)
+	}
+	if !strings.Contains(raw, `"kind":"IDENTIFIER_KIND_MAGIC_LINK"`) {
+		t.Fatalf("expected enum-as-string kind in proto3-JSON, got: %s", raw)
+	}
+	if strings.Contains(raw, `"verified_email"`) || strings.Contains(raw, `"kind":2`) {
+		t.Fatalf("found stdlib snake_case/enum-as-int shape — regression of #801: %s", raw)
+	}
+
+	// Parse with protojson (the correct decoder for the canonical wire),
+	// mirroring how the web's protobuf-es shape reads it.
 	var resp identityv1.GetUserResponse
-	mustReadJSON(t, w.Body, &resp)
+	if err := protojson.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("protojson unmarshal: %v: %s", err, raw)
+	}
 	if resp.User == nil || resp.User.PrimaryEmail != "test@iogrid.org" {
-		t.Fatalf("unexpected response %#v", &resp)
+		t.Fatalf("unexpected user %#v", resp.User)
+	}
+	if len(resp.Identifiers) != 1 ||
+		resp.Identifiers[0].GetKind() != identityv1.IdentifierKind_IDENTIFIER_KIND_MAGIC_LINK ||
+		resp.Identifiers[0].GetVerifiedEmail() != "test@iogrid.org" {
+		t.Fatalf("identifier not round-tripped: %#v", resp.Identifiers)
 	}
 }
 

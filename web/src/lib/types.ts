@@ -64,32 +64,52 @@ export type ProtoTimestamp = { seconds?: string | number; nanos?: number };
 // ---- identity / account ---------------------------------------------------
 
 /**
- * Identifier — mirrors `iogrid.identity.v1.Identifier`. gateway-bff
- * serialises via stdlib `encoding/json` which emits proto enums as
- * numeric tags and snake_case field names. Both the proto/wire shape
- * AND the older camelCase shape are accepted so call sites can
- * migrate gradually. See #371 + #314.
+ * Identifier — mirrors `iogrid.identity.v1.Identifier`.
+ *
+ * gateway-bff's GetMe now serialises with **protojson** (canonical
+ * proto3-JSON: camelCase field names, enum-as-string) — see #801. The
+ * canonical fields below (`verifiedEmail`, `kind:"IDENTIFIER_KIND_…"`)
+ * are therefore the primary shape. The snake_case twins are retained as
+ * a transition fallback so a response from an older BFF revision (stdlib
+ * `encoding/json`: `verified_email`, `kind:2`) — e.g. a stale pod during
+ * a rolling deploy, or a cached payload — still renders rather than
+ * collapsing the list to its empty state. `kind` accepts `number |
+ * string` so both the numeric tag (legacy) and the SCREAMING_SNAKE_CASE
+ * proto name (canonical) decode via `identifierKindLabel`. See #371 +
+ * #314 + #630/#633 for the broader serialization-class history.
  */
 export interface Identifier {
   id?: UUIDValue;
   /**
-   * Numeric proto enum tag (0–5; see `IdentifierKindNames` in
-   * `proto-enum.ts`). Older code paths may receive the
-   * SCREAMING_SNAKE_CASE string form; both are accepted.
+   * IdentifierKind. Canonical proto3-JSON delivers the
+   * SCREAMING_SNAKE_CASE string (`"IDENTIFIER_KIND_MAGIC_LINK"`); the
+   * legacy stdlib path delivered the numeric tag (`2`). Both decode via
+   * `IdentifierKindNames` in `proto-enum.ts`.
    */
   kind: number | string;
-  /** Presence indicates a verified email-bound identifier. */
-  verified_email?: string;
+  /** Canonical (protojson): verified email of an email-bound identifier. */
+  verifiedEmail?: string;
   /** Provider subject (OAuth `sub`, Solana pubkey, …) — never an email. */
   subject?: string;
+  /** Canonical (protojson): RFC3339 string. */
+  createdAt?: string;
+  /** Canonical (protojson): RFC3339 string. */
+  lastUsedAt?: string;
+
+  // Snake_case fallback shape — the pre-#801 stdlib `encoding/json` wire.
+  // Kept so a stale BFF pod or cached payload still renders.
+  /** @deprecated stdlib wire; use `verifiedEmail`. */
+  verified_email?: string;
+  /** @deprecated stdlib wire; use `createdAt`. */
   registered_at?: { seconds?: string | number; nanos?: number } | string;
+  /** @deprecated stdlib wire; use `lastUsedAt`. */
   last_used_at?: { seconds?: string | number; nanos?: number } | string;
 
   // Legacy fields (pre-#371 — kept to avoid breaking callers that
-  // still read them; new code should use the proto/wire fields above).
-  /** @deprecated use `verified_email` presence instead. */
+  // still read them; new code should use the fields above).
+  /** @deprecated use `verifiedEmail` presence instead. */
   verified?: boolean;
-  /** @deprecated use `verified_email` or `subject`. */
+  /** @deprecated use `verifiedEmail` or `subject`. */
   value?: string;
 }
 

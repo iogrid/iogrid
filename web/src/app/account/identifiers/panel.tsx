@@ -117,14 +117,17 @@ function IdentifierRow({
     }
   };
 
-  // Wire shape (gateway-bff via stdlib encoding/json): the displayable
-  // value lives in `verified_email` for magic-link, OR `subject` for
-  // OAuth identifiers. The legacy `value` field is the pre-#371
-  // camelCase fallback. Verified pill is keyed on `verified_email`
-  // presence (the wire's verified signal), with `verified` boolean
-  // as the legacy fallback. See #371.
-  const displayValue = id.verified_email ?? id.subject ?? id.value ?? "";
-  const isVerified = Boolean(id.verified_email) || id.verified === true;
+  // Wire shape: gateway-bff GetMe now emits canonical proto3-JSON via
+  // protojson (#801) → `verifiedEmail` (camelCase). The snake_case
+  // `verified_email` twin is the pre-#801 stdlib fallback (still honoured
+  // so a stale BFF pod mid-roll renders). `subject` covers OAuth
+  // identifiers; `value` is the pre-#371 legacy fallback. The Verified
+  // pill keys on a verified-email being present (canonical or fallback),
+  // with the `verified` boolean as the oldest legacy signal. See
+  // #801 + #371.
+  const verifiedEmail = id.verifiedEmail ?? id.verified_email;
+  const displayValue = verifiedEmail ?? id.subject ?? id.value ?? "";
+  const isVerified = Boolean(verifiedEmail) || id.verified === true;
 
   return (
     <li className="flex items-center justify-between p-3 text-sm">
