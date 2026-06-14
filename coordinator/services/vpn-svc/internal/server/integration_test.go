@@ -349,8 +349,8 @@ func TestIntegration_RegisterProviderThenHealth(t *testing.T) {
 
 	// 2. Health probe (would be the periodic heartbeat) — should NOT 404 now
 	healthReq := map[string]interface{}{
-		"status":      "healthy",
-		"at_unix_ms":  time.Now().UnixMilli(),
+		"status":     "healthy",
+		"at_unix_ms": time.Now().UnixMilli(),
 	}
 	hresp, hbody := postJSON(t, srv.URL+"/v1/vpn/providers/"+providerID.String()+"/health", healthReq)
 	if hresp.StatusCode != http.StatusOK {
@@ -767,5 +767,91 @@ func TestIntegration_MobileSession_MissingCustomerID(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("missing customer_id: status=%d, want 400", resp.StatusCode)
+	}
+}
+
+// TestIntegration_BoundSessionsEndpoint is the #788 wire-level test: the
+// daemon's restart-recovery poll GET /providers/{id}/bound-sessions must
+// return an already-bound, >15-min-old session (which /assigned-sessions
+// hides) with its customer key, so the daemon can re-upsert the peer after a
+// restart. Run through the real chi router so the route mount + JSON shape
+// are exercised end to end.
+func TestIntegration_BoundSessionsEndpoint(t *testing.T) {
+	srv, st := boot(t)
+	ctx := context.Background()
+	provider := uuid.New()
+	st.(*store.Memory).SeedProvider(provider, "us-east-1", "healthy")
+
+	const custKey = "Y3VzdG9tZXJfa2V5X2JvdW5kX29sZA=="
+	// A session bound an hour ago: /assigned-sessions hides it (already
+	// provider-keyed AND past AssignedSessionMaxAge); /bound-sessions returns it.
+	boundOld := &store.Session{
+		ID:                  uuid.New(),
+		CustomerID:          uuid.New(),
+		Region:              "us-east-1",
+		PrimaryProvider:     provider,
+		CurrentProvider:     provider,
+		CreatedAt:           time.Now().Add(-1 * time.Hour),
+		LastActivityAt:      time.Now(),
+		CustomerWgPublicKey: custKey,
+		ProviderWgPublicKey: "cHJvdmlkZXJfa2V5",
+	}
+	if err := st.CreateSession(ctx, boundOld); err != nil {
+		t.Fatalf("create bound session: %v", err)
+	}
+
+	// Sanity: /assigned-sessions must NOT return it.
+	assignedResp, err := http.Get(srv.URL + "/v1/vpn/providers/" + provider.String() + "/assigned-sessions")
+	if err != nil {
+		t.Fatalf("GET assigned-sessions: %v", err)
+	}
+	defer assignedResp.Body.Close()
+	var assigned struct {
+		Count int `json:"count"`
+	}
+	_ = json.NewDecoder(assignedResp.Body).Decode(&assigned)
+	if assigned.Count != 0 {
+		t.Fatalf("assigned-sessions should hide the bound+old session, got count=%d", assigned.Count)
+	}
+
+	// /bound-sessions MUST return it with the customer key.
+	boundResp, err := http.Get(srv.URL + "/v1/vpn/providers/" + provider.String() + "/bound-sessions")
+	if err != nil {
+		t.Fatalf("GET bound-sessions: %v", err)
+	}
+	defer boundResp.Body.Close()
+	if boundResp.StatusCode != http.StatusOK {
+		t.Fatalf("bound-sessions status=%d, want 200", boundResp.StatusCode)
+	}
+	var bound struct {
+		ProviderID string `json:"provider_id"`
+		Count      int    `json:"count"`
+		Sessions   []struct {
+			SessionID           string `json:"session_id"`
+			CustomerWgPublicKey string `json:"customer_wg_public_key"`
+		} `json:"sessions"`
+	}
+	if err := json.NewDecoder(boundResp.Body).Decode(&bound); err != nil {
+		t.Fatalf("decode bound-sessions: %v", err)
+	}
+	if bound.Count != 1 || len(bound.Sessions) != 1 {
+		t.Fatalf("bound-sessions count=%d len=%d, want 1/1", bound.Count, len(bound.Sessions))
+	}
+	if bound.Sessions[0].SessionID != boundOld.ID.String() {
+		t.Errorf("bound-sessions session_id=%q, want %q", bound.Sessions[0].SessionID, boundOld.ID)
+	}
+	if bound.Sessions[0].CustomerWgPublicKey != custKey {
+		t.Errorf("bound-sessions customer key=%q, want %q — the daemon needs it to re-upsert the peer",
+			bound.Sessions[0].CustomerWgPublicKey, custKey)
+	}
+
+	// Invalid provider id → 400.
+	badResp, err := http.Get(srv.URL + "/v1/vpn/providers/not-a-uuid/bound-sessions")
+	if err != nil {
+		t.Fatalf("GET bound-sessions bad id: %v", err)
+	}
+	defer badResp.Body.Close()
+	if badResp.StatusCode != http.StatusBadRequest {
+		t.Errorf("invalid provider id: status=%d, want 400", badResp.StatusCode)
 	}
 }

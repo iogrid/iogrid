@@ -590,6 +590,31 @@ func (m *Memory) ListAssignedSessions(ctx context.Context, providerID uuid.UUID)
 	return result, nil
 }
 
+// ListBoundSessions implements Store (#788 daemon-restart recovery).
+//
+// Mirrors the Postgres query: every non-terminated session on this
+// provider with a non-empty customer key, regardless of bind state or
+// age. No AssignedSessionMaxAge cutoff and no already-bound filter — the
+// already-bound rows are precisely the live peers a daemon restart lost.
+func (m *Memory) ListBoundSessions(ctx context.Context, providerID uuid.UUID) ([]*Session, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var result []*Session
+	for _, session := range m.sessions {
+		if session.TerminatedAt != nil {
+			continue
+		}
+		if session.CurrentProvider != providerID {
+			continue
+		}
+		if session.CustomerWgPublicKey == "" {
+			continue // nothing to upsert as a WG peer
+		}
+		result = append(result, session)
+	}
+	return result, nil
+}
+
 // TriggerFailover implements Store.
 func (m *Memory) TriggerFailover(ctx context.Context, sessionID uuid.UUID, currentProvider, altProvider uuid.UUID) error {
 	m.mu.Lock()

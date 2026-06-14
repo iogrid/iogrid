@@ -659,6 +659,52 @@ func (p *Postgres) ListAssignedSessions(ctx context.Context, providerID uuid.UUI
 	return sessions, rows.Err()
 }
 
+// ListBoundSessions implements Store (#788 daemon-restart recovery).
+//
+// Deliberately OMITS the two ListAssignedSessions exclusions:
+//   - no `provider_wg_public_key IS NULL` filter (we WANT the already-bound
+//     ones — those are exactly the live peers a restart lost), and
+//   - no `created_at > now() - AssignedSessionMaxAge` cutoff (a session
+//     bound an hour ago is still live and must be re-derived).
+//
+// It keeps the non-empty-customer-key predicate: a row with no customer
+// key has nothing to upsert as a WG peer (the binder skips empty-key rows
+// anyway), and the live ListAssignedSessions bring-up path still covers it.
+// Stale-session cleanup (CleanupStaleSessions) terminates truly-dead
+// sessions on its own tick, so `terminated_at IS NULL` keeps this set
+// bounded by the genuinely-live population.
+func (p *Postgres) ListBoundSessions(ctx context.Context, providerID uuid.UUID) ([]*Session, error) {
+	query := `
+		SELECT id, customer_id, region, primary_provider_id, current_provider_id,
+		       state, bytes_in, bytes_out, roaming_events, failover_count,
+		       ice_candidate_count, ice_time_ms, wg_establish_time_ms,
+		       created_at, terminated_at, last_activity_at, exit_reason,
+		       COALESCE(provider_wg_public_key, ''), COALESCE(customer_wg_public_key, ''),
+		       billed_at, COALESCE(host(inner_ip), ''), payment_authorization
+		FROM vpn_sessions
+		WHERE current_provider_id = $1
+		  AND terminated_at IS NULL
+		  AND customer_wg_public_key IS NOT NULL
+		  AND customer_wg_public_key <> ''
+		ORDER BY created_at ASC
+	`
+	rows, err := p.pool.Query(ctx, query, providerID)
+	if err != nil {
+		return nil, fmt.Errorf("query bound sessions: %w", err)
+	}
+	defer rows.Close()
+
+	var sessions []*Session
+	for rows.Next() {
+		session, err := p.scanSession(rows)
+		if err != nil {
+			return nil, err
+		}
+		sessions = append(sessions, session)
+	}
+	return sessions, rows.Err()
+}
+
 // ListRegions implements Store.
 func (p *Postgres) ListRegions(ctx context.Context) ([]*RegionSummary, error) {
 	query := `

@@ -40,6 +40,26 @@ use crate::{Tunnel, WireGuardPeer};
 /// don't hammer the Coordinator.
 pub const POLL_INTERVAL: Duration = Duration::from_secs(5);
 
+/// How often the binder RE-DERIVES the full live peer set from
+/// `/bound-sessions` (#788 daemon-restart recovery).
+///
+/// This is the durable fix for the "restart strands all bound sessions"
+/// bug: a daemon restart wipes boringtun's in-memory per-customer peer
+/// map, and the normal 5 s bind poll (`/assigned-sessions`) deliberately
+/// HIDES already-bound + >15-min-old sessions (#730), so previously-bound
+/// still-live customers are never re-upserted and every handshake they
+/// send drops forever ("did not decapsulate against any known peer").
+///
+/// The reconcile pass runs ONCE immediately on binder startup (so a
+/// freshly-restarted daemon repopulates its map within the first HTTP
+/// RTT, not after a full interval), then every [`RECONCILE_INTERVAL`].
+/// It is idempotent — re-upserting an existing peer is a no-op in
+/// boringtun — so a slow cadence is fine; 60 s keeps the recovery
+/// bounded without adding meaningful Coordinator load. Crucially it does
+/// NOT POST `/bind-provider`: those sessions are already bound; we only
+/// rebuild local volatile state, so no session is disturbed.
+pub const RECONCILE_INTERVAL: Duration = Duration::from_secs(60);
+
 /// Per-tick HTTP request timeout. Larger than the health loop's
 /// `TICK_TIMEOUT` because this call has to enumerate sessions on the
 /// server side and we don't want to skip a tick on a slow query.
@@ -164,12 +184,24 @@ async fn run_binder_loop(
         config.vpn_svc_base_url.trim_end_matches('/'),
         config.provider_id
     );
+    let bound_url = format!(
+        "{}/v1/vpn/providers/{}/bound-sessions",
+        config.vpn_svc_base_url.trim_end_matches('/'),
+        config.provider_id
+    );
     // Local dedup guard against the (unlikely) case where the
     // Coordinator returns a session twice in the same tick before the
     // server-side filter catches up.
     let mut already_bound: HashSet<String> = HashSet::new();
     let mut ticker = tokio::time::interval(POLL_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    // Reconcile ticker (#788). `interval` fires immediately on its first
+    // `.tick()`, so the very first loop iteration runs a full peer
+    // re-derive — a freshly-restarted daemon repopulates its boringtun
+    // map within one HTTP RTT instead of stranding bound customers until
+    // they happen to reconnect.
+    let mut reconcile_ticker = tokio::time::interval(RECONCILE_INTERVAL);
+    reconcile_ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     loop {
         tokio::select! {
@@ -178,6 +210,25 @@ async fn run_binder_loop(
                 if res.is_err() || *shutdown_rx.borrow() {
                     tracing::debug!("peer binder shutdown");
                     return;
+                }
+            }
+            _ = reconcile_ticker.tick() => {
+                // Restart-recovery / drift-correction pass: re-derive the
+                // FULL live peer set (already-bound included) and re-upsert
+                // each into boringtun. Does NOT POST bind-provider — these
+                // sessions are already bound; we only rebuild volatile
+                // local state. Idempotent, so overlap with the bind poll is
+                // harmless.
+                match reconcile_bound_peers(&http, &bound_url, tunnel.as_ref()).await {
+                    Ok(n) if n > 0 => {
+                        tracing::info!(reconciled = n, "re-derived live WG peers from bound-sessions (restart recovery)");
+                    }
+                    Ok(_) => {
+                        tracing::debug!("reconcile: no bound peers to re-derive");
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, url = %bound_url, "reconcile bound-sessions failed; will retry next reconcile tick");
+                    }
                 }
             }
             _ = ticker.tick() => {
@@ -237,6 +288,85 @@ async fn poll_assigned(
         .map_err(BinderError::Parse)
 }
 
+/// Upsert ONE customer's key as a boringtun peer (no bind-provider POST).
+/// Shared by [`bind_session`] (the bring-up path) and
+/// [`reconcile_bound_peers`] (the restart-recovery path) so the peer
+/// shape — allowed_ips, keepalive — can't drift between them.
+async fn upsert_customer_peer(
+    tunnel: &dyn Tunnel,
+    customer_wg_public_key: &str,
+) -> Result<(), BinderError> {
+    let peer = WireGuardPeer {
+        public_key: customer_wg_public_key.to_string(),
+        endpoint: None,
+        allowed_ips: DEFAULT_ALLOWED_IPS.iter().map(|s| s.to_string()).collect(),
+        persistent_keepalive: KEEPALIVE_SECS,
+    };
+    tunnel
+        .upsert_peer(peer)
+        .await
+        .map_err(|e| BinderError::UpsertPeer(e.to_string()))
+}
+
+/// Restart-recovery pass (#788): GET `/bound-sessions`, then re-upsert
+/// every returned customer key into the local boringtun map. Returns the
+/// number of peers re-derived.
+///
+/// This repairs the "daemon restart strands all bound sessions" bug: a
+/// restart wipes boringtun's per-customer peer Tunns, and the normal bind
+/// poll hides already-bound + >15-min-old sessions, so without this pass
+/// long-lived customers' handshakes drop forever. Unlike [`bind_session`]
+/// it does NOT POST `/bind-provider` — these sessions already carry the
+/// correct provider key on the server; re-POSTing would be pointless work
+/// and (via the #762 key-change guard) could even churn sessions. We only
+/// rebuild volatile local state.
+///
+/// `upsert_peer` is idempotent in boringtun, so a peer that survived (or
+/// was just bound by the 5 s poll) is harmlessly refreshed. Rows with an
+/// empty customer key are skipped — there is nothing to upsert. A single
+/// peer's upsert failure is logged and does not abort the pass; the next
+/// reconcile tick retries it.
+pub async fn reconcile_bound_peers(
+    http: &reqwest::Client,
+    bound_url: &str,
+    tunnel: &dyn Tunnel,
+) -> Result<usize, BinderError> {
+    let get = http.get(bound_url).send();
+    let resp = match tokio::time::timeout(TICK_TIMEOUT, get).await {
+        Ok(Ok(r)) => r,
+        Ok(Err(e)) => return Err(BinderError::HttpPost(e)),
+        Err(_) => return Err(BinderError::Timeout),
+    };
+    if !resp.status().is_success() {
+        return Err(BinderError::BadStatus(resp.status().as_u16()));
+    }
+    let body = resp
+        .json::<AssignedSessionsResponse>()
+        .await
+        .map_err(BinderError::Parse)?;
+
+    let mut reconciled = 0usize;
+    for session in body.sessions {
+        if session.customer_wg_public_key.trim().is_empty() {
+            // /bound-sessions already filters empties server-side, but be
+            // defensive: nothing to upsert without a key.
+            continue;
+        }
+        match upsert_customer_peer(tunnel, &session.customer_wg_public_key).await {
+            Ok(()) => reconciled += 1,
+            Err(e) => {
+                tracing::warn!(
+                    session_id = %session.session_id,
+                    customer_id = %session.customer_id,
+                    error = %e,
+                    "reconcile: upsert peer failed; next reconcile tick will retry"
+                );
+            }
+        }
+    }
+    Ok(reconciled)
+}
+
 /// Run the upsert + bind for a single session. The provider-public-key
 /// we POST back is whichever public key the local [`Tunnel`] reports
 /// via [`provider_public_key_for_bind`].
@@ -247,16 +377,7 @@ pub async fn bind_session(
     session: AssignedSession,
 ) -> Result<(), BinderError> {
     // 1. Register the customer's WG public key as a peer on our tunnel.
-    let peer = WireGuardPeer {
-        public_key: session.customer_wg_public_key.clone(),
-        endpoint: None,
-        allowed_ips: DEFAULT_ALLOWED_IPS.iter().map(|s| s.to_string()).collect(),
-        persistent_keepalive: KEEPALIVE_SECS,
-    };
-    tunnel
-        .upsert_peer(peer)
-        .await
-        .map_err(|e| BinderError::UpsertPeer(e.to_string()))?;
+    upsert_customer_peer(tunnel, &session.customer_wg_public_key).await?;
 
     // 2. POST our daemon's WG public key back to the Coordinator.
     let our_pubkey = provider_public_key_for_bind(tunnel);
@@ -307,6 +428,10 @@ mod tests {
     /// In-process HTTP server that:
     ///   * Returns a canned `AssignedSessionsResponse` on every GET
     ///     to `/v1/vpn/providers/{id}/assigned-sessions`.
+    ///   * Returns a (separately-canned) body on every GET to
+    ///     `/v1/vpn/providers/{id}/bound-sessions` (#788) and counts the
+    ///     hits, so restart-recovery tests can assert the reconcile pass
+    ///     fired.
     ///   * Records every `/bind-provider` POST body so the test can
     ///     verify the provider_wg_public_key shape.
     struct FakeVpnSvc {
@@ -316,30 +441,51 @@ mod tests {
         // green without losing the slot.
         #[allow(dead_code)]
         get_hits: Arc<AtomicUsize>,
+        bound_hits: Arc<AtomicUsize>,
         bind_hits: Arc<AtomicUsize>,
         last_bind_body: Arc<Mutex<Option<String>>>,
     }
 
     impl FakeVpnSvc {
         async fn spawn(sessions: Vec<AssignedSession>) -> Self {
+            Self::spawn_with_bound(sessions, vec![]).await
+        }
+
+        /// Like `spawn`, but `bound` is the canned `/bound-sessions` body
+        /// (the restart-recovery feed) independent of the `/assigned-sessions`
+        /// feed. Most bring-up tests pass `bound = vec![]`.
+        async fn spawn_with_bound(
+            sessions: Vec<AssignedSession>,
+            bound: Vec<AssignedSession>,
+        ) -> Self {
             use tokio::io::{AsyncReadExt, AsyncWriteExt};
             use tokio::net::TcpListener;
 
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let addr = listener.local_addr().unwrap();
             let get_hits = Arc::new(AtomicUsize::new(0));
+            let bound_hits = Arc::new(AtomicUsize::new(0));
             let bind_hits = Arc::new(AtomicUsize::new(0));
             let last_bind_body = Arc::new(Mutex::new(None));
 
-            // Pre-render the GET body once.
-            let body = AssignedSessionsResponse {
+            // Pre-render both GET bodies once.
+            let assigned_body = AssignedSessionsResponse {
                 provider_id: "provider-uuid".into(),
                 count: sessions.len(),
                 sessions,
             };
-            let body_json = serde_json::to_string(&AssignedSessionsResponseRef(&body)).unwrap();
+            let assigned_json =
+                serde_json::to_string(&AssignedSessionsResponseRef(&assigned_body)).unwrap();
+            let bound_body = AssignedSessionsResponse {
+                provider_id: "provider-uuid".into(),
+                count: bound.len(),
+                sessions: bound,
+            };
+            let bound_json =
+                serde_json::to_string(&AssignedSessionsResponseRef(&bound_body)).unwrap();
 
             let g = get_hits.clone();
+            let bo = bound_hits.clone();
             let b = bind_hits.clone();
             let bb = last_bind_body.clone();
             tokio::spawn(async move {
@@ -349,18 +495,30 @@ mod tests {
                         Err(_) => return,
                     };
                     let g = g.clone();
+                    let bo = bo.clone();
                     let b = b.clone();
                     let bb = bb.clone();
-                    let body_json = body_json.clone();
+                    let assigned_json = assigned_json.clone();
+                    let bound_json = bound_json.clone();
                     tokio::spawn(async move {
                         let mut buf = vec![0u8; 8192];
                         let n = sock.read(&mut buf).await.unwrap_or(0);
                         let req = String::from_utf8_lossy(&buf[..n]).to_string();
-                        if req.starts_with("GET ") && req.contains("/assigned-sessions") {
+                        // Check /bound-sessions FIRST: it must not be shadowed
+                        // by a looser /assigned-sessions match (the two URLs
+                        // share the /providers/{id}/ prefix).
+                        if req.starts_with("GET ") && req.contains("/bound-sessions") {
+                            bo.fetch_add(1, AtomicOrdering::Relaxed);
+                            let resp = format!(
+                                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                                bound_json.len(), bound_json
+                            );
+                            let _ = sock.write_all(resp.as_bytes()).await;
+                        } else if req.starts_with("GET ") && req.contains("/assigned-sessions") {
                             g.fetch_add(1, AtomicOrdering::Relaxed);
                             let resp = format!(
                                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
-                                body_json.len(), body_json
+                                assigned_json.len(), assigned_json
                             );
                             let _ = sock.write_all(resp.as_bytes()).await;
                         } else if req.starts_with("POST ") && req.contains("/bind-provider") {
@@ -384,9 +542,35 @@ mod tests {
             Self {
                 addr,
                 get_hits,
+                bound_hits,
                 bind_hits,
                 last_bind_body,
             }
+        }
+    }
+
+    /// A `Tunnel` that records every upserted peer public key, so the
+    /// restart-recovery tests can assert which peers the reconcile pass
+    /// re-derived. `provider_public_key` returns a stable sentinel.
+    #[derive(Default)]
+    struct RecordingTunnel {
+        upserts: Arc<Mutex<Vec<String>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl Tunnel for RecordingTunnel {
+        async fn start(&self) -> Result<(), crate::RoutingError> {
+            Ok(())
+        }
+        async fn stop(&self) -> Result<(), crate::RoutingError> {
+            Ok(())
+        }
+        async fn upsert_peer(&self, peer: WireGuardPeer) -> Result<(), crate::RoutingError> {
+            self.upserts.lock().unwrap().push(peer.public_key);
+            Ok(())
+        }
+        fn provider_public_key(&self) -> String {
+            "recording-tunnel-public-key".to_owned()
         }
     }
 
@@ -567,6 +751,127 @@ mod tests {
         assert!(
             !handle.is_finished(),
             "task must keep running through HTTP failures"
+        );
+
+        tx.send(true).unwrap();
+        let _ = tokio::time::timeout(Duration::from_secs(2), handle).await;
+    }
+
+    // ── #788 restart-recovery (reconcile) tests ─────────────────────────
+
+    #[tokio::test]
+    async fn reconcile_upserts_every_bound_peer_without_posting_bind() {
+        // The restart-recovery pass must re-derive ALL bound peers into the
+        // tunnel, and must NOT POST /bind-provider (those sessions are
+        // already bound; re-POSTing would be wasted work / could churn).
+        let bound = vec![
+            sample_session("s1", "Y3VzdF9rZXlfMQ=="),
+            sample_session("s2", "Y3VzdF9rZXlfMg=="),
+        ];
+        let srv = FakeVpnSvc::spawn_with_bound(vec![], bound).await;
+        let http = reqwest::Client::new();
+        let tunnel = RecordingTunnel::default();
+        let upserts = tunnel.upserts.clone();
+
+        let bound_url = format!(
+            "http://{}/v1/vpn/providers/{}/bound-sessions",
+            srv.addr, "11111111-2222-3333-4444-555555555555"
+        );
+        let n = reconcile_bound_peers(&http, &bound_url, &tunnel)
+            .await
+            .expect("reconcile must succeed");
+
+        assert_eq!(n, 2, "both bound peers must be re-derived");
+        let keys = upserts.lock().unwrap().clone();
+        assert!(keys.contains(&"Y3VzdF9rZXlfMQ==".to_string()));
+        assert!(keys.contains(&"Y3VzdF9rZXlfMg==".to_string()));
+        // CRITICAL: recovery does not bind-provider.
+        assert_eq!(
+            srv.bind_hits.load(AtomicOrdering::Relaxed),
+            0,
+            "reconcile must NOT POST /bind-provider"
+        );
+    }
+
+    #[tokio::test]
+    async fn reconcile_skips_rows_with_empty_customer_key() {
+        // Defensive: even if the server returned an empty-key row, the
+        // reconcile pass must skip it (nothing to upsert) and count only the
+        // real peers.
+        let bound = vec![
+            sample_session("s-empty", ""),
+            sample_session("s-real", "cmVhbF9rZXk="),
+        ];
+        let srv = FakeVpnSvc::spawn_with_bound(vec![], bound).await;
+        let http = reqwest::Client::new();
+        let tunnel = RecordingTunnel::default();
+        let upserts = tunnel.upserts.clone();
+
+        let bound_url = format!(
+            "http://{}/v1/vpn/providers/{}/bound-sessions",
+            srv.addr, "11111111-2222-3333-4444-555555555555"
+        );
+        let n = reconcile_bound_peers(&http, &bound_url, &tunnel)
+            .await
+            .unwrap();
+
+        assert_eq!(n, 1, "only the keyed row is upserted");
+        let keys = upserts.lock().unwrap().clone();
+        assert_eq!(keys, vec!["cmVhbF9rZXk=".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn reconcile_propagates_http_failure() {
+        // A closed port must surface as an error (the loop logs + retries),
+        // not a silent success.
+        let http = reqwest::Client::new();
+        let tunnel = RecordingTunnel::default();
+        let bound_url = "http://127.0.0.1:1/v1/vpn/providers/p/bound-sessions";
+        let err = reconcile_bound_peers(&http, bound_url, &tunnel)
+            .await
+            .expect_err("closed port must error");
+        // Any send-side error variant is acceptable; just assert it failed.
+        let _ = err;
+        assert!(tunnel.upserts.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn binder_runs_reconcile_immediately_on_startup() {
+        // The whole point of #788: a freshly-(re)started binder must hit
+        // /bound-sessions on its FIRST iteration (interval fires immediately)
+        // and re-upsert the previously-bound peers — without waiting a full
+        // RECONCILE_INTERVAL and without any /assigned-sessions row.
+        let bound = vec![sample_session("s-live", "bGl2ZV9wZWVyX2tleQ==")];
+        let srv = FakeVpnSvc::spawn_with_bound(vec![], bound).await;
+        let cfg = test_config(format!("http://{}", srv.addr));
+        let http = reqwest::Client::new();
+        let (tx, rx) = watch::channel(false);
+        let tunnel_concrete = Arc::new(RecordingTunnel::default());
+        let upserts = tunnel_concrete.upserts.clone();
+        let tunnel: Arc<dyn Tunnel> = tunnel_concrete;
+        let handle = spawn_binder(cfg, http, tunnel, rx);
+
+        // Give the first (immediate) reconcile tick time to complete a round
+        // trip. RECONCILE_INTERVAL is 60s, so anything we observe inside a
+        // few hundred ms came from the startup pass, not a later tick.
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        assert!(
+            srv.bound_hits.load(AtomicOrdering::Relaxed) >= 1,
+            "binder must GET /bound-sessions immediately on startup"
+        );
+        assert!(
+            upserts
+                .lock()
+                .unwrap()
+                .contains(&"bGl2ZV9wZWVyX2tleQ==".to_string()),
+            "the previously-bound peer must be re-upserted on startup recovery"
+        );
+        // And it must NOT have churned the session with a bind POST.
+        assert_eq!(
+            srv.bind_hits.load(AtomicOrdering::Relaxed),
+            0,
+            "startup recovery must not POST /bind-provider"
         );
 
         tx.send(true).unwrap();

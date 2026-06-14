@@ -1029,6 +1029,14 @@ func (h *ListAssignedSessions) Handle(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "failed to list assigned sessions")
 		return
 	}
+	writeSessionList(w, providerID, sessions)
+}
+
+// writeSessionList renders the daemon-facing session-list wire shape
+// (provider_id + sessions[] + count) shared by /assigned-sessions and
+// /bound-sessions (#788). Both endpoints emit identical rows so the
+// daemon binder can decode either with the same struct.
+func writeSessionList(w http.ResponseWriter, providerID uuid.UUID, sessions []*store.Session) {
 	out := make([]map[string]interface{}, 0, len(sessions))
 	for _, s := range sessions {
 		out = append(out, map[string]interface{}{
@@ -1051,6 +1059,38 @@ func (h *ListAssignedSessions) Handle(w http.ResponseWriter, r *http.Request) {
 		"sessions":    out,
 		"count":       len(out),
 	})
+}
+
+// ListBoundSessions handles GET /v1/vpn/providers/{providerID}/bound-sessions
+// (#788). Returns every still-live session bound to this provider WITH a
+// customer key — including already-bound + >15-min-old ones that
+// /assigned-sessions hides. The daemon polls this on startup + on a slow
+// reconcile tick to repopulate its boringtun peer map after a restart, so
+// previously-bound customers aren't stranded ("did not decapsulate").
+type ListBoundSessions struct {
+	st     store.Store
+	logger *slog.Logger
+}
+
+func NewListBoundSessions(st store.Store, logger *slog.Logger) *ListBoundSessions {
+	return &ListBoundSessions{st: st, logger: logger}
+}
+
+func (h *ListBoundSessions) Handle(w http.ResponseWriter, r *http.Request) {
+	providerID, err := uuid.Parse(chi.URLParam(r, "providerID"))
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid provider id")
+		return
+	}
+	sessions, err := h.st.ListBoundSessions(r.Context(), providerID)
+	if err != nil {
+		h.logger.Error("list bound sessions failed",
+			slog.String("provider_id", providerID.String()),
+			slog.String("error", err.Error()))
+		respondError(w, http.StatusInternalServerError, "failed to list bound sessions")
+		return
+	}
+	writeSessionList(w, providerID, sessions)
 }
 
 type bindProviderReq struct {
