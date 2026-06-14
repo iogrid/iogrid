@@ -40,6 +40,13 @@ Thumbs.db
 .env.local
 *.local.yaml
 secrets/
+# Exception: the e2e kind harness ships a STATIC, non-credential stub-secrets
+# fixture (kind-cluster-lifetime only, destroyed by `make down`). bootstrap.sh
+# applies it; without it `make up` dies and the whole e2e harness can't boot.
+# The dir must be un-ignored before the file (the `secrets/` rule above matches
+# the directory at any depth). Scoped to this ONE path — real secrets stay out.
+!e2e/manifests/secrets/
+!e2e/manifests/secrets/test-secrets.yaml
 
 # Tart / VM images (large, don't commit)
 *.qcow2
