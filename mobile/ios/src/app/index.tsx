@@ -19,7 +19,7 @@
  * Refs #580, #591.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect } from 'expo-router';
@@ -41,11 +41,16 @@ import { requestMobileSession } from '@/lib/coordinator';
 import {
   failActiveConnectingStep,
   tunnelToConnectState,
-  type TunnelState,
 } from '@/lib/connection-steps';
+import {
+  evaluateGate,
+  HANDSHAKE_TIMEOUT_MS,
+  type NativeTunnelStatus,
+  type TunnelState,
+} from '@/lib/connection-gate';
 import { formatBytes } from '@/lib/format-bytes';
 import * as Clipboard from 'expo-clipboard';
-import { TunnelControl } from 'iogrid-tunnel-control';
+import { TunnelControl, type TunnelStats } from 'iogrid-tunnel-control';
 
 const SELECTED_REGION_KEY = 'iogrid.region.selected';
 
@@ -86,28 +91,103 @@ export default function MainScreen() {
     }, []),
   );
 
-  // ── Status machine sync — NEVPNStatusDidChange via native module ──
+  // ── Status machine sync — NE status + handshake gate (#701) ──────
+  //
+  // The OS reports `connected` the instant the PacketTunnelProvider's
+  // tunnel INTERFACE comes up — BEFORE any WireGuard handshake. A
+  // black-hole tunnel (wrong/dead peer) therefore sits in OS-`connected`
+  // forever while no traffic flows. We refuse to show the green
+  // "Connected / Protected" affordance on OS-`connected` alone: it is
+  // promoted to the user-facing CONNECTED state ONLY once a stats tick
+  // proves a real handshake (recent `handshakeAge`, `received > 0`, or a
+  // real `latency` probe sample). Until then we hold at VERIFYING; if no
+  // evidence arrives within HANDSHAKE_TIMEOUT_MS we fail the tunnel
+  // honestly. All gating lives in the pure `evaluateGate` (src/lib —
+  // unit-tested); this effect just feeds it live inputs + applies the
+  // verdict. The happy path is unchanged: a real handshake still reaches
+  // CONNECTED (now via a stats tick rather than the bare OS status).
+  const nativeStatusRef = useRef<NativeTunnelStatus>('disconnected');
+  const latestStatsRef = useRef<TunnelStats | null>(null);
+  const nativeConnectedAtRef = useRef<number | null>(null);
+  const blackHoleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
-    const sub = TunnelControl.onStatusChange(({ status }) => {
-      switch (status) {
-        case 'connected':
-          setState('CONNECTED');
-          break;
-        case 'connecting':
-        case 'reasserting':
-          setState('CONNECTING');
-          break;
-        case 'disconnecting':
-          setState('DISCONNECTING');
-          break;
-        case 'disconnected':
-        case 'invalid':
-        case 'unknown':
-          setState('OFF');
-          break;
+    const clearBlackHoleTimer = () => {
+      if (blackHoleTimerRef.current != null) {
+        clearTimeout(blackHoleTimerRef.current);
+        blackHoleTimerRef.current = null;
       }
+    };
+
+    // Adjudicate the current native status + latest evidence and apply the
+    // gate verdict to the visible state. Called on every status change and
+    // every stats tick, plus once when the black-hole timer fires.
+    const recompute = () => {
+      const nativeStatus = nativeStatusRef.current;
+
+      // Track when the OS FIRST reported connected for this bring-up so the
+      // gate can measure the black-hole timeout window.
+      if (nativeStatus === 'connected') {
+        if (nativeConnectedAtRef.current == null) {
+          nativeConnectedAtRef.current = Date.now();
+          // Arm a one-shot fallback so a tunnel that never handshakes is
+          // re-evaluated (and failed) even if no further stats tick fires.
+          clearBlackHoleTimer();
+          blackHoleTimerRef.current = setTimeout(recompute, HANDSHAKE_TIMEOUT_MS + 250);
+        }
+      } else {
+        nativeConnectedAtRef.current = null;
+        latestStatsRef.current = null;
+        clearBlackHoleTimer();
+      }
+
+      const verdict = evaluateGate({
+        nativeStatus,
+        latestStats: latestStatsRef.current,
+        msSinceNativeConnected:
+          nativeConnectedAtRef.current != null
+            ? Date.now() - nativeConnectedAtRef.current
+            : 0,
+      });
+
+      if (verdict.state === 'FAILED') {
+        // Black-hole: OS says up but no handshake within the window. Tear
+        // the dead tunnel down + tell the user honestly instead of leaving
+        // a fake "Protected" (or an endless verifying spinner) on screen.
+        clearBlackHoleTimer();
+        nativeConnectedAtRef.current = null;
+        setState('OFF');
+        TunnelControl.stopTunnel().catch((e) =>
+          console.warn('stopTunnel after handshake timeout failed', e),
+        );
+        Alert.alert(
+          'Could not connect',
+          'The VPN tunnel came up but never completed a secure handshake, so your traffic is not protected. Please try again.',
+        );
+        return;
+      }
+
+      setState(verdict.state);
+    };
+
+    const statusSub = TunnelControl.onStatusChange(({ status }) => {
+      nativeStatusRef.current = status as NativeTunnelStatus;
+      recompute();
     });
-    return () => sub.remove();
+
+    // Stats ticks (#587) carry the handshake evidence the gate needs:
+    // handshakeAge / received bytes / probe latency. Each tick re-runs the
+    // gate so VERIFYING promotes to CONNECTED the moment evidence lands.
+    const statsSub = TunnelControl.onStatsUpdate((s: TunnelStats) => {
+      latestStatsRef.current = s;
+      recompute();
+    });
+
+    return () => {
+      statusSub.remove();
+      statsSub.remove();
+      clearBlackHoleTimer();
+    };
   }, []);
 
   const onConnect = useCallback(async () => {
