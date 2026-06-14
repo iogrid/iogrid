@@ -110,6 +110,32 @@ pub fn load_or_generate_provider_id(state_dir: &Path) -> anyhow::Result<String> 
 ///
 /// File mode is set to 0600 on Unix on creation; on Windows the
 /// default ACL on the state dir is already user-only.
+///
+/// ## Server-key recurrence (#762)
+///
+/// Generating a fresh key on an empty `state_dir` is the ROOT of the G1
+/// "did not decapsulate" recurrence: a re-provisioned host, a wiped
+/// `/var/lib/iogridd`, or a container with no persistent volume mints a
+/// brand-new server static identity, while every iOS client that already
+/// installed a NetworkExtension tunnel toward this provider keeps the OLD
+/// baked server pubkey. WireGuard's MAC1 is keyed on the *responder*
+/// (server) static pubkey, so every handshake-init those clients send is
+/// MAC1-rejected until the client rebuilds its tunnel config.
+///
+/// The server-side mitigation lives in vpn-svc
+/// (`Store.InvalidateSessionsOnProviderKeyChange`, wired into the
+/// `RegisterProvider` handler): when the daemon re-registers with a server
+/// pubkey that differs from the one vpn-svc holds, vpn-svc force-terminates
+/// the bound sessions so each client reconnects and re-fetches the new key
+/// (and #760's client self-heal rebuilds the NE config). That closes the
+/// *silent-stranding* window without touching this function.
+///
+/// FOLLOW-UP (issue (b), deliberately NOT done here to keep the live
+/// daemon untouched): make this key *durable across a re-provision* — seed
+/// it from a provision-time secret, OR have vpn-svc hold the authoritative
+/// key and the daemon adopt it — so the server identity survives a wiped
+/// state-dir and clients never even see a reconnect blip. That is a larger,
+/// secret-bearing protocol change tracked separately.
 pub fn load_or_generate_wg_private_key(
     state_dir: &Path,
 ) -> anyhow::Result<boringtun::x25519::StaticSecret> {

@@ -80,6 +80,31 @@ type Store interface {
 	// to zero only on first insert; subsequent calls leave it alone.
 	RegisterProvider(ctx context.Context, p *ProviderInfo) error
 
+	// InvalidateSessionsOnProviderKeyChange compares newKey against the
+	// provider's currently-stored wg_public_key and, when they differ
+	// (and both are non-empty), terminates every still-active session
+	// bound to that provider so the affected clients re-fetch the new
+	// server key on their next Connect (G1 server-key recurrence, #762).
+	//
+	// Why this exists: load_or_generate_wg_private_key (daemon) mints a
+	// FRESH server static key whenever /var/lib/iogridd has no wg.key —
+	// a re-provisioned host, wiped state-dir, or volume-less container
+	// silently gets a brand-new server pubkey. Clients that already
+	// installed an NE tunnel toward that provider keep the OLD baked
+	// server pubkey, so every handshake-init they send is MAC1-rejected
+	// ("did not decapsulate") forever, because MAC1 is keyed on the
+	// responder (server) static pubkey. Terminating their session forces
+	// a clean reconnect: the mobile bring-up returns the NEW peer_public_key
+	// (lookupProvider reads vpn_providers.wg_public_key) and #760's client
+	// self-heal rebuilds the NE config against it.
+	//
+	// MUST be called BEFORE RegisterProvider persists the new key, so the
+	// comparison still sees the prior value. Returns the number of sessions
+	// terminated and whether a key change was detected. A no-op (returns
+	// 0,false) when: the provider is new (no prior key), newKey is empty
+	// (legacy daemon — preserves the cached key), or the key is unchanged.
+	InvalidateSessionsOnProviderKeyChange(ctx context.Context, providerID uuid.UUID, newKey string) (terminated int, changed bool, err error)
+
 	// GetProvidersInRegion retrieves all healthy providers in a region for failover.
 	GetProvidersInRegion(ctx context.Context, region string) ([]*ProviderInfo, error)
 
@@ -191,23 +216,23 @@ type RegionSummary struct {
 
 // Session represents a VPN session in the ledger.
 type Session struct {
-	ID                  uuid.UUID
-	CustomerID          uuid.UUID
-	Region              string
-	PrimaryProvider     uuid.UUID
-	CurrentProvider     uuid.UUID
-	State               pb.VpnSessionState
-	BytesIn             uint64
-	BytesOut            uint64
-	RoamingEvents       int64
-	FailoverCount       int64
-	IceCandidates       int32
-	IceTimeMs           int32
-	WgEstablishMs       int32
-	CreatedAt           time.Time
-	TerminatedAt        *time.Time
-	LastActivityAt      time.Time
-	ExitReason          string
+	ID              uuid.UUID
+	CustomerID      uuid.UUID
+	Region          string
+	PrimaryProvider uuid.UUID
+	CurrentProvider uuid.UUID
+	State           pb.VpnSessionState
+	BytesIn         uint64
+	BytesOut        uint64
+	RoamingEvents   int64
+	FailoverCount   int64
+	IceCandidates   int32
+	IceTimeMs       int32
+	WgEstablishMs   int32
+	CreatedAt       time.Time
+	TerminatedAt    *time.Time
+	LastActivityAt  time.Time
+	ExitReason      string
 	// ProviderWgPublicKey is set by the provider daemon via BindProvider
 	// once it has allocated a peer slot for this customer. The customer
 	// SDK reads it via GetSession to know which key to authenticate against.

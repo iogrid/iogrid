@@ -37,6 +37,20 @@ var (
 		Help:      "Provider health status transitions (healthy → degraded → offline)",
 	}, []string{"to_status"})
 
+	// ProviderKeyRotations counts how often a provider re-registered with
+	// a WireGuard server pubkey that differed from the one already stored
+	// (#762). Each such event is a re-provision / wiped-state-dir vector
+	// that would otherwise silently strand every client baked against the
+	// old server key; the handler force-terminates the affected sessions
+	// so clients reconnect against the new key. A non-zero rate here is the
+	// signal to make the daemon's wg.key durable (issue (b)).
+	ProviderKeyRotations = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "iogrid",
+		Subsystem: "vpn_svc",
+		Name:      "provider_key_rotations_total",
+		Help:      "Provider re-registered with a changed WG server pubkey (forces bound-session invalidation, #762)",
+	})
+
 	ICECandidatesRegistered = promauto.NewCounter(prometheus.CounterOpts{
 		Namespace: "iogrid",
 		Subsystem: "vpn_svc",

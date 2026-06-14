@@ -458,3 +458,131 @@ func TestMemoryStore_RegisterProviderWgPublicKey(t *testing.T) {
 		t.Errorf("rotate register did not overwrite: got %q", probes3[0].WgPublicKey)
 	}
 }
+
+// TestMemoryStore_InvalidateSessionsOnProviderKeyChange covers the #762
+// server-key-recurrence guard: a provider re-registering with a *different*
+// WG server pubkey terminates every still-active session bound to it (so the
+// affected clients reconnect against the new key), while every no-change case
+// (first register, empty newKey, unchanged key) leaves sessions untouched.
+func TestMemoryStore_InvalidateSessionsOnProviderKeyChange(t *testing.T) {
+	ctx := context.Background()
+	provA := uuid.New()
+	provB := uuid.New()
+
+	// Helper: build a fresh store seeded with provA holding "oldkey" plus
+	// one active session on provA (via current) + one whose primary is provA,
+	// one active session on the *other* provider, and one already-terminated
+	// session on provA (which must not be re-counted).
+	newSeeded := func(t *testing.T) (Store, uuid.UUID, uuid.UUID, uuid.UUID) {
+		t.Helper()
+		st := NewMemory()
+		if err := st.RegisterProvider(ctx, &ProviderInfo{ID: provA, Region: "us-east-1", Status: "healthy", LastSeenAt: time.Now(), WgPublicKey: "oldkey"}); err != nil {
+			t.Fatalf("seed provA: %v", err)
+		}
+		if err := st.RegisterProvider(ctx, &ProviderInfo{ID: provB, Region: "us-east-1", Status: "healthy", LastSeenAt: time.Now(), WgPublicKey: "otherkey"}); err != nil {
+			t.Fatalf("seed provB: %v", err)
+		}
+		sA := uuid.New()
+		sAPrimaryOnly := uuid.New()
+		sOther := uuid.New()
+		sTerminated := uuid.New()
+		mk := func(id, cur, prim uuid.UUID, terminated bool) *Session {
+			s := &Session{ID: id, CustomerID: uuid.New(), Region: "us-east-1", PrimaryProvider: prim, CurrentProvider: cur, State: pb.VpnSessionState_VPN_SESSION_STATE_ACTIVE, CreatedAt: time.Now(), LastActivityAt: time.Now()}
+			if terminated {
+				tt := time.Now()
+				s.TerminatedAt = &tt
+			}
+			return s
+		}
+		for _, s := range []*Session{
+			mk(sA, provA, provA, false),            // active, current==provA
+			mk(sAPrimaryOnly, provB, provA, false), // active, failed over to provB but primary is provA
+			mk(sOther, provB, provB, false),        // active, nothing to do with provA
+			mk(sTerminated, provA, provA, true),    // already terminated on provA
+		} {
+			if err := st.CreateSession(ctx, s); err != nil {
+				t.Fatalf("create session: %v", err)
+			}
+		}
+		return st, sA, sAPrimaryOnly, sOther
+	}
+
+	t.Run("changed key terminates active sessions bound to provider", func(t *testing.T) {
+		st, sA, sAPrimaryOnly, sOther := newSeeded(t)
+		n, changed, err := st.InvalidateSessionsOnProviderKeyChange(ctx, provA, "newkey")
+		if err != nil {
+			t.Fatalf("invalidate: %v", err)
+		}
+		if !changed {
+			t.Fatalf("expected changed=true on key rotation")
+		}
+		if n != 2 {
+			t.Fatalf("expected 2 sessions terminated (current + primary on provA), got %d", n)
+		}
+		// Both provA-bound active sessions are now terminated with the reason.
+		for _, id := range []uuid.UUID{sA, sAPrimaryOnly} {
+			got, err := st.GetSession(ctx, id)
+			if err != nil {
+				t.Fatalf("get session %s: %v", id, err)
+			}
+			if got.TerminatedAt == nil {
+				t.Errorf("session %s should be terminated after key change", id)
+			}
+			if got.ExitReason != "provider_key_rotated" {
+				t.Errorf("session %s exit reason = %q, want provider_key_rotated", id, got.ExitReason)
+			}
+			if got.State != pb.VpnSessionState_VPN_SESSION_STATE_TERMINATING {
+				t.Errorf("session %s state = %v, want TERMINATING", id, got.State)
+			}
+		}
+		// The unrelated provider's session must be untouched.
+		other, _ := st.GetSession(ctx, sOther)
+		if other.TerminatedAt != nil {
+			t.Errorf("session on a different provider must not be terminated")
+		}
+	})
+
+	t.Run("unchanged key is a no-op", func(t *testing.T) {
+		st, sA, _, _ := newSeeded(t)
+		n, changed, err := st.InvalidateSessionsOnProviderKeyChange(ctx, provA, "oldkey")
+		if err != nil {
+			t.Fatalf("invalidate: %v", err)
+		}
+		if changed || n != 0 {
+			t.Fatalf("same key must be a no-op, got changed=%v n=%d", changed, n)
+		}
+		got, _ := st.GetSession(ctx, sA)
+		if got.TerminatedAt != nil {
+			t.Errorf("session must survive an unchanged-key re-register")
+		}
+	})
+
+	t.Run("empty newKey (legacy daemon) is a no-op", func(t *testing.T) {
+		st, sA, _, _ := newSeeded(t)
+		n, changed, err := st.InvalidateSessionsOnProviderKeyChange(ctx, provA, "")
+		if err != nil {
+			t.Fatalf("invalidate: %v", err)
+		}
+		if changed || n != 0 {
+			t.Fatalf("empty key must be a no-op, got changed=%v n=%d", changed, n)
+		}
+		got, _ := st.GetSession(ctx, sA)
+		if got.TerminatedAt != nil {
+			t.Errorf("session must survive an empty-key (legacy) re-register")
+		}
+	})
+
+	t.Run("first register (no prior key) is a no-op", func(t *testing.T) {
+		st := NewMemory()
+		fresh := uuid.New()
+		// Provider has no prior key (never registered) → a key on first
+		// contact is the *initial* identity, not a rotation.
+		n, changed, err := st.InvalidateSessionsOnProviderKeyChange(ctx, fresh, "firstkey")
+		if err != nil {
+			t.Fatalf("invalidate: %v", err)
+		}
+		if changed || n != 0 {
+			t.Fatalf("first key must not count as a change, got changed=%v n=%d", changed, n)
+		}
+	})
+}
