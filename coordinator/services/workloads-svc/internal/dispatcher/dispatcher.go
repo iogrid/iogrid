@@ -58,6 +58,10 @@ type Connection struct {
 	SendTunnelClose func(attemptID, reason string) error
 	connectedAt     time.Time
 	disconnected    chan struct{}
+	// seq identifies this exact registration so a stale concurrent stream's
+	// Unregister doesn't evict a newer live stream for the same provider
+	// (#806). Assigned by Register.
+	seq uint64
 }
 
 // Assignment is what we push down the stream. The dispatcher.D registers
@@ -95,6 +99,7 @@ type D struct {
 
 	mu          sync.RWMutex
 	connections map[string]*Connection
+	regSeq      uint64 // monotonically increasing registration counter (#806)
 
 	tunMu   sync.RWMutex
 	tunnels map[string]TunnelSink
@@ -186,22 +191,96 @@ func (d *D) LookupAssignmentProvider(ctx context.Context, attemptID string) stri
 
 // Register adds a daemon to the live registry. Returns the channel the
 // caller MUST close (via Unregister) when the stream ends.
+//
+// A single provider may briefly hold MORE THAN ONE live dispatch stream —
+// e.g. a Mac that advertises bandwidth on one stream and bandwidth+IOS_BUILD
+// on another (observed on the founder's Mac, #806). The map is keyed by
+// provider id, so the second Register would otherwise clobber the first and
+// the surviving snapshot could be the capability-poorer one — making an
+// IOS_BUILD-capable provider invisible to the scheduler ("no eligible
+// provider"). To be robust to stream ordering we UNION the capability flags
+// of any existing connection into the incoming one, so a capability
+// advertised on ANY concurrent stream sticks. Each connection is stamped with
+// a monotonically increasing seq so Unregister can tell whether it owns the
+// slot (a stale stream's deferred Unregister must not evict the live one).
 func (d *D) Register(c *Connection) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	c.connectedAt = time.Now().UTC()
 	c.disconnected = make(chan struct{})
+	d.regSeq++
+	c.seq = d.regSeq
+	if prev, ok := d.connections[c.ProviderID]; ok {
+		c.Snapshot = mergeCapabilities(prev.Snapshot, c.Snapshot)
+	}
 	d.connections[c.ProviderID] = c
 }
 
+// mergeCapabilities returns next with any positive capability from prev folded
+// in. Capabilities only ratchet UP across concurrent streams of one provider —
+// IOS_BUILD/GPU/macOS-platform/host-version advertised on either stream are
+// kept. Mutable runtime state (load, status) always comes from next (the
+// fresher registration).
+func mergeCapabilities(prev, next scheduler.ProviderSnapshot) scheduler.ProviderSnapshot {
+	if prev.IOSBuildEnabled {
+		next.IOSBuildEnabled = true
+		if next.Platform == "" {
+			next.Platform = prev.Platform
+		}
+	}
+	if prev.GPUEnabled {
+		next.GPUEnabled = true
+		if next.GPUVRAMMiB == 0 {
+			next.GPUVRAMMiB = prev.GPUVRAMMiB
+		}
+	}
+	if next.HostMacosVersion == 0 && prev.HostMacosVersion > 0 {
+		next.HostMacosVersion = prev.HostMacosVersion
+	}
+	// Union the supported-type slugs (order-independent, de-duplicated).
+	seen := make(map[string]struct{}, len(next.SupportedTypes)+len(prev.SupportedTypes))
+	merged := make([]string, 0, len(seen))
+	for _, t := range next.SupportedTypes {
+		if _, ok := seen[t]; !ok {
+			seen[t] = struct{}{}
+			merged = append(merged, t)
+		}
+	}
+	for _, t := range prev.SupportedTypes {
+		if _, ok := seen[t]; !ok {
+			seen[t] = struct{}{}
+			merged = append(merged, t)
+		}
+	}
+	next.SupportedTypes = merged
+	return next
+}
+
 // Unregister removes a daemon, signalling any in-flight TryAssign that
-// the connection is gone.
+// the connection is gone. It is a no-op when the currently-registered
+// connection is a DIFFERENT (newer) stream than the one identified by seq:
+// when a provider holds two concurrent streams, the first stream's deferred
+// Unregister must not evict the second, still-live connection (#806).
 func (d *D) Unregister(providerID string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if c, ok := d.connections[providerID]; ok {
 		close(c.disconnected)
 		delete(d.connections, providerID)
+	}
+}
+
+// UnregisterConn removes a SPECIFIC connection, leaving a newer concurrent
+// stream for the same provider in place. Falls back to a provider-id delete
+// only when the slot still holds this exact connection.
+func (d *D) UnregisterConn(c *Connection) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if c != nil {
+		close(c.disconnected)
+	}
+	if cur, ok := d.connections[c.ProviderID]; ok && cur == c {
+		delete(d.connections, c.ProviderID)
 	}
 }
 

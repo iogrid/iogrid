@@ -3,6 +3,7 @@ package dispatcher
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -21,10 +22,10 @@ func makeBandwidthWorkload(host string) *store.Workload {
 
 func TestExtractHost(t *testing.T) {
 	cases := map[string]string{
-		"https://example.com/path":           "example.com",
-		"http://10.0.0.1:8080/x":             "10.0.0.1",
-		"example.com":                        "example.com",
-		"https://www.linkedin.com/in/foo":    "www.linkedin.com",
+		"https://example.com/path":        "example.com",
+		"http://10.0.0.1:8080/x":          "10.0.0.1",
+		"example.com":                     "example.com",
+		"https://www.linkedin.com/in/foo": "www.linkedin.com",
 	}
 	for in, want := range cases {
 		if got := extractHost(in); got != want {
@@ -180,7 +181,7 @@ type fakeSink struct {
 	closed string
 }
 
-func (f *fakeSink) OnTunnelData(b []byte) { f.data = append(f.data, append([]byte(nil), b...)) }
+func (f *fakeSink) OnTunnelData(b []byte)  { f.data = append(f.data, append([]byte(nil), b...)) }
 func (f *fakeSink) OnTunnelClose(r string) { f.closed = r }
 
 func TestTunnelRegistry_DeliverAndUnregister(t *testing.T) {
@@ -235,5 +236,79 @@ func TestAttemptDeadline_Default(t *testing.T) {
 	d.attemptTimeout = 5 * time.Second
 	if d.attemptTimeout != 5*time.Second {
 		t.Fatalf("override failed")
+	}
+}
+
+// TestDoubleStream_IOSBuildSurvives reproduces the #806 dog-food blocker: a
+// single provider opens TWO concurrent dispatch streams — one advertising only
+// bandwidth, one advertising bandwidth+ios_build. The capability-poorer stream
+// must NOT mask the ios_build capability, and a stale stream's Unregister must
+// NOT evict the live one.
+func TestDoubleStream_IOSBuildSurvives(t *testing.T) {
+	d := New(store.NewInMemory(), nil)
+
+	// Stream A: bandwidth only.
+	connA := &Connection{
+		ProviderID: "mac1",
+		Snapshot: scheduler.ProviderSnapshot{
+			ID: "mac1", Status: "active", State: "SCHEDULER_STATE_ACTIVE",
+			SupportedTypes: []string{"bandwidth"},
+		},
+		Send: func(_ *Assignment) error { return nil },
+	}
+	// Stream B: bandwidth + ios_build on a macOS host.
+	connB := &Connection{
+		ProviderID: "mac1",
+		Snapshot: scheduler.ProviderSnapshot{
+			ID: "mac1", Status: "active", State: "SCHEDULER_STATE_ACTIVE",
+			SupportedTypes:   []string{"bandwidth", "ios_build"},
+			IOSBuildEnabled:  true,
+			Platform:         "macos",
+			HostMacosVersion: 26,
+		},
+		Send: func(_ *Assignment) error { return nil },
+	}
+
+	d.Register(connA)
+	d.Register(connB) // B wins the slot; A's caps merge in (no-op here)
+
+	snaps := d.SnapshotAll()
+	if len(snaps) != 1 {
+		t.Fatalf("expected 1 provider, got %d", len(snaps))
+	}
+	if !snaps[0].IOSBuildEnabled || snaps[0].Platform != "macos" || snaps[0].HostMacosVersion != 26 {
+		t.Fatalf("ios_build capability lost after double Register: %+v", snaps[0])
+	}
+
+	// The OPPOSITE ordering must also keep ios_build (B first, then the
+	// poorer A) thanks to the capability union in Register.
+	d2 := New(store.NewInMemory(), nil)
+	bClone := *connB
+	bClone.disconnected = nil
+	aClone := *connA
+	aClone.disconnected = nil
+	d2.Register(&bClone)
+	d2.Register(&aClone) // A wins the slot but must inherit B's ios_build
+	s2 := d2.SnapshotAll()
+	if len(s2) != 1 || !s2[0].IOSBuildEnabled || s2[0].Platform != "macos" || s2[0].HostMacosVersion != 26 {
+		t.Fatalf("ios_build must survive poorer second stream: %+v", s2)
+	}
+	if !slices.Contains(s2[0].SupportedTypes, "ios_build") {
+		t.Fatalf("ios_build slug missing from merged SupportedTypes: %+v", s2[0].SupportedTypes)
+	}
+
+	// Stale-stream teardown: A unregistering must NOT evict the live B.
+	dd := New(store.NewInMemory(), nil)
+	cA := &Connection{ProviderID: "mac1", Snapshot: scheduler.ProviderSnapshot{ID: "mac1"}, Send: func(_ *Assignment) error { return nil }}
+	cB := &Connection{ProviderID: "mac1", Snapshot: scheduler.ProviderSnapshot{ID: "mac1", IOSBuildEnabled: true, Platform: "macos"}, Send: func(_ *Assignment) error { return nil }}
+	dd.Register(cA)
+	dd.Register(cB) // cB owns the slot
+	dd.UnregisterConn(cA)
+	if len(dd.SnapshotAll()) != 1 {
+		t.Fatalf("live stream cB was evicted by stale cA teardown")
+	}
+	dd.UnregisterConn(cB)
+	if len(dd.SnapshotAll()) != 0 {
+		t.Fatalf("cB should be removed by its own UnregisterConn")
 	}
 }
