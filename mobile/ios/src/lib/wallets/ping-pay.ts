@@ -27,10 +27,12 @@
 //   success: iogrid://vpn/activated?ok=1&signature=<sig>
 //   cancel:  iogrid://vpn/activated?ok=0&reason=cancel
 //
-// ── Still blocked on Ping (do NOT build past these):
-//   * C-8 signature verification (RPC poll vs webhook) is UNDECIDED on
-//     Ping's side. verifyApprovalBestEffort() below is a provisional
-//     RPC getTransaction poll, clearly marked, pending their ruling.
+// ── Ping integration status:
+//   * C-8 signature verification: RESOLVED — Ping ratified RPC-poll as the
+//     canonical path (ADR 0029 / ping-cash#188 closed), which is exactly
+//     what verifyApprovalBestEffort() below already does; the webhook path
+//     is off the table. Remaining (now UNBLOCKED, no longer pending Ping):
+//     extend the poll to verify delegate/amount/memo, not just tx-landed.
 //   * The delegate vault pubkey is env-indirected (EXPO_PUBLIC_IOGRID_VPN_VAULT)
 //     and may be empty in CI / until the real vault address lands.
 
@@ -338,21 +340,18 @@ export function buildVpnConfirmedReturn(
 }
 
 // -----------------------------------------------------------------------
-// Signature verification — PROVISIONAL (Ping C-8 undecided)
+// Signature verification — RPC-poll (Ping C-8 ratified, ADR 0029)
 // -----------------------------------------------------------------------
 
 /**
  * BEST-EFFORT on-chain confirmation of an approve signature.
  *
- * ⚠️ PROVISIONAL — pending Ping's C-8 decision (RPC poll vs webhook).
- * This is a stub that polls Solana `getTransaction` for the signature
- * returned in the success bounce. It is intentionally minimal: it only
- * confirms the tx landed on-chain (err === null). It does NOT yet verify
- * the delegate/amount/memo match our request, because Ping has not
- * finalised whether iogrid verifies client-side (this path) or whether
- * Ping posts a server-side webhook to the coordinator. Do NOT build the
- * full verification here until C-8 lands — over-building risks throwing
- * away work if Ping picks the webhook path.
+ * C-8 RATIFIED (ADR 0029): RPC-poll is the canonical verification path —
+ * this client-side getTransaction poll, NOT a Ping server-side webhook.
+ * This is still a MINIMAL stub: it only confirms the tx landed on-chain
+ * (err === null). It does NOT yet verify the delegate/amount/memo match
+ * our request. That full verification is now UNBLOCKED (no longer pending
+ * Ping's ruling) and can be built here — tracked in #665.
  *
  * Returns:
  *   'confirmed'   — tx found, no error
