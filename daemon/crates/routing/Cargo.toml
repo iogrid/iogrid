@@ -78,3 +78,10 @@ libc = { version = "0.2", optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
+
+# #781 end-to-end WG handshake proof harness. Uses the real boringtun
+# stack, so it only compiles with the `routing-real` feature on (bare
+# `cargo build`/`check` skips it).
+[[example]]
+name = "wg_handshake_proof"
+required-features = ["routing-real"]

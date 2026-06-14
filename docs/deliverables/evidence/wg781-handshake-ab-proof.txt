@@ -1,0 +1,33 @@
+#781 WG handshake A/B proof — 2026-06-14T03:07:06Z
+boringtun rev 253f7afb2b, real wg kernel client, limiter preloaded under-load
+
+================ ARM: A-legacy-broken ================
+DPUB=DN5ifBVp449ZcQA8dhabjIqP2xJVhQCmPImRHVsSxQI= CPUB=88KYH3u/sYsC9RiBzQlQDbvEXOXZTOFNgZPLmxYLCAs= endpoint=10.200.0.1:51821
+interface: wg781
+  public key: 88KYH3u/sYsC9RiBzQlQDbvEXOXZTOFNgZPLmxYLCAs=
+  private key: (hidden)
+  listening port: 40487
+
+peer: DN5ifBVp449ZcQA8dhabjIqP2xJVhQCmPImRHVsSxQI=
+  endpoint: 10.200.0.1:51821
+  allowed ips: 10.99.0.1/32
+  transfer: 0 B received, 592 B sent
+  persistent keepalive: every 3 seconds
+
+VERDICT[A-legacy-broken]: latest_handshake_lines=0  received='0 B received'
+================ ARM: B-fixed ================
+DPUB=KfjLzNhzkIt9BWLy3dsnat9uN60ohIopdjIZ+k5y6DE= CPUB=wA31Bp3K+h3pWhJLu1Q1071RsKxXOrjJcvwez0ODzCY= endpoint=10.200.0.1:51821
+interface: wg781
+  public key: wA31Bp3K+h3pWhJLu1Q1071RsKxXOrjJcvwez0ODzCY=
+  private key: (hidden)
+  listening port: 57601
+
+peer: KfjLzNhzkIt9BWLy3dsnat9uN60ohIopdjIZ+k5y6DE=
+  endpoint: 10.200.0.1:51821
+  allowed ips: 10.99.0.1/32
+  latest handshake: 12 seconds ago
+  transfer: 788 B received, 948 B sent
+  persistent keepalive: every 3 seconds
+
+VERDICT[B-fixed]: latest_handshake_lines=1  received='788 B received'
+================ SUMMARY ================

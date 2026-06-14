@@ -43,6 +43,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use base64::Engine;
+use boringtun::noise::rate_limiter::RateLimiter;
 use boringtun::noise::{Tunn, TunnResult};
 use boringtun::x25519::{PublicKey, StaticSecret};
 use parking_lot::{Mutex, RwLock};
@@ -113,6 +114,22 @@ pub struct BoringTun {
     meter: Arc<Meter>,
     /// Inner-packet sink — where decapsulated inner packets go.
     sink: Arc<dyn InnerPacketSink>,
+    /// ONE shared boringtun rate limiter, derived from our static
+    /// keypair, handed to EVERY peer's `Tunn` (#781). boringtun bumps
+    /// its internal `count` on each handshake packet and only zeroes
+    /// it in `reset_count()`, which it documents must run ~1/s; the
+    /// daemon previously passed `None` so each `Tunn` built its own
+    /// limiter that was never reset → after `PEER_HANDSHAKE_RATE_LIMIT`
+    /// (10) packets `is_under_load()` latched `true` permanently and
+    /// `verify_packet` cookie-replied every handshake init forever, so
+    /// no client could ever complete a handshake. Sharing ONE limiter
+    /// also means ONE cookie secret across the peer table, so a client
+    /// that *is* cookie-challenged sees a consistent cookie regardless
+    /// of which peer's `Tunn` trial-decapsulates its retry (the
+    /// multi-peer cookie-thrash captured in #781's A/B harness). A
+    /// background task started in [`Tunnel::start`] pumps
+    /// `reset_count()` once per second.
+    rate_limiter: Arc<RateLimiter>,
 }
 
 impl std::fmt::Debug for BoringTun {
@@ -132,6 +149,14 @@ impl BoringTun {
         let static_public = PublicKey::from(&config.static_private);
         let static_public_b64 =
             base64::engine::general_purpose::STANDARD.encode(static_public.as_bytes());
+        // ONE shared rate limiter for the daemon's static keypair
+        // (#781). `10` mirrors boringtun's own default
+        // `PEER_HANDSHAKE_RATE_LIMIT` (the value it uses when a
+        // `Tunn::new` rate_limiter arg is `None`); the only behavioural
+        // change vs the old code is that we now hold the handle and a
+        // 1 s task pumps `reset_count()` so the under-load counter
+        // doesn't latch forever.
+        let rate_limiter = Arc::new(RateLimiter::new(&static_public, 10));
         Self {
             config,
             static_public_b64,
@@ -140,6 +165,7 @@ impl BoringTun {
             shutdown_tx: Mutex::new(None),
             meter,
             sink,
+            rate_limiter,
         }
     }
 
@@ -199,6 +225,34 @@ impl Tunnel for BoringTun {
             "boringtun WG tunnel started; UDP pump entering recv loop"
         );
 
+        // Rate-limiter reset pump (#781). boringtun's RateLimiter
+        // documents `reset_count()` must run ~1/s; without it the
+        // per-handshake `count` only grows, so after 10 packets the
+        // responder latches `is_under_load() == true` permanently and
+        // cookie-replies every handshake init forever (no client can
+        // complete a handshake). Tie this task's lifetime to the same
+        // shutdown watch as the UDP pump so `stop()` ends it cleanly.
+        let limiter = self.rate_limiter.clone();
+        let mut reset_shutdown = rx.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
+            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                tokio::select! {
+                    biased;
+                    res = reset_shutdown.changed() => {
+                        if res.is_err() || *reset_shutdown.borrow() {
+                            tracing::debug!("WG rate-limiter reset pump shutdown");
+                            return;
+                        }
+                    }
+                    _ = tick.tick() => {
+                        limiter.reset_count();
+                    }
+                }
+            }
+        });
+
         tokio::spawn(async move {
             run_pump(socket, peers, meter, sink, rx).await;
         });
@@ -232,7 +286,9 @@ impl Tunnel for BoringTun {
                 Some(peer.persistent_keepalive)
             },
             next_peer_index(),
-            None,
+            // Share the ONE daemon-wide rate limiter (#781) instead of
+            // letting each Tunn build its own that never gets reset.
+            Some(self.rate_limiter.clone()),
         );
         let entry = Arc::new(PeerEntry {
             tunn: Mutex::new(tunn),
