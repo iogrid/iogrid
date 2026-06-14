@@ -48,6 +48,58 @@ describe("SessionsPanel", () => {
     apiDel.mockReset();
   });
 
+  it("#808: renders 'this device' from the web-sessions feed even when the BFF feed has only non-current rows", async () => {
+    // Reproduces the prod state surfaced by the 2026-06-14 UAT:
+    //  - the identity-svc BFF feed returns ONLY stale rows with
+    //    is_current=false (currentSID is unresolvable for a NextAuth
+    //    request), blank UA, past expiry → "Unknown device · Expired";
+    //  - the web-sessions feed (post-#808) synthesizes the current
+    //    device. The panel merges both and MUST show the Current pill.
+    apiGet.mockResolvedValueOnce({
+      sessions: [
+        {
+          id: { value: SID_OTHER1 },
+          user_agent: "",
+          created_at: isoMinusMin(60 * 24 * 30),
+          last_used_at: isoMinusMin(60 * 24 * 20),
+          expires_at: isoMinusMin(60 * 24 * 5), // already expired
+          is_current: false,
+        },
+      ],
+    });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        sessions: [
+          {
+            id: "abc1234567890def",
+            is_current: true,
+            user_agent:
+              "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/120.0",
+            expires_at: isoPlusMin(60 * 24 * 7),
+            kind: "web",
+          },
+        ],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      render(<SessionsPanel />);
+      await waitFor(() => screen.getByTestId("sessions-list"));
+      // The current-device row renders with the pill, pinned first.
+      expect(screen.getByTestId("current-session-pill")).toBeInTheDocument();
+      const rows = screen.getAllByTestId(/^session-row/);
+      expect(rows[0].getAttribute("data-testid")).toBe("session-row-current");
+      expect(rows[0].textContent).toMatch(/Chrome on macOS/);
+      // Its Revoke is disabled (sign out instead).
+      expect(screen.getByTestId("revoke-button-disabled")).toBeDisabled();
+      // The stale BFF row is still listed below as a revocable non-current.
+      expect(screen.getAllByTestId("revoke-button")).toHaveLength(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("renders 'No other active sessions' when only the current session is returned", async () => {
     apiGet.mockResolvedValueOnce({
       sessions: [
