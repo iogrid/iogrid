@@ -45,7 +45,7 @@ spec:
         # cache-identical. Treated as an opaque ISO-8601 string by the
         # deploy-bot sed in the workflow — do not hand-edit unless you intend
         # to roll the pods.
-        kubectl.kubernetes.io/restartedAt: "2026-06-14T15:55:20Z"
+        kubectl.kubernetes.io/restartedAt: "2026-06-14T16:25:07Z"
     spec:
       priorityClassName: iogrid-serving
       serviceAccountName: web
@@ -69,7 +69,7 @@ spec:
           #   (c) imagePullPolicy: Always belt-and-braces guarantees the
           #       node pulls the digest even when the tag string is unchanged
           # Refs #332.
-          image: harbor.openova.io/iogrid/web@sha256:d0fff4b2e800ce54a5b88c8caf80bf8b11c3c6bd83d56725466e2e41e5e33c06
+          image: harbor.openova.io/iogrid/web@sha256:61edc9e7bcdc151e080676aa634ef61993082d4be3e015d3d45129d0ed5af388
           imagePullPolicy: Always
           ports:
             - name: http
