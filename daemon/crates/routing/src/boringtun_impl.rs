@@ -588,6 +588,12 @@ async fn run_pump(
                     //        UNREGISTERED/WRONG CLIENT key (a binding bug),
                     //        NOT a server-key issue (build 186 won't help).
                     let diag = classify_decap_fail(&recv_buf[..n], &mac1_key);
+                    // Tag the likely client kind from the SOURCE port so a
+                    // future G1 is diagnosable from the log alone: a pinned
+                    // :51820 is a desktop/kernel wg client (a red herring,
+                    // per the days lost on `188.135.27.125:51820`), while an
+                    // ephemeral port is the iOS NE / real phone (#797).
+                    let likely_client = likely_client_for_port(src.port());
                     match diag.mac1_ok {
                         Some(true) => tracing::warn!(
                             from = %src,
@@ -595,6 +601,7 @@ async fn run_pump(
                             msg_type = diag.msg_type,
                             msg_kind = diag.msg_kind,
                             mac1_ok = true,
+                            likely_client,
                             "G1 decap-fail: handshake-init MAC1 matches OUR server key \
                              but no peer static-decrypt succeeded ⇒ UNREGISTERED/WRONG \
                              CLIENT key (binding issue, NOT a server-key issue); dropping"
@@ -605,6 +612,7 @@ async fn run_pump(
                             msg_type = diag.msg_type,
                             msg_kind = diag.msg_kind,
                             mac1_ok = false,
+                            likely_client,
                             "G1 decap-fail: handshake-init MAC1 does NOT match our server \
                              key ⇒ client signed against a STALE/WRONG SERVER key (NE baked \
                              an old server pubkey — the #760/build-186 class); dropping"
@@ -614,6 +622,7 @@ async fn run_pump(
                             bytes = n,
                             msg_type = diag.msg_type,
                             msg_kind = diag.msg_kind,
+                            likely_client,
                             "WG packet did not decapsulate against any known peer; dropping"
                         ),
                     }
@@ -774,6 +783,32 @@ fn classify_decap_fail(payload: &[u8], our_mac1_key: &[u8; 32]) -> DecapFailDiag
         msg_type: Some(msg_type),
         msg_kind,
         mac1_ok,
+    }
+}
+
+/// The WireGuard default `ListenPort`. A desktop/kernel `wg` client (or
+/// any client that pins its listen port) sources its datagrams FROM this
+/// port; the iOS Network Extension never pins `listenPort`, so it sources
+/// from an OS-assigned EPHEMERAL port instead.
+const WG_DEFAULT_LISTEN_PORT: u16 = 51820;
+
+/// Classify the likely client kind of a decap-fail datagram from its
+/// SOURCE port alone — a pure, socket-free heuristic surfaced on the
+/// decap-fail log so a future G1 (the founder's iPhone VPN) is
+/// diagnosable from the daemon log without guessing which on-wire flow is
+/// the real phone.
+///
+/// G1 burned multiple days because the analyzed flow (`…:51820`) was a
+/// DESKTOP `wg` client with a pinned `ListenPort` — a red herring — while
+/// the real iPhone used an ephemeral cellular port (`…:51549`). The iOS
+/// NE never pins its listen port, so:
+///   - `src_port == 51820` ⇒ desktop/kernel wg (pinned) — NOT the iOS app.
+///   - anything else (ephemeral) ⇒ mobile/iOS NE or other ephemeral client.
+fn likely_client_for_port(src_port: u16) -> &'static str {
+    if src_port == WG_DEFAULT_LISTEN_PORT {
+        "desktop/kernel wg (pinned :51820) — NOT the iOS app"
+    } else {
+        "mobile/iOS NE or other ephemeral-port client"
     }
 }
 
@@ -1017,6 +1052,34 @@ mod tests {
         assert_eq!(d.msg_type, Some(WG_MSG_HANDSHAKE_INIT));
         assert_eq!(d.msg_kind, "handshake_init");
         assert_eq!(d.mac1_ok, None, "short init can't be MAC1-checked");
+    }
+
+    #[test]
+    fn likely_client_for_port_distinguishes_desktop_from_mobile() {
+        // The whole point of #797: the decap-fail log must say WHICH
+        // on-wire flow it is so a future G1 isn't mis-diagnosed.
+        //
+        // Pinned default WG ListenPort ⇒ desktop/kernel `wg` client
+        // (the `188.135.27.125:51820` red herring that cost days).
+        assert_eq!(
+            likely_client_for_port(51820),
+            "desktop/kernel wg (pinned :51820) — NOT the iOS app",
+        );
+        // Ephemeral cellular port ⇒ the real iPhone NE
+        // (`212.72.24.20:51549`). The NE never pins listenPort.
+        assert_eq!(
+            likely_client_for_port(51549),
+            "mobile/iOS NE or other ephemeral-port client",
+        );
+        // Spot-check the ephemeral range boundaries + adjacent-to-pinned
+        // ports: only the exact default maps to desktop.
+        for p in [1u16, 1024, 32768, 51819, 51821, 60000, 65535] {
+            assert_eq!(
+                likely_client_for_port(p),
+                "mobile/iOS NE or other ephemeral-port client",
+                "port {p} must be classified as ephemeral/mobile",
+            );
+        }
     }
 
     #[tokio::test]
