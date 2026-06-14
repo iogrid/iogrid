@@ -1,14 +1,21 @@
 // subscription.go implements the read-side of the Connect-RPC
 // SubscriptionService.
 //
-// Only ListUsage is live (#675) — it backs the customer /usage surface
-// (gateway-bff GetCustomerUsage → web /customer/usage), which returned
-// 501 Not Implemented until this landed (the deep authenticated UAT
-// found the page silently masking the 501 as "$0.00 / No usage").
+// GetSubscription (#802) + ListUsage (#675) are live.
+//   - ListUsage backs the customer /usage surface (gateway-bff
+//     GetCustomerUsage → web /customer/usage).
+//   - GetSubscription backs /api/v1/vpn/account (gateway-bff
+//     GetVPNAccount → web /customer/billing + /vpn). It returns the
+//     workspace's subscription row, or an empty response (subscription
+//     == nil) for the common no-subscription / free-tier case — the BFF
+//     already maps that nil to a "FREE" tier view. It previously fell
+//     through to the embedded Unimplemented stub, so gateway-bff
+//     surfaced a 501 on every billing page view (#802; same class as
+//     #686 CreateCheckoutSession / #675 ListUsage).
 //
-// CreateCheckoutSession / CreatePortalSession / ListInvoices /
-// CancelSubscription stay CodeUnimplemented via the embedded stub until
-// the Stripe wiring ships.
+// CreateCheckoutSession / CreatePortalSession bind to stripeapi (#686).
+// ListInvoices / CancelSubscription stay CodeUnimplemented via the
+// embedded stub until the Stripe wiring ships.
 package server
 
 import (
@@ -68,6 +75,93 @@ func tierWireName(t billingv1.SubscriptionTier) string {
 	default:
 		return ""
 	}
+}
+
+// statusFromString maps the textual lifecycle status stored on the
+// subscription row (Stripe lifecycle strings — "active", "trialing",
+// "past_due", "canceled", "incomplete", "unpaid", lower-case as the
+// stripeapi webhook persists them) onto the proto enum. Unknown values
+// fall back to UNSPECIFIED rather than guessing a state.
+func statusFromString(s string) billingv1.SubscriptionStatus {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "active":
+		return billingv1.SubscriptionStatus_SUBSCRIPTION_STATUS_ACTIVE
+	case "trialing":
+		return billingv1.SubscriptionStatus_SUBSCRIPTION_STATUS_TRIALING
+	case "past_due":
+		return billingv1.SubscriptionStatus_SUBSCRIPTION_STATUS_PAST_DUE
+	case "canceled", "cancelled":
+		return billingv1.SubscriptionStatus_SUBSCRIPTION_STATUS_CANCELED
+	case "incomplete":
+		return billingv1.SubscriptionStatus_SUBSCRIPTION_STATUS_INCOMPLETE
+	case "unpaid":
+		return billingv1.SubscriptionStatus_SUBSCRIPTION_STATUS_UNPAID
+	default:
+		return billingv1.SubscriptionStatus_SUBSCRIPTION_STATUS_UNSPECIFIED
+	}
+}
+
+// subscriptionToProto maps a store.Subscription row onto the wire
+// message. Nullable period bounds / canceled_at become absent proto
+// fields (nil timestamp) rather than zero-time sentinels.
+func subscriptionToProto(s *store.Subscription) *billingv1.Subscription {
+	if s == nil {
+		return nil
+	}
+	out := &billingv1.Subscription{
+		Id:                   &commonv1.UUID{Value: s.ID.String()},
+		WorkspaceId:          &commonv1.UUID{Value: s.WorkspaceID.String()},
+		Tier:                 tierFromString(s.Tier),
+		Status:               statusFromString(s.Status),
+		StripeCustomerId:     s.StripeCustomerID,
+		StripeSubscriptionId: s.StripeSubscriptionID,
+		CreatedAt:            timestamppb.New(s.CreatedAt),
+	}
+	if s.CurrentPeriodStart != nil || s.CurrentPeriodEnd != nil {
+		win := &commonv1.TimeWindow{}
+		if s.CurrentPeriodStart != nil {
+			win.Start = timestamppb.New(*s.CurrentPeriodStart)
+		}
+		if s.CurrentPeriodEnd != nil {
+			win.End = timestamppb.New(*s.CurrentPeriodEnd)
+		}
+		out.CurrentPeriod = win
+	}
+	if s.CanceledAt != nil {
+		out.CanceledAt = timestamppb.New(*s.CanceledAt)
+	}
+	return out
+}
+
+// GetSubscription returns the workspace's current subscription, backing
+// gateway-bff's GetVPNAccount (/api/v1/vpn/account → web /customer/billing
+// + /vpn). The common case is NO subscription (prepaid-$GRID / free
+// tier): we return an empty response (subscription == nil), NOT an
+// error — the BFF maps nil onto the public "FREE" tier view. Returning
+// an error here (it previously fell through to the embedded
+// Unimplemented stub → CodeUnimplemented → gateway-bff 501) ships a
+// console error on every billing page view (#802; the #686/#675 class).
+func (h *SubscriptionHandler) GetSubscription(
+	ctx context.Context,
+	req *connect.Request[billingv1.GetSubscriptionRequest],
+) (*connect.Response[billingv1.GetSubscriptionResponse], error) {
+	wsID, err := parseUUID(req.Msg.GetWorkspaceId())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	sub, err := h.Store.GetSubscriptionByWorkspace(ctx, wsID)
+	if errors.Is(err, store.ErrNotFound) {
+		// No subscription on file → the free / prepaid-$GRID tier. Empty
+		// (non-error) response so the caller renders the free-tier view
+		// instead of a masked 501.
+		return connect.NewResponse(&billingv1.GetSubscriptionResponse{}), nil
+	}
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return connect.NewResponse(&billingv1.GetSubscriptionResponse{
+		Subscription: subscriptionToProto(sub),
+	}), nil
 }
 
 // CreateCheckoutSession binds the Connect-RPC to the same stripeapi

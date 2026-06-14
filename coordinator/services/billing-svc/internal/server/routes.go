@@ -106,10 +106,13 @@ func Mount(d Deps) func(chi.Router) {
 		ePath, eh := billingv1connect.NewEarningsServiceHandler(earnings)
 		r.Mount(ePath, eh)
 
-		// Connect-RPC: SubscriptionService — ListUsage backs the customer
-		// /usage surface (#675; was CodeUnimplemented → web saw 501 and
-		// masked it as "$0.00"). Checkout/portal/invoices/cancel remain
-		// Unimplemented via the embedded stub until Stripe wiring lands.
+		// Connect-RPC: SubscriptionService — GetSubscription backs
+		// /api/v1/vpn/account (#802) and ListUsage backs the customer
+		// /usage surface (#675); both were CodeUnimplemented → web saw a
+		// 501 (masked as "$0.00" / a billing-page console error) until
+		// they landed. Checkout/portal bind to stripeapi (#686);
+		// invoices/cancel remain Unimplemented via the embedded stub
+		// until Stripe wiring lands.
 		subs := NewSubscriptionHandler(d.Store, d.Stripe)
 		sPath, sh := billingv1connect.NewSubscriptionServiceHandler(subs)
 		r.Mount(sPath, sh)
