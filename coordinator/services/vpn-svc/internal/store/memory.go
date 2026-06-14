@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,8 +24,8 @@ type Memory struct {
 	// idempotency — a second AllocateInnerIP call with the same
 	// args returns the previously-allocated value instead of
 	// burning a new Y.
-	innerIPNext  map[uuid.UUID]uint8       // provider_id → next Y counter (2..253; 0/1/254/255 reserved)
-	innerIPAlloc map[string]string         // "provider:session" → "10.66.X.Y"
+	innerIPNext  map[uuid.UUID]uint8 // provider_id → next Y counter (2..253; 0/1/254/255 reserved)
+	innerIPAlloc map[string]string   // "provider:session" → "10.66.X.Y"
 }
 
 // NewMemory creates a new in-memory store.
@@ -271,6 +272,48 @@ func (m *Memory) RegisterProvider(ctx context.Context, p *ProviderInfo) error {
 	clone := *p
 	m.providers[p.ID] = &clone
 	return nil
+}
+
+// InvalidateSessionsOnProviderKeyChange implements Store (#762). Mirrors the
+// Postgres CTE: when the daemon re-registers with a server pubkey that differs
+// from the one we already hold, every still-active session bound to that
+// provider is terminated so the affected clients reconnect against the new key
+// (load_or_generate_wg_private_key can mint a fresh server identity on an empty
+// state-dir — see the interface doc). Must be called BEFORE RegisterProvider
+// persists the new key.
+func (m *Memory) InvalidateSessionsOnProviderKeyChange(ctx context.Context, providerID uuid.UUID, newKey string) (int, bool, error) {
+	if strings.TrimSpace(newKey) == "" {
+		return 0, false, nil // legacy daemon; nothing to compare
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	existing, ok := m.providers[providerID]
+	if !ok || existing.WgPublicKey == "" {
+		// First register (or a provider that never published a key):
+		// no prior identity to diverge from.
+		return 0, false, nil
+	}
+	if existing.WgPublicKey == newKey {
+		return 0, false, nil // unchanged
+	}
+	// Key rotated — terminate every live session pinned to this provider.
+	now := time.Now()
+	terminated := 0
+	for _, s := range m.sessions {
+		if s.TerminatedAt != nil {
+			continue
+		}
+		if s.CurrentProvider != providerID && s.PrimaryProvider != providerID {
+			continue
+		}
+		t := now
+		s.TerminatedAt = &t
+		s.ExitReason = "provider_key_rotated"
+		s.State = pb.VpnSessionState_VPN_SESSION_STATE_TERMINATING
+		s.LastActivityAt = now
+		terminated++
+	}
+	return terminated, true, nil
 }
 
 // SelectTopProvidersInRegion implements Store.

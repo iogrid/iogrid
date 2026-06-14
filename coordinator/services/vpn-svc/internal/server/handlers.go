@@ -942,6 +942,30 @@ func (h *RegisterProvider) Handle(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "region required")
 		return
 	}
+	// #762: before we persist the (possibly new) server key, detect a
+	// server-pubkey rotation and force-invalidate the bound sessions. A
+	// daemon re-provisioned onto an empty state-dir mints a FRESH WG static
+	// key (load_or_generate_wg_private_key); every client that baked the old
+	// server pubkey into its NE tunnel would then MAC1-reject every handshake
+	// ("did not decapsulate") until it rebuilt the config. Terminating the
+	// affected sessions makes each client reconnect → the mobile bring-up
+	// hands back the new peer_public_key and #760's client self-heal rebuilds
+	// the tunnel. Best-effort: a store error here must not block the register
+	// itself (the provider still needs its health row), so we log + proceed.
+	if terminated, changed, err := h.st.InvalidateSessionsOnProviderKeyChange(r.Context(), providerID, req.WgPublicKey); err != nil {
+		h.logger.Error("provider key-change invalidation failed (continuing register)",
+			slog.String("provider_id", providerID.String()),
+			slog.String("error", err.Error()))
+	} else if changed {
+		ProviderKeyRotations.Inc()
+		if terminated > 0 {
+			SessionsTerminated.WithLabelValues("provider_key_rotated").Add(float64(terminated))
+		}
+		h.logger.Warn("provider WG server key rotated — invalidated bound sessions so clients refetch the new key (#762)",
+			slog.String("provider_id", providerID.String()),
+			slog.Int("sessions_terminated", terminated))
+	}
+
 	info := &store.ProviderInfo{
 		ID:          providerID,
 		Region:      req.Region,

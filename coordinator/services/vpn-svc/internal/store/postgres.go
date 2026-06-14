@@ -4,11 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 	pb "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/vpn/v1"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Postgres is a Postgres-backed implementation of Store.
@@ -366,6 +367,62 @@ func (p *Postgres) RegisterProvider(ctx context.Context, info *ProviderInfo) err
 	`
 	_, err := p.pool.Exec(ctx, query, info.ID, info.Region, info.Status, info.LastSeenAt, info.SessionCount, info.WgPublicKey)
 	return err
+}
+
+// InvalidateSessionsOnProviderKeyChange implements Store (#762).
+//
+// Single round-trip CTE: it reads the provider's prior wg_public_key and,
+// only when newKey is non-empty AND a non-empty prior key exists AND they
+// differ, terminates every active session whose current OR primary provider
+// is this one. Terminated rows get exit_reason='provider_key_rotated' so the
+// reconnect telemetry is attributable and the earnings batcher still bills the
+// bytes used so far (terminate, not delete). Doing the read+terminate in one
+// statement makes the check race-free against a concurrent register from the
+// same daemon.
+//
+// `changed` is true whenever a prior non-empty key existed and differed from
+// newKey, regardless of how many sessions were live — so the caller logs the
+// rotation even if zero clients were currently connected.
+func (p *Postgres) InvalidateSessionsOnProviderKeyChange(ctx context.Context, providerID uuid.UUID, newKey string) (int, bool, error) {
+	if strings.TrimSpace(newKey) == "" {
+		// Legacy daemon: no key to compare. RegisterProvider's COALESCE
+		// preserves the cached key; nothing to invalidate.
+		return 0, false, nil
+	}
+	// prior CTE: the stored key (NULL if the provider row doesn't exist yet
+	//            or never had a key — first register).
+	// changed   = prior key is present, non-empty, and != newKey.
+	// terminated rows are returned so we can count them.
+	query := `
+		WITH prior AS (
+		    SELECT NULLIF(wg_public_key, '') AS key
+		    FROM vpn_providers
+		    WHERE id = $1
+		),
+		changed AS (
+		    SELECT (SELECT key FROM prior) IS NOT NULL
+		       AND (SELECT key FROM prior) <> $2 AS did_change
+		),
+		terminated AS (
+		    UPDATE vpn_sessions
+		       SET terminated_at = NOW(),
+		           exit_reason   = 'provider_key_rotated',
+		           state         = 'TERMINATING',
+		           last_activity_at = NOW()
+		     WHERE terminated_at IS NULL
+		       AND (current_provider_id = $1 OR primary_provider_id = $1)
+		       AND (SELECT did_change FROM changed)
+		    RETURNING id
+		)
+		SELECT (SELECT did_change FROM changed),
+		       (SELECT COUNT(*) FROM terminated)
+	`
+	var changed bool
+	var terminated int
+	if err := p.pool.QueryRow(ctx, query, providerID, newKey).Scan(&changed, &terminated); err != nil {
+		return 0, false, fmt.Errorf("invalidate sessions on provider key change: %w", err)
+	}
+	return terminated, changed, nil
 }
 
 // SelectTopProvidersInRegion implements Store.
@@ -730,7 +787,7 @@ func (p *Postgres) scanSession(row interface {
 		&session.ProviderWgPublicKey,
 		&session.CustomerWgPublicKey,
 		&session.BilledAt,
-		&session.InnerIP, // #701: the daemon's #695 return-routing needs it
+		&session.InnerIP,              // #701: the daemon's #695 return-routing needs it
 		&session.PaymentAuthorization, // #726 audit: was silently dropped
 	)
 	if err != nil {

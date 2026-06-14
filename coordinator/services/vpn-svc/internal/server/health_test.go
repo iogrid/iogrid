@@ -244,3 +244,100 @@ func TestRegisterProvider_Idempotent(t *testing.T) {
 		t.Errorf("expected SessionCount preserved at 3, got %d", got[0].SessionCount)
 	}
 }
+
+// TestRegisterProvider_ServerKeyChangeInvalidatesBoundSessions is the #762
+// end-to-end guard at the handler level: a daemon that re-provisions onto an
+// empty state-dir re-registers with a NEW WG server pubkey. The register
+// handler must (a) still 200, AND (b) terminate the still-active sessions
+// bound to that provider so each client reconnects and re-fetches the new key
+// (instead of MAC1-rejecting every handshake against the old baked key forever).
+func TestRegisterProvider_ServerKeyChangeInvalidatesBoundSessions(t *testing.T) {
+	ctx := context.Background()
+	st := store.NewMemory()
+	providerID := uuid.New()
+
+	// Provider already registered with its original key.
+	if err := st.RegisterProvider(ctx, &store.ProviderInfo{
+		ID: providerID, Region: "us-east-1", Status: "healthy", LastSeenAt: time.Now(), WgPublicKey: "OLDSERVERKEY",
+	}); err != nil {
+		t.Fatalf("seed provider: %v", err)
+	}
+	// An active session bound to that provider (a client already connected).
+	sessionID := uuid.New()
+	if err := st.CreateSession(ctx, &store.Session{
+		ID:                  sessionID,
+		CustomerID:          uuid.New(),
+		Region:              "us-east-1",
+		PrimaryProvider:     providerID,
+		CurrentProvider:     providerID,
+		ProviderWgPublicKey: "OLDSERVERKEY",
+		CreatedAt:           time.Now(),
+		LastActivityAt:      time.Now(),
+	}); err != nil {
+		t.Fatalf("seed session: %v", err)
+	}
+
+	handler := NewRegisterProvider(st, discardLogger())
+	body := map[string]any{"region": "us-east-1", "wg_public_key": "NEWSERVERKEY"}
+	r := buildRequest(t, http.MethodPost, "/v1/vpn/providers/"+providerID.String()+"/register", providerID, body)
+	w := httptest.NewRecorder()
+	handler.Handle(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 on re-register, got %d: %s", w.Code, w.Body.String())
+	}
+	// The bound session must now be terminated so the client reconnects.
+	got, err := st.GetSession(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if got.TerminatedAt == nil {
+		t.Errorf("bound session must be terminated after server-key rotation (else client stays stranded on old key)")
+	}
+	if got.ExitReason != "provider_key_rotated" {
+		t.Errorf("exit reason = %q, want provider_key_rotated", got.ExitReason)
+	}
+	// The provider row must hold the NEW key so the next mobile bring-up
+	// hands clients the rotated peer_public_key.
+	probes, _ := st.SelectTopProvidersInRegion(ctx, "us-east-1", 1)
+	if len(probes) != 1 || probes[0].WgPublicKey != "NEWSERVERKEY" {
+		t.Errorf("provider key not rotated to NEWSERVERKEY after register: %+v", probes)
+	}
+}
+
+// TestRegisterProvider_SameKeyKeepsSessions guards the steady-state path: a
+// normal heartbeat-style re-register (same key — the daemon never rotated)
+// must NOT terminate live sessions. Without this the binder's own register
+// calls would nuke every connection on each restart.
+func TestRegisterProvider_SameKeyKeepsSessions(t *testing.T) {
+	ctx := context.Background()
+	st := store.NewMemory()
+	providerID := uuid.New()
+	if err := st.RegisterProvider(ctx, &store.ProviderInfo{
+		ID: providerID, Region: "us-east-1", Status: "healthy", LastSeenAt: time.Now(), WgPublicKey: "STABLEKEY",
+	}); err != nil {
+		t.Fatalf("seed provider: %v", err)
+	}
+	sessionID := uuid.New()
+	if err := st.CreateSession(ctx, &store.Session{
+		ID: sessionID, CustomerID: uuid.New(), Region: "us-east-1",
+		PrimaryProvider: providerID, CurrentProvider: providerID,
+		CreatedAt: time.Now(), LastActivityAt: time.Now(),
+	}); err != nil {
+		t.Fatalf("seed session: %v", err)
+	}
+
+	handler := NewRegisterProvider(st, discardLogger())
+	body := map[string]any{"region": "us-east-1", "wg_public_key": "STABLEKEY"}
+	r := buildRequest(t, http.MethodPost, "/v1/vpn/providers/"+providerID.String()+"/register", providerID, body)
+	w := httptest.NewRecorder()
+	handler.Handle(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	got, _ := st.GetSession(ctx, sessionID)
+	if got.TerminatedAt != nil {
+		t.Errorf("same-key re-register must NOT terminate live sessions (steady-state heartbeat)")
+	}
+}
