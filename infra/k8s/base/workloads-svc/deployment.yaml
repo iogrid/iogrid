@@ -110,7 +110,10 @@ spec:
             # true so the pod still boots (in-memory, WARN) before the
             # SealedSecret lands; flip to required once it's sealed.
             - secretRef:
-                name: iogrid-workloads-svc-db
+                # the live CNPG-provisioned secret is iogrid-workloads-db (with a
+                # DATABASE_URL key); the previous iogrid-workloads-svc-db name was
+                # wrong → the optional ref found nothing → in-memory fallback (no fix).
+                name: iogrid-workloads-db
                 optional: true
           resources:
             requests:
