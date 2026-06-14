@@ -1,0 +1,68 @@
+### PROD WG handshake wire capture — client(correct key, registered) -> daemon cM9MQ… on 144.91.121.182:51820
+### Expected if peer-resolution worked: 148B init -> 92B handshake-response (type 02), bytes received > 0
+### Actual: 148B init -> 64B COOKIE REPLY (type 03), 0 B received (handshake never completes)
+
+=== wg show (client side) BEFORE ===
+interface: wgt0
+  public key: cDgfr/bJ7DiUGWhuK0gSHp61RiRvzbXWG7fmKxwqhBI=
+  private key: (hidden)
+  listening port: 51261
+
+peer: cM9MQKfzK6sPlGqa99xyNnHqDZ/vYzbM/5+z0Ez2Gzs=
+  endpoint: 10.231.0.1:51820
+  allowed ips: 0.0.0.0/0
+  transfer: 0 B received, 13.73 KiB sent
+  persistent keepalive: every 10 seconds
+
+=== tcpdump on veth (both directions), forcing a fresh handshake ===
+04:41:24.014010 IP 10.231.0.2.51261 > 10.231.0.1.51820: UDP, length 148
+	0x0000:  4588 00b0 a2be 0000 4011 c126 0ae7 0002  E.......@..&....
+	0x0010:  0ae7 0001 c83d ca6c 009c 167e 0100 0000  .....=.l...~....
+	0x0020:  59d2 0c37 a1fc 390d e1ec 4d5e 9ebc ede9  Y..7..9...M^....
+	0x0030:  b2f4 1d88 0d74 ff45 068f 81ca f88b 7f8b  .....t.E........
+	0x0040:  ddd1 053a 101d 50b1 67f6 29ae edee fcb0  ...:..P.g.).....
+	0x0050:  6333 e6bd d636 e068 7c1e 771b 1f99 8562  c3...6.h|.w....b
+	0x0060:  3199 dc66 3a40 1448 f678 5a1a ff05 8725  1..f:@.H.xZ....%
+	0x0070:  de72 6e0b 3007 839c 24a3 1fa1 cb5e 78e6  .rn.0...$....^x.
+	0x0080:  6cb3 8403 8a84 7d84 c421 e1a0 7abe 8ffe  l.....}..!..z...
+	0x0090:  6654 d826 243f a0c9 3803 e16f 3917 de21  fT.&$?..8..o9..!
+	0x00a0:  0000 0000 0000 0000 0000 0000 0000 0000  ................
+04:41:24.014380 IP 10.231.0.1.51820 > 10.231.0.2.51261: UDP, length 64
+	0x0000:  4500 005c ffab 4000 4011 2515 0ae7 0001  E..\..@.@.%.....
+	0x0010:  0ae7 0002 ca6c c83d 0048 162a 0300 0000  .....l.=.H.*....
+	0x0020:  59d2 0c37 abc6 45e7 3925 4250 7f8f c5d6  Y..7..E.9%BP....
+	0x0030:  8774 71e8 6ac6 9c0b d08e 5070 75fe 39b1  .tq.j.....Ppu.9.
+	0x0040:  5b71 cabf 4f31 74bf 7a99 1c28 9f45 bfc8  [q..O1t.z..(.E..
+	0x0050:  77d4 046d ecbb 8635 5312 e9ad            w..m...5S...
+04:41:29.506033 IP 10.231.0.2.51261 > 10.231.0.1.51820: UDP, length 148
+	0x0000:  4588 00b0 ad05 0000 4011 b6df 0ae7 0002  E.......@.......
+	0x0010:  0ae7 0001 c83d ca6c 009c 167e 0100 0000  .....=.l...~....
+	0x0020:  3674 2803 d57e dca3 b151 6259 c855 bd47  6t(..~...QbY.U.G
+	0x0030:  cbeb 9963 c4ba 12f0 44d3 83f6 033d 5237  ...c....D....=R7
+	0x0040:  9335 be40 e63c 5a22 5368 7d00 34d3 2604  .5.@.<Z"Sh}.4.&.
+	0x0050:  9e1f 7fdf de25 3b21 d854 f9ef 1479 e580  .....%;!.T...y..
+	0x0060:  6c21 bcbf da9d 877e ea26 3dfc 7e76 6a31  l!.....~.&=.~vj1
+	0x0070:  e1f1 d7bf 411e 1510 b0e8 006b 2a11 4839  ....A......k*.H9
+	0x0080:  7330 8507 6c21 183d d9a9 7776 47aa c66e  s0..l!.=..wvG..n
+	0x0090:  832c ef5b d10e 8685 60e7 e52c a68a 5881  .,.[....`..,..X.
+	0x00a0:  ea9d 9d3b 856c a8d9 34f3 e47e cb68 1f4e  ...;.l..4..~.h.N
+04:41:29.506743 IP 10.231.0.1.51820 > 10.231.0.2.51261: UDP, length 64
+	0x0000:  4500 005c 0158 4000 4011 2369 0ae7 0001  E..\.X@.@.#i....
+	0x0010:  0ae7 0002 ca6c c83d 0048 162a 0300 0000  .....l.=.H.*....
+	0x0020:  3674 2803 2a80 0894 19d3 8f5c bc7c 2b22  6t(.*......\.|+"
+	0x0030:  5799 ae97 0f2f 922b 5452 5a06 5508 9b77  W..../.+TRZ.U..w
+	0x0040:  2201 f724 75db 3481 dbe7 a6a7 7471 24d7  "..$u.4.....tq$.
+	0x0050:  9322 85a7 48b2 7600 59fa ed90            ."..H.v.Y...
+
+
+=== wg show (client side) AFTER ~5s of handshake attempts — note 0 B received, no 'latest handshake' ===
+interface: wgt0
+  public key: cDgfr/bJ7DiUGWhuK0gSHp61RiRvzbXWG7fmKxwqhBI=
+  private key: (hidden)
+  listening port: 51261
+
+peer: cM9MQKfzK6sPlGqa99xyNnHqDZ/vYzbM/5+z0Ez2Gzs=
+  endpoint: 10.231.0.1:51820
+  allowed ips: 0.0.0.0/0
+  transfer: 0 B received, 296 B sent
+  persistent keepalive: every 15 seconds
