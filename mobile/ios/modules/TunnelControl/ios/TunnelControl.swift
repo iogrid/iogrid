@@ -167,6 +167,13 @@ public class TunnelControlModule: Module {
         // produced build 180's infinite add-config / re-prompt loop. No App
         // Group entitlement is involved — the private key still travels via
         // providerConfiguration only. (#701)
+        // SINGLE SOURCE OF TRUTH (#789, G1 client durable fix): the device's
+        // persistent WG private key is read ONCE here and is the only key the
+        // NE will sign with. `ensureDeviceKeypair` (called by JS immediately
+        // before this) derived the PUBLIC key it registered with vpn-svc FROM
+        // this same persisted private key, so the key the server registers ==
+        // pub(this private key) == the key baked below — equal by construction,
+        // not by a separately-persisted public string that could drift.
         let currentPriv = UserDefaults.standard.string(forKey: Self.devicePrivKeyDefaultsKey) ?? ""
 
         let bakedConfig = (manager?.protocolConfiguration as? NETunnelProviderProtocol)?
@@ -175,15 +182,27 @@ public class TunnelControlModule: Module {
         let bakedPeerPub = bakedConfig?["peerPublicKey"] as? String
         let bakedPeerEndpoint = bakedConfig?["peerEndpoint"] as? String
 
-        // Reuse is safe ONLY when all three already match what we'd configure.
-        // ANY drift (incl. a stale server key the OS never refreshed) forces a
-        // full teardown + recreate.
-        let canReuse =
-          manager != nil &&
-          !currentPriv.isEmpty &&
-          bakedPriv == currentPriv &&
-          bakedPeerPub == config.peerPublicKey &&
-          bakedPeerEndpoint == config.peerEndpoint
+        // The reuse-vs-recreate verdict is a PURE function of the baked vs.
+        // desired identity fields (#789). It lives in `tunnelManagerDecision`
+        // (static, below) so the exact rule is auditable AND mirrored 1:1 by
+        // the jest-tested `decideTunnelManagerAction` in
+        // src/lib/device-key-gate.ts. The rule: REUSE only when an installed
+        // manager exists AND we hold a current device key AND every
+        // identity-bearing field baked into it (clientPrivateKey, peerPublicKey,
+        // peerEndpoint) already equals what we're about to configure. ANY
+        // client-key drift (the #789 stale `l2bX…` symptom), server-key drift,
+        // endpoint change, or a leftover manager whose baked client key is
+        // absent/mismatched → RECREATE (awaited remove + fresh manager). A
+        // stale baked client key can therefore NEVER survive a Connect.
+        let decision = Self.tunnelManagerDecision(
+          hasManager: manager != nil,
+          currentClientPriv: currentPriv,
+          bakedClientPriv: bakedPriv,
+          bakedPeerPub: bakedPeerPub,
+          bakedPeerEndpoint: bakedPeerEndpoint,
+          desiredPeerPub: config.peerPublicKey,
+          desiredPeerEndpoint: config.peerEndpoint
+        )
 
         // Configure + save + start a (possibly fresh) manager.
         let configureAndStart: (NETunnelProviderManager) -> Void = { mgr in
@@ -235,26 +254,31 @@ public class TunnelControlModule: Module {
           }
         }
 
-        if canReuse, let mgr = manager {
+        switch decision {
+        case .reuse:
           // Steady state: identity unchanged → reuse the approved manager (no
           // system prompt). Re-saving the identical config is a no-op for the
-          // running NE, which is exactly what we want.
-          configureAndStart(mgr)
-        } else if let stale = manager {
-          // Drift detected (stale client key, stale server key, or endpoint
-          // change), or a leftover manager from an earlier build: tear the
-          // installed manager DOWN to completion, THEN recreate a fresh one so
-          // iOS installs the current key + server identity. Awaiting the remove
-          // (not firing remove+add back-to-back) keeps this out of build 180's
-          // add-config loop.
-          stale.removeFromPreferences { _ in
-            // A remove error is non-fatal: we still recreate; the save below
-            // surfaces any real failure to JS via SAVE_FAILED.
+          // running NE, which is exactly what we want. `.reuse` is only
+          // returned when a manager exists, so the force-unwrap is safe.
+          configureAndStart(manager!)
+        case .recreate:
+          // Drift detected (stale client key — the #789 `l2bX…` case — stale
+          // server key, or endpoint change), or a leftover manager from an
+          // earlier build: tear the installed manager DOWN to completion, THEN
+          // recreate a fresh one so iOS installs the current key + server
+          // identity. Awaiting the remove (not firing remove+add back-to-back)
+          // keeps this out of build 180's add-config loop. `.recreate` with an
+          // existing manager removes it first; with none it's a clean create.
+          if let stale = manager {
+            stale.removeFromPreferences { _ in
+              // A remove error is non-fatal: we still recreate; the save below
+              // surfaces any real failure to JS via SAVE_FAILED.
+              configureAndStart(NETunnelProviderManager())
+            }
+          } else {
+            // No existing manager at all (clean install / first connect).
             configureAndStart(NETunnelProviderManager())
           }
-        } else {
-          // No existing manager at all (clean install / first connect).
-          configureAndStart(NETunnelProviderManager())
         }
       }
     }
@@ -402,6 +426,55 @@ public class TunnelControlModule: Module {
       // Single-VPN-config-per-app pattern: take the first if any.
       completion(managers?.first, nil)
     }
+  }
+
+  // ── Reuse-vs-recreate decision (#789 G1 client durable fix) ──────────
+  //
+  // The verdict for whether `startTunnel` may REUSE the already-installed
+  // NETunnelProviderManager or must RECREATE it from scratch. Pulled out as
+  // a pure (side-effect-free, input→output) static so the rule is auditable
+  // in isolation and mirrored 1:1 by the jest-tested
+  // `decideTunnelManagerAction` in src/lib/device-key-gate.ts (RN/native
+  // can't be imported under jest, so the canonical regression guard lives in
+  // TS; this Swift copy and that TS copy MUST stay in lockstep — change both
+  // or neither).
+  enum TunnelManagerDecision {
+    /// Reuse the installed manager untouched (steady state, no system prompt).
+    case reuse
+    /// Tear down any installed manager + install a fresh one (drift / legacy).
+    case recreate
+  }
+
+  /// Decide reuse vs. recreate from the baked vs. desired identity fields.
+  ///
+  /// REUSE iff ALL of:
+  ///   - an installed manager exists (`hasManager`), AND
+  ///   - we hold a non-empty current device private key, AND
+  ///   - the manager's baked clientPrivateKey == that current device key
+  ///     (this is the #789 guard: a STALE baked client key — e.g. the
+  ///     founder's `l2bX…` left over from an expired session — forces
+  ///     recreate so iOS installs the current key into the NE), AND
+  ///   - the baked peerPublicKey == the desired server key, AND
+  ///   - the baked peerEndpoint == the desired endpoint.
+  /// Otherwise RECREATE. A leftover manager with no baked client key
+  /// (`bakedClientPriv == nil`, e.g. an older build's config) also recreates
+  /// because `nil != currentClientPriv` for any non-empty current key.
+  static func tunnelManagerDecision(
+    hasManager: Bool,
+    currentClientPriv: String,
+    bakedClientPriv: String?,
+    bakedPeerPub: String?,
+    bakedPeerEndpoint: String?,
+    desiredPeerPub: String,
+    desiredPeerEndpoint: String
+  ) -> TunnelManagerDecision {
+    let canReuse =
+      hasManager &&
+      !currentClientPriv.isEmpty &&
+      bakedClientPriv == currentClientPriv &&
+      bakedPeerPub == desiredPeerPub &&
+      bakedPeerEndpoint == desiredPeerEndpoint
+    return canReuse ? .reuse : .recreate
   }
 }
 
