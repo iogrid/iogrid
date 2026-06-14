@@ -24,6 +24,12 @@
 //	                                BUILD_GATEWAY_STATIC_API_KEY.
 //	BUILD_GATEWAY_STATIC_PLAN       plan (free / pro / enterprise),
 //	                                default "free".
+//	BUILD_GATEWAY_STATIC_API_KEYS   additional static keys so a dedicated
+//	                                internal customer (e.g. iogrid's own
+//	                                iOS-build dog-food) coexists with the
+//	                                first key. One per line / ';'-separated;
+//	                                each entry is key=workspace:user:plan
+//	                                (user/plan optional). #806.
 //	BUILD_GATEWAY_S3_ENDPOINT       synthetic S3 endpoint used in
 //	                                pre-signed URL output (the real S3
 //	                                client is plugged in once Hetzner
@@ -43,6 +49,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nats-io/nats.go"
@@ -252,9 +259,24 @@ func buildMeteringEmitter(logger *slog.Logger) metering.Emitter {
 
 // buildValidator wires the API-key validator. Production substitutes a
 // billing-svc Connect-Go client; until then, an env-driven static
-// validator gives us a single working key for smoke tests.
+// validator gives us working keys for smoke tests + the dog-food.
+//
+// Two env shapes are honoured, both populating the same static map:
+//
+//   - BUILD_GATEWAY_STATIC_API_KEY (+ _WORKSPACE / _USER / _PLAN) — the
+//     original single-key form. Unchanged; existing deployments keep working.
+//   - BUILD_GATEWAY_STATIC_API_KEYS — additional keys so a dedicated internal
+//     customer (e.g. iogrid's own iOS-build dog-food, #806) can coexist with
+//     the first key without evicting it. One key per line (or ';'-separated);
+//     each line is `key=workspace_id:user_id:plan` (user_id/plan optional,
+//     default to the same fallbacks as the singular form). This is the
+//     operator-provisioning seam until billing-svc CreateApiKey is wired into
+//     the validator — it lets us mint a distinct workspace-scoped key without
+//     a code change per customer.
 func buildValidator(logger *slog.Logger) auth.Validator {
 	static := auth.NewStaticValidator()
+	registered := 0
+
 	if key := os.Getenv("BUILD_GATEWAY_STATIC_API_KEY"); key != "" {
 		ws := os.Getenv("BUILD_GATEWAY_STATIC_WORKSPACE")
 		if ws == "" {
@@ -274,12 +296,54 @@ func buildValidator(logger *slog.Logger) auth.Validator {
 			UserID:      userID,
 			Plan:        plan,
 		})
+		registered++
 		logger.Info("static api key registered",
 			slog.String("workspace_id", ws),
 			slog.String("user_id", userID),
 			slog.String("plan", plan),
 		)
-	} else {
+	}
+
+	// Additional keys (multi-customer): one `key=workspace:user:plan` per line
+	// or ';'-separated entry. The key value is NEVER logged — only the
+	// workspace/user/plan it binds to.
+	if extra := os.Getenv("BUILD_GATEWAY_STATIC_API_KEYS"); strings.TrimSpace(extra) != "" {
+		for _, entry := range strings.FieldsFunc(extra, func(r rune) bool { return r == '\n' || r == ';' }) {
+			entry = strings.TrimSpace(entry)
+			if entry == "" {
+				continue
+			}
+			eq := strings.IndexByte(entry, '=')
+			if eq <= 0 {
+				logger.Warn("BUILD_GATEWAY_STATIC_API_KEYS entry missing '=' (key=workspace:user:plan); skipped")
+				continue
+			}
+			key := strings.TrimSpace(entry[:eq])
+			spec := strings.TrimSpace(entry[eq+1:])
+			parts := strings.SplitN(spec, ":", 3)
+			ws := strings.TrimSpace(parts[0])
+			if ws == "" {
+				ws = "default-workspace"
+			}
+			userID := ""
+			if len(parts) > 1 {
+				userID = strings.TrimSpace(parts[1])
+			}
+			plan := "free"
+			if len(parts) > 2 && strings.TrimSpace(parts[2]) != "" {
+				plan = strings.TrimSpace(parts[2])
+			}
+			static.Add(key, auth.Identity{WorkspaceID: ws, UserID: userID, Plan: plan})
+			registered++
+			logger.Info("static api key registered (multi)",
+				slog.String("workspace_id", ws),
+				slog.String("user_id", userID),
+				slog.String("plan", plan),
+			)
+		}
+	}
+
+	if registered == 0 {
 		logger.Warn("no static api key configured; every customer request will 401 until billing-svc wiring lands")
 	}
 	return auth.NewCachingValidator(static, 0)
