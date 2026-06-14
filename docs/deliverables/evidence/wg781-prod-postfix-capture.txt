@@ -1,0 +1,75 @@
+### POST-FIX PROD WG handshake — client(fresh correct key, registered via prod mobile flow) -> deployed daemon cM9MQ… on 144.91.121.182:51820
+### #781 RESOLVED (PR #783, merged fed1d2b7). Deployed binary sha256 2eb1d39b…, daemon pid 863603, key UNCHANGED.
+### Result: 148B init (type 0x01) -> 92B HANDSHAKE RESPONSE (type 0x02), transport data (0x04) flows, wg show = 92 B received + latest handshake set.
+### Contrast with prod-wire-capture.txt (PRE-fix): 148B init -> 64B COOKIE REPLY (type 0x03), 0 B received.
+
+=== Step 1: session created via PRODUCTION mobile flow (POST https://api.iogrid.org/v1/vpn/sessions/mobile -> 201) ===
+session_id          = 61539b4e-1345-4ee0-8932-608dc075430b
+client_public_key   = kAdp0fPmGuyCh3xRdzJgJyg7sMAcquELhzdyBI/EoWQ=   (fresh, throwaway)
+peer_public_key     = cM9MQKfzK6sPlGqa99xyNnHqDZ/vYzbM/5+z0Ez2Gzs=   (== prod daemon server key)
+peer_endpoint       = 144.91.121.182:51820
+customer_inner_cidr = 10.66.176.100/32
+(api_key = a 16-digit register-on-first-use consumer account number, redacted)
+
+=== Step 2: daemon peer_binder bound THIS session (from /var/log/iogridd.log) ===
+{"timestamp":"2026-06-14T04:33:35.377990Z","level":"INFO","fields":{"message":"session bound — customer peer upserted + provider key posted","session_id":"61539b4e-1345-4ee0-8932-608dc075430b","customer_id":"9d0582db-f48d-52bf-b49a-11ced0a92361","region":"us-east-1"},"target":"iogrid_routing::peer_binder"}
+
+=== Step 3: wg show (CLIENT side) AFTER handshake — note 92 B RECEIVED + latest handshake PRESENT ===
+interface: wgt0
+  public key: kAdp0fPmGuyCh3xRdzJgJyg7sMAcquELhzdyBI/EoWQ=
+  private key: (hidden)
+  listening port: 55343
+
+peer: cM9MQKfzK6sPlGqa99xyNnHqDZ/vYzbM/5+z0Ez2Gzs=
+  endpoint: 10.241.0.1:51820
+  allowed ips: 0.0.0.0/0
+  latest handshake: 22 seconds ago
+  transfer: 92 B received, 308 B sent
+  persistent keepalive: every 5 seconds
+
+=== Step 4a: decoded WG message types on the wire (1st byte of UDP payload) ===
+ # direction        udp_payload_len  wg_msg_type
+ 0 client->daemon               148  0x01 HANDSHAKE_INIT       <== handshake INIT
+ 1 daemon->CLIENT                92  0x02 HANDSHAKE_RESPONSE   <== handshake RESPONSE (type 0x02), NOT a 0x03 cookie
+ 2 client->daemon                32  0x04 TRANSPORT_DATA
+ 3 client->daemon                32  0x04 TRANSPORT_DATA
+ 4 client->daemon                32  0x04 TRANSPORT_DATA
+
+ daemon HANDSHAKE_RESPONSE (0x02) count = 1
+ daemon COOKIE_REPLY      (0x03) count = 0
+ RESULT: PASS — daemon sends real handshake responses (fix live)
+
+=== Step 4b: raw tcpdump on the host-side veth (both directions) — forcing a fresh handshake ===
+### Note the WG msg-type field at payload offset 0 (the "XX00 0000" word right after the 8-byte UDP header at hex 0x0014/0x0016):
+###   init     = 0100 0000 (type 0x01)  | response = 0200 0000 (type 0x02)  | cookie = 0300 0000 (type 0x03)  | transport = 0400 0000 (type 0x04)
+06:35:20.073906 IP 10.241.0.2.55343 > 10.241.0.1.51820: UDP, length 148
+	0x0000:  4588 00b0 3e68 0000 4011 2569 0af1 0002  E...>h..@.%i....
+	0x0010:  0af1 0001 d82f ca6c 009c 1692 0100 0000  ...../.l........   <- 0100 0000 = type 0x01 INIT
+	0x0020:  d31c 7a67 f268 5d4d e980 0e8c d036 c837  ..zg.h]M.....6.7
+	0x0030:  1e0b 8cbf 7e30 f7ef 5207 4dd6 ad07 35a7  ....~0..R.M...5.
+	0x0040:  fab8 f458 4227 74bb 06a9 8826 49c4 d2c6  ...XB't....&I...
+	0x0050:  c11c f75a 706c 3222 1f79 27cb cc09 1bbe  ...Zpl2".y'.....
+	0x0060:  14a9 0973 74f3 617f 7caa 73c7 fe8d 89c3  ...st.a.|.s.....
+	0x0070:  9992 fda4 28fc 6e75 bec9 8d33 fb3d ec50  ....(.nu...3.=.P
+	0x0080:  0c63 4d98 87ac ce76 8e86 8652 b443 9e8e  .cM....v...R.C..
+	0x0090:  e027 b253 6b05 6da4 d627 60f4 e83c bee7  .'.Sk.m..'`..<..
+	0x00a0:  0000 0000 0000 0000 0000 0000 0000 0000  ................
+06:35:20.074635 IP 10.241.0.1.51820 > 10.241.0.2.55343: UDP, length 92
+	0x0000:  4500 0078 5b27 4000 4011 c969 0af1 0001  E..x['@.@..i....
+	0x0010:  0af1 0002 ca6c d82f 0064 165a 0200 0000  .....l./.d.Z....   <- 0200 0000 = type 0x02 HANDSHAKE RESPONSE
+	0x0020:  0207 0000 d31c 7a67 7d51 924d 6363 b159  ......zg}Q.Mcc.Y
+	0x0030:  4e4b f6bf c36b 0daf f9f7 9e85 310b 2b89  NK...k......1.+.
+	0x0040:  e1e5 4e13 5377 5271 b8cb 042c d8bf 5a97  ..N.SwRq...,..Z.
+	0x0050:  920e 2710 fe34 c7ad bd01 8a92 839c d1cb  ..'..4..........
+	0x0060:  c1fb 2df6 789a a42e 0000 0000 0000 0000  ..-.x...........
+	0x0070:  0000 0000 0000 0000                      ........
+06:35:20.077367 IP 10.241.0.2.55343 > 10.241.0.1.51820: UDP, length 32
+	0x0000:  4500 003c 3e6b 0000 4011 2662 0af1 0002  E..<>k..@.&b....
+	0x0010:  0af1 0001 d82f ca6c 0028 161e 0400 0000  ...../.l.(......   <- 0400 0000 = type 0x04 TRANSPORT DATA (tunnel live)
+	0x0020:  0207 0000 0000 0000 0000 0000 019d 653d  ..............e=
+	0x0030:  7512 abff 1062 6aa9 4c58 03fd            u....bj.LX..
+
+=== Step 5: cleanup (no daemon mutation) ===
+- throwaway netns wg781p + veth wgp_h + the single MASQUERADE rule: all removed afterward.
+- daemon re-verified post-test: pid 863603 unchanged, :51820 bound, server key cM9MQ… unchanged. NOT restarted.
+- test session 61539b4e left to expire on its own 24h TTL (no DB write).
