@@ -1,0 +1,26 @@
+iOS-26 Simulator (iPhone 17 Pro, F29A421F-0DDD-424E-A87E-7D694FB62696, iOS 26.5)
+System-log excerpt captured LIVE via `xcrun simctl spawn <udid> log stream` while the
+iogrid app (main @ bd9dc41f, incl. #760) invoked TunnelControl.startTunnel() — i.e. the
+NEPacketTunnelProvider tunnel-bring-up path. 2026-06-14.
+
+ensureDeviceKeypair() SUCCEEDED in the sim (returned a real Curve25519 device public key,
+shown as deviceKey=AJQfiFRtt1nGV636... in the on-screen alert / screenshot 03).
+
+NETunnelProviderManager.loadAllFromPreferences ran, then saveToPreferences("iogrid VPN")
+FAILED at the NE boundary because the Simulator has no NE configuration daemon to IPC with:
+
+  06:08:08.141  [networkextension]  Loading all configurations
+  06:08:08.143  [networkextension]  Configuration 924CF626-… has not been loaded yet
+  06:08:08.144  [networkextension]  Reload from disk complete
+  06:08:08.148  [networkextension]  Post NEVPNConfigurationChangeNotification to app for manager { … }
+  06:08:08.148 E [networkextension]  Failed to save configuration iogrid VPN:
+                  Error Domain=NEConfigurationErrorDomain Code=11 "IPC failed" UserInfo={NSLocalizedDescription=IPC failed}
+  06:08:08.148 E [networkextension]  Failed to save configuration:
+                  Error Domain=NEVPNErrorDomain Code=5 "IPC failed" UserInfo={NSLocalizedDescription=IPC failed}
+  06:08:08.221   [UIKit:UIAlertControllerStackManager] _willShowAlertController: <RCTAlertController …>   ← app surfaced the failure (screenshot 03)
+
+CONCLUSION: startTunnel rejects in the sim with NEVPNErrorDomain Code=5 / NEConfigurationErrorDomain
+Code=11 "IPC failed". The WireGuard handshake ("resolving peer → connected") is never reached —
+there is no Network-Extension host in the Simulator. The client legs (Curve25519 keygen +
+POST /v1/vpn/sessions/mobile) ARE sim-verifiable; only the tunnel is device-only. The real
+tunnel proof is the daemon decap on a physical device (build 185, watcher armed).
