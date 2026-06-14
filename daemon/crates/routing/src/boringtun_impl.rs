@@ -269,6 +269,75 @@ impl Tunnel for BoringTun {
             }
         });
 
+        // WG timer pump (#795 / a6bf1d46). boringtun drives ALL
+        // established-session housekeeping — responder-side keepalives,
+        // handshake retransmission, and session-rotation-before-expiry —
+        // from `Tunn::update_timers`, which the daemon must call ~1/s.
+        // The packet path only ever ran `decapsulate`, so an established
+        // session was never serviced between the peer's handshakes: the
+        // daemon never sent a keepalive back, so the peer's transport
+        // (msg_type:4) could lapse until its NE re-handshaked. We tick
+        // every peer's `update_timers` once per second and ship any
+        // resulting datagram (keepalive / re-handshake init) to the peer's
+        // last-observed endpoint. A peer we've never received from has no
+        // endpoint yet — nothing to send to, so we skip it (its first
+        // inbound packet sets the endpoint and starts the session).
+        let timer_peers = self.peers.clone();
+        let timer_meter = self.meter.clone();
+        let timer_socket = socket.clone();
+        let mut timer_shutdown = rx.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
+            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            let mut out_buf = vec![0u8; RECV_BUF];
+            loop {
+                tokio::select! {
+                    biased;
+                    res = timer_shutdown.changed() => {
+                        if res.is_err() || *timer_shutdown.borrow() {
+                            tracing::debug!("WG timer pump shutdown");
+                            return;
+                        }
+                    }
+                    _ = tick.tick() => {
+                        // Snapshot Arcs so we never hold the peer-table
+                        // lock across an await (the send below).
+                        let snapshot: Vec<Arc<PeerEntry>> =
+                            timer_peers.read().values().cloned().collect();
+                        for entry in &snapshot {
+                            // Endpoint is set on first decapsulate; without
+                            // it there is nowhere to send a keepalive yet.
+                            let Some(dst) = *entry.endpoint.read() else {
+                                continue;
+                            };
+                            let res = {
+                                let mut tunn = entry.tunn.lock();
+                                tunn.update_timers(&mut out_buf)
+                            };
+                            match res {
+                                TunnResult::WriteToNetwork(out) => {
+                                    let owned = out.to_vec();
+                                    send_back(&timer_socket, &owned, dst, &timer_meter).await;
+                                }
+                                TunnResult::Err(e) => {
+                                    // ConnectionExpired etc. — boringtun has
+                                    // cleared the session; the next inbound
+                                    // handshake re-establishes it. Log at
+                                    // debug so an idle peer doesn't spam WARN.
+                                    tracing::debug!(
+                                        peer = %entry.public_key_b64,
+                                        error = ?e,
+                                        "WG update_timers reported session expiry; awaiting re-handshake"
+                                    );
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
         tokio::spawn(async move {
             run_pump(socket, peers, meter, sink, mac1_key, rx).await;
         });
@@ -291,7 +360,32 @@ impl Tunnel for BoringTun {
     }
 
     async fn upsert_peer(&self, peer: WireGuardPeer) -> Result<(), RoutingError> {
+        // IDEMPOTENT upsert (#795). A peer is keyed by its base64 static
+        // public key, so a row that already exists under the SAME key is
+        // the same WG identity — its `Tunn` already holds the live,
+        // handshake-established session. We MUST NOT replace it: building
+        // a fresh `Tunn` throws away the negotiated session keys, so the
+        // peer's between-handshake transport (msg_type:4) drops until its
+        // NE re-handshakes.
+        //
+        // This matters because the #788 reconcile pass re-upserts every
+        // bound peer every `RECONCILE_INTERVAL` (60 s); before this guard
+        // each tick re-keyed every live peer ("replaced existing WG peer
+        // (re-keyed)"), periodically dropping the founder's connection.
+        //
+        // A genuine key ROTATION presents a *different* public key, which
+        // is a different map entry — it lands as a fresh insert below and
+        // the stale entry ages out — so skipping same-key upserts never
+        // blocks a real re-key. Validate the key shape regardless so a
+        // malformed key is still rejected.
         let public_key = decode_public_key(&peer.public_key)?;
+        if self.peers.read().contains_key(&peer.public_key) {
+            tracing::debug!(
+                peer = %peer.public_key,
+                "WG peer already present; preserving live session (idempotent upsert, no re-key)"
+            );
+            return Ok(());
+        }
         let tunn = Tunn::new(
             self.config.static_private.clone(),
             public_key,
@@ -311,19 +405,30 @@ impl Tunnel for BoringTun {
             public_key_b64: peer.public_key.clone(),
             endpoint: RwLock::new(peer.endpoint),
         });
-        let prev = self.peers.write().insert(peer.public_key.clone(), entry);
-        if prev.is_some() {
-            tracing::info!(
-                peer = %peer.public_key,
-                "replaced existing WG peer (re-keyed)"
-            );
-        } else {
-            tracing::info!(
-                peer = %peer.public_key,
-                allowed_ips = ?peer.allowed_ips,
-                keepalive_s = peer.persistent_keepalive,
-                "WG peer registered"
-            );
+        // Re-check under the write lock to close the read→write TOCTOU: a
+        // concurrent upsert of the same key may have inserted between our
+        // read above and here. `or_insert_with`-style guard via the Entry
+        // API keeps the existing (live-session) `Tunn` if so.
+        use std::collections::hash_map::Entry as MapEntry;
+        let mut peers = self.peers.write();
+        match peers.entry(peer.public_key.clone()) {
+            MapEntry::Occupied(_) => {
+                drop(peers);
+                tracing::debug!(
+                    peer = %peer.public_key,
+                    "WG peer raced in concurrently; preserving live session (idempotent upsert)"
+                );
+            }
+            MapEntry::Vacant(slot) => {
+                slot.insert(entry);
+                drop(peers);
+                tracing::info!(
+                    peer = %peer.public_key,
+                    allowed_ips = ?peer.allowed_ips,
+                    keepalive_s = peer.persistent_keepalive,
+                    "WG peer registered"
+                );
+            }
         }
         Ok(())
     }
@@ -933,7 +1038,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn upsert_peer_registers_and_replaces() {
+    async fn upsert_peer_is_idempotent_and_preserves_live_session() {
+        // #795: re-upserting an EXISTING peer (same key) must NOT build a
+        // fresh `Tunn` — doing so throws away the established WG session and
+        // drops the peer's transport until it re-handshakes. The reconcile
+        // pass re-upserts every bound peer every 60 s, so this is the hot
+        // path that was periodically dropping the founder's connection.
         let config = BoringTunConfig {
             static_private: rand_key(),
             listen_addr: "127.0.0.1:0".parse().unwrap(),
@@ -953,9 +1063,59 @@ mod tests {
         };
         bt.upsert_peer(p.clone()).await.expect("upsert ok");
         assert_eq!(bt.peers.read().len(), 1, "one peer registered");
-        // Idempotent: re-upserting the same key replaces, doesn't append.
+        // Grab the Arc identity of the registered PeerEntry — it owns the
+        // live `Tunn`. A genuine "replace" would swap this for a new Arc.
+        let entry_before = bt.peers.read().get(&peer_b64).cloned().unwrap();
+
+        // Re-upsert the SAME key: must be a no-op on the entry (idempotent),
+        // preserving the exact same `Tunn` (and thus the live session).
         bt.upsert_peer(p).await.expect("re-upsert ok");
         assert_eq!(bt.peers.read().len(), 1, "still one peer after re-upsert");
+        let entry_after = bt.peers.read().get(&peer_b64).cloned().unwrap();
+        assert!(
+            Arc::ptr_eq(&entry_before, &entry_after),
+            "re-upsert MUST preserve the existing PeerEntry (live session), not re-key it"
+        );
+
+        // A genuinely DIFFERENT key is a different identity → a fresh entry,
+        // so real key rotation is never blocked by the same-key guard.
+        let peer_key_c = rand_key();
+        let peer_c_b64 = public_b64(&peer_key_c);
+        bt.upsert_peer(WireGuardPeer {
+            public_key: peer_c_b64.clone(),
+            endpoint: None,
+            allowed_ips: vec!["10.0.0.3/32".into()],
+            persistent_keepalive: 25,
+        })
+        .await
+        .expect("upsert new key ok");
+        assert_eq!(bt.peers.read().len(), 2, "a different key adds a new peer");
+    }
+
+    #[tokio::test]
+    async fn upsert_peer_rejects_malformed_key_even_when_present() {
+        // The key-shape validation must run before the idempotency check so a
+        // malformed key is rejected regardless of map state.
+        let config = BoringTunConfig {
+            static_private: rand_key(),
+            listen_addr: "127.0.0.1:0".parse().unwrap(),
+        };
+        let bt = BoringTun::new(
+            config,
+            Arc::new(Meter::default()),
+            Arc::new(RecordingSink::default()),
+        );
+        let err = bt
+            .upsert_peer(WireGuardPeer {
+                public_key: "not-valid-base64-or-32-bytes".into(),
+                endpoint: None,
+                allowed_ips: vec![],
+                persistent_keepalive: 25,
+            })
+            .await
+            .expect_err("malformed key must be rejected");
+        let _ = err;
+        assert_eq!(bt.peers.read().len(), 0, "no peer registered for a bad key");
     }
 
     /// Stand up two BoringTun instances (server + client) wired
@@ -1273,5 +1433,105 @@ mod tests {
         p.extend_from_slice(&dst);
         p.extend_from_slice(payload);
         p
+    }
+
+    /// Spawn a one-shot-per-connection TCP server that answers every
+    /// `GET .../bound-sessions` with the SAME single bound session (the
+    /// supplied customer key). Returns its `host:port`. Models the prod
+    /// vpn-svc closely enough to drive the REAL reconcile pass; held
+    /// constant so a re-key on a later tick would be a detectable change.
+    async fn spawn_bound_sessions_fake(customer_key_b64: String) -> String {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let body = format!(
+            concat!(
+                "{{\"provider_id\":\"throwaway\",\"count\":1,\"sessions\":[",
+                "{{\"session_id\":\"derisk-0001\",\"customer_id\":\"derisk-cust\",",
+                "\"region\":\"us-east-1\",\"current_provider_id\":\"throwaway\",",
+                "\"customer_wg_public_key\":\"{}\"}}]}}"
+            ),
+            customer_key_b64
+        );
+        tokio::spawn(async move {
+            loop {
+                let (mut sock, _) = match listener.accept().await {
+                    Ok(v) => v,
+                    Err(_) => return,
+                };
+                let body = body.clone();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let _ = sock.read(&mut buf).await;
+                    let resp = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                        body.len(),
+                        body
+                    );
+                    let _ = sock.write_all(resp.as_bytes()).await;
+                });
+            }
+        });
+        format!("http://{addr}")
+    }
+
+    /// #795 de-risk (real-binary path): drive the ACTUAL
+    /// `peer_binder::reconcile_bound_peers` against a REAL `BoringTun`
+    /// TWICE — mirroring the daemon's startup pass and a later 60s tick —
+    /// and prove the second pass is IDEMPOTENT: the live `PeerEntry` (which
+    /// owns the handshake-established `Tunn`) is the exact same Arc, i.e.
+    /// the peer is NOT re-keyed. Before the fix, the second reconcile
+    /// replaced the `Tunn` and dropped the founder's transport every 60s.
+    #[tokio::test]
+    async fn reconcile_twice_against_real_boringtun_does_not_rekey_live_peer() {
+        // The customer (client) key the fake vpn-svc reports as bound.
+        let client_key_b64 = public_b64(&rand_key());
+        let base = spawn_bound_sessions_fake(client_key_b64.clone()).await;
+        let bound_url = format!("{base}/v1/vpn/providers/throwaway/bound-sessions");
+
+        // A real BoringTun — same type the daemon runs in prod.
+        let bt = BoringTun::new(
+            BoringTunConfig {
+                static_private: rand_key(),
+                listen_addr: "127.0.0.1:0".parse().unwrap(),
+            },
+            Arc::new(Meter::default()),
+            Arc::new(RecordingSink::default()),
+        );
+        let http = reqwest::Client::new();
+
+        // PASS 1 — the daemon-restart / startup recovery pass: the map is
+        // empty, so the bound peer must be (re-)derived into it.
+        let n1 = crate::peer_binder::reconcile_bound_peers(&http, &bound_url, &bt)
+            .await
+            .expect("first reconcile ok");
+        assert_eq!(n1, 1, "startup reconcile must re-derive the one bound peer");
+        assert_eq!(
+            bt.peers.read().len(),
+            1,
+            "peer present after startup recovery"
+        );
+        let entry_after_first = bt.peers.read().get(&client_key_b64).cloned().unwrap();
+
+        // PASS 2 — the periodic 60s tick: the peer is already present. The
+        // reconcile still reports it re-derived the live peer (count == 1),
+        // but the underlying PeerEntry/Tunn MUST be preserved (no re-key).
+        let n2 = crate::peer_binder::reconcile_bound_peers(&http, &bound_url, &bt)
+            .await
+            .expect("second reconcile ok");
+        assert_eq!(n2, 1, "periodic reconcile still accounts for the live peer");
+        assert_eq!(
+            bt.peers.read().len(),
+            1,
+            "still exactly one peer (no churn)"
+        );
+        let entry_after_second = bt.peers.read().get(&client_key_b64).cloned().unwrap();
+
+        assert!(
+            Arc::ptr_eq(&entry_after_first, &entry_after_second),
+            "the periodic reconcile MUST preserve the live Tunn — re-keying it \
+             every tick is the #795 regression that dropped the founder's transport"
+        );
     }
 }
