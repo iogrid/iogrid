@@ -23,18 +23,32 @@
 import type { ConnectState } from '@/components/connect-button';
 import type { ConnectionStep } from '@/components/connection-status';
 
-/** The four tunnel states surfaced by the native TunnelControl module. */
-export type TunnelState = 'OFF' | 'CONNECTING' | 'CONNECTED' | 'DISCONNECTING';
+// `TunnelState` is owned by connection-gate.ts (which added the #701
+// `VERIFYING` member — NE up but no confirmed handshake yet). Re-exported
+// here so existing importers of `@/lib/connection-steps` keep resolving it
+// against a single source of truth instead of a drifting duplicate union.
+export type { TunnelState } from '@/lib/connection-gate';
+import type { TunnelState } from '@/lib/connection-gate';
 
 /**
- * Collapse the 4-state native tunnel lifecycle into the 3-state visual
- * the ConnectButton renders. DISCONNECTING shows the same in-progress
- * affordance as CONNECTING (the button is busy either way); everything
- * that isn't actively up or actively transitioning reads as `off`.
+ * Collapse the native tunnel lifecycle into the 3-state visual the
+ * ConnectButton renders. DISCONNECTING shows the same in-progress
+ * affordance as CONNECTING (the button is busy either way). VERIFYING
+ * (#701: NE up but the WireGuard handshake isn't confirmed yet) ALSO reads
+ * as the in-progress `connecting` visual — critically NEVER `connected` —
+ * so the green "Protected" affordance cannot appear on a black-hole tunnel.
+ * Everything that isn't actively up or actively transitioning reads as
+ * `off`.
  */
 export function tunnelToConnectState(state: TunnelState): ConnectState {
   if (state === 'CONNECTED') return 'connected';
-  if (state === 'CONNECTING' || state === 'DISCONNECTING') return 'connecting';
+  if (
+    state === 'CONNECTING' ||
+    state === 'VERIFYING' ||
+    state === 'DISCONNECTING'
+  ) {
+    return 'connecting';
+  }
   return 'off';
 }
 
