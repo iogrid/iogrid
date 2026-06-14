@@ -193,7 +193,11 @@ func (h *DispatchHandler) Dispatch(
 		},
 	}
 	h.Dispatcher.Register(conn)
-	defer h.Dispatcher.Unregister(providerID)
+	// Identity-safe teardown: when this provider holds two concurrent
+	// dispatch streams (e.g. a Mac advertising bandwidth on one and
+	// bandwidth+IOS_BUILD on another, #806), this stream's deferred
+	// teardown must not evict the OTHER, still-live connection.
+	defer h.Dispatcher.UnregisterConn(conn)
 
 	// #705: keep the SERVER→CLIENT half of the dispatch stream warm with a
 	// periodic ping. The daemon already pings client→server every 15s, but
