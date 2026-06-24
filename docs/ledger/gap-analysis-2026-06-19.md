@@ -200,3 +200,31 @@ number, BUT verified live:
 5. Enable #824 e2e gate + #825 mobile PR trigger.
 
 Operator-gated (correctly blocked): #682 (2nd node), #652 (Hetzner DR), #646 (Google OAuth), #665 (mainnet mint), #574 (ASC/TestFlight cookie).
+
+---
+
+## Execution status — updated 2026-06-19 (post session-limit interruption)
+
+A session-limit window killed 4 in-flight delivery agents mid-run; their committed work + opened PRs are captured here so the roadmap stays the single source of truth.
+
+### Merged to main since the gap analysis
+- **#812** (`bec19473`) — #701 native NE gates `startTunnel` completion on a REAL handshake; the fake-"connected" branch is dead. (G1 client honesty.)
+- **#823** (`dcc490f2`) — antiabuse-svc re-enabled 1/1 + live-proven (CSAM URL → BLOCK, normal → ALLOW). proxy-gateway is **fail-CLOSED**, so the 35-day outage DENIED proxy traffic — it did NOT allow it unchecked. (Safety restored.)
+- **#828** (`72b7c322`) — reroll prefix-collision fixed (antiabuse no longer silently frozen).
+- **#803** (`610ad778`) — e2e harness boots.
+
+### Open PRs awaiting review / validation
+| PR | Goal | What | Gating |
+|---|---|---|---|
+| **#827** | G1 | full-tunnel captures IPv6 (`::/0`) — the "connects but doesn't browse" fix (IPv6 leaked past the v4-only tunnel on cellular) | Mac build validation (env broken — see blocker) + on-device browse check |
+| **#830** | G3 | settlement worker skips an oversized/unfundable settlement instead of dead-locking the whole tick | CI green + review |
+| **#831** | safety | antiabuse fail-closed CSAM stub + container hardening | CI green + review |
+
+### Blocker
+- **Mac provider build env** — disk 98-99% (the 2026-06-15 cleanup re-filled) + system Ruby 2.6.10 (< 2.7, breaks CocoaPods). Blocks iOS build validation (#827) and the first-ever green build (G2). Durable re-fix in progress (disk cleanup + Ruby ≥2.7).
+
+### Per-goal honest status (now)
+- **G1** — server egress PROVEN (evidence doc); client IPv6 route fix in **PR #827** (pending Mac build + device browse check); #812 native honesty gate MERGED; #816 auto-bind durability open. NOT end-user-confirmed.
+- **G2** — first green iOS build still blocked on the Mac env; runner-fail-closed #821 open. NOT met.
+- **G3** — settlement dead-lock fix in **PR #830**; headline-reconcile #819 + RPC-unify #820 open. NOT met (no real customer→provider settle proven).
+- **Safety** — antiabuse RESTORED + proven fail-closed (#823 merged; #831 hardening open).
