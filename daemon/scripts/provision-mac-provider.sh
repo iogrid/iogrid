@@ -82,6 +82,73 @@ if [ "$CHECK_ONLY" -eq 1 ]; then
   exit 0
 fi
 
+# ── 3b. Native-runner toolchain (#832) ───────────────────────────────────
+# When the host runs the NATIVE iOS-build runner (no Tart VM — the case for a
+# trusted dev Mac, e.g. Hatice's), builds use the HOST's CocoaPods + Ruby and
+# leak per-build scratch under $TMPDIR. Two recurring env regressions block all
+# builds unless provisioned durably:
+#   (a) `pod` resolves to a stale gem-installed CocoaPods 1.11.3 under system
+#       Ruby 2.6 in /usr/local/bin (ahead of Homebrew on /etc/paths). 1.11.3 on
+#       Ruby 2.6 crashes `pod install` on Enumerable#filter_map (Ruby ≥2.7).
+#   (b) the native runner's $TMPDIR/iogridd-ios-<uuid> scratch never gets
+#       cleaned → disk creeps to ENOSPC and every build fails.
+# This block makes the host correct for native builds; idempotent.
+if command -v brew >/dev/null 2>&1; then
+  # (a) Ensure a Homebrew Ruby ≥2.7 + CocoaPods, and make brew's `pod` win.
+  if ! brew list ruby >/dev/null 2>&1; then
+    log "installing Homebrew Ruby (≥2.7, for CocoaPods)…"
+    brew install ruby || warn "brew install ruby failed — CocoaPods may fall back to system Ruby 2.6"
+  fi
+  BREW_PREFIX="$(brew --prefix 2>/dev/null || echo /opt/homebrew)"
+  if ! "$BREW_PREFIX/opt/ruby/bin/gem" list -i cocoapods >/dev/null 2>&1; then
+    log "installing CocoaPods under Homebrew Ruby…"
+    brew install cocoapods || warn "brew install cocoapods failed"
+  fi
+  # Neutralise a stale /usr/local/bin CocoaPods so brew's wins on PATH. (The
+  # daemon's native runner also prepends /opt/homebrew/bin in its preamble, but
+  # disabling the shadow makes ANY shell on the host correct too.)
+  for f in pod sandbox-pod xcodeproj; do
+    if [ -e "/usr/local/bin/$f" ]; then
+      head -1 "/usr/local/bin/$f" 2>/dev/null | grep -q "Ruby.framework/Versions/2.6" && {
+        log "disabling stale system-Ruby /usr/local/bin/$f (shadows Homebrew CocoaPods)…"
+        sudo mv "/usr/local/bin/$f" "/usr/local/bin/$f.disabled-ruby26" 2>/dev/null \
+          || warn "could not rename /usr/local/bin/$f (need sudo); ensure /opt/homebrew/bin precedes it on PATH"
+      }
+    fi
+  done
+  if /bin/bash -lc 'export PATH=/opt/homebrew/bin:$PATH; pod --version' >/dev/null 2>&1; then
+    log "pod $(/bin/bash -lc 'export PATH=/opt/homebrew/bin:$PATH; pod --version' 2>/dev/null) (Homebrew Ruby) ✓"
+  else
+    warn "pod not runnable under Homebrew Ruby — check 'brew install cocoapods'"
+  fi
+else
+  warn "Homebrew not found — native CocoaPods builds will use system Ruby 2.6 and break on filter_map."
+fi
+
+# (b) Install the scratch-prune cron so native-runner build dirs can't fill the
+# disk (rm $TMPDIR/iogridd-ios-* older than 60 min when no build is running).
+PRUNE="$HOME/bin/iogridd-scratch-prune.sh"
+mkdir -p "$HOME/bin"
+cat > "$PRUNE" <<'PRUNE_EOF'
+#!/bin/bash
+# iogrid #832: prune stale native iOS-build scratch the NativeRunner leaves in
+# $TMPDIR (iogridd-ios-<uuid>). Skips while a build is actively running.
+set -u
+TMP="${TMPDIR:-/tmp}"
+if pgrep -qf 'xcodebuild' || pgrep -qf 'pod install'; then exit 0; fi
+find "$TMP" -maxdepth 1 -type d -name 'iogridd-ios-*' -mmin +60 -prune -exec rm -rf {} + 2>/dev/null
+find "$TMP" -maxdepth 1 -type d -name 'iogrid-*-dd'   -mmin +120 -prune -exec rm -rf {} + 2>/dev/null
+exit 0
+PRUNE_EOF
+chmod +x "$PRUNE"
+if ! crontab -l 2>/dev/null | grep -q 'iogridd-scratch-prune'; then
+  log "installing scratch-prune cron (*/30)…"
+  ( crontab -l 2>/dev/null; echo '*/30 * * * * /bin/bash -lc "$HOME/bin/iogridd-scratch-prune.sh" >> /tmp/iogridd-scratch-prune.log 2>&1' ) | crontab - \
+    || warn "could not install scratch-prune cron — install it manually"
+else
+  log "scratch-prune cron already installed ✓"
+fi
+
 # ── 4. Tart — install if missing (the only host dependency) ──────────────
 if ! command -v tart >/dev/null 2>&1; then
   log "installing Tart (cirruslabs/cli/tart) via Homebrew…"
