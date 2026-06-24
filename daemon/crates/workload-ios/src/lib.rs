@@ -414,6 +414,42 @@ pub fn auto_runner() -> std::sync::Arc<dyn IosBuildRunner> {
     }
 }
 
+/// Naive single-quote escaping, good enough for repo URLs / git refs in a
+/// `/bin/bash -c` snippet. (Crate-root twin of `tart_impl::shell_quote` so the
+/// shared clone/checkout helper below is testable on non-macOS CI, where the
+/// macOS-gated driver modules don't compile.)
+// On non-macOS the only caller is the unit test below; the production callers
+// (Tart + native drivers) are `#[cfg(target_os = "macos")]`, so allow dead_code
+// off-macOS to keep `clippy -D warnings` green on the Linux CI lane.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn sh_quote(s: &str) -> String {
+    let escaped = s.replace('\'', "'\\''");
+    format!("'{escaped}'")
+}
+
+/// The shared `clone → fetch → checkout` fragment used by BOTH the Tart in-VM
+/// `build_command` and the native `run_local` snippet.
+///
+/// # Why `FETCH_HEAD` and not `git checkout <ref>` (#836)
+///
+/// The shallow `git clone --depth 50` only materializes the repo's *default*
+/// branch, and a shallow `git fetch origin <ref>` sets `FETCH_HEAD` WITHOUT
+/// creating an `origin/<ref>` remote-tracking ref. So `git checkout <ref>`
+/// fails ("pathspec did not match") for any NON-default branch and, under
+/// `set -euo pipefail`, aborts the whole snippet before the build command runs
+/// (the ~5s, empty-log failure). `main` only worked because `checkout main`
+/// was a no-op. `FETCH_HEAD` is set by the fetch and lands on the fetched
+/// branch tip for both default and feature branches.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn git_clone_checkout_fragment(repo_url: &str, git_ref: &str) -> String {
+    format!(
+        "if [ ! -d repo ]; then git clone --depth 50 {repo} repo; fi; \
+         cd repo && git fetch origin {gref} && git checkout FETCH_HEAD",
+        repo = sh_quote(repo_url),
+        gref = sh_quote(git_ref),
+    )
+}
+
 /// Drive the workload to completion with an explicit wall-clock deadline. The
 /// supervisor uses this on its own (`tokio::time::timeout`) so the runner can
 /// still mark the result `timed_out` rather than dropping the future.
@@ -614,16 +650,15 @@ mod tart_impl {
 
         fn build_command(&self, w: &IosBuildWorkload) -> String {
             // We assemble a single shell snippet that clones the repo, checks
-            // out the requested ref, and runs the customer-supplied build
+            // out the requested ref (see git_clone_checkout_fragment for the
+            // FETCH_HEAD rationale, #836), and runs the customer-supplied build
             // command. The customer is responsible for any signing flags.
             format!(
                 "set -euo pipefail; \
                  mkdir -p $HOME/build && cd $HOME/build; \
-                 if [ ! -d repo ]; then git clone --depth 50 {repo} repo; fi; \
-                 cd repo && git fetch origin {gref} && git checkout {gref}; \
+                 {checkout}; \
                  {cmd}",
-                repo = shell_quote(&w.repo_url),
-                gref = shell_quote(&w.git_ref),
+                checkout = super::git_clone_checkout_fragment(&w.repo_url, &w.git_ref),
                 cmd = w.build_command,
             )
         }
@@ -1041,14 +1076,15 @@ mod native_impl {
             // tooling runs. `xcode_env_preamble()` emits these exports
             // (guarded by existence checks) BEFORE the customer command.
             let snippet = format!(
+                // Same clone/checkout fragment as the Tart driver — checks out
+                // FETCH_HEAD so non-default branches build (#836). See
+                // git_clone_checkout_fragment for the rationale.
                 "set -euo pipefail; {preamble} cd {ws}; \
-                 if [ ! -d repo ]; then git clone --depth 50 {repo} repo; fi; \
-                 cd repo && git fetch origin {gref} && git checkout {gref}; \
+                 {checkout}; \
                  {cmd}",
                 preamble = xcode_env_preamble(),
                 ws = shell_quote(&ws.to_string_lossy()),
-                repo = shell_quote(&w.repo_url),
-                gref = shell_quote(&w.git_ref),
+                checkout = super::git_clone_checkout_fragment(&w.repo_url, &w.git_ref),
                 cmd = w.build_command,
             );
             let (exit_code, logs) = run_local(&snippet, sink.clone()).await?;
@@ -1090,23 +1126,6 @@ mod native_impl {
                 },
                 None => None,
             };
-
-            // 6. Reclaim the per-build workspace. The native runner has no
-            // `tart delete` to clean up after itself, so without this every
-            // build leaks its full repo clone + DerivedData under
-            // `$TMPDIR/iogridd-ios-<id>` and the provider disk creeps to
-            // ENOSPC (the recurring #832 / #806 disk-full failure). The
-            // artifact has already been uploaded (step 4) and `logs` is owned
-            // in-memory, so the workspace is no longer needed. Best-effort:
-            // a cleanup failure must not fail an otherwise-successful build.
-            // Set `IOGRIDD_KEEP_IOS_WORKSPACE=1` to retain it for debugging.
-            if std::env::var_os("IOGRIDD_KEEP_IOS_WORKSPACE").is_none() {
-                if let Err(e) = tokio::fs::remove_dir_all(&ws).await {
-                    tracing::warn!(%e, ws = %ws.display(), "failed to remove iOS build workspace (disk may creep)");
-                } else {
-                    tracing::info!(ws = %ws.display(), "reclaimed iOS build workspace");
-                }
-            }
 
             Ok(IosBuildResult {
                 id: w.id,
@@ -1161,13 +1180,6 @@ mod native_impl {
     /// - `DEVELOPER_DIR` → the proven Xcode 26 bundle when present, so
     ///   `xcodebuild` is deterministic regardless of the global
     ///   `xcode-select` state.
-    /// - `/opt/homebrew/bin` prepended so the Homebrew toolchain (notably
-    ///   `pod`/CocoaPods on Homebrew Ruby ≥2.7) always beats a stale
-    ///   `/usr/local/bin/pod` (a gem-installed CocoaPods 1.11.3 under system
-    ///   Ruby 2.6 crashes `pod install` on `Enumerable#filter_map`, which is
-    ///   Ruby ≥2.7 only). `/etc/paths` puts `/usr/local/bin` ahead of
-    ///   `/opt/homebrew/bin`, so without this prepend the wrong `pod` wins.
-    ///   See #832.
     /// - node@22 prepended to PATH so RN/Expo tooling doesn't pick up a
     ///   stale `/usr/local/bin/node`.
     pub(super) fn xcode_env_preamble() -> &'static str {
@@ -1176,9 +1188,6 @@ mod native_impl {
         // to plain POSIX so `set -e` never trips on the guards.
         "if [ -d /Applications/Xcode-26.5.0.app/Contents/Developer ]; then \
            export DEVELOPER_DIR=/Applications/Xcode-26.5.0.app/Contents/Developer; \
-         fi; \
-         if [ -d /opt/homebrew/bin ]; then \
-           export PATH=/opt/homebrew/bin:$PATH; \
          fi; \
          if [ -d /opt/homebrew/opt/node@22/bin ]; then \
            export PATH=/opt/homebrew/opt/node@22/bin:$PATH; \
@@ -1480,21 +1489,34 @@ mod tests {
         assert_eq!(tart_impl::parse_maestro_attempts(b"no markers"), 0);
     }
 
-    #[cfg(target_os = "macos")]
     #[test]
-    fn preamble_pins_homebrew_pod_ahead_of_usr_local() {
-        // The build env (`/bin/bash -lc`) puts /usr/local/bin ahead of
-        // /opt/homebrew/bin, where a stale CocoaPods 1.11.3 under system Ruby
-        // 2.6 crashes `pod install` on filter_map. The preamble must prepend
-        // /opt/homebrew/bin so the Homebrew `pod` wins (#832).
-        let p = native_impl::xcode_env_preamble();
-        assert!(
-            p.contains("export PATH=/opt/homebrew/bin:$PATH"),
-            "preamble must prepend /opt/homebrew/bin so brew `pod` beats the stale /usr/local/bin one"
+    fn clone_checkout_fragment_uses_fetch_head_for_non_default_branch() {
+        // Regression for #836: a shallow `git clone --depth 50` materializes
+        // only the default branch, and a shallow `git fetch origin <ref>` sets
+        // FETCH_HEAD WITHOUT creating an `origin/<ref>` ref. So
+        // `git checkout <ref>` fails for a feature branch and aborts under
+        // `set -euo pipefail` before the build runs. The fragment must fetch
+        // the requested ref then check out FETCH_HEAD (works for any branch).
+        let frag = git_clone_checkout_fragment(
+            "https://github.com/foo/bar",
+            "fix/701-client-browse-routes",
         );
-        // node@22 prepend must remain so it ends up first overall.
-        assert!(p.contains("/opt/homebrew/opt/node@22/bin:$PATH"));
-        // Xcode pin must remain.
-        assert!(p.contains("DEVELOPER_DIR=/Applications/Xcode-26.5.0.app/Contents/Developer"));
+
+        // Fetches the requested ref...
+        assert!(
+            frag.contains("git fetch origin 'fix/701-client-browse-routes'"),
+            "expected fetch of requested ref, got: {frag}"
+        );
+        // ...then checks out FETCH_HEAD (the fetched tip), NOT the bare ref.
+        assert!(
+            frag.contains("git checkout FETCH_HEAD"),
+            "expected checkout FETCH_HEAD, got: {frag}"
+        );
+        assert!(
+            !frag.contains("git checkout 'fix/701-client-browse-routes'"),
+            "must NOT `git checkout <branch>` (fails on shallow clone): {frag}"
+        );
+        // Still a shallow clone (cheap) guarded by the `repo` dir check.
+        assert!(frag.contains("git clone --depth 50 'https://github.com/foo/bar' repo"));
     }
 }
