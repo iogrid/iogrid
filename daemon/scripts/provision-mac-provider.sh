@@ -22,17 +22,24 @@ CHECK_ONLY=0
 # Minimum free space for the cached image (~60-80 GB) + an ephemeral clone.
 MIN_FREE_GB=90
 # Image map mirrors build-gateway/internal/xcode/versions.go. Keep in sync.
-declare -a KNOWN_VERSIONS=("latest" "16.2" "16.1" "16.0" "15.4" "15.3" "15.2")
+# Tahoe + Xcode 26 is the default: Expo SDK 56 / RN 0.85 needs the iOS 26 SDK
+# (Swift 6.2), which only Xcode 26 ships. Cirrus Labs bakes Xcode + SDK +
+# simulators into these images, so the provider's daemon just pulls one — no
+# Apple ID, no manual Xcode install, ever.
+declare -a KNOWN_VERSIONS=("latest" "26" "26.1" "26.1.1" "16.2" "16.1" "16.0" "15.4" "15.3" "15.2")
 image_for() {
   case "$1" in
-    latest) echo "ghcr.io/cirruslabs/macos-sequoia-xcode:latest" ;;
-    16.2)   echo "ghcr.io/cirruslabs/macos-sequoia-xcode:16.2" ;;
-    16.1)   echo "ghcr.io/cirruslabs/macos-sequoia-xcode:16.1" ;;
-    16.0)   echo "ghcr.io/cirruslabs/macos-sequoia-xcode:16.0" ;;
-    15.4)   echo "ghcr.io/cirruslabs/macos-sonoma-xcode:15.4" ;;
-    15.3)   echo "ghcr.io/cirruslabs/macos-sonoma-xcode:15.3" ;;
-    15.2)   echo "ghcr.io/cirruslabs/macos-sonoma-xcode:15.2" ;;
-    *)      return 1 ;;
+    latest)   echo "ghcr.io/cirruslabs/macos-tahoe-xcode:latest" ;;
+    26)       echo "ghcr.io/cirruslabs/macos-tahoe-xcode:26" ;;
+    26.1)     echo "ghcr.io/cirruslabs/macos-tahoe-xcode:26.1" ;;
+    26.1.1)   echo "ghcr.io/cirruslabs/macos-tahoe-xcode:26.1.1" ;;
+    16.2)     echo "ghcr.io/cirruslabs/macos-sequoia-xcode:16.2" ;;
+    16.1)     echo "ghcr.io/cirruslabs/macos-sequoia-xcode:16.1" ;;
+    16.0)     echo "ghcr.io/cirruslabs/macos-sequoia-xcode:16.0" ;;
+    15.4)     echo "ghcr.io/cirruslabs/macos-sonoma-xcode:15.4" ;;
+    15.3)     echo "ghcr.io/cirruslabs/macos-sonoma-xcode:15.3" ;;
+    15.2)     echo "ghcr.io/cirruslabs/macos-sonoma-xcode:15.2" ;;
+    *)        return 1 ;;
   esac
 }
 
@@ -158,6 +165,32 @@ if ! command -v tart >/dev/null 2>&1; then
   brew install cirruslabs/cli/tart || die 13 "tart install failed"
 fi
 log "tart $(tart --version 2>/dev/null || echo present) ✓"
+
+# ── 4b. GUI (Aqua) session — THE non-obvious hard requirement ────────────
+# macOS Virtualization.framework refuses to boot a VM unless the launching
+# process lives in a GUI (Aqua) login session: it needs that secure session to
+# create the VM's HostKey. A daemon started over SSH, as a LaunchDaemon, or via
+# nohup is NOT in an Aqua session, so `tart run` dies with
+#   VZErrorDomain Code=-9 "security error" … "Failed to create new HostKey".
+# (Confirmed live 2026-06-12: every SSH-launched `tart run` failed exactly
+# this way; the daemon must run in-session instead.) This is why a real
+# provider never needs to give iogrid SSH access — the daemon IS the in-session
+# agent. The two requirements, which every headless macOS CI also uses:
+#   (a) auto-login ON, so a GUI session exists after every reboot;
+#   (b) the iogrid daemon runs as a per-user LaunchAgent (Aqua session), so its
+#       `tart run` children inherit the secure session.
+if launchctl managername 2>/dev/null | grep -qiE 'aqua|gui'; then
+  log "GUI (Aqua) login session detected ✓ — Tart can create VM HostKeys here."
+else
+  warn "NOT in a GUI session. Tart cannot boot VMs from here (HostKey error)."
+  warn "The iogrid daemon must run as a per-user LaunchAgent inside an auto-login"
+  warn "GUI session — not over SSH / LaunchDaemon / nohup. Onboarding must:"
+  warn "  1) enable auto-login:  sudo sysadminctl -autologin set -userName <you> -password <pw>"
+  warn "  2) install the daemon LaunchAgent at ~/Library/LaunchAgents/io.iogrid.daemon.plist"
+  warn "     (RunAtLoad=true) and 'launchctl bootstrap gui/\$(id -u) <plist>'."
+  warn "Without a GUI session the host cannot run iOS-build workloads."
+  [ "$CHECK_ONLY" -eq 1 ] || die 15 "no GUI session — set up auto-login + the daemon LaunchAgent (see above), then re-run."
+fi
 
 # ── 5. Pre-pull the Xcode image so the first real build doesn't pay for it ─
 if tart list 2>/dev/null | awk '{print $NF}' | grep -qx "$IMAGE"; then
