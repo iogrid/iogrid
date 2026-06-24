@@ -13,6 +13,20 @@ on:
       - 'mobile/ios/**'
       - '.github/workflows/mobile-ios-ci.yml'
       - '!mobile/ios/**/*.md'
+  # PRE-MERGE VALIDATION (#825). Swift / NetworkExtension changes used to
+  # merge to main with ZERO checks (PR #812 showed "no checks reported"),
+  # so #827-class compile/link regressions only surfaced on the post-merge
+  # TestFlight build. This `pull_request` trigger fires the build-only
+  # `pr-build-validation` job below (NOT the full TestFlight pipeline) so
+  # the Swift app + the PacketTunnelProvider NE target are proven to
+  # COMPILE + LINK before merge. Same `paths` filter as push so doc-only
+  # PRs don't spin up a ~30-min Mac build.
+  pull_request:
+    branches: [main]
+    paths:
+      - 'mobile/ios/**'
+      - '.github/workflows/mobile-ios-ci.yml'
+      - '!mobile/ios/**/*.md'
   workflow_dispatch:
 
 # Concurrency group: ALL mobile-ios-ci runs serialize on a single
@@ -28,6 +42,14 @@ concurrency:
 
 jobs:
   build:
+    # FULL TestFlight pipeline — build → sign → archive → upload →
+    # beta-review. Runs ONLY on push:[main] + workflow_dispatch, NEVER on
+    # pull_request (#825). PR validation goes through the build-only
+    # `pr-build-validation` job below, which has no signing/upload steps.
+    # This `if:` keeps the actively-running main TestFlight path (Build
+    # 191+) completely unchanged for pushes while preventing the
+    # credential-touching steps from ever executing in a PR context.
+    if: github.event_name != 'pull_request'
     runs-on: macos-latest
     timeout-minutes: 60
     defaults:
@@ -1450,3 +1472,246 @@ jobs:
                       headers=H, timeout=15).json().get('data', {})
           print('::notice::Beta Review submission posted — Apple human review pending')
           PY
+
+  # ═══════════════════════════════════════════════════════════════════
+  # PR BUILD-VALIDATION (#825) — pull_request only.
+  #
+  # PURPOSE: prove the Swift app + the PacketTunnelProvider NetworkExtension
+  # target COMPILE and LINK before a PR merges to main. PR #812 (the #701
+  # native NE gate) showed "no checks reported" because mobile-ios-ci only
+  # ran on push:[main] — so a #827-class compile/link break in Swift/NE code
+  # reached main unvalidated and only surfaced on the post-merge TestFlight
+  # build. This job closes that gap.
+  #
+  # SCOPE — strictly additive + build-only:
+  #   * Runs ONLY on pull_request (this job has no `if`, but the workflow
+  #     `on:` block scopes pull_request to it; the full `build` job above
+  #     is gated `if: github.event_name != 'pull_request'`).
+  #   * NO signing / keychain / fastlane / archive / IPA / altool /
+  #     TestFlight-upload / beta-group / beta-review steps. None of the
+  #     Apple secrets are referenced here — a fork/PR with no secret access
+  #     still builds. The compile is done with CODE_SIGNING_ALLOWED=NO, the
+  #     SAME flag the main pipeline's "Build app for iOS Simulator" step
+  #     uses, so signing config on the NE target (Manual / Apple
+  #     Distribution, set by add-network-extension-target.rb) is overridden.
+  #   * The simulator `xcodebuild build` compiles the app scheme. Because
+  #     add-network-extension-target.rb wires the NE as a PBXTargetDependency
+  #     of the main app AND adds an "Embed App Extensions" copy phase,
+  #     building the app scheme also COMPILES + LINKS the PacketTunnelProvider
+  #     .appex (including the libwg-go.a link) — i.e. it would have caught
+  #     a #827-class Swift/NE regression.
+  #
+  # The steps below are copied verbatim from the build-only portion of the
+  # `build` job above (checkout → node → Xcode → npm install → jest →
+  # prebuild → add NE target → Podfile patch → pod install → wg-go static
+  # lib → simulator build). They deliberately STOP at the simulator build —
+  # no archive, no upload. CocoaPods + npm + Go module caching is handled by
+  # the setup-node / setup-go actions just like the main job.
+  # ═══════════════════════════════════════════════════════════════════
+  pr-build-validation:
+    if: github.event_name == 'pull_request'
+    runs-on: macos-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: mobile/ios
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: mobile/ios/package-lock.json
+
+      # Apple requires iOS 26 SDK (Xcode 26+); match the main job's Xcode.
+      - name: Select latest-stable Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Run unit tests (jest)
+        # Same fail-fast jest gate the main job runs — catches JS/TS
+        # regressions before the ~30-min native build. node@22 + the
+        # repo's jest.config.js (NOT pnpm/corepack, which crashes on old
+        # node — MEMORY mobile-jest note).
+        run: npx jest --config jest.config.js --ci 2>&1 | tail -60
+
+      - name: Generate native iOS project
+        run: npx expo prebuild --platform ios --no-install --clean
+
+      - name: Add PacketTunnelProvider NE target (#568)
+        # Creates the NE Xcode target, wires the WireGuardKit SwiftPM dep,
+        # and embeds the .appex into the main app — so the simulator build
+        # below compiles + links the NE. APPLE_TEAM_ID only sets the
+        # per-target DEVELOPMENT_TEAM; the simulator build overrides signing
+        # with CODE_SIGNING_ALLOWED=NO, so this works even when the secret
+        # is empty on a PR.
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          gem install xcodeproj --no-document --silent
+          ruby scripts/add-network-extension-target.rb
+
+      - name: Patch Podfile — disable signing for Pod static libs + force SKIP_INSTALL=NO on app
+        run: |
+          python3 << 'PY'
+          import re
+          p = open('ios/Podfile').read()
+          snippet = """
+            installer.pods_project.targets.each do |target|
+              target.build_configurations.each do |config|
+                config.build_settings['CODE_SIGNING_ALLOWED']  = 'NO'
+                config.build_settings['CODE_SIGNING_REQUIRED'] = 'NO'
+                config.build_settings['CODE_SIGN_IDENTITY']    = ''
+                config.build_settings['EXPANDED_CODE_SIGN_IDENTITY'] = ''
+              end
+            end
+            installer.aggregate_targets.each do |agg|
+              agg.user_project.targets.each do |target|
+                next if target.product_type == 'com.apple.product-type.app-extension'
+                target.build_configurations.each do |config|
+                  if config.name == 'Release'
+                    config.build_settings['SKIP_INSTALL'] = 'NO'
+                    config.build_settings['INSTALL_PATH'] = '$(LOCAL_APPS_DIR)'
+                    config.build_settings['DEPLOYMENT_LOCATION'] = 'YES'
+                  end
+                end
+              end
+              agg.user_project.save
+            end
+          """
+          new, n = re.subn(r'(post_install do \|installer\|\s*\n)', r'\1' + snippet, p, count=1)
+          if n == 0:
+              new = p + "\npost_install do |installer|\n" + snippet + "end\n"
+          open('ios/Podfile', 'w').write(new)
+          print('Podfile patched')
+          PY
+
+      - name: Install CocoaPods
+        run: cd ios && pod install
+
+      - name: Discover scheme
+        id: scheme
+        run: |
+          cd ios
+          WORKSPACE=$(ls -d *.xcworkspace | head -1)
+          DEFAULT_SCHEME=$(basename "$WORKSPACE" .xcworkspace)
+          export DEFAULT_SCHEME
+          APP_SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list -json \
+            | python3 -c '
+          import json, sys, os
+          d = json.load(sys.stdin)
+          schemes = d["workspace"]["schemes"]
+          default = os.environ["DEFAULT_SCHEME"]
+          drop_prefixes = ("Pods-",)
+          drop_exact = {"PacketTunnelProvider"}
+          app_schemes = [s for s in schemes
+                         if not any(s.startswith(p) for p in drop_prefixes)
+                         and s not in drop_exact]
+          if default in app_schemes:
+              print(default)
+          elif app_schemes:
+              print(app_schemes[0])
+          else:
+              print(default)
+          ')
+          export APP_SCHEME
+          echo "Discovered app scheme: $APP_SCHEME (default basename was $DEFAULT_SCHEME)"
+          echo "scheme=$APP_SCHEME" >> $GITHUB_OUTPUT
+
+      - name: Set up Go (for WireGuardKitGo static lib)
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: false
+
+      - name: Build WireGuardKitGo static lib (libwg-go.a)
+        # Builds the simulator slice of libwg-go.a and places it where
+        # xcodebuild's link step finds it (BUILT_PRODUCTS_DIR). Without it
+        # the NE link fails with `ld: library 'wg-go' not found` (#605) —
+        # exactly the class of link error this PR gate must catch. PR build
+        # is sim-only, so we only need the iphonesimulator slice (the device
+        # slice is an archive-step concern, which PRs skip).
+        run: |
+          set -euo pipefail
+          plat=iphonesimulator
+          outdir="$RUNNER_TEMP/wg-go-$plat"
+          cd "$GITHUB_WORKSPACE/mobile/ios/vendor/wireguard-apple-swift6/Sources/WireGuardKitGo"
+          archs="x86_64 arm64"
+          echo "::group::Building libwg-go.a for $plat ($archs)"
+          make clean 2>/dev/null || true
+          make ARCHS="$archs" PLATFORM_NAME="$plat" \
+            CONFIGURATION_BUILD_DIR="$outdir" \
+            CONFIGURATION_TEMP_DIR="$RUNNER_TEMP/wg-go-tmp-$plat"
+          echo "::endgroup::"
+          ls -la "$outdir"
+          mkdir -p "$RUNNER_TEMP/sim-build/Build/Products/Release-iphonesimulator"
+          cp "$outdir/libwg-go.a" \
+            "$RUNNER_TEMP/sim-build/Build/Products/Release-iphonesimulator/libwg-go.a"
+          cp "$outdir/libwg-go.a" \
+            "$GITHUB_WORKSPACE/mobile/ios/vendor/wireguard-apple-swift6/Sources/WireGuardKitGo/"
+          sudo mkdir -p /usr/local/lib
+          sudo cp "$outdir/libwg-go.a" /usr/local/lib/
+
+      - name: Build app + PacketTunnelProvider NE for iOS Simulator (no signing)
+        # BUILD-ONLY VALIDATION — the whole point of #825. Compiles the app
+        # scheme for the simulator with signing disabled. Because the NE is a
+        # build dependency of the app + is embedded via "Embed App
+        # Extensions", this compiles AND links the PacketTunnelProvider Swift
+        # (including libwg-go.a). A #827-class Swift/NE compile or link error
+        # fails THIS step → the PR check goes red → the break is caught
+        # pre-merge. No archive, no signing, no upload follows.
+        run: |
+          set -euo pipefail
+          cd ios
+          xcodebuild -version
+          DEST=$(xcrun simctl list devices available --json | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          for runtime, devs in d['devices'].items():
+              if 'iOS' not in runtime:
+                  continue
+              for x in devs:
+                  if 'iPhone' in x.get('name','') and x.get('isAvailable'):
+                      print(f\"platform=iOS Simulator,id={x['udid']}\")
+                      sys.exit(0)
+          ")
+          echo "destination: $DEST"
+          xcodebuild build \
+            -workspace *.xcworkspace \
+            -scheme "${{ steps.scheme.outputs.scheme }}" \
+            -configuration Release \
+            -destination "$DEST" \
+            -derivedDataPath $RUNNER_TEMP/sim-build \
+            -sdk iphonesimulator \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            ONLY_ACTIVE_ARCH=YES \
+            ARCHS=arm64
+
+      - name: Confirm app + NE built
+        # Make the validation legible in the PR check log: assert both the
+        # app and the embedded .appex came out of the build.
+        run: |
+          set -euo pipefail
+          PRODUCTS="$RUNNER_TEMP/sim-build/Build/Products/Release-iphonesimulator"
+          APP=$(find "$PRODUCTS" -maxdepth 1 -name "*.app" -type d | head -1 || true)
+          if [ -z "$APP" ]; then
+            echo "::error::No .app produced by the simulator build"
+            find "$PRODUCTS" -maxdepth 2 2>/dev/null || true
+            exit 1
+          fi
+          echo "App built: $APP"
+          APPEX=$(find "$APP/PlugIns" -maxdepth 1 -name "PacketTunnelProvider.appex" -type d 2>/dev/null | head -1 || true)
+          if [ -z "$APPEX" ]; then
+            echo "::error::PacketTunnelProvider.appex not embedded in the app — NE did not build/link"
+            ls -la "$APP/PlugIns" 2>/dev/null || true
+            exit 1
+          fi
+          echo "PacketTunnelProvider NE embedded + linked: $APPEX"
+          echo "::notice::PR build-validation passed — app + PacketTunnelProvider NE compiled and linked (no signing/upload)"
