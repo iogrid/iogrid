@@ -50,6 +50,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nats-io/nats.go"
@@ -159,6 +160,12 @@ func main() {
 		Logger:          logger,
 	})
 
+	// Stale-build reaper (#811): a build stuck in queued/dispatched/running
+	// past the TTL with no daemon heartbeat is failed so the row stops leaking
+	// the slot forever. Disabled with BUILD_GATEWAY_REAP_INTERVAL=0; the TTL is
+	// builds.DefaultStaleTTL (60m) unless BUILD_GATEWAY_STALE_TTL overrides it.
+	startReaper(ctx, svc, logger)
+
 	validator := buildValidator(logger)
 
 	mount := server.New(server.Deps{
@@ -177,6 +184,56 @@ func main() {
 		logger.Error("server exited with error", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
+}
+
+// startReaper launches the stale-build reaper goroutine (#811). It calls
+// svc.ReapStale on a ticker so builds stuck in a non-terminal state past the
+// TTL (a dead daemon, or a poll assignment never picked up) get failed instead
+// of leaking the slot forever. Interval and TTL are env-tunable:
+//
+//	BUILD_GATEWAY_REAP_INTERVAL  how often to sweep, default 5m. "0" disables.
+//	BUILD_GATEWAY_STALE_TTL      a build's max non-terminal age, default 60m
+//	                             (builds.DefaultStaleTTL).
+//
+// The goroutine exits when ctx is cancelled (graceful shutdown).
+func startReaper(ctx context.Context, svc *builds.Service, logger *slog.Logger) {
+	interval := parseDurationEnv("BUILD_GATEWAY_REAP_INTERVAL", 5*time.Minute)
+	if interval <= 0 {
+		logger.Info("stale-build reaper disabled (BUILD_GATEWAY_REAP_INTERVAL=0)")
+		return
+	}
+	ttl := parseDurationEnv("BUILD_GATEWAY_STALE_TTL", builds.DefaultStaleTTL)
+	logger.Info("stale-build reaper enabled",
+		slog.String("interval", interval.String()),
+		slog.String("ttl", ttl.String()))
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if _, err := svc.ReapStale(ctx, ttl); err != nil {
+					logger.Warn("reap stale builds failed", slog.String("error", err.Error()))
+				}
+			}
+		}
+	}()
+}
+
+// parseDurationEnv reads a time.Duration from env, falling back to def on an
+// unset or unparseable value. An explicit "0" parses to 0 (used to disable).
+func parseDurationEnv(name string, def time.Duration) time.Duration {
+	v := strings.TrimSpace(os.Getenv(name))
+	if v == "" {
+		return def
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return def
+	}
+	return d
 }
 
 // buildStore selects the persistence backend. DATABASE_URL set → Postgres

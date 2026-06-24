@@ -43,6 +43,9 @@ type Store interface {
 	// List returns builds for workspaceID matching the optional status,
 	// newest-first. limit<=0 means no cap.
 	List(ctx context.Context, workspaceID string, status builds.Status, limit int) ([]*builds.Build, error)
+	// ListNonTerminal returns every build across all workspaces whose status is
+	// not terminal — consulted by the stale-build reaper (#811).
+	ListNonTerminal(ctx context.Context) ([]*builds.Build, error)
 }
 
 // InMemory is a goroutine-safe Store backed by a map. Suitable for
@@ -173,5 +176,27 @@ func (s *InMemory) List(_ context.Context, workspaceID string, status builds.Sta
 	if limit > 0 && len(out) > limit {
 		out = out[:limit]
 	}
+	return out, nil
+}
+
+// ListNonTerminal implements Store — every non-terminal build across all
+// workspaces, oldest-first so the reaper handles the longest-stuck rows first.
+func (s *InMemory) ListNonTerminal(_ context.Context) ([]*builds.Build, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]*builds.Build, 0)
+	for _, b := range s.items {
+		if b.Status.Terminal() {
+			continue
+		}
+		clone := *b
+		if b.Artifacts != nil {
+			clone.Artifacts = append([]builds.Artifact(nil), b.Artifacts...)
+		}
+		out = append(out, &clone)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].SubmittedAt.Before(out[j].SubmittedAt)
+	})
 	return out, nil
 }

@@ -8,6 +8,7 @@ package builds
 
 import (
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -57,6 +58,35 @@ func (s Status) Valid() bool {
 // strictly monotonic.
 var ErrInvalidTransition = errors.New("invalid build status transition")
 
+// SchedulerPausedReason is the rejection-note slug the daemon emits when the
+// dispatch STREAM path declines a workload because the provider's scheduler is
+// paused (an idle-/bandwidth-sharing policy). For iOS builds this rejection is
+// NOT authoritative: the build is delivered and driven by the POLL path
+// (build_poller, #705/#715), and the scheduler-pause gate has no business
+// terminating a customer-paid build the poll path is concurrently running.
+//
+// The daemon already suppresses this for iOS builds on its side (#742) by
+// returning early from the stream Assignment handler, but ordering on the
+// daemon lost that race once (#806 recorded rejected/-1 while the poll path
+// ran the build to exit 0). This server-side constant lets the gateway refuse
+// the downgrade regardless of daemon ordering — the authoritative fix for the
+// gateway-side recurrence (#811).
+const SchedulerPausedReason = "scheduler_paused"
+
+// IsStreamSchedulerRejection reports whether an incoming status update is a
+// dispatch-stream scheduler-pause rejection: a `rejected` status whose note
+// carries the scheduler_paused slug. These are the ONLY rejections the gateway
+// treats as non-authoritative against a poll-advanced build — a genuine
+// never-dispatched rejection (e.g. "dispatcher rejected: ..." emitted by
+// Submit when workloads-svc has no eligible provider) carries a different note
+// and stays authoritative.
+func IsStreamSchedulerRejection(next Status, note string) bool {
+	if next != StatusRejected {
+		return false
+	}
+	return strings.Contains(note, SchedulerPausedReason)
+}
+
 // AllowedTransition reports whether moving from cur to next is permitted.
 // Specifically:
 //
@@ -72,6 +102,34 @@ func AllowedTransition(cur, next Status) bool {
 		return false
 	}
 	return next.Valid()
+}
+
+// AllowStatusUpdate is the source-aware transition guard the Service applies on
+// every status update. It layers the split-brain protection (#811) on top of
+// the plain AllowedTransition monotonicity:
+//
+//   - A stream-origin scheduler_paused rejection (IsStreamSchedulerRejection)
+//     must NOT downgrade a build the POLL path has already advanced to
+//     `running` or `dispatched`. A build cannot be both 'never started' and
+//     'running'; the path that actually executed work wins. The update is
+//     dropped (allowed=false, downgrade=true) so the caller keeps the advanced
+//     status and logs a warn rather than 409-ing.
+//   - Every other transition defers to AllowedTransition.
+//
+// downgrade is true only for the split-brain case, so the Service can
+// distinguish "ignore this non-authoritative rejection" (warn, keep state, no
+// error) from a genuine illegal transition (ErrInvalidTransition / 409).
+func AllowStatusUpdate(cur, next Status, note string) (allowed, downgrade bool) {
+	if IsStreamSchedulerRejection(next, note) {
+		// The poll path owns iOS-build lifecycle: a `dispatched` iOS build is
+		// awaiting/being claimed by the poll path, and `running` means it has
+		// claimed and is executing. A stream scheduler-pause rejection arriving
+		// in either state is the #811 split-brain — drop it.
+		if cur == StatusRunning || cur == StatusDispatched {
+			return false, true
+		}
+	}
+	return AllowedTransition(cur, next), false
 }
 
 // Artifact describes a single file produced by a successful build.

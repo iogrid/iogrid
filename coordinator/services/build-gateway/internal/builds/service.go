@@ -40,6 +40,11 @@ type Store interface {
 	GetByIDInternal(ctx context.Context, id string) (*Build, error)
 	Update(ctx context.Context, id string, mutator func(*Build) error) (*Build, error)
 	List(ctx context.Context, workspaceID string, status Status, limit int) ([]*Build, error)
+	// ListNonTerminal returns every build (across all workspaces) whose status
+	// is not terminal — i.e. still queued/dispatched/running. The stale-build
+	// reaper (#811) consults this to find rows stuck past their TTL with no
+	// daemon heartbeat so it can fail them rather than leak the slot forever.
+	ListNonTerminal(ctx context.Context) ([]*Build, error)
 }
 
 // ListFilter is the public, handler-facing list filter. The Service
@@ -337,8 +342,20 @@ func (s *Service) UpdateStatus(ctx context.Context, id string, next Status, note
 	if !next.Valid() {
 		return nil, &ErrValidation{Field: "status", Message: "unknown status " + string(next)}
 	}
+	// dropped flags the #811 split-brain case: a stream-origin scheduler_paused
+	// rejection that arrived while the poll path already advanced this build to
+	// running/dispatched. We must NOT downgrade it to rejected, and we must NOT
+	// 409 the caller (workloads-svc forwards best-effort and would just log the
+	// error). We silently keep the advanced status and warn. The mutator sets
+	// this flag and returns nil so the store leaves the record untouched.
+	var dropped bool
 	updated, err := s.store.Update(ctx, id, func(curr *Build) error {
-		if !AllowedTransition(curr.Status, next) {
+		allowed, downgrade := AllowStatusUpdate(curr.Status, next, note)
+		if downgrade {
+			dropped = true
+			return nil
+		}
+		if !allowed {
 			return ErrInvalidTransition
 		}
 		curr.Status = next
@@ -362,6 +379,17 @@ func (s *Service) UpdateStatus(ctx context.Context, id string, next Status, note
 	if err != nil {
 		return nil, err
 	}
+	if dropped {
+		s.logger.Warn("dropped non-authoritative stream rejection (split-brain #811)",
+			slog.String("build_id", id),
+			slog.String("current_status", string(updated.Status)),
+			slog.String("rejected_status", string(next)),
+			slog.String("note", note),
+		)
+		// Return the unchanged build; no webhook/metering/settle — nothing
+		// transitioned. The poll path remains authoritative for the terminal.
+		return updated, nil
+	}
 	s.fireWebhook(ctx, updated, note)
 	if next.Terminal() {
 		s.emitMetering(ctx, updated)
@@ -378,6 +406,66 @@ func (s *Service) UpdateStatus(ctx context.Context, id string, next Status, note
 		}(id)
 	}
 	return updated, nil
+}
+
+// DefaultStaleTTL is how long a build may sit in a non-terminal state without
+// progress before the reaper fails it. An Expo SDK 54 / Xcode 26 iOS build is
+// the longest workload the gateway dispatches; 60m is comfortably past a real
+// cold build (clone + pod install + xcodebuild) so a still-running build is
+// never reaped, but a daemon that died mid-build (or a poll assignment that was
+// never picked up) no longer leaks the slot forever (#811).
+const DefaultStaleTTL = 60 * time.Minute
+
+// ReapStale fails every build that has been stuck in a non-terminal state past
+// ttl, measured from its last progress timestamp (StartedAt for running builds,
+// SubmittedAt for queued/dispatched ones that never started). Returns the ids
+// it reaped. The transition runs through the normal lifecycle (sets FinishedAt,
+// fires metering/settle/webhook) so a reaped running build still meters the
+// wall-clock it occupied. Idempotent: a build already terminal is skipped.
+//
+// Production wires a goroutine that calls this on a ticker (see
+// cmd/build-gateway/main.go); tests call it directly with a frozen clock.
+func (s *Service) ReapStale(ctx context.Context, ttl time.Duration) ([]string, error) {
+	if ttl <= 0 {
+		ttl = DefaultStaleTTL
+	}
+	stale, err := s.store.ListNonTerminal(ctx)
+	if err != nil {
+		return nil, err
+	}
+	now := s.now()
+	var reaped []string
+	for _, b := range stale {
+		if b.Status.Terminal() {
+			continue
+		}
+		// last-progress marker: a running build is timed from when it started;
+		// a build that never started is timed from submission.
+		last := b.SubmittedAt
+		if b.StartedAt != nil {
+			last = *b.StartedAt
+		}
+		if now.Sub(last) < ttl {
+			continue
+		}
+		updated, uerr := s.UpdateStatus(ctx, b.ID, StatusFailed,
+			"reaped: no provider heartbeat within "+ttl.String(), b.ProviderID, -1)
+		if uerr != nil {
+			// A concurrent terminal transition (ErrInvalidTransition) just
+			// means the build finished under us — not an error for the reaper.
+			s.logger.Warn("reap: skip build (transitioned concurrently)",
+				slog.String("build_id", b.ID),
+				slog.String("error", uerr.Error()))
+			continue
+		}
+		reaped = append(reaped, updated.ID)
+	}
+	if len(reaped) > 0 {
+		s.logger.Info("reaped stale builds",
+			slog.Int("count", len(reaped)),
+			slog.String("ttl", ttl.String()))
+	}
+	return reaped, nil
 }
 
 // AppendLog records a single line from a running build's stdout/stderr.

@@ -310,6 +310,33 @@ func (s *Postgres) List(ctx context.Context, workspaceID string, status builds.S
 	return out, nil
 }
 
+// ListNonTerminal implements Store — every non-terminal build across all
+// workspaces (the projected `status` column lets us filter in SQL), oldest-first
+// so the reaper handles the longest-stuck rows first (#811).
+func (s *Postgres) ListNonTerminal(ctx context.Context) ([]*builds.Build, error) {
+	const q = `
+SELECT record FROM build_gateway_builds
+ WHERE status NOT IN ('succeeded','failed','timed_out','cancelled','rejected')
+ ORDER BY submitted_at ASC`
+	rows, err := s.pool.Query(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("build: list non-terminal: %w", err)
+	}
+	defer rows.Close()
+	out := make([]*builds.Build, 0)
+	for rows.Next() {
+		b, err := scanBuild(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, b)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("build: list non-terminal rows: %w", err)
+	}
+	return out, nil
+}
+
 // scanRow is the minimal surface shared by pgx.Row and pgx.Rows.
 type scanRow interface {
 	Scan(dest ...any) error
