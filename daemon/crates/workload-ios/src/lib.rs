@@ -1091,6 +1091,23 @@ mod native_impl {
                 None => None,
             };
 
+            // 6. Reclaim the per-build workspace. The native runner has no
+            // `tart delete` to clean up after itself, so without this every
+            // build leaks its full repo clone + DerivedData under
+            // `$TMPDIR/iogridd-ios-<id>` and the provider disk creeps to
+            // ENOSPC (the recurring #832 / #806 disk-full failure). The
+            // artifact has already been uploaded (step 4) and `logs` is owned
+            // in-memory, so the workspace is no longer needed. Best-effort:
+            // a cleanup failure must not fail an otherwise-successful build.
+            // Set `IOGRIDD_KEEP_IOS_WORKSPACE=1` to retain it for debugging.
+            if std::env::var_os("IOGRIDD_KEEP_IOS_WORKSPACE").is_none() {
+                if let Err(e) = tokio::fs::remove_dir_all(&ws).await {
+                    tracing::warn!(%e, ws = %ws.display(), "failed to remove iOS build workspace (disk may creep)");
+                } else {
+                    tracing::info!(ws = %ws.display(), "reclaimed iOS build workspace");
+                }
+            }
+
             Ok(IosBuildResult {
                 id: w.id,
                 exit_code,
@@ -1144,6 +1161,13 @@ mod native_impl {
     /// - `DEVELOPER_DIR` → the proven Xcode 26 bundle when present, so
     ///   `xcodebuild` is deterministic regardless of the global
     ///   `xcode-select` state.
+    /// - `/opt/homebrew/bin` prepended so the Homebrew toolchain (notably
+    ///   `pod`/CocoaPods on Homebrew Ruby ≥2.7) always beats a stale
+    ///   `/usr/local/bin/pod` (a gem-installed CocoaPods 1.11.3 under system
+    ///   Ruby 2.6 crashes `pod install` on `Enumerable#filter_map`, which is
+    ///   Ruby ≥2.7 only). `/etc/paths` puts `/usr/local/bin` ahead of
+    ///   `/opt/homebrew/bin`, so without this prepend the wrong `pod` wins.
+    ///   See #832.
     /// - node@22 prepended to PATH so RN/Expo tooling doesn't pick up a
     ///   stale `/usr/local/bin/node`.
     pub(super) fn xcode_env_preamble() -> &'static str {
@@ -1152,6 +1176,9 @@ mod native_impl {
         // to plain POSIX so `set -e` never trips on the guards.
         "if [ -d /Applications/Xcode-26.5.0.app/Contents/Developer ]; then \
            export DEVELOPER_DIR=/Applications/Xcode-26.5.0.app/Contents/Developer; \
+         fi; \
+         if [ -d /opt/homebrew/bin ]; then \
+           export PATH=/opt/homebrew/bin:$PATH; \
          fi; \
          if [ -d /opt/homebrew/opt/node@22/bin ]; then \
            export PATH=/opt/homebrew/opt/node@22/bin:$PATH; \
@@ -1451,5 +1478,23 @@ mod tests {
         let logs = b"maestro-attempt=1\nfoo\nmaestro-attempt=2\nmaestro-exit=0\n";
         assert_eq!(tart_impl::parse_maestro_attempts(logs), 2);
         assert_eq!(tart_impl::parse_maestro_attempts(b"no markers"), 0);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn preamble_pins_homebrew_pod_ahead_of_usr_local() {
+        // The build env (`/bin/bash -lc`) puts /usr/local/bin ahead of
+        // /opt/homebrew/bin, where a stale CocoaPods 1.11.3 under system Ruby
+        // 2.6 crashes `pod install` on filter_map. The preamble must prepend
+        // /opt/homebrew/bin so the Homebrew `pod` wins (#832).
+        let p = native_impl::xcode_env_preamble();
+        assert!(
+            p.contains("export PATH=/opt/homebrew/bin:$PATH"),
+            "preamble must prepend /opt/homebrew/bin so brew `pod` beats the stale /usr/local/bin one"
+        );
+        // node@22 prepend must remain so it ends up first overall.
+        assert!(p.contains("/opt/homebrew/opt/node@22/bin:$PATH"));
+        // Xcode pin must remain.
+        assert!(p.contains("DEVELOPER_DIR=/Applications/Xcode-26.5.0.app/Contents/Developer"));
     }
 }
