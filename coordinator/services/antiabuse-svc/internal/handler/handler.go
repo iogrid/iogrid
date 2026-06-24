@@ -34,12 +34,21 @@ import (
 
 // Service is the Connect-RPC handler.
 type Service struct {
-	Domains   *domains.Policy
-	Ports     *ports.Policy
-	Limiter   *ratelimit.Limiter
+	Domains    *domains.Policy
+	Ports      *ports.Policy
+	Limiter    *ratelimit.Limiter
 	Reputation *filters.Orchestrator
-	Registry  *registry.Policy
-	Audit     *audit.Emitter
+	Registry   *registry.Policy
+	// Scanner is the SBOM / vulnerability scanner. nil (or the
+	// registry.NoopScanner) means no real scan is performed; when
+	// RequireImageScanner is true the handler fails CLOSED to REVIEW in
+	// that case. A real scanner (osv-scanner / Trivy) is a follow-on.
+	Scanner registry.Scanner
+	// RequireImageScanner, when true, makes CheckContainerImage fail
+	// CLOSED to REVIEW (slug image_scan_unavailable) if no real Scanner
+	// is configured. Defaults to false (registry allowlist only).
+	RequireImageScanner bool
+	Audit               *audit.Emitter
 	// PremiumLookup, if set, is consulted to decide tier (returns
 	// true if customerID is a premium customer). Defaults to "all
 	// default tier" when nil.
@@ -58,12 +67,12 @@ func (s *Service) CheckUrl(ctx context.Context, req *connect.Request[antiabusev1
 	}
 	host, port := splitURL(in.Url)
 	verdict := s.evaluate(ctx, evaluateInput{
-		Context:    in.Context,
-		CheckType:  "check_url",
-		RawTarget:  in.Url,
-		Host:       host,
-		Port:       port,
-		IsURL:      true,
+		Context:   in.Context,
+		CheckType: "check_url",
+		RawTarget: in.Url,
+		Host:      host,
+		Port:      port,
+		IsURL:     true,
 	})
 	return connect.NewResponse(&antiabusev1.CheckUrlResponse{Verdict: verdict}), nil
 }
@@ -75,12 +84,12 @@ func (s *Service) CheckDomain(ctx context.Context, req *connect.Request[antiabus
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("domain is required"))
 	}
 	verdict := s.evaluate(ctx, evaluateInput{
-		Context:    in.Context,
-		CheckType:  "check_domain",
-		RawTarget:  in.Domain,
-		Host:       in.Domain,
-		Port:       in.Port,
-		IsURL:      false,
+		Context:   in.Context,
+		CheckType: "check_domain",
+		RawTarget: in.Domain,
+		Host:      in.Domain,
+		Port:      in.Port,
+		IsURL:     false,
 	})
 	return connect.NewResponse(&antiabusev1.CheckDomainResponse{Verdict: verdict}), nil
 }
@@ -104,10 +113,84 @@ func (s *Service) CheckContainerImage(ctx context.Context, req *connect.Request[
 				Reason:      d.Slug,
 				Explanation: d.Explanation,
 			}
+			s.emitAudit(ctx, in.Context, "check_container_image", in.ImageRef, verdict, nil)
+			return connect.NewResponse(&antiabusev1.CheckContainerImageResponse{Verdict: verdict}), nil
 		}
 	}
+
+	// Registry allowlist passed. Run the SBOM / vulnerability scan.
+	//
+	// Fail-closed policy: a real Scanner BLOCKs on CRITICAL/HIGH and
+	// REVIEWs on scan error. When no real Scanner is wired (nil or the
+	// NoopScanner) AND RequireImageScanner is true, the absence of a scan
+	// is non-silent: we fail CLOSED to REVIEW. When RequireImageScanner
+	// is false the registry allowlist alone governs (today's behaviour).
+	if hasRealScanner(s.Scanner) {
+		vulns, err := s.Scanner.Scan(ctx, in.ImageRef)
+		switch {
+		case err != nil:
+			verdict = &antiabusev1.FilterVerdict{
+				Decision:    antiabusev1.FilterDecision_FILTER_DECISION_REVIEW,
+				Reason:      "image_scan_error",
+				Explanation: "image vulnerability scan failed; image flagged for review (fail-closed): " + err.Error(),
+			}
+		case hasCriticalVuln(vulns):
+			verdict = &antiabusev1.FilterVerdict{
+				Decision:    antiabusev1.FilterDecision_FILTER_DECISION_BLOCK,
+				Reason:      "image_vuln_critical",
+				Explanation: "image has CRITICAL/HIGH vulnerabilities: " + summarizeVulns(vulns),
+			}
+		}
+	} else if s.RequireImageScanner {
+		verdict = &antiabusev1.FilterVerdict{
+			Decision:    antiabusev1.FilterDecision_FILTER_DECISION_REVIEW,
+			Reason:      "image_scan_unavailable",
+			Explanation: "no SBOM / vulnerability scanner is configured (REQUIRE_IMAGE_SCANNER=true); image flagged for review",
+		}
+	}
+
 	s.emitAudit(ctx, in.Context, "check_container_image", in.ImageRef, verdict, nil)
 	return connect.NewResponse(&antiabusev1.CheckContainerImageResponse{Verdict: verdict}), nil
+}
+
+// hasRealScanner reports whether a non-nil, non-Noop Scanner is wired.
+// The NoopScanner returns no findings, so treating it as "no scanner"
+// keeps the fail-closed gate honest.
+func hasRealScanner(sc registry.Scanner) bool {
+	if sc == nil {
+		return false
+	}
+	if _, ok := sc.(registry.NoopScanner); ok {
+		return false
+	}
+	if _, ok := sc.(*registry.NoopScanner); ok {
+		return false
+	}
+	return true
+}
+
+// hasCriticalVuln reports whether any finding is CRITICAL or HIGH.
+func hasCriticalVuln(vulns []registry.Vulnerability) bool {
+	for _, v := range vulns {
+		switch strings.ToUpper(v.Severity) {
+		case "CRITICAL", "HIGH":
+			return true
+		}
+	}
+	return false
+}
+
+// summarizeVulns renders a short, audit-friendly summary of the
+// CRITICAL/HIGH findings.
+func summarizeVulns(vulns []registry.Vulnerability) string {
+	ids := make([]string, 0, len(vulns))
+	for _, v := range vulns {
+		switch strings.ToUpper(v.Severity) {
+		case "CRITICAL", "HIGH":
+			ids = append(ids, v.ID+"("+strings.ToUpper(v.Severity)+")")
+		}
+	}
+	return strings.Join(ids, ", ")
 }
 
 // ReportEvent ingests a flagged event from another service (proxy
@@ -154,65 +237,65 @@ func (s *Service) ListFilters(ctx context.Context, req *connect.Request[antiabus
 	}
 	rules = append(rules,
 		&antiabusev1.FilterRule{
-			Id:          "ports.default",
-			Slug:        "ports.default",
-			Description: "Outbound port allow/deny policy",
-			Version:     "1",
+			Id:            "ports.default",
+			Slug:          "ports.default",
+			Description:   "Outbound port allow/deny policy",
+			Version:       "1",
 			LastUpdatedAt: timestamppb.New(now),
 		},
 		&antiabusev1.FilterRule{
-			Id:          "domains.banking",
-			Slug:        "domains.banking",
-			Description: "Banking-domain block (KYC-only)",
-			Version:     "1",
+			Id:            "domains.banking",
+			Slug:          "domains.banking",
+			Description:   "Banking-domain block (KYC-only)",
+			Version:       "1",
 			LastUpdatedAt: timestamppb.New(now),
 		},
 		&antiabusev1.FilterRule{
-			Id:          "domains.government",
-			Slug:        "domains.government",
-			Description: ".gov / .mil unconditional block",
-			Version:     "1",
+			Id:            "domains.government",
+			Slug:          "domains.government",
+			Description:   ".gov / .mil unconditional block",
+			Version:       "1",
 			LastUpdatedAt: timestamppb.New(now),
 		},
 		&antiabusev1.FilterRule{
-			Id:          "domains.adult",
-			Slug:        "domains.adult",
-			Description: "Adult content requires provider opt-in",
-			Version:     "1",
+			Id:            "domains.adult",
+			Slug:          "domains.adult",
+			Description:   "Adult content requires provider opt-in",
+			Version:       "1",
 			LastUpdatedAt: timestamppb.New(now),
 		},
 		&antiabusev1.FilterRule{
-			Id:          "domains.blocked",
-			Slug:        "domains.blocked",
-			Description: "Operator deny-list (BLOCK_DOMAINS env / DB-backed loader)",
-			Version:     "1",
+			Id:            "domains.blocked",
+			Slug:          "domains.blocked",
+			Description:   "Operator deny-list (BLOCK_DOMAINS env / DB-backed loader)",
+			Version:       "1",
 			LastUpdatedAt: timestamppb.New(now),
 		},
 		&antiabusev1.FilterRule{
-			Id:          "ratelimit.customer",
-			Slug:        "ratelimit.customer",
-			Description: "Per-customer aggregate RPS cap",
-			Version:     "1",
+			Id:            "ratelimit.customer",
+			Slug:          "ratelimit.customer",
+			Description:   "Per-customer aggregate RPS cap",
+			Version:       "1",
 			LastUpdatedAt: timestamppb.New(now),
 		},
 		&antiabusev1.FilterRule{
-			Id:          "ratelimit.provider_destination",
-			Slug:        "ratelimit.provider_destination",
-			Description: "Per-provider per-destination RPS cap (high-value targets)",
-			Version:     "1",
+			Id:            "ratelimit.provider_destination",
+			Slug:          "ratelimit.provider_destination",
+			Description:   "Per-provider per-destination RPS cap (high-value targets)",
+			Version:       "1",
 			LastUpdatedAt: timestamppb.New(now),
 		},
 		&antiabusev1.FilterRule{
-			Id:          "registry.docker_allowlist",
-			Slug:        "registry.docker_allowlist",
-			Description: "Approved container-image registries",
-			Version:     "1",
+			Id:            "registry.docker_allowlist",
+			Slug:          "registry.docker_allowlist",
+			Description:   "Approved container-image registries",
+			Version:       "1",
 			LastUpdatedAt: timestamppb.New(now),
 		},
 	)
 	return connect.NewResponse(&antiabusev1.ListFiltersResponse{
-		Rules:        rules,
-		RulesetHash:  filters.RulesetHash(rules),
+		Rules:       rules,
+		RulesetHash: filters.RulesetHash(rules),
 	}), nil
 }
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"time"
 
 	"github.com/blocto/solana-go-sdk/common"
@@ -117,31 +118,28 @@ func (c *SettlementCron) RunOnce(ctx context.Context) error {
 		c.failuresInARow = 0
 		return nil
 	}
-	// Pre-flight: treasury balance >= sum of ALL provider shares (both ledgers)?
-	var grandTotal uint64
-	for _, b := range sessionBatches {
-		grandTotal += b.sum
-	}
-	for _, b := range buildBatches {
-		grandTotal += b.sum
-	}
+	// Read the treasury balance ONCE per tick. We no longer abort the whole
+	// tick when the balance is below the GRAND total — that all-or-nothing
+	// pre-flight let a single oversized (often synthetic/self-pay) wallet
+	// dead-lock every affordable payout for days (#818). Instead drainBatches
+	// pays each wallet that fits the REMAINING balance and skips+alerts the
+	// ones that don't, so forward progress is never blocked by one row.
 	bal, err := c.Solana.GRIDAtomicTreasuryBalance(ctx)
 	if err != nil {
 		c.bumpFailure(ctx, "treasury balance fetch failed: "+err.Error())
 		return fmt.Errorf("treasury balance: %w", err)
 	}
-	if bal < grandTotal {
-		c.bumpFailure(ctx, fmt.Sprintf(
-			"treasury balance %d < required %d — needs manual top-up", bal, grandTotal))
-		return errors.New("treasury balance insufficient")
-	}
 
-	sOK, sFail, sErr := c.drainBatches(ctx, sessionBatches, c.Store.MarkSettled, c.Store.MarkAttemptFailed)
+	// budget is the running treasury balance the two drains share: session
+	// payouts first, then build payouts, each decrementing what's left.
+	budget := bal
+	sOK, sFail, sSkip, sErr := c.drainBatches(ctx, sessionBatches, &budget, c.Store.MarkSettled, c.Store.MarkAttemptFailed)
 	// Build settlements have no settle_attempts/last_error columns, so failures
 	// simply retry next tick (markFailed = nil).
-	bOK, bFail, bErr := c.drainBatches(ctx, buildBatches, c.Store.MarkBuildSettled, nil)
+	bOK, bFail, bSkip, bErr := c.drainBatches(ctx, buildBatches, &budget, c.Store.MarkBuildSettled, nil)
 	totalOK := sOK + bOK
 	totalFail := sFail + bFail
+	totalSkip := sSkip + bSkip
 	firstErr := sErr
 	if firstErr == nil {
 		firstErr = bErr
@@ -154,9 +152,18 @@ func (c *SettlementCron) RunOnce(ctx context.Context) error {
 			c.Metrics.SettledFailed(totalFail)
 		}
 	}
+	// A wallet we deliberately SKIPPED for insufficient funds is NOT a tick
+	// failure — it raised its own scoped alert inside drainBatches. Only a
+	// genuine transfer/mark error (firstErr) counts toward the consecutive-
+	// failure counter. This is what unwedges the worker: an underfunded
+	// oversized row no longer increments "1430 consecutive failures" forever.
 	if firstErr != nil {
 		c.bumpFailure(ctx, "settlement tick had failures: "+firstErr.Error())
 		return firstErr
+	}
+	if totalSkip > 0 {
+		c.logInfo("settlement tick made progress with skips",
+			"settled_rows", totalOK, "skipped_wallets", totalSkip)
 	}
 	c.failuresInARow = 0
 	return nil
@@ -204,14 +211,37 @@ func buildBatchesByWallet(groups map[string][]*BuildSettlement) map[string]walle
 // drainBatches submits one TransferChecked per wallet and marks the rows
 // settled (or failed). markFailed may be nil (build-settlement rows have no
 // attempt-tracking columns — they simply retry on the next tick).
+//
+// budget is the REMAINING treasury balance (atomic $GRID). A wallet whose
+// batch exceeds the remaining budget is SKIPPED (not failed): its rows stay
+// unsettled for a future tick, it raises a scoped Alerter notification, and
+// the rest of the wallets keep settling. This is the #818 fix — one oversized
+// row no longer aborts the whole tick. budget is decremented by each settled
+// batch and never goes negative.
 func (c *SettlementCron) drainBatches(
 	ctx context.Context,
 	batches map[string]walletBatch,
+	budget *uint64,
 	markSettled func(context.Context, []uuid.UUID, string) error,
 	markFailed func(context.Context, []uuid.UUID, string) error,
-) (okN int, failN int, firstErr error) {
-	for wallet, b := range batches {
+) (okN int, failN int, skipN int, firstErr error) {
+	// Settle smallest-first so a single oversized wallet can never starve the
+	// affordable backlog: we spend the budget on the cheapest payouts first.
+	for _, wallet := range walletsBySumAsc(batches) {
+		b := batches[wallet]
 		if b.sum == 0 {
+			continue
+		}
+		// Affordability: skip (don't fail) any batch that exceeds what's left.
+		if b.sum > *budget {
+			skipN++
+			c.logErr("settlement batch skipped — insufficient treasury",
+				fmt.Errorf("wallet=%s sum=%d > remaining_balance=%d — needs devnet top-up", wallet, b.sum, *budget))
+			if c.Alerter != nil {
+				c.Alerter(ctx, fmt.Sprintf(
+					"settlement-worker: skipped wallet %s — payout %d > remaining treasury %d; needs top-up (other wallets still settling)",
+					wallet, b.sum, *budget))
+			}
 			continue
 		}
 		recipient := common.PublicKeyFromString(wallet)
@@ -236,11 +266,26 @@ func (c *SettlementCron) drainBatches(
 			failN += len(b.ids)
 			continue
 		}
+		*budget -= b.sum
 		okN += len(b.ids)
 		c.logInfo("settlement batch confirmed",
-			"wallet", wallet, "rows", len(b.ids), "sum_atomic", b.sum, "sig", sig)
+			"wallet", wallet, "rows", len(b.ids), "sum_atomic", b.sum, "sig", sig, "remaining_balance", *budget)
 	}
-	return okN, failN, firstErr
+	return okN, failN, skipN, firstErr
+}
+
+// walletsBySumAsc returns the wallet keys ordered by ascending batch sum so
+// the budget is spent on the cheapest payouts first — maximising the number
+// of providers paid when the treasury can't cover everyone.
+func walletsBySumAsc(batches map[string]walletBatch) []string {
+	wallets := make([]string, 0, len(batches))
+	for w := range batches {
+		wallets = append(wallets, w)
+	}
+	sort.SliceStable(wallets, func(i, j int) bool {
+		return batches[wallets[i]].sum < batches[wallets[j]].sum
+	})
+	return wallets
 }
 
 func (c *SettlementCron) bumpFailure(ctx context.Context, body string) {

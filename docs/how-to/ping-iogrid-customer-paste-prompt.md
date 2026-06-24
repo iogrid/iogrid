@@ -82,7 +82,15 @@ never as SSH workarounds)
   toolchain -> repoint it to Xcode-26.5.0 (the perl line).
 - fmt consteval (`call to consteval function 'fmt::basic_format_string...'`):
   strip `consteval` from Pods/fmt/include/fmt/base.h AFTER pod install.
-- node@22 + /opt/homebrew/bin (pod lives there) both on PATH.
+- node@22 + /opt/homebrew/bin (pod lives there) both on PATH. CRITICAL: keep
+  `/opt/homebrew/bin` AHEAD of the system PATH. `/etc/paths` on the Mac puts
+  `/usr/local/bin` first, where a stale gem-installed CocoaPods 1.11.3 lives
+  under system Ruby 2.6 — that `pod` crashes `pod install` on `filter_map`
+  (a Ruby ≥2.7 method). The Homebrew `pod` (1.16.2, Homebrew Ruby 4.0.5) is
+  the one you want. The `export PATH=/opt/homebrew/...:$PATH` prefix in the
+  command above guarantees it wins. The daemon's native runner now also
+  prepends `/opt/homebrew/bin` in its env preamble (#832), so a build with no
+  explicit PATH still gets the correct `pod`. (#832)
 - Pin Xcode if needed: GET https://build.iogrid.org/v1/xcode-versions, then add
   "xcode_version":"<ver>" to the submit body. (Default "latest" = the Mac's
   Xcode 26.5.) Simulator destination needs no signing; for a signed/archive
