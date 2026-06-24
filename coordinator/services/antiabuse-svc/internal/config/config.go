@@ -34,8 +34,23 @@ type Config struct {
 	GSBAPIKey string
 
 	// PhotoDNAAPIKey is the NCMEC PhotoDNA API key. Without it the
-	// backend is in stub mode (logs warning, returns no-match).
+	// backend is in stub mode (logs warning, fails closed to REVIEW).
 	PhotoDNAAPIKey string
+
+	// PhotoDNAAllowUnscanned, when true, makes the PhotoDNA stub fail
+	// OPEN (short-circuit to ALLOW) instead of the default fail-CLOSED
+	// REVIEW when no PHOTODNA_API_KEY is set. Defaults to false so prod
+	// never silently allows unscanned images. Set true (env
+	// PHOTODNA_ALLOW_UNSCANNED=true) only for dev / offline tests.
+	PhotoDNAAllowUnscanned bool
+
+	// RequireImageScanner, when true, makes CheckContainerImage fail
+	// CLOSED to REVIEW (slug image_scan_unavailable) when no real SBOM /
+	// vulnerability Scanner is wired (the production scanner is a
+	// follow-on; today the handler runs the registry allowlist only).
+	// Defaults to false so the currently-working container path is
+	// preserved unless an operator opts in (env REQUIRE_IMAGE_SCANNER=true).
+	RequireImageScanner bool
 
 	// RedisURL is the Redis connection URL used for rate limiting.
 	// Empty disables Redis-based rate limiting (in-memory fallback).
@@ -97,18 +112,20 @@ type Config struct {
 // (filters become stubs / no-ops).
 func Load() Config {
 	return Config{
-		ListenAddr:           getenv("LISTEN_ADDR", ":8080"),
-		PhishTankAPIKey:      os.Getenv("PHISHTANK_API_KEY"),
-		PhishTankRefresh:     durationEnv("PHISHTANK_REFRESH", 24*time.Hour),
-		OpenPhishRefresh:     durationEnv("OPENPHISH_REFRESH", 6*time.Hour),
-		GSBAPIKey:            os.Getenv("GSB_API_KEY"),
-		PhotoDNAAPIKey:       os.Getenv("PHOTODNA_API_KEY"),
-		RedisURL:             os.Getenv("REDIS_URL"),
-		NATSURL:              os.Getenv("NATS_URL"),
-		AuditPostgresDSN:     os.Getenv("AUDIT_POSTGRES_DSN"),
-		AuditRetentionDays:   clampRetention(intEnv("AUDIT_RETENTION_DAYS", 90)),
-		PhotoDNABloomRefresh: durationEnv("PHOTODNA_BLOOM_REFRESH", 7*24*time.Hour),
-		HighValueTargets:     csv(getenv("HIGH_VALUE_TARGETS",
+		ListenAddr:             getenv("LISTEN_ADDR", ":8080"),
+		PhishTankAPIKey:        os.Getenv("PHISHTANK_API_KEY"),
+		PhishTankRefresh:       durationEnv("PHISHTANK_REFRESH", 24*time.Hour),
+		OpenPhishRefresh:       durationEnv("OPENPHISH_REFRESH", 6*time.Hour),
+		GSBAPIKey:              os.Getenv("GSB_API_KEY"),
+		PhotoDNAAPIKey:         os.Getenv("PHOTODNA_API_KEY"),
+		PhotoDNAAllowUnscanned: boolEnv("PHOTODNA_ALLOW_UNSCANNED", false),
+		RequireImageScanner:    boolEnv("REQUIRE_IMAGE_SCANNER", false),
+		RedisURL:               os.Getenv("REDIS_URL"),
+		NATSURL:                os.Getenv("NATS_URL"),
+		AuditPostgresDSN:       os.Getenv("AUDIT_POSTGRES_DSN"),
+		AuditRetentionDays:     clampRetention(intEnv("AUDIT_RETENTION_DAYS", 90)),
+		PhotoDNABloomRefresh:   durationEnv("PHOTODNA_BLOOM_REFRESH", 7*24*time.Hour),
+		HighValueTargets: csv(getenv("HIGH_VALUE_TARGETS",
 			"linkedin.com,facebook.com,twitter.com,google.com,instagram.com")),
 		BlockDomains:         csv(os.Getenv("BLOCK_DOMAINS")),
 		DefaultCustomerRPS:   intEnv("DEFAULT_CUSTOMER_RPS", 100),
@@ -128,6 +145,15 @@ func intEnv(key string, fallback int) int {
 	if v := os.Getenv(key); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			return n
+		}
+	}
+	return fallback
+}
+
+func boolEnv(key string, fallback bool) bool {
+	if v := os.Getenv(key); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			return b
 		}
 	}
 	return fallback
