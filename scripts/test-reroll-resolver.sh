@@ -24,6 +24,7 @@ cccc333 infra(antiabuse-svc): deploy harbor.openova.io/iogrid/antiabuse-svc@sha2
 dddd444 infra(antiabuse-svc): deploy harbor.openova.io/iogrid/antiabuse-svc@sha256:f6ae6dc1aefa59d0cf8d69ce64109446546d79ce after CI 02f8fdda
 eeee555 infra(vpn-gateway): deploy harbor.openova.io/iogrid/vpn-gateway@sha256:91bf4c867f6ce5d79ef082602ef0b60925bc50fb after CI 5c8f04f3
 ffff666 infra(vpn-svc): deploy harbor.openova.io/iogrid/vpn-svc@sha256:718202838e37eda933b49f8d235cb68a350797b7 after CI 5c8f04f3
+gggg777 infra(billing-svc): deploy harbor.openova.io/iogrid/billing-svc@sha256:4e349a706407eff3b4067665d94e7e65c4bcd42d667325cd3a51c63f2780bdf6 after CI bb958e0f
 EOF
 )"
 
@@ -70,6 +71,16 @@ assert_eq "vpn-svc not confused by vpn-gateway" \
 # 5. A service with no marker resolves empty (graceful skip), not an error.
 got="$(printf '%s\n' "$LOG" | resolve_gitops_img providers-svc)"
 assert_eq "service with no marker resolves empty (graceful)" "" "$got"
+
+# 6. #818 image-source alias: settlement-worker has NO marker of its own, but
+#    runs the billing-svc image — resolving via its IMAGE_SOURCE (billing-svc)
+#    must yield the billing-svc digest, not empty (the dead-locked-worker gap).
+got_self="$(printf '%s\n' "$LOG" | resolve_gitops_img settlement-worker)"
+assert_eq "settlement-worker has no own marker (resolves empty without alias)" "" "$got_self"
+got_aliased="$(printf '%s\n' "$LOG" | resolve_gitops_img billing-svc)"
+assert_eq "settlement-worker tracks the billing-svc image via IMAGE_SOURCE alias" \
+  "harbor.openova.io/iogrid/billing-svc@sha256:4e349a706407eff3b4067665d94e7e65c4bcd42d667325cd3a51c63f2780bdf6" \
+  "$got_aliased"
 
 echo "----"
 echo "${pass} passed, ${fail} failed"
