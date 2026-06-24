@@ -203,13 +203,18 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                         reason: String(describing: error)))
                     return
                 }
-                os_log("tunnel established session=%{public}@",
+                // #701: the WG interface is up, but "established"/connected
+                // must NOT be declared until a REAL handshake completes — a
+                // black-hole tunnel must not pass as connected (exit IP
+                // unchanged). Gate the completion (which iOS treats as
+                // "connected") on a confirmed handshake, reusing the same
+                // last_handshake_time_sec signal getStatus already trusts.
+                os_log("WG interface up — awaiting handshake before declaring connected (session=%{public}@)",
                        log: self.logger, type: .info,
                        sessionConfig.sessionID)
-                self.startPathMonitor()
-                self.startStatsLoop(sessionID: sessionConfig.sessionID)
-                self.subscribeToStatusChanges()
-                completionHandler(nil)
+                self.awaitHandshakeThenComplete(
+                    sessionID: sessionConfig.sessionID,
+                    completionHandler: completionHandler)
             }
         }
     }
@@ -236,6 +241,51 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             }
             self?.currentSessionConfig = nil
             completionHandler()
+        }
+    }
+
+    /// #701 gate (pure, unit-testable): the adapter runtime reports a real
+    /// handshake only when `last_handshake_time_sec` is present and non-zero.
+    /// Interface-up alone (empty runtime, or `last_handshake_time_sec=0`) is
+    /// NOT a connection. This is the same signal `getStatus` already trusts.
+    static func handshakeConfirmed(runtime: String?) -> Bool {
+        guard let r = runtime, !r.isEmpty else { return false }
+        return !r.contains("last_handshake_time_sec=0")
+    }
+
+    /// #701: only call the `startTunnel` completion (which iOS treats as
+    /// "connected") once a real handshake is confirmed. Polls the adapter
+    /// runtime; times out so iOS doesn't kill us, but on timeout FAILS the
+    /// connect rather than reporting a black-hole tunnel as connected.
+    private func awaitHandshakeThenComplete(
+        sessionID: String,
+        completionHandler: @escaping (Error?) -> Void,
+        deadline: Date = Date().addingTimeInterval(12),
+        interval: TimeInterval = 0.5
+    ) {
+        adapter.getRuntimeConfiguration { [weak self] runtime in
+            guard let self = self else { return }
+            if Self.handshakeConfirmed(runtime: runtime) {
+                os_log("tunnel established (handshake CONFIRMED) session=%{public}@",
+                       log: self.logger, type: .info, sessionID)
+                self.startPathMonitor()
+                self.startStatsLoop(sessionID: sessionID)
+                self.subscribeToStatusChanges()
+                completionHandler(nil)
+            } else if Date() >= deadline {
+                os_log("no WG handshake within timeout — failing connect, refusing to report a fake tunnel (session=%{public}@)",
+                       log: self.logger, type: .error, sessionID)
+                completionHandler(PacketTunnelError.wireGuardStartFailed(
+                    reason: "no WireGuard handshake within timeout — not declaring connected"))
+            } else {
+                DispatchQueue.global().asyncAfter(deadline: .now() + interval) {
+                    self.awaitHandshakeThenComplete(
+                        sessionID: sessionID,
+                        completionHandler: completionHandler,
+                        deadline: deadline,
+                        interval: interval)
+                }
+            }
         }
     }
 
