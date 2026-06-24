@@ -4,7 +4,10 @@
 // API key is issued (https://report.cybertip.org/ipam). The application
 // process is gated on org-level vetting and may take several weeks; until
 // the key is in hand this package operates in stub mode: a one-shot
-// startup warning is logged and every CheckURL short-circuits to ALLOW.
+// startup warning is logged and every CheckURL fails CLOSED to REVIEW
+// (permitted but flagged for audit review) — NOT a silent ALLOW. Set
+// Options.AllowUnscanned (env PHOTODNA_ALLOW_UNSCANNED) to opt into the
+// dev/test short-circuit-to-ALLOW behaviour.
 //
 // When PHOTODNA_API_KEY is set the package switches to a real HTTP client
 // that POSTs the PhotoDNA hash of every candidate image to
@@ -85,17 +88,18 @@ type hashLookupRequest struct {
 
 // hashLookupResponse is the parsed JSON body from NCMEC.
 type hashLookupResponse struct {
-	Match        bool   `json:"match"`
-	MatchID      string `json:"match_id,omitempty"`
+	Match         bool   `json:"match"`
+	MatchID       string `json:"match_id,omitempty"`
 	MatchCategory string `json:"match_category,omitempty"`
 }
 
 // Backend implements filters.Backend against NCMEC PhotoDNA.
 type Backend struct {
-	apiKey  string
-	baseURL string
-	client  *http.Client
-	logger  *slog.Logger
+	apiKey         string
+	baseURL        string
+	client         *http.Client
+	logger         *slog.Logger
+	allowUnscanned bool
 
 	mu       sync.RWMutex
 	knownPos map[string]struct{} // test-only hash injection
@@ -123,18 +127,26 @@ type Options struct {
 	HTTPClient *http.Client
 	// Logger is used for the one-shot stub warning + error logging.
 	Logger *slog.Logger
+	// AllowUnscanned controls the stub-mode fail behaviour when no
+	// PHOTODNA_API_KEY is configured. It DEFAULTS to false = fail
+	// CLOSED: an unconfigured CSAM backend returns REVIEW (permitted
+	// but flagged for audit review), NOT a silent ALLOW. Set true to
+	// explicitly opt out (dev / test) and short-circuit to ALLOW.
+	AllowUnscanned bool
 }
 
 // New constructs the backend. When APIKey is empty the backend is in
-// stub mode and CheckURL / CheckImageHash both return ALLOW. The first
-// call to CheckURL emits a single slog WARN line.
+// stub mode: CheckURL fails CLOSED to REVIEW by default (or ALLOW when
+// Options.AllowUnscanned is set). The first call to CheckURL emits a
+// single slog WARN line.
 func New(opts Options) *Backend {
 	b := &Backend{
-		apiKey:   opts.APIKey,
-		baseURL:  opts.BaseURL,
-		client:   opts.HTTPClient,
-		logger:   opts.Logger,
-		knownPos: map[string]struct{}{},
+		apiKey:         opts.APIKey,
+		baseURL:        opts.BaseURL,
+		client:         opts.HTTPClient,
+		logger:         opts.Logger,
+		allowUnscanned: opts.AllowUnscanned,
+		knownPos:       map[string]struct{}{},
 	}
 	if b.baseURL == "" {
 		b.baseURL = DefaultBaseURL
@@ -183,7 +195,16 @@ func (b *Backend) CheckURL(ctx context.Context, url string) filters.Result {
 	}
 	if !b.Enabled() {
 		b.warnOnce()
-		return filters.NewAllow(Name)
+		if b.allowUnscanned {
+			// Explicit dev/test opt-out: short-circuit to ALLOW.
+			return filters.NewAllow(Name)
+		}
+		// Prod default = fail CLOSED. A hard BLOCK on every image with
+		// no key would deny ALL proxy image traffic; REVIEW means
+		// "permitted but flagged for audit review" — the safe non-silent
+		// middle ground until an NCMEC PhotoDNA key is procured.
+		return filters.NewReview(Name, "csam_backend_unconfigured",
+			"NCMEC PhotoDNA is unconfigured (PHOTODNA_API_KEY unset); image permitted but flagged for review")
 	}
 
 	hash := hashOfURL(url)
@@ -324,9 +345,13 @@ func (b *Backend) warnOnce() {
 	if b.warned.Swap(true) {
 		return
 	}
+	impact := "CSAM hash lookups fail CLOSED to REVIEW (permitted but flagged for audit review)"
+	if b.allowUnscanned {
+		impact = "CSAM hash lookups short-circuit to ALLOW (PHOTODNA_ALLOW_UNSCANNED=true)"
+	}
 	b.logger.Warn("ncmec_photodna in stub mode",
 		slog.String("reason", "PHOTODNA_API_KEY not set"),
-		slog.String("impact", "CSAM hash lookups will short-circuit to ALLOW"),
+		slog.String("impact", impact),
 		slog.String("action", "complete NCMEC partnership and set PHOTODNA_API_KEY"),
 	)
 }

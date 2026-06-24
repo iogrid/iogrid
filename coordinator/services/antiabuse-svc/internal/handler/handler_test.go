@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -11,8 +12,8 @@ import (
 	commonv1 "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/common/v1"
 	"github.com/iogrid/iogrid/coordinator/services/antiabuse-svc/internal/domains"
 	"github.com/iogrid/iogrid/coordinator/services/antiabuse-svc/internal/filters"
-	"github.com/iogrid/iogrid/coordinator/services/antiabuse-svc/internal/filters/photodna"
 	"github.com/iogrid/iogrid/coordinator/services/antiabuse-svc/internal/filters/phishtank"
+	"github.com/iogrid/iogrid/coordinator/services/antiabuse-svc/internal/filters/photodna"
 	"github.com/iogrid/iogrid/coordinator/services/antiabuse-svc/internal/ports"
 	"github.com/iogrid/iogrid/coordinator/services/antiabuse-svc/internal/ratelimit"
 	"github.com/iogrid/iogrid/coordinator/services/antiabuse-svc/internal/registry"
@@ -194,6 +195,124 @@ func TestCheckContainerImage_BlocksUnknown(t *testing.T) {
 	}
 	if resp.Msg.Verdict.Decision != antiabusev1.FilterDecision_FILTER_DECISION_BLOCK {
 		t.Errorf("expected BLOCK for unknown registry; got %v", resp.Msg.Verdict.Decision)
+	}
+}
+
+var errScanFailed = errors.New("scanner backend unreachable")
+
+// fakeScanner is a registry.Scanner test double.
+type fakeScanner struct {
+	vulns []registry.Vulnerability
+	err   error
+}
+
+func (f fakeScanner) Scan(_ context.Context, _ string) ([]registry.Vulnerability, error) {
+	return f.vulns, f.err
+}
+
+// TestCheckContainerImage_RequireScanner_NoScanner_Reviews — issue #823
+// HOLE 2: when REQUIRE_IMAGE_SCANNER is set but no real scanner is wired,
+// an APPROVED-registry image must fail CLOSED to REVIEW (not silent ALLOW).
+func TestCheckContainerImage_RequireScanner_NoScanner_Reviews(t *testing.T) {
+	s := newTestService()
+	s.RequireImageScanner = true
+	s.Scanner = nil
+	resp, err := s.CheckContainerImage(context.Background(), connect.NewRequest(&antiabusev1.CheckContainerImageRequest{
+		ImageRef: "ghcr.io/iogrid/daemon:1",
+	}))
+	if err != nil {
+		t.Fatalf("CheckContainerImage err: %v", err)
+	}
+	if resp.Msg.Verdict.Decision == antiabusev1.FilterDecision_FILTER_DECISION_ALLOW {
+		t.Fatalf("RequireImageScanner=true + nil Scanner must NOT silently ALLOW: %+v", resp.Msg.Verdict)
+	}
+	if resp.Msg.Verdict.Decision != antiabusev1.FilterDecision_FILTER_DECISION_REVIEW {
+		t.Errorf("Decision = %v, want REVIEW", resp.Msg.Verdict.Decision)
+	}
+	if resp.Msg.Verdict.Reason != "image_scan_unavailable" {
+		t.Errorf("Reason = %q, want image_scan_unavailable", resp.Msg.Verdict.Reason)
+	}
+}
+
+// TestCheckContainerImage_RequireScanner_NoopScanner_Reviews — a Noop
+// scanner counts as "no real scanner": still fail-closed to REVIEW.
+func TestCheckContainerImage_RequireScanner_NoopScanner_Reviews(t *testing.T) {
+	s := newTestService()
+	s.RequireImageScanner = true
+	s.Scanner = registry.NoopScanner{}
+	resp, _ := s.CheckContainerImage(context.Background(), connect.NewRequest(&antiabusev1.CheckContainerImageRequest{
+		ImageRef: "ghcr.io/iogrid/daemon:1",
+	}))
+	if resp.Msg.Verdict.Decision != antiabusev1.FilterDecision_FILTER_DECISION_REVIEW {
+		t.Errorf("NoopScanner must fail closed to REVIEW; got %v", resp.Msg.Verdict.Decision)
+	}
+	if resp.Msg.Verdict.Reason != "image_scan_unavailable" {
+		t.Errorf("Reason = %q, want image_scan_unavailable", resp.Msg.Verdict.Reason)
+	}
+}
+
+// TestCheckContainerImage_NoRequire_PreservesAllow — default behaviour is
+// preserved: with RequireImageScanner=false and no scanner, an approved
+// image still ALLOWs (registry allowlist only).
+func TestCheckContainerImage_NoRequire_PreservesAllow(t *testing.T) {
+	s := newTestService()
+	s.RequireImageScanner = false
+	s.Scanner = nil
+	resp, _ := s.CheckContainerImage(context.Background(), connect.NewRequest(&antiabusev1.CheckContainerImageRequest{
+		ImageRef: "ghcr.io/iogrid/daemon:1",
+	}))
+	if resp.Msg.Verdict.Decision != antiabusev1.FilterDecision_FILTER_DECISION_ALLOW {
+		t.Errorf("RequireImageScanner=false must preserve ALLOW; got %v reason=%s",
+			resp.Msg.Verdict.Decision, resp.Msg.Verdict.Reason)
+	}
+}
+
+// TestCheckContainerImage_CriticalVuln_Blocks — a real scanner reporting a
+// CRITICAL vulnerability BLOCKs (slug image_vuln_critical).
+func TestCheckContainerImage_CriticalVuln_Blocks(t *testing.T) {
+	s := newTestService()
+	s.Scanner = fakeScanner{vulns: []registry.Vulnerability{
+		{ID: "CVE-2024-0001", Severity: "CRITICAL", Summary: "rce"},
+	}}
+	resp, _ := s.CheckContainerImage(context.Background(), connect.NewRequest(&antiabusev1.CheckContainerImageRequest{
+		ImageRef: "ghcr.io/iogrid/daemon:1",
+	}))
+	if resp.Msg.Verdict.Decision != antiabusev1.FilterDecision_FILTER_DECISION_BLOCK {
+		t.Fatalf("CRITICAL vuln must BLOCK; got %v", resp.Msg.Verdict.Decision)
+	}
+	if resp.Msg.Verdict.Reason != "image_vuln_critical" {
+		t.Errorf("Reason = %q, want image_vuln_critical", resp.Msg.Verdict.Reason)
+	}
+}
+
+// TestCheckContainerImage_ScanError_Reviews — a real scanner that errors
+// fails CLOSED to REVIEW (slug image_scan_error).
+func TestCheckContainerImage_ScanError_Reviews(t *testing.T) {
+	s := newTestService()
+	s.Scanner = fakeScanner{err: errScanFailed}
+	resp, _ := s.CheckContainerImage(context.Background(), connect.NewRequest(&antiabusev1.CheckContainerImageRequest{
+		ImageRef: "ghcr.io/iogrid/daemon:1",
+	}))
+	if resp.Msg.Verdict.Decision != antiabusev1.FilterDecision_FILTER_DECISION_REVIEW {
+		t.Fatalf("scan error must fail closed to REVIEW; got %v", resp.Msg.Verdict.Decision)
+	}
+	if resp.Msg.Verdict.Reason != "image_scan_error" {
+		t.Errorf("Reason = %q, want image_scan_error", resp.Msg.Verdict.Reason)
+	}
+}
+
+// TestCheckContainerImage_CleanScan_Allows — a real scanner with no
+// CRITICAL/HIGH findings allows an approved image.
+func TestCheckContainerImage_CleanScan_Allows(t *testing.T) {
+	s := newTestService()
+	s.Scanner = fakeScanner{vulns: []registry.Vulnerability{
+		{ID: "CVE-2024-9999", Severity: "LOW", Summary: "noise"},
+	}}
+	resp, _ := s.CheckContainerImage(context.Background(), connect.NewRequest(&antiabusev1.CheckContainerImageRequest{
+		ImageRef: "ghcr.io/iogrid/daemon:1",
+	}))
+	if resp.Msg.Verdict.Decision != antiabusev1.FilterDecision_FILTER_DECISION_ALLOW {
+		t.Errorf("clean scan (LOW only) must ALLOW; got %v", resp.Msg.Verdict.Decision)
 	}
 }
 

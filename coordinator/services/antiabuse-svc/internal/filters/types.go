@@ -78,6 +78,23 @@ func NewBlock(backend, reason, explanation string) Result {
 	}
 }
 
+// NewReview returns a Result indicating the target is permitted but
+// flagged for audit review. It is NOT a silent ALLOW: the orchestrator
+// surfaces REVIEW so the verdict is recorded and downstream auditors can
+// follow up. Used for fail-closed-but-non-blocking situations such as a
+// CSAM backend that is unconfigured (a hard BLOCK on every image would
+// deny all traffic; REVIEW is the safe non-silent middle ground).
+func NewReview(backend, reason, explanation string) Result {
+	return Result{
+		Backend:     backend,
+		Match:       false,
+		Decision:    antiabusev1.FilterDecision_FILTER_DECISION_REVIEW,
+		Reason:      reason,
+		Explanation: explanation,
+		CheckedAt:   time.Now(),
+	}
+}
+
 // NewError marks the lookup as failed; orchestrator treats as ALLOW.
 func NewError(backend string, err error) Result {
 	return Result{

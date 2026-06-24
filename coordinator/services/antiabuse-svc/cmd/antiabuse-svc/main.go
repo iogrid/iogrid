@@ -25,8 +25,8 @@ import (
 	"github.com/iogrid/iogrid/coordinator/services/antiabuse-svc/internal/filters"
 	"github.com/iogrid/iogrid/coordinator/services/antiabuse-svc/internal/filters/gsb"
 	"github.com/iogrid/iogrid/coordinator/services/antiabuse-svc/internal/filters/openphish"
-	"github.com/iogrid/iogrid/coordinator/services/antiabuse-svc/internal/filters/photodna"
 	"github.com/iogrid/iogrid/coordinator/services/antiabuse-svc/internal/filters/phishtank"
+	"github.com/iogrid/iogrid/coordinator/services/antiabuse-svc/internal/filters/photodna"
 	"github.com/iogrid/iogrid/coordinator/services/antiabuse-svc/internal/handler"
 	"github.com/iogrid/iogrid/coordinator/services/antiabuse-svc/internal/ports"
 	"github.com/iogrid/iogrid/coordinator/services/antiabuse-svc/internal/ratelimit"
@@ -168,9 +168,18 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*handle
 		logger.Warn("GSB_API_KEY unset; Google Safe Browsing lookups disabled")
 	}
 
-	pd := photodna.New(photodna.Options{APIKey: cfg.PhotoDNAAPIKey, Logger: logger})
+	pd := photodna.New(photodna.Options{
+		APIKey:         cfg.PhotoDNAAPIKey,
+		Logger:         logger,
+		AllowUnscanned: cfg.PhotoDNAAllowUnscanned,
+	})
 	if !pd.Enabled() {
+		failMode := "fail CLOSED to REVIEW (permitted but flagged for audit review)"
+		if cfg.PhotoDNAAllowUnscanned {
+			failMode = "fail OPEN to ALLOW (PHOTODNA_ALLOW_UNSCANNED=true)"
+		}
 		logger.Warn("PHOTODNA_API_KEY unset; NCMEC PhotoDNA in stub mode",
+			slog.String("impact", failMode),
 			slog.String("action", "complete NCMEC partnership and set PHOTODNA_API_KEY before Phase 1 onboarding"))
 	} else {
 		// Weekly refresh of NCMEC's published hash list into the
@@ -199,13 +208,29 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*handle
 			slog.Int("count", domainPolicy.BlockedCount()))
 	}
 
+	// No real SBOM / vulnerability scanner is wired yet (osv-scanner /
+	// Trivy is a follow-on). Scanner stays nil; when REQUIRE_IMAGE_SCANNER
+	// is set the handler fails CLOSED to REVIEW rather than silently
+	// allowing unscanned images.
+	logger.Warn("no container-image vulnerability scanner configured; registry allowlist only",
+		slog.Bool("require_image_scanner", cfg.RequireImageScanner),
+		slog.String("impact", func() string {
+			if cfg.RequireImageScanner {
+				return "container images fail CLOSED to REVIEW (image_scan_unavailable)"
+			}
+			return "container images governed by registry allowlist only"
+		}()),
+		slog.String("action", "wire osv-scanner / Trivy and set a real handler.Service.Scanner"))
+
 	svc := &handler.Service{
-		Domains:    domainPolicy,
-		Ports:      ports.NewDefaultPolicy(),
-		Limiter:    limiter,
-		Reputation: orch,
-		Registry:   registry.NewDefaultPolicy(),
-		Audit:      auditEmitter,
+		Domains:             domainPolicy,
+		Ports:               ports.NewDefaultPolicy(),
+		Limiter:             limiter,
+		Reputation:          orch,
+		Registry:            registry.NewDefaultPolicy(),
+		Scanner:             nil, // no real scanner yet (osv-scanner/Trivy follow-on)
+		RequireImageScanner: cfg.RequireImageScanner,
+		Audit:               auditEmitter,
 	}
 	cleanup := func() {
 		for i := len(cleanups) - 1; i >= 0; i-- {

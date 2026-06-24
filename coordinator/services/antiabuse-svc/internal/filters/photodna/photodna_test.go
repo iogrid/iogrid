@@ -8,19 +8,59 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	antiabusev1 "github.com/iogrid/iogrid/coordinator/internal/pb/iogrid/antiabuse/v1"
 )
 
-func TestStubMode_AlwaysAllow(t *testing.T) {
-	b := New(Options{}) // no APIKey → stub
+func TestStubMode_FailsClosedToReview(t *testing.T) {
+	b := New(Options{}) // no APIKey → stub; AllowUnscanned defaults false
 	if b.Enabled() {
 		t.Error("backend should not be Enabled() without APIKey")
 	}
 	r := b.CheckURL(context.Background(), "https://example.com/img.jpg")
+	// Fail CLOSED: an unconfigured CSAM backend must NOT silently ALLOW.
+	if r.Decision == antiabusev1.FilterDecision_FILTER_DECISION_ALLOW {
+		t.Errorf("stub mode (AllowUnscanned=false) must NOT ALLOW (fail-closed): %+v", r)
+	}
+	if r.Decision != antiabusev1.FilterDecision_FILTER_DECISION_REVIEW {
+		t.Errorf("Decision = %v, want REVIEW", r.Decision)
+	}
+	if r.Reason != "csam_backend_unconfigured" {
+		t.Errorf("Reason = %q, want csam_backend_unconfigured", r.Reason)
+	}
 	if r.Match {
-		t.Errorf("stub mode must never match: %+v", r)
+		t.Errorf("REVIEW result should not set Match=true: %+v", r)
 	}
 	// Second call must not double-log; warned flag is sticky.
 	_ = b.CheckURL(context.Background(), "https://example.com/img2.jpg")
+}
+
+func TestStubMode_AllowUnscanned_Allows(t *testing.T) {
+	b := New(Options{AllowUnscanned: true}) // explicit dev/test opt-out
+	if b.Enabled() {
+		t.Error("backend should not be Enabled() without APIKey")
+	}
+	r := b.CheckURL(context.Background(), "https://example.com/img.jpg")
+	if r.Decision != antiabusev1.FilterDecision_FILTER_DECISION_ALLOW {
+		t.Errorf("AllowUnscanned=true must ALLOW (explicit opt-out): %+v", r)
+	}
+	if r.Match {
+		t.Errorf("ALLOW result must not match: %+v", r)
+	}
+}
+
+func TestStubMode_SyntheticCSAMFixture_BlocksBothModes(t *testing.T) {
+	const csamURL = "https://host.example/csam-test-fixture/x.jpg"
+	for _, allowUnscanned := range []bool{false, true} {
+		b := New(Options{AllowUnscanned: allowUnscanned})
+		r := b.CheckURL(context.Background(), csamURL)
+		if r.Decision != antiabusev1.FilterDecision_FILTER_DECISION_BLOCK {
+			t.Errorf("AllowUnscanned=%v: synthetic CSAM fixture must BLOCK; got %+v", allowUnscanned, r)
+		}
+		if r.Reason != "csam_hash_match" {
+			t.Errorf("AllowUnscanned=%v: Reason = %q, want csam_hash_match", allowUnscanned, r.Reason)
+		}
+	}
 }
 
 func TestEnabled_WithKey(t *testing.T) {
