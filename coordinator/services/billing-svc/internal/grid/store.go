@@ -104,6 +104,10 @@ func (p *PostgresStore) ListUnsettledByWallet(ctx context.Context, limit int) (m
 		  FROM grid_settlement
 		 WHERE settled_at IS NULL
 		   AND provider_wallet IS NOT NULL
+		   -- Self-pay guard (#818): same identity on both sides is not a real
+		   -- economy (a provider consuming their own VPN egress) — skip it
+		   -- rather than transfer treasury $GRID to the party that spent it.
+		   AND provider_wallet <> customer_wallet
 		   AND provider_share >= $2
 		 ORDER BY created_at ASC
 		 LIMIT $1`,
@@ -188,6 +192,14 @@ func (p *PostgresStore) ListUnsettledBuildsByWallet(ctx context.Context, limit i
 		 WHERE settled_at IS NULL
 		   AND provider_wallet IS NOT NULL
 		   AND provider_wallet <> ''
+		   -- Self-pay guard (#818): never pay a provider for building their own
+		   -- submission. A row where provider_wallet == customer_wallet is the
+		   -- same identity on both sides (the dogfood case); transferring would
+		   -- manufacture fake earnings from the treasury, not settle a real
+		   -- customer→provider economy. Defense-in-depth: BuildMeter.Settle now
+		   -- clears provider_wallet on self-pay, but this also excludes the
+		   -- pre-existing self-pay backlog (which dead-locked the tick, #818).
+		   AND provider_wallet <> customer_wallet
 		   AND provider_share >= $2
 		 ORDER BY id
 		 LIMIT $1`,
