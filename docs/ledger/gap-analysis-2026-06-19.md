@@ -228,3 +228,12 @@ A session-limit window killed 4 in-flight delivery agents mid-run; their committ
 - **G2** — first green iOS build still blocked on the Mac env; runner-fail-closed #821 open. NOT met.
 - **G3** — settlement dead-lock fix in **PR #830**; headline-reconcile #819 + RPC-unify #820 open. NOT met (no real customer→provider settle proven).
 - **Safety** — antiabuse RESTORED + proven fail-closed (#823 merged; #831 hardening open).
+
+---
+
+## G3 economy — settlement pipeline FIXED + real payout PROVEN on-chain (2026-06-19)
+- **#833 MERGED** — self-pay root cause: `build-gateway/internal/builds/service.go:539-547` (settleGrid) resolved customer (submitter) + provider (Mac owner) wallets independently, but in the dogfood they're the SAME identity → all 32 `grid_build_settlement` rows were `provider==customer` (treasury paying itself = fake earnings). Fix: `provider_wallet` cleared when == customer (kept for audit, non-payable); worker queries add `provider_wallet <> customer_wallet`.
+- **First REAL customer→provider settle PROVEN** (devnet, in-cluster test-validator): customer ≠ provider, 0.85 GRID — `solana confirm 5rkpV5FqJ6BQyBSsDe3NGTdu8dTWWwg6gD9TuGbLSvBYi1sqQXEpBVByHBVrE33o5F5VnR64yzLNEVkEM3drkMBq = Finalized`; provider 0 → 0.85, treasury 9 → 8.15.
+- **#819 reconciled + closed** — orphan `provider_id IS NULL` row backfilled → per-provider headline == ledger == 13.600 GRID / 19.
+- **#835 MERGED** — settlement-worker added to the reroll SERVICES array (it was silently never auto-deployed — the cause of its stale code).
+- **HONEST remaining:** the historical 13.600 GRID were self-pay (now non-payable); the first genuine payout is the 0.85 proven settle. A real *build-driven* provider payout (external customer's build → Mac earns) needs an external customer — the dogfood is self-pay, correctly excluded. **G3 pipeline = proven + honest; full build→earn end-to-end = pending an external customer.**
