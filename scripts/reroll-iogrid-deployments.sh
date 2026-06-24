@@ -23,6 +23,35 @@
 set -euo pipefail
 
 NS="${NS:-iogrid}"
+
+# resolve_gitops_img <svc> — read deploy-marker lines on stdin, echo the most
+# recent harbor digest that belongs to EXACTLY <svc> (empty if none).
+#
+# #822: the old two-stage match (`infra.${svc}.* deploy ` then extract) had a
+# PREFIX COLLISION — `${svc}` was an UNANCHORED substring, so antiabuse-svc's
+# grep also matched the newer `infra(antiabuse-svc-transparency-report): deploy …`
+# marker; `head -1` picked that line, then the harbor-path extraction
+# (`…/antiabuse-svc@sha256:`) failed against the `…-transparency-report@sha256:`
+# path → empty → "skip: no deploy marker found" → antiabuse-svc frozen stale.
+# FIX: select only lines carrying the EXACTLY-anchored conventional-commit scope
+# `infra(${svc}): ` (literal parens via grep -F forbid a longer sibling scope),
+# then extract this svc's exact harbor path `.../iogrid/${svc}@sha256:` (the
+# `@sha256:` boundary forbids a longer sibling image name), THEN `head -1`. So
+# head -1 can only land on a digest this svc actually owns — no prefix-named
+# sibling can steal the slot. Factored out so scripts/test-reroll-resolver.sh
+# can exercise it against a crafted log without touching the real git history.
+resolve_gitops_img() {
+  local svc="$1"
+  grep -F "infra(${svc}): " \
+    | grep -oE "harbor.openova.io/iogrid/${svc}@sha256:[a-f0-9]+" \
+    | head -1 || true
+}
+
+# Allow `source`-ing for tests without running the reroll body.
+if [[ "${REROLL_LIB_ONLY:-0}" == "1" ]]; then
+  return 0 2>/dev/null || exit 0
+fi
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
@@ -44,10 +73,14 @@ for svc in "${SERVICES[@]}"; do
   # deploy marker yet, e.g. admin before its first harbor build) returns non-zero
   # and would abort the whole script — skipping every later service — instead of
   # falling through to the graceful "no deploy marker" skip below.
+  # Latest gitops-declared digest for EXACTLY this svc (see resolve_gitops_img,
+  # #822 — anchored scope + harbor path, no prefix-collision). The `|| true`
+  # inside the function keeps an empty match (a service with no harbor deploy
+  # marker yet, e.g. admin before its first harbor build) from aborting the
+  # whole script under `set -euo pipefail`; it falls through to the graceful
+  # "no deploy marker" skip below.
   gitops_img="$(git log origin/main --oneline -200 2>/dev/null \
-    | grep -iE "infra.${svc}.* deploy " \
-    | head -1 \
-    | grep -oE "harbor.openova.io/iogrid/${svc}@sha256:[a-f0-9]+" || true)"
+    | resolve_gitops_img "$svc")"
   if [[ -z "$gitops_img" ]]; then
     echo "skip  ${svc}: no deploy marker found"
     continue
