@@ -11,7 +11,8 @@ export interface TunnelConfig {
   peerPublicKey: string;
   peerEndpoint: string;
   customerInnerCIDR: string;
-  /** Comma-separated CIDR list, e.g. "0.0.0.0/0". */
+  /** Comma-separated CIDR list. Full-tunnel is "0.0.0.0/0,::/0" so both
+   *  IPv4 and IPv6 default routes enter the tunnel (#701). */
   allowedIPs: string;
   region: string;
   sessionId: string;

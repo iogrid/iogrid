@@ -53,7 +53,7 @@ struct SessionPeerConfig {
     let peerPublicKey: String   // base64
     let peerEndpoint: String    // "ip:port"
     let innerCIDR: String       // "10.66.X.Y/32"
-    let allowedIPs: [String]    // ["0.0.0.0/0"] for full-tunnel
+    let allowedIPs: [String]    // ["0.0.0.0/0", "::/0"] for full-tunnel (#701)
     let dnsServers: [String]    // ["1.1.1.1", "1.0.0.1"]
     let clientPrivateKey: PrivateKey
 }
@@ -146,10 +146,18 @@ enum WGTunnel {
     }
 
     /// Build NEPacketTunnelNetworkSettings for the same peer config.
-    /// WireGuardAdapter takes care of most of this internally, but
+    /// WireGuardAdapter takes care of most of this internally (it calls
+    /// setTunnelNetworkSettings again with its own generator output, which
+    /// is the LAST writer and therefore the effective config), but
     /// PacketTunnelProvider needs to know the inner address for the
     /// initial setTunnelNetworkSettings call (the OS uses these to
     /// configure the utun interface in the host process).
+    ///
+    /// We mirror the adapter's full-tunnel route shape here for
+    /// defense-in-depth — both IPv4 (0.0.0.0/0) and IPv6 (::/0) default
+    /// routes — so the initial settings already capture every family and
+    /// there is no window where IPv6 traffic could leak past the tunnel
+    /// before the adapter's settings land (#701 client browsing fix).
     ///
     /// Returns nil if the inner CIDR is malformed — caller fails the
     /// tunnel start path.
@@ -161,8 +169,18 @@ enum WGTunnel {
 
         let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: cfg.peerEndpoint)
         let ipv4 = NEIPv4Settings(addresses: [host], subnetMasks: [Self.subnetMask(for: prefix)])
-        ipv4.includedRoutes = [NEIPv4Route.default()]  // full-tunnel
+        ipv4.includedRoutes = [NEIPv4Route.default()]  // full-tunnel IPv4 default
         settings.ipv4Settings = ipv4
+
+        // #701: capture the device's IPv6 traffic too. The inner CIDR is
+        // IPv4-only (vpn-svc assigns no IPv6 address), so we don't add an
+        // IPv6 interface address — but we DO install the IPv6 default route
+        // so iOS pulls all IPv6 onto the utun. The v4-only WG peer has no
+        // route for it, so those packets are dropped at the tunnel (no leak)
+        // and apps fall back to the captured IPv4 path via Happy Eyeballs.
+        let ipv6 = NEIPv6Settings(addresses: [], networkPrefixLengths: [])
+        ipv6.includedRoutes = [NEIPv6Route.default()]  // full-tunnel IPv6 default
+        settings.ipv6Settings = ipv6
 
         let dns = NEDNSSettings(servers: cfg.dnsServers)
         // matchDomains = [""] forces all DNS through the tunnel, which is
