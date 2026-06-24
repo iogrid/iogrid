@@ -662,6 +662,128 @@ mod tests {
         }
     }
 
+    /// Build a router wired with the REAL default stubs (ScaffoldDockerRunner +
+    /// NoopGpuRunner) so we exercise the actual fail-closed path, not a test
+    /// double. #821: a stub that runs nothing must surface as a coordinator-
+    /// visible workload FAILURE, never a fake "succeeded".
+    fn router_with_default_stubs(
+        scheduler: SchedulerHandle,
+    ) -> (WorkloadRouter, mpsc::Receiver<DispatchFrame>) {
+        let runners = WorkloadRouterRunners {
+            docker: Arc::new(ScaffoldDockerRunner::default()),
+            gpu: Arc::new(NoopGpuRunner),
+            ios: Arc::new(TartRunner::default()),
+        };
+        let (tx, rx) = mpsc::channel::<DispatchFrame>(32);
+        (WorkloadRouter::new(runners, tx, scheduler), rx)
+    }
+
+    // #821: the default ScaffoldDockerRunner runs nothing — dispatch must
+    // report a real FAILURE (not a fake "succeeded") to the coordinator, with
+    // a non-zero exit and the runner_not_implemented reason in the note.
+    #[tokio::test]
+    async fn scaffold_docker_dispatch_surfaces_failure_not_fake_success() {
+        let (router, mut rx) = router_with_default_stubs(active_scheduler());
+        let payload = serde_json::to_string(&DockerWorkload {
+            id: uuid::Uuid::new_v4(),
+            // allowlist is empty by default => everything is permitted, so the
+            // allowlist check passes and we reach the fail-closed branch.
+            image: "ghcr.io/foo/bar:latest".into(),
+            cmd: vec![],
+            env: vec![],
+            cpu_millis: 100,
+            memory_mib: 64,
+            timeout_secs: 30,
+            network_name: None,
+        })
+        .unwrap();
+        router
+            .handle(DispatchFrame::Assignment {
+                workload_id: "w-docker".into(),
+                attempt_id: "a-docker".into(),
+                workload_type: "DOCKER".into(),
+                deadline_rfc3339: "now".into(),
+                dispatch_token: "".into(),
+                payload_json: payload,
+            })
+            .await;
+        // First "running", then the terminal frame.
+        let f1 = rx.recv().await.unwrap();
+        let f2 = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        match (f1, f2) {
+            (
+                DispatchFrame::Update { status: s1, .. },
+                DispatchFrame::Update {
+                    status: s2,
+                    exit_code,
+                    note,
+                    ..
+                },
+            ) => {
+                assert_eq!(s1, "running");
+                assert_eq!(s2, "failed", "scaffold docker must FAIL, not fake-succeed");
+                assert_ne!(exit_code, 0, "failure must carry a non-zero exit code");
+                assert!(
+                    note.as_deref()
+                        .unwrap_or("")
+                        .contains("runner_not_implemented"),
+                    "failure note must cite runner_not_implemented; got {note:?}",
+                );
+            }
+            x => panic!("got {x:?}"),
+        }
+    }
+
+    // #821: the default NoopGpuRunner runs nothing — dispatch must report a
+    // real FAILURE (not a fake "succeeded") to the coordinator.
+    #[tokio::test]
+    async fn noop_gpu_dispatch_surfaces_failure_not_fake_success() {
+        let (router, mut rx) = router_with_default_stubs(active_scheduler());
+        let payload = serde_json::to_string(&GpuWorkload {
+            id: uuid::Uuid::new_v4(),
+            image: "ghcr.io/foo/bar:latest".into(),
+            cmd: vec![],
+            env: vec![],
+            vram_mib: 1024,
+            timeout_secs: 30,
+            mlx: None,
+        })
+        .unwrap();
+        router
+            .handle(DispatchFrame::Assignment {
+                workload_id: "w-gpu".into(),
+                attempt_id: "a-gpu".into(),
+                workload_type: "GPU".into(),
+                deadline_rfc3339: "now".into(),
+                dispatch_token: "".into(),
+                payload_json: payload,
+            })
+            .await;
+        let f1 = rx.recv().await.unwrap();
+        let f2 = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        match (f1, f2) {
+            (
+                DispatchFrame::Update { status: s1, .. },
+                DispatchFrame::Update {
+                    status: s2,
+                    exit_code,
+                    ..
+                },
+            ) => {
+                assert_eq!(s1, "running");
+                assert_eq!(s2, "failed", "noop gpu must FAIL, not fake-succeed");
+                assert_ne!(exit_code, 0, "failure must carry a non-zero exit code");
+            }
+            x => panic!("got {x:?}"),
+        }
+    }
+
     #[tokio::test]
     async fn revoke_all_aborts_and_emits_cancel_updates() {
         let scheduler = active_scheduler();

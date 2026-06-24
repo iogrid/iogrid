@@ -18,7 +18,9 @@
 //!   requires Sonoma or newer.
 //! * Otherwise → [`NoopGpuRunner`] (default-features-off scaffold) or
 //!   [`MlxStubGpuRunner`] (compile-time MLX stub on non-supported macOS
-//!   builds: returns `BackendUnimplemented` for every workload).
+//!   builds). Both fail closed: they execute nothing and return
+//!   `BackendUnimplemented` for every workload rather than fake a
+//!   zero-exit success (#821).
 //!
 //! The supervisor depends only on the [`GpuRunner`] trait + value types;
 //! the concrete backend is opaque, so `cargo check` on every workspace
@@ -159,20 +161,26 @@ pub trait GpuRunner: Send + Sync {
     fn backend(&self) -> &'static str;
 }
 
-/// No-op runner. Available on every platform; what the scaffold returns.
+/// No-op runner. Available on every platform; the default when no real GPU
+/// backend is compiled in. It executes nothing, so it **fails closed** —
+/// `run` returns [`GpuError::BackendUnimplemented`] rather than fake a
+/// zero-exit success for a job it never ran (#821).
 #[derive(Debug, Default, Clone)]
 pub struct NoopGpuRunner;
 
 #[async_trait]
 impl GpuRunner for NoopGpuRunner {
     async fn run(&self, workload: GpuWorkload) -> Result<WorkloadResult, GpuError> {
-        tracing::info!(id = %workload.id, "noop gpu runner — scaffold");
-        Ok(WorkloadResult {
-            id: workload.id,
-            exit_code: 0,
-            logs: Vec::new(),
-            timed_out: false,
-        })
+        // Fail closed: the noop runner does NOT execute the GPU workload.
+        // Reporting exit_code:0 here would fake a SUCCEEDED job for work that
+        // never ran (the #821 "fake green" class). Mirror MlxStubGpuRunner and
+        // surface an explicit BackendUnimplemented so the dispatch path records
+        // a real FAILURE instead.
+        tracing::warn!(
+            id = %workload.id,
+            "noop gpu runner — no real GPU backend compiled in; refusing to fake success",
+        );
+        Err(GpuError::BackendUnimplemented { backend: "noop" })
     }
     fn backend(&self) -> &'static str {
         "noop"
@@ -692,12 +700,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn noop_runner_works() {
+    async fn noop_runner_fails_closed_with_backend_unimplemented() {
+        // The noop runner executes nothing, so it must fail closed rather than
+        // fake a zero-exit success for a job it never ran (#821).
         let r: Box<dyn GpuRunner> = Box::new(NoopGpuRunner);
         assert_eq!(r.backend(), "noop");
-        let out = r.run(sample()).await.unwrap();
-        assert_eq!(out.exit_code, 0);
-        assert!(!out.timed_out);
+        let err = r.run(sample()).await.unwrap_err();
+        assert!(
+            matches!(err, GpuError::BackendUnimplemented { backend: "noop" }),
+            "expected BackendUnimplemented, got {err:?}",
+        );
     }
 
     #[tokio::test]

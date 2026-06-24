@@ -68,6 +68,15 @@ pub enum DockerError {
     /// Generic bollard / I/O error bubble-up.
     #[error("docker runtime error: {0}")]
     Runtime(String),
+    /// The active runner has no real Docker backend compiled in (the
+    /// `docker-real` feature is off, leaving only the scaffold stub). The
+    /// scaffold MUST fail closed rather than fake a zero-exit success for a
+    /// job it never ran.
+    #[error("docker backend {backend} not implemented in this build (runner_not_implemented)")]
+    BackendUnimplemented {
+        /// Backend slug ("scaffold", …).
+        backend: &'static str,
+    },
 }
 
 /// One docker workload submission.
@@ -201,16 +210,19 @@ impl DockerRunner for ScaffoldDockerRunner {
                 registry: registry_of(&workload.image),
             });
         }
-        tracing::info!(
+        // Fail closed: the scaffold runner does NOT execute the container.
+        // Reporting exit_code:0 here would fake a SUCCEEDED workload for a
+        // job that never ran (the #821 "fake green" class). Mirror the
+        // GPU MlxStubGpuRunner precedent and surface an explicit
+        // "not implemented on this provider" error so the dispatch path
+        // records a real FAILURE instead.
+        tracing::warn!(
             id = %workload.id,
             image = %workload.image,
-            "scaffold docker runner — would run workload",
+            "scaffold docker runner — built without `docker-real`; refusing to fake success",
         );
-        Ok(WorkloadResult {
-            id: workload.id,
-            exit_code: 0,
-            logs: Vec::new(),
-            timed_out: false,
+        Err(DockerError::BackendUnimplemented {
+            backend: "scaffold",
         })
     }
 }
@@ -499,15 +511,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn scaffold_runner_returns_zero_exit_for_allowed_image() {
+    async fn scaffold_runner_fails_closed_for_allowed_image() {
+        // Even for an image whose registry passes the allowlist, the scaffold
+        // runner does NOT execute the container — so it must fail closed with
+        // an explicit "not implemented" error rather than fake exit-0 success
+        // (#821 "fake green" class).
         let r = ScaffoldDockerRunner::default();
-        let out = r
+        let err = r
             .run(sample_workload("ghcr.io/library/hello-world:latest"))
             .await
-            .unwrap();
-        assert_eq!(out.exit_code, 0);
-        assert!(out.logs.is_empty());
-        assert!(!out.timed_out);
+            .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                DockerError::BackendUnimplemented {
+                    backend: "scaffold"
+                }
+            ),
+            "expected BackendUnimplemented, got {err:?}",
+        );
     }
 
     #[tokio::test]
