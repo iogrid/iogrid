@@ -307,7 +307,17 @@ export default function MainScreen() {
         peerPublicKey: mobile.peerPublicKey,
         peerEndpoint: mobile.peerEndpoint,
         customerInnerCIDR: mobile.innerIP || '10.66.0.2/32',
-        allowedIPs: '0.0.0.0/0',
+        // #701 client browsing fix: full-tunnel must capture BOTH families.
+        // IPv4-only (`0.0.0.0/0`) leaves the device's IPv6 traffic on the
+        // raw cellular/Wi-Fi interface — on dual-stack or IPv6-only carriers
+        // (most US/EU mobile networks are IPv6-NAT64) browsers prefer IPv6
+        // (Happy Eyeballs), so pages either leak past the tunnel or hang
+        // when the v6 path is firewalled. Adding `::/0` makes iOS install a
+        // default IPv6 route on the utun too; the v4-only WG peer has no v6
+        // route so those packets are dropped at the tunnel (no leak) and the
+        // app re-tries over the captured IPv4 path. This matches the official
+        // WireGuard-iOS "block-all / full-tunnel" allowedIPs.
+        allowedIPs: '0.0.0.0/0,::/0',
         region: mobile.region,
         sessionId: mobile.sessionId,
       });
