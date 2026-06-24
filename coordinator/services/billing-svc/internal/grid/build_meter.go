@@ -113,13 +113,28 @@ func (m *BuildMeter) Settle(ctx context.Context, in BuildInput) (*BuildSettlemen
 		return existing, nil
 	}
 
+	// Self-pay guard (#818): a real customer→provider economy requires the
+	// build SUBMITTER's wallet (customer_wallet) and the Mac PROVIDER owner's
+	// wallet (provider_wallet) to be DISTINCT — the customer pays, the
+	// provider earns. When they're the same address (the dogfood case, where
+	// one identity both submits the build and owns the provider Mac), there is
+	// no real transfer to make: paying that wallet would move treasury $GRID to
+	// the very party who "spent" it, manufacturing fake earnings. We still
+	// persist the row for audit + idempotency, but with provider_wallet cleared
+	// so the settlement-worker (which only drains rows WHERE provider_wallet
+	// <> '') treats it as a non-payable self-pay row instead of transferring.
+	providerWallet := in.ProviderWallet
+	if providerWallet != "" && providerWallet == in.CustomerWallet {
+		providerWallet = ""
+	}
+
 	providerShare, iogridShare := ComputeShares(in.ConsumedAtomic)
 	row := &BuildSettlement{
 		ID:             uuid.New(),
 		BuildID:        in.BuildID,
 		AttemptID:      in.AttemptID,
 		CustomerWallet: in.CustomerWallet,
-		ProviderWallet: in.ProviderWallet,
+		ProviderWallet: providerWallet,
 		ProviderID:     in.ProviderID,
 		EscrowedAtomic: in.EscrowedAtomic,
 		ConsumedAtomic: in.ConsumedAtomic,

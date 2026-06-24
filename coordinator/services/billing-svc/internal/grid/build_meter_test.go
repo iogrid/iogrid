@@ -57,6 +57,62 @@ func TestBuildMeter_Settle_SplitIs85Provider(t *testing.T) {
 	}
 }
 
+func TestBuildMeter_Settle_SelfPayClearsProviderWallet(t *testing.T) {
+	// #818: when the build submitter (customer) and the Mac provider owner
+	// resolve to the SAME wallet — the dogfood case where one identity both
+	// submits the build and owns the provider — the settlement must NOT be a
+	// payable provider row. Paying it would move treasury $GRID to the party
+	// who "spent" it, manufacturing fake earnings. The row is still persisted
+	// (audit + idempotency) but with provider_wallet cleared so the worker
+	// (which drains only provider_wallet <> '') never transfers.
+	const sameWallet = "3TuRAZPs7YUpcigdjoZsyQ7f7iLf6ZGbjcpsMfwhxbmT"
+	m := &BuildMeter{St: newFakeBuildStore()}
+	row, err := m.Settle(context.Background(), BuildInput{
+		BuildID:        uuid.New(),
+		AttemptID:      uuid.New(),
+		CustomerWallet: sameWallet,
+		ProviderWallet: sameWallet, // self-pay
+		ProviderID:     uuid.New(),
+		EscrowedAtomic: 10_000_000_000,
+		ConsumedAtomic: 10_000_000_000,
+	})
+	if err != nil {
+		t.Fatalf("Settle: %v", err)
+	}
+	if row.ProviderWallet != "" {
+		t.Errorf("self-pay row keeps a payable provider_wallet %q — worker would pay treasury back to the spender", row.ProviderWallet)
+	}
+	if row.CustomerWallet != sameWallet {
+		t.Errorf("customer_wallet should be preserved for audit, got %q", row.CustomerWallet)
+	}
+	// Shares are still computed (the ledger records the build), but with an
+	// empty provider_wallet the worker's query excludes the row.
+	if row.ProviderShare == 0 {
+		t.Errorf("provider_share should still be computed for audit, got 0")
+	}
+}
+
+func TestBuildMeter_Settle_DistinctWalletsArePayable(t *testing.T) {
+	// The real-economy happy path: customer ≠ provider → the provider_wallet
+	// is preserved so the worker pays the provider on-chain.
+	m := &BuildMeter{St: newFakeBuildStore()}
+	row, err := m.Settle(context.Background(), BuildInput{
+		BuildID:        uuid.New(),
+		AttemptID:      uuid.New(),
+		CustomerWallet: "Cust1111111111111111111111111111111111111111",
+		ProviderWallet: "Prov2222222222222222222222222222222222222222",
+		ProviderID:     uuid.New(),
+		EscrowedAtomic: 10_000_000_000,
+		ConsumedAtomic: 10_000_000_000,
+	})
+	if err != nil {
+		t.Fatalf("Settle: %v", err)
+	}
+	if row.ProviderWallet != "Prov2222222222222222222222222222222222222222" {
+		t.Errorf("distinct provider_wallet was wrongly cleared: %q", row.ProviderWallet)
+	}
+}
+
 func TestBuildMeter_Settle_IdempotentOnAttempt(t *testing.T) {
 	m := &BuildMeter{St: newFakeBuildStore()}
 	in := BuildInput{
