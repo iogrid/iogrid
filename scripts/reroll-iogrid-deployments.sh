@@ -63,11 +63,25 @@ cd "$REPO_ROOT"
 SERVICES=(
   web gateway-bff billing-svc identity-svc providers-svc vpn-svc
   workloads-svc vpn-gateway telemetry-svc proxy-gateway build-gateway antiabuse-svc
-  admin releases
+  admin releases settlement-worker
+)
+
+# Image-source aliases (#818): a Deployment that runs ANOTHER service's image
+# (different entrypoint, same binary/marker) reads its digest from the source
+# service's `infra(<src>):` marker — there is no `infra(<deploy>):` marker of
+# its own. settlement-worker is the $GRID payout cron; it runs the billing-svc
+# image with a different command, so it must track the billing-svc marker.
+# Without this it silently stayed on a stale image (the dead-locked worker that
+# motivated #818 was exactly this gap).
+declare -A IMAGE_SOURCE=(
+  [settlement-worker]=billing-svc
 )
 
 changed=0
 for svc in "${SERVICES[@]}"; do
+  # The service whose marker/harbor-path supplies this deployment's image —
+  # itself, unless aliased above (settlement-worker -> billing-svc).
+  img_src="${IMAGE_SOURCE[$svc]:-$svc}"
   # Latest gitops-declared digest = the most recent deploy marker for this svc.
   # `|| true`: under `set -euo pipefail` an empty grep (a service with no harbor
   # deploy marker yet, e.g. admin before its first harbor build) returns non-zero
@@ -80,7 +94,7 @@ for svc in "${SERVICES[@]}"; do
   # whole script under `set -euo pipefail`; it falls through to the graceful
   # "no deploy marker" skip below.
   gitops_img="$(git log origin/main --oneline -200 2>/dev/null \
-    | resolve_gitops_img "$svc")"
+    | resolve_gitops_img "$img_src")"
   if [[ -z "$gitops_img" ]]; then
     echo "skip  ${svc}: no deploy marker found"
     continue
